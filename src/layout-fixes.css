@@ -39,22 +39,33 @@ body { overflow: hidden; }
 
 .page-title { gap: 20px; }
 
-/* Each workspace keeps its command header and statistics footer in view. */
-.page-title {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  padding: 7px 2px 18px;
-  margin-bottom: 5px;
-  background: linear-gradient(180deg, #081219 78%, rgba(8, 18, 25, 0));
+/* Real three-zone layout: fixed header, scrolling body, fixed footer. */
+.workspace { overflow: hidden; }
+
+.screen-frame {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
 }
 
-.statbar {
-  position: sticky;
-  bottom: 0;
-  z-index: 9;
+.screen-header,
+.screen-footer { min-width: 0; }
+
+.screen-header .page-title {
+  margin-bottom: 16px;
+  padding-top: 7px;
+}
+
+.screen-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 3px 18px;
+}
+
+.screen-footer .statbar {
+  margin-top: 0;
   margin-bottom: 0;
-  box-shadow: 0 -12px 22px rgba(5, 12, 17, .42);
 }
 
 .template-card b,
@@ -135,5 +146,6 @@ body { overflow: hidden; }
   .product-shell { height: auto; overflow: visible; }
   .sidebar { height: auto; overflow: visible; }
   .workspace { height: auto; overflow: visible; }
-  .page-title, .statbar { position: static; }
+  .screen-frame { height: auto; display: block; }
+  .screen-body { overflow: visible; }
 }

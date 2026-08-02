@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Children, Fragment, isValidElement, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Archive, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight,
   CircleAlert, Copy, Database, Download, Eye, FileCheck2, FileText, Filter, Folder,
@@ -77,16 +77,27 @@ export default function App() {
     </aside>
     <main className="workspace">
       <div className="window-buttons"><span>−</span><span>□</span><span>×</span></div>
-      {screen === "generator" && <Generator template={selectedTemplate} people={people} selected={selectedPeople} onToggle={togglePerson} onAll={selectAll} onChoose={chooseTemplate} />}
-      {screen === "templates" && <Templates selected={selectedTemplateInfo} onSelect={setSelectedTemplateInfo} />}
-      {screen === "people" && <People people={people} detailsOpen={detailsOpen} onDetails={() => setDetailsOpen(!detailsOpen)} />}
-      {screen === "generated" && <Generated />}
-      {screen === "settings" && <SettingsPage active={settingsTab} onChange={setSettingsTab} />}
+      {screen === "generator" && <ScreenFrame>{Generator({ template: selectedTemplate, people, selected: selectedPeople, onToggle: togglePerson, onAll: selectAll, onChoose: chooseTemplate })}</ScreenFrame>}
+      {screen === "templates" && <ScreenFrame hasFooter>{Templates({ selected: selectedTemplateInfo, onSelect: setSelectedTemplateInfo })}</ScreenFrame>}
+      {screen === "people" && <ScreenFrame hasFooter>{People({ people, detailsOpen, onDetails: () => setDetailsOpen(!detailsOpen) })}</ScreenFrame>}
+      {screen === "generated" && <ScreenFrame hasFooter>{Generated()}</ScreenFrame>}
+      {screen === "settings" && <ScreenFrame>{SettingsPage({ active: settingsTab, onChange: setSettingsTab })}</ScreenFrame>}
     </main>
   </div>;
 }
 
 function PageTitle({ title, subtitle, children }: { title: string; subtitle: string; children?: ReactNode }) { return <header className="page-title"><div><h1>{title}</h1><p>{subtitle}</p></div><div className="header-actions">{children}</div></header>; }
+
+function flattenScreenNodes(children: ReactNode): ReactNode[] {
+  return Children.toArray(children).flatMap((node) => isValidElement<{ children?: ReactNode }>(node) && node.type === Fragment ? flattenScreenNodes(node.props.children) : [node]);
+}
+
+function ScreenFrame({ children, hasFooter = false }: { children: ReactNode; hasFooter?: boolean }) {
+  const nodes = flattenScreenNodes(children);
+  const header = nodes.shift();
+  const footer = hasFooter ? nodes.pop() : null;
+  return <section className="screen-frame"><div className="screen-header">{header}</div><div className="screen-body">{nodes}</div>{footer && <div className="screen-footer">{footer}</div>}</section>;
+}
 
 function Generator({ template, people, selected, onToggle, onAll, onChoose }: { template: Template | null; people: Person[]; selected: number[]; onToggle: (id: number) => void; onAll: () => void; onChoose: (template: Template) => void }) {
   return <><PageTitle title="Генерація рапортів" subtitle="Створення рапортів на основі шаблонів та даних особового складу" />
