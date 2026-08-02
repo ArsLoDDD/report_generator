@@ -20,8 +20,8 @@ body { overflow: hidden; }
 .page-frame__tools { grid-row: 2; }
 .page-frame__content { grid-row: 3; }
 .page-frame__footer { grid-row: 4; }
-.generation-page .page-frame__content { display: grid; align-content: center; transform: translateY(-18px); }
-.generation-page .generation-layout { height: calc(100% - 36px); min-height: 0; }
+.generation-page .page-frame__content { display: grid; align-content: center; }
+.generation-page .generation-layout { height: 100%; min-height: 0; }
 .generation-page .template-picker, .generation-page .people-select { display: grid; min-height: 0; overflow: hidden; }
 .generation-page .template-picker { height: 100%; }
 .generation-page .selection-column { height: 100%; min-height: 0; overflow: hidden; }
