@@ -248,20 +248,31 @@ body { overflow: hidden; }
 .template-row .status-pill.error { background: #371819; border-color: #743536; }
 .template-row b { padding-right: 112px; }
 
-/* The repeat action remains easy to find without competing with the result. */
+.validation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+}
+
+.validation-summary {
+  display: grid;
+  gap: 14px;
+}
+
+.validation-summary h3 { margin: 0; }
+
+/* The result and its heading form one group; the repeat action shares its centre. */
 .validation-good,
 .validation-bad {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: 42px minmax(0, 1fr);
   align-items: center;
   column-gap: 14px;
 }
 
-.validation-good .button,
-.validation-bad .button {
-  grid-column: 3;
-  justify-self: end;
-  align-self: center;
+.validation > .button {
+  flex: 0 0 auto;
   margin: 0;
 }
 
@@ -280,6 +291,8 @@ body { overflow: hidden; }
   .screen-body:has(.people-layout) .data-table table { display: table; overflow: visible; }
   .screen-body:has(.people-layout) .filter-bar { flex-wrap: wrap; }
   .screen-body:has(.people-layout) .filter-bar .reset { width: auto; padding: 0 10px; margin-left: 0; font-size: 12px; }
+  .validation { align-items: flex-start; flex-wrap: wrap; }
+  .validation > .button { margin-left: 56px; }
   .screen-body:has(.generation-layout) { overflow: visible; }
   .screen-body:has(.generation-layout) .generation-layout { height: auto; }
   .screen-body:has(.generation-layout) .template-picker,
