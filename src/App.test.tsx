@@ -11,7 +11,7 @@ afterEach(cleanup);
 describe("navigation and report generation", () => {
   it("opens every primary workspace from the sidebar", () => {
     render(<App />);
-    expect(screen.getByRole("heading", { name: "Генерація рапортів" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Виберіть шаблон рапорту" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
     expect(screen.getByRole("heading", { name: "Шаблони" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Особовий склад" }));
