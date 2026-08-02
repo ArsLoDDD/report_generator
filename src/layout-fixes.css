@@ -110,6 +110,31 @@ body { overflow: hidden; }
 .documentation article > header svg { color: #8ea1ad; }
 .documentation .tag-list code { padding: 6px 8px; border: 1px solid #2a3c48; border-radius: 5px; background: #13212b; color: #d6e0e6; font: 11px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace; }
 
+.documentation-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .36fr); gap: 14px; height: 100%; min-height: 0; }
+.documentation { max-width: none; overflow: auto; }
+.documentation__intro h1 { margin: 0; font-size: 22px; }
+.documentation-rule { display: flex; gap: 12px; padding: 13px 15px; margin-bottom: 18px; border: 1px solid #244c67; border-radius: 7px; background: #102130; }
+.documentation-rule svg { color: #55bdf5; flex: 0 0 auto; }
+.documentation-rule div { display: grid; gap: 4px; }
+.documentation-rule span { color: #b7c8d3; font-size: 12px; line-height: 1.4; }
+.documentation-section { padding: 17px 0; border-top: 1px solid #263640; }
+.documentation-section header { display: flex; gap: 11px; align-items: flex-start; }
+.documentation-section header > svg { color: #57d551; margin-top: 3px; }
+.documentation-section h2 { margin: 0; font-size: 16px; }
+.documentation-section p { margin: 4px 0 0; font-size: 12px; }
+.variable-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
+.variable-token { display: grid; gap: 5px; padding: 9px 10px; border: 1px solid #2b414e; border-radius: 6px; background: #101d26; color: #cbd6dc; text-align: left; cursor: pointer; }
+.variable-token:hover { border-color: #43ad4c; background: #12251b; }
+.variable-token code, .variable-preview > code { color: #62db60; font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.variable-token span { font-size: 11px; color: #aab7c0; }
+.variable-preview { align-self: start; padding: 20px; display: grid; gap: 13px; }
+.variable-preview h2, .variable-preview p { margin: 0; }
+.variable-preview > div { display: grid; gap: 4px; padding: 12px; border-radius: 6px; background: #10202a; }
+.variable-preview > div span { color: #91a1ab; font-size: 11px; }
+.variable-preview .button { justify-self: start; }
+
+@media (max-width: 1080px) { .documentation-layout { display: block; } .variable-preview { margin-top: 14px; } }
+
 @media (max-width: 1080px) {
   .page-frame { height: auto; display: block; }
   .page-frame__header, .page-frame__tools, .page-frame__footer { margin-bottom: 14px; }

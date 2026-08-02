@@ -6,6 +6,7 @@ export type Template = {
   changed: string;
   status: TemplateStatus;
   variables: number;
+  sourcePath?: string;
 };
 
 export type Person = {

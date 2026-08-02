@@ -1,9 +1,17 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
 vi.mock("./shared/services/personnelService", () => ({
   personnelService: { list: vi.fn().mockRejectedValue(new Error("desktop unavailable")), create: vi.fn(), update: vi.fn() }
+}));
+
+vi.mock("./features/report-generation/services/reportGenerationService", () => ({
+  reportGenerationService: {
+    selectTemplateFile: vi.fn().mockResolvedValue("/templates/Нагородний рапорт.docx"),
+    validateTemplate: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: [] }),
+    generateReport: vi.fn()
+  }
 }));
 
 afterEach(cleanup);
@@ -24,11 +32,12 @@ describe("navigation and report generation", () => {
     expect(screen.getByRole("heading", { name: "Довідник" })).toBeInTheDocument();
   });
 
-  it("enables generation after selecting a template and a person", () => {
+  it("enables generation after selecting a DOCX template and a person", async () => {
     render(<App />);
     const generate = screen.getByRole("button", { name: "Згенерувати рапорт" });
     expect(generate).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: /Нагородний рапорт/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Відкрити шаблон з файлу/ }));
+    await waitFor(() => expect(screen.getByText("Файл шаблону обрано")).toBeInTheDocument());
     fireEvent.click(screen.getAllByRole("button", { name: "Обрати" })[1]);
     expect(generate).toBeEnabled();
   });

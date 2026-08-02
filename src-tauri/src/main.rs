@@ -1,9 +1,11 @@
 mod database;
 mod personnel;
+mod report_generation;
 
 use rusqlite::Connection;
 use std::{fs, io, path::PathBuf, sync::Mutex};
 use tauri::Manager;
+use tauri_plugin_dialog::DialogExt;
 
 struct AppState(Mutex<Connection>);
 
@@ -33,6 +35,28 @@ fn update_personnel(state: tauri::State<AppState>, personnel_id: i64, draft: per
     personnel::update(&connection, personnel_id, draft)
 }
 
+#[tauri::command]
+fn select_template_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let file = app.dialog().file().add_filter("Шаблони DOCX", &["docx"]).blocking_pick_file();
+    match file {
+        Some(path) => Ok(Some(path.into_path().map_err(|_| "Не вдалося прочитати шлях до вибраного шаблону.".to_string())?.to_string_lossy().to_string())),
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+fn validate_template(state: tauri::State<AppState>, template_path: String, personnel_ids: Vec<i64>) -> Result<report_generation::TemplateValidationResult, String> {
+    let connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    Ok(report_generation::validate(&connection, &template_path, &personnel_ids))
+}
+
+#[tauri::command]
+fn generate_report(app: tauri::AppHandle, state: tauri::State<AppState>, request: report_generation::GenerateReportRequest) -> Result<report_generation::GeneratedReport, String> {
+    let connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    let app_data_directory = app.path().app_data_dir().map_err(|_| "Не вдалося визначити папку даних програми.".to_string())?;
+    report_generation::generate(&connection, &app_data_directory, request)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -42,7 +66,7 @@ fn main() {
             app.manage(AppState(Mutex::new(connection)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel])
+        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, select_template_file, validate_template, generate_report])
         .run(tauri::generate_context!())
         .expect("Не вдалося запустити застосунок");
 }

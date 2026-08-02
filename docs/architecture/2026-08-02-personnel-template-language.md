@@ -14,7 +14,7 @@ The application needs a stable source of personnel data for DOCX generation with
 
 ## Template language contract
 
-The language is documented in [Template language](../template-language.md). Its syntax is `{{path.to.value}}`; indexed personnel access is `{{soldiers[0].fieldName}}`. Changing this grammar requires an explicit migration plan.
+The language is documented in [Template language](../template-language.md). Its syntax is `{{path.to.value}}`: a one-person report uses `{{soldier.fieldName}}`; a report with two or more selected people uses only indexed access such as `{{soldiers[0].fieldName}}`. One run always creates one report. Changing this grammar requires an explicit migration plan.
 
 ## Affected modules
 
