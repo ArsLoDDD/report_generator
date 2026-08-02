@@ -98,6 +98,7 @@ body { overflow: hidden; }
 }
 
 .screen-body:has(.people-layout) .filter-bar .reset {
+  grid-column: 1 / -1;
   justify-self: end;
   margin: 0;
   white-space: nowrap;
@@ -156,6 +157,12 @@ body { overflow: hidden; }
 .screen-body:has(.generation-layout) .people-select {
   min-height: 0;
   overflow: auto;
+}
+
+.screen-body:has(.generation-layout) .template-picker {
+  align-self: center;
+  height: auto;
+  max-height: 100%;
 }
 
 .screen-body:has(.generation-layout) .selection-column {
@@ -253,9 +260,10 @@ body { overflow: hidden; }
   .screen-body:has(.people-layout) .data-table { display: block; }
   .screen-body:has(.people-layout) .data-table table { display: table; overflow: visible; }
   .screen-body:has(.people-layout) .filter-bar { grid-template-columns: repeat(3, max-content); }
-  .screen-body:has(.people-layout) .filter-bar .reset { justify-self: start; }
+  .screen-body:has(.people-layout) .filter-bar .reset { grid-column: auto; justify-self: start; }
   .screen-body:has(.generation-layout) { overflow: visible; }
   .screen-body:has(.generation-layout) .generation-layout { height: auto; }
   .screen-body:has(.generation-layout) .template-picker,
   .screen-body:has(.generation-layout) .people-select { overflow: visible; }
+  .screen-body:has(.generation-layout) .template-picker { align-self: stretch; max-height: none; }
 }
