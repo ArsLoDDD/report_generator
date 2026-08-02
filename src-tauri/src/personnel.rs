@@ -101,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn saves_and_reads_valid_personnel() { let connection = Connection::open_in_memory().unwrap(); database::initialise(&connection).unwrap(); let saved = create(&connection, valid_draft()).unwrap(); assert_eq!(saved.full_name, "ТЕСТ Іван Іванович"); assert_eq!(list(&connection).unwrap().len(), 4); }
+    fn saves_and_reads_valid_personnel() { let connection = Connection::open_in_memory().unwrap(); database::initialise(&connection).unwrap(); let saved = create(&connection, valid_draft()).unwrap(); assert_eq!(saved.full_name, "ТЕСТ Іван Іванович"); assert_eq!(list(&connection).unwrap().len(), 16); }
 
     #[test]
     fn rejects_invalid_tax_id() { let mut draft = valid_draft(); draft.tax_id = "123".into(); assert_eq!(validate(&draft).unwrap_err(), "ІПН має містити рівно 10 цифр."); }
