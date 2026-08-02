@@ -9,6 +9,55 @@ body { overflow: hidden; }
   overflow: hidden;
 }
 
+/* Page frame: fixed controls with independent scrolling work areas. */
+.workspace { height: 100vh; overflow: hidden; }
+.page-frame { height: 100%; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 14px; }
+.page-frame__content { min-height: 0; overflow: hidden; }
+.page-frame__footer .statbar { margin-top: 0; }
+
+/* Report generation: searches stay in place while only the lists scroll. */
+.generation-page .generation-layout { height: 100%; min-height: 0; }
+.generation-page .template-picker, .generation-page .people-select { display: grid; min-height: 0; overflow: hidden; }
+.generation-page .template-picker { grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.generation-page .template-picker__scroll, .generation-page .people-select__scroll { min-height: 0; overflow: auto; }
+.generation-page .people-select { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
+.generation-page .people-select table { margin-top: 0; max-height: none; }
+
+/* Templates: fixed header and filters, separate list/detail scrolling. */
+.templates-page .templates-layout { height: 100%; min-height: 0; }
+.templates-page .template-list { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }
+.templates-page .template-list__scroll, .templates-page .template-details__scroll { min-height: 0; overflow: auto; }
+.templates-page .template-details { min-height: 0; overflow: hidden; padding: 0; }
+.templates-page .template-details__scroll { height: 100%; padding: 23px; }
+
+/* Personnel and generated reports: table and details pan independently. */
+.personnel-page .people-layout, .generated-page .generated-layout { height: 100%; min-height: 0; }
+.personnel-page .data-table, .generated-page .data-table { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }
+.personnel-page .data-table__scroll, .personnel-page .person-details, .generated-page .data-table__scroll, .generated-page .report-details { min-height: 0; overflow: auto; }
+.personnel-page .data-table__scroll table, .generated-page .data-table__scroll table { display: table; min-height: auto; overflow: visible; }
+.personnel-page .data-table__scroll thead, .generated-page .data-table__scroll thead { position: sticky; top: 0; z-index: 1; background: #0d1922; }
+
+.settings-page .page-frame__content { overflow: auto; padding-right: 3px; }
+
+/* Personnel filter toolbar is a fixed, compact control row. */
+.personnel-page .main-tools, .personnel-page .filter-bar { margin: 0; }
+.personnel-page .filter-bar { display: flex; align-items: center; flex-wrap: nowrap; gap: 12px; min-width: 0; }
+.personnel-page .filter-bar span { display: inline-flex; align-items: center; gap: 8px; margin: 0; white-space: nowrap; }
+.personnel-page .filter-bar .select { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 40px; line-height: 1; }
+.personnel-page .filter-bar .select svg { margin: 0; flex: 0 0 auto; }
+.personnel-page .filter-bar .reset { width: 38px; min-height: 38px; margin-left: auto; padding: 0; font-size: 0; white-space: nowrap; }
+.personnel-page .filter-bar .reset svg { width: 19px; height: 19px; }
+.personnel-page .data-table .pagination, .generated-page .data-table .pagination { align-self: stretch; margin: 0; padding: 16px; border-top: 1px solid #20323d; background: #0c1821; }
+
+@media (max-width: 1080px) {
+  .page-frame { height: auto; display: block; }
+  .page-frame__header, .page-frame__tools, .page-frame__footer { margin-bottom: 14px; }
+  .page-frame__content, .generation-page .template-picker, .generation-page .people-select, .templates-page .template-list, .templates-page .template-details, .personnel-page .data-table, .generated-page .data-table { overflow: visible; }
+  .generation-page .template-picker__scroll, .generation-page .people-select__scroll, .templates-page .template-list__scroll, .templates-page .template-details__scroll, .personnel-page .data-table__scroll, .generated-page .data-table__scroll { overflow: visible; }
+  .personnel-page .filter-bar { flex-wrap: wrap; }
+  .personnel-page .filter-bar .reset { width: auto; padding: 0 10px; margin-left: 0; font-size: 12px; }
+}
+
 .sidebar {
   height: 100vh;
   min-width: 0;
