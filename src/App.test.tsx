@@ -38,4 +38,13 @@ describe("navigation and report generation", () => {
     expect(screen.getByText("Дані підписантів")).toBeInTheDocument();
     expect(screen.getByText(/Основний підписант/)).toBeInTheDocument();
   });
+
+  it("shows template variables and recent reports without a templates footer", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
+    expect(screen.getByText("Поля документа")).toBeInTheDocument();
+    expect(screen.getByText("Військовослужбовці")).toBeInTheDocument();
+    expect(screen.getByText("Останні рапорти")).toBeInTheDocument();
+    expect(screen.queryByText("Усього шаблонів")).not.toBeInTheDocument();
+  });
 });
