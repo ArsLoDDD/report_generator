@@ -33,8 +33,8 @@ export const singlePersonVariables: TemplateVariable[] = personnelFields.map(({ 
 
 export const multiPersonVariables: TemplateVariable[] = personnelFields.map(({ key, label, description, example }) => ({
   token: `{{soldiers[0].${key}}}`,
-  label: `${label} першої особи`,
-  description: `${description} Індекс [0] означає першу обрану особу; для наступної замініть його на [1], [2] тощо.`,
+  label: `${label} у масиві осіб`,
+  description,
   example
 }));
 

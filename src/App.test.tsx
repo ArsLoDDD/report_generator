@@ -79,6 +79,6 @@ describe("navigation and report generation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
     fireEvent.click(screen.getByRole("button", { name: /\{\{soldier\.taxId\}\}/ }));
     expect(screen.getByText("Десятизначний ідентифікаційний номер.")).toBeInTheDocument();
-    expect(screen.getByText("7462389812")).toBeInTheDocument();
+    expect(screen.getByText("ІПН: 7462389812")).toBeInTheDocument();
   });
 });
