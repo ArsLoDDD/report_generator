@@ -10,7 +10,7 @@ vi.mock("./features/report-generation/services/reportGenerationService", () => (
   reportGenerationService: {
     selectTemplateFile: vi.fn().mockResolvedValue("/templates/Нагородний рапорт.docx"),
     validateTemplate: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: [] }),
-    generateReport: vi.fn(),
+    generateReport: vi.fn().mockResolvedValue({ docxPath: "/Reports/2026-08-03/Рапорт на відпустку/Рапорт на відпустку.docx", folderPath: "/Reports/2026-08-03/Рапорт на відпустку" }),
     openGeneratedReport: vi.fn(),
     openGeneratedReportFolder: vi.fn()
   }
@@ -68,6 +68,17 @@ describe("navigation and report generation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Очистити вибір" }));
     expect(screen.getByText("Вибрано:").parentElement).toHaveTextContent("Вибрано: 0");
     expect(screen.getByRole("button", { name: "Очистити вибір" })).toBeDisabled();
+  });
+
+  it("clears a generated report result when the selection changes", async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /Рапорт на відпустку/ })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /Рапорт на відпустку/ }));
+    fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
+    fireEvent.click(screen.getByRole("button", { name: "Згенерувати рапорт" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Відкрити DOCX" })).toBeInTheDocument());
+    fireEvent.click(screen.getByText("ПЕТРЕНКО Петро Петрович"));
+    expect(screen.queryByRole("button", { name: "Відкрити DOCX" })).not.toBeInTheDocument();
   });
 
   it("switches settings to signer details", () => {

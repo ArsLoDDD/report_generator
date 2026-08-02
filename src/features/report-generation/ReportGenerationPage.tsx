@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from "react";
 import { FileCheck2, FileText, Filter, Folder, FolderOpen, CheckCircle2 } from "lucide-react";
 import type { Person, Template } from "../../shared/types/domain";
 import { CheckBox } from "../../shared/ui/CheckBox";
@@ -17,8 +18,11 @@ type Props = {
 };
 
 export function ReportGenerationPage({ template, templates, people, selected, onToggle, onAll, onClear, onChoose }: Props) {
-  const { error, generatedReport, isGenerating, selectTemplateFile, validation, generate, openReport, openReportFolder } = useReportGeneration();
+  const { error, generatedReport, isGenerating, selectTemplateFile, validation, generate, openReport, openReportFolder, resetResult } = useReportGeneration();
   const canGenerate = Boolean(template?.sourcePath && selected.length);
+  const generationContext = useMemo(() => `${template?.sourcePath ?? ""}:${selected.join(",")}`, [template?.sourcePath, selected]);
+
+  useEffect(() => { resetResult(); }, [generationContext, resetResult]);
 
   const openTemplate = async () => {
     const sourcePath = await selectTemplateFile();

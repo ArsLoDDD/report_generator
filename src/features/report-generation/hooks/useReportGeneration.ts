@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { reportGenerationService, type GeneratedReport, type TemplateValidationResult } from "../services/reportGenerationService";
 
 export function useReportGeneration() {
@@ -40,5 +40,11 @@ export function useReportGeneration() {
     catch (reason) { setError(reason instanceof Error ? reason.message : "Не вдалося відкрити папку рапорту."); }
   };
 
-  return { error, generatedReport, isGenerating, selectTemplateFile, validation, generate, openReport, openReportFolder };
+  const resetResult = useCallback(() => {
+    setGeneratedReport(null);
+    setValidation(null);
+    setError(null);
+  }, []);
+
+  return { error, generatedReport, isGenerating, selectTemplateFile, validation, generate, openReport, openReportFolder, resetResult };
 }
