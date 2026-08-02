@@ -37,6 +37,7 @@ body { overflow: hidden; }
 .generation-page .people-select__scroll tbody tr:hover { background: #12212a; }
 .generation-page .template-card b { padding-right: 42px; }
 .generation-page .template-card .green { right: 13px; top: 13px; }
+.generation-page .selection-footer .button:disabled { opacity: .45; cursor: not-allowed; }
 
 /* Templates: fixed header and filters, separate list/detail scrolling. */
 .templates-page .templates-layout { height: 100%; min-height: 0; }

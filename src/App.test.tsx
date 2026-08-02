@@ -42,8 +42,10 @@ describe("navigation and report generation", () => {
     expect(vacationTemplate).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
     expect(screen.getByText("Вибрано:").parentElement).toHaveTextContent("Вибрано: 1");
+    expect(screen.getByRole("button", { name: "Очистити вибір" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Очистити вибір" }));
     expect(screen.getByText("Вибрано:").parentElement).toHaveTextContent("Вибрано: 0");
+    expect(screen.getByRole("button", { name: "Очистити вибір" })).toBeDisabled();
   });
 
   it("switches settings to signer details", () => {
