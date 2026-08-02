@@ -97,6 +97,20 @@ body { overflow: hidden; }
   white-space: nowrap;
 }
 
+.screen-body:has(.people-layout) .filter-bar .select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 40px;
+  line-height: 1;
+}
+
+.screen-body:has(.people-layout) .filter-bar .select svg {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
 .screen-body:has(.people-layout) .filter-bar .reset {
   width: 38px;
   min-height: 38px;
