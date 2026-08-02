@@ -47,7 +47,7 @@ describe("navigation and report generation", () => {
     const generate = screen.getByRole("button", { name: "Згенерувати рапорт" });
     expect(generate).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: /Відкрити шаблон з файлу/ }));
-    await waitFor(() => expect(screen.getByText("Файл шаблону обрано")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Нагородний рапорт" })).toBeInTheDocument());
     fireEvent.click(screen.getAllByRole("button", { name: "Обрати" })[1]);
     expect(generate).toBeEnabled();
   });

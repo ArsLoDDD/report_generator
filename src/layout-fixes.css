@@ -28,6 +28,11 @@ body { overflow: hidden; }
 .generation-page .people-select { flex: 1 1 auto; }
 .generation-page .template-picker { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .generation-page .template-picker__scroll, .generation-page .people-select__scroll { min-height: 0; overflow: auto; }
+.generation-page .template-grid { align-content: start; grid-auto-rows: 137px; }
+.generation-page .template-card { min-height: 0; height: 137px; }
+.generation-page .empty-template { height: 230px; padding: 25px 35px; display: grid; justify-items: center; align-content: center; grid-template-rows: 75px 54px 44px; }
+.generation-page .empty-template h2 { margin: 16px 0 0; align-self: end; }
+.generation-page .empty-template p { margin: 8px 0 0; align-self: start; }
 .generation-page .people-select { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .generation-page .people-select table { margin-top: 0; max-height: none; }
 .generation-page .people-select__scroll { overscroll-behavior: contain; }
