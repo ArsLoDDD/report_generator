@@ -3,3 +3,7 @@ dist/
 src-tauri/target/
 src-tauri/reports.db
 .DS_Store
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+src-tauri/gen/
