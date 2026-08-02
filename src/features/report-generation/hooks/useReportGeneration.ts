@@ -30,5 +30,15 @@ export function useReportGeneration() {
     }
   };
 
-  return { error, generatedReport, isGenerating, selectTemplateFile, validation, generate };
+  const openReport = async (reportPath: string) => {
+    try { await reportGenerationService.openGeneratedReport(reportPath); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Не вдалося відкрити рапорт."); }
+  };
+
+  const openReportFolder = async (folderPath: string) => {
+    try { await reportGenerationService.openGeneratedReportFolder(folderPath); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Не вдалося відкрити папку рапорту."); }
+  };
+
+  return { error, generatedReport, isGenerating, selectTemplateFile, validation, generate, openReport, openReportFolder };
 }

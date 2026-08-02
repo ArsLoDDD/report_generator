@@ -10,7 +10,9 @@ vi.mock("./features/report-generation/services/reportGenerationService", () => (
   reportGenerationService: {
     selectTemplateFile: vi.fn().mockResolvedValue("/templates/Нагородний рапорт.docx"),
     validateTemplate: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: [] }),
-    generateReport: vi.fn()
+    generateReport: vi.fn(),
+    openGeneratedReport: vi.fn(),
+    openGeneratedReportFolder: vi.fn()
   }
 }));
 

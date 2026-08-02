@@ -42,7 +42,7 @@ pub fn generate(connection: &Connection, app_data_directory: &Path, request: Gen
     let now = Local::now();
     let date_directory = now.format("%Y-%m-%d").to_string();
     let template_name = safe_name(Path::new(&request.template_path).file_stem().and_then(|name| name.to_str()).unwrap_or("Рапорт"));
-    let report_name = format!("{template_name}_{}", now.format("%Y-%m-%d_%H-%M-%S"));
+    let report_name = format!("{template_name} {}", now.format("%Y-%m-%d %H-%M-%S"));
     let reports_root = app_data_directory.join("Reports").join(date_directory);
     fs::create_dir_all(&reports_root).map_err(|_| "Не вдалося створити папку для рапортів.".to_string())?;
     let final_directory = reports_root.join(&report_name);
@@ -87,7 +87,7 @@ fn is_supported_variable(variable: &str) -> bool { let person_fields = ["rank", 
 fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>) -> Result<(), String> { let file = File::open(input).map_err(|_| "Не вдалося відкрити DOCX-шаблон.".to_string())?; let mut archive = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-шаблоном.".to_string())?; let output_file = File::create(output).map_err(|_| "Не вдалося створити DOCX-файл.".to_string())?; let mut writer = ZipWriter::new(output_file); for index in 0..archive.len() { let mut entry = archive.by_index(index).map_err(|_| "Не вдалося прочитати файл шаблону.".to_string())?; let name = entry.name().to_owned(); let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated); if entry.is_dir() { writer.add_directory(name, options).map_err(|_| "Не вдалося сформувати DOCX.".to_string())?; continue; } let mut bytes = Vec::new(); entry.read_to_end(&mut bytes).map_err(|_| "Не вдалося прочитати частину шаблону.".to_string())?; writer.start_file(name.clone(), options).map_err(|_| "Не вдалося сформувати DOCX.".to_string())?; if name.ends_with(".xml") { let content = String::from_utf8_lossy(&bytes); writer.write_all(replace_variables(&content, values).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; } else { writer.write_all(&bytes).map_err(|_| "Не вдалося записати DOCX.".to_string())?; } } writer.finish().map_err(|_| "Не вдалося завершити DOCX.".to_string())?; Ok(()) }
 fn replace_variables(content: &str, values: &HashMap<String, String>) -> String { values.iter().fold(content.to_string(), |result, (key, value)| result.replace(&format!("{{{{{key}}}}}"), &escape_xml(value))) }
 fn escape_xml(value: &str) -> String { value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;") }
-fn safe_name(value: &str) -> String { value.chars().map(|character| if character.is_ascii_alphanumeric() || character == ' ' || character == '_' || character == '-' { character } else { '_' }).collect::<String>().trim().to_string() }
+fn safe_name(value: &str) -> String { value.chars().map(|character| if matches!(character, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || character.is_control() { '_' } else { character }).collect::<String>().trim().to_string() }
 
 #[cfg(test)]
 mod tests {
@@ -132,6 +132,11 @@ mod tests {
         let mut values = HashMap::new();
         values.insert("soldier.fullName".to_string(), "ТЕСТ & Син".to_string());
         assert_eq!(replace_variables("<w:t>{{soldier.fullName}}</w:t>", &values), "<w:t>ТЕСТ &amp; Син</w:t>");
+    }
+
+    #[test]
+    fn preserves_ukrainian_letters_in_report_file_names() {
+        assert_eq!(safe_name("Рапорт на відпустку"), "Рапорт на відпустку");
     }
 
     #[test]

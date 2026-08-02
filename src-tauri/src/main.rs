@@ -4,7 +4,7 @@ mod report_generation;
 
 use rusqlite::Connection;
 use serde::Serialize;
-use std::{fs, io, path::PathBuf, sync::Mutex};
+use std::{fs, io, path::{Path, PathBuf}, process::Command, sync::Mutex};
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
@@ -27,10 +27,32 @@ const STARTER_TEMPLATES: [(&str, &[u8]); 3] = [
     ("Список військовослужбовців.docx", include_bytes!("../templates/Список військовослужбовців.docx")),
 ];
 
-fn templates_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let directory = app.path().app_data_dir().map_err(|_| "Не вдалося визначити папку шаблонів.".to_string())?.join("Templates");
-    fs::create_dir_all(&directory).map_err(|_| "Не вдалося створити папку шаблонів.".to_string())?;
+fn application_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let directory = app.path().app_data_dir().map_err(|_| "Не вдалося визначити папку даних програми.".to_string())?;
+    fs::create_dir_all(&directory).map_err(|_| "Не вдалося створити папку даних програми.".to_string())?;
     Ok(directory)
+}
+
+fn ensure_application_structure(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let root = application_root(app)?;
+    for directory in ["Database", "Templates", "Signatures", "Reports", "DB_Backups", "Config"] {
+        fs::create_dir_all(root.join(directory)).map_err(|_| format!("Не вдалося створити папку «{directory}»."))?;
+    }
+    let settings_path = root.join("Config").join("settings.json");
+    if !settings_path.exists() {
+        fs::write(settings_path, r#"{
+  "databasePath": "Database/personnel.db",
+  "templatesPath": "Templates",
+  "signaturesPath": "Signatures",
+  "reportsPath": "Reports",
+  "backupsPath": "DB_Backups"
+}"#).map_err(|_| "Не вдалося створити файл налаштувань.".to_string())?;
+    }
+    Ok(root)
+}
+
+fn templates_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(ensure_application_structure(app)?.join("Templates"))
 }
 
 fn seed_starter_templates(app: &tauri::AppHandle) -> Result<(), String> {
@@ -54,9 +76,13 @@ fn template_description(file_name: &str) -> (&'static str, u16) {
 }
 
 fn open_database(app: &tauri::AppHandle) -> Result<Connection, String> {
-    let app_data_directory: PathBuf = app.path().app_data_dir().map_err(|_| "Не вдалося визначити папку даних програми.".to_string())?;
-    fs::create_dir_all(&app_data_directory).map_err(|_| "Не вдалося створити папку даних програми.".to_string())?;
-    let connection = Connection::open(app_data_directory.join("reports.db")).map_err(|_| "Не вдалося відкрити базу даних програми.".to_string())?;
+    let root = ensure_application_structure(app)?;
+    let database_path = root.join("Database").join("personnel.db");
+    let legacy_database_path = root.join("reports.db");
+    if !database_path.exists() && legacy_database_path.exists() {
+        fs::copy(legacy_database_path, &database_path).map_err(|_| "Не вдалося перенести наявну базу даних у папку Database.".to_string())?;
+    }
+    let connection = Connection::open(database_path).map_err(|_| "Не вдалося відкрити базу даних програми.".to_string())?;
     database::initialise(&connection)?;
     Ok(connection)
 }
@@ -113,8 +139,35 @@ fn validate_template(state: tauri::State<AppState>, template_path: String, perso
 #[tauri::command]
 fn generate_report(app: tauri::AppHandle, state: tauri::State<AppState>, request: report_generation::GenerateReportRequest) -> Result<report_generation::GeneratedReport, String> {
     let connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
-    let app_data_directory = app.path().app_data_dir().map_err(|_| "Не вдалося визначити папку даних програми.".to_string())?;
-    report_generation::generate(&connection, &app_data_directory, request)
+    let root = ensure_application_structure(&app)?;
+    report_generation::generate(&connection, &root, request)
+}
+
+fn ensure_reports_item(app: &tauri::AppHandle, requested_path: &str) -> Result<PathBuf, String> {
+    let reports_root = ensure_application_structure(app)?.join("Reports").canonicalize().map_err(|_| "Не вдалося відкрити папку рапортів.".to_string())?;
+    let item = Path::new(requested_path).canonicalize().map_err(|_| "Файл або папку рапорту не знайдено.".to_string())?;
+    if !item.starts_with(&reports_root) { return Err("Можна відкривати лише файли та папки зі структури Reports.".to_string()); }
+    Ok(item)
+}
+
+fn open_path(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let result = Command::new("open").arg(path).spawn();
+    #[cfg(target_os = "windows")]
+    let result = Command::new("explorer").arg(path).spawn();
+    #[cfg(target_os = "linux")]
+    let result = Command::new("xdg-open").arg(path).spawn();
+    result.map(|_| ()).map_err(|_| "Не вдалося відкрити файл або папку. Перевірте, чи є програма для DOCX-файлів.".to_string())
+}
+
+#[tauri::command]
+fn open_generated_report(app: tauri::AppHandle, report_path: String) -> Result<(), String> {
+    open_path(&ensure_reports_item(&app, &report_path)?)
+}
+
+#[tauri::command]
+fn open_generated_report_folder(app: tauri::AppHandle, folder_path: String) -> Result<(), String> {
+    open_path(&ensure_reports_item(&app, &folder_path)?)
 }
 
 fn main() {
@@ -122,12 +175,13 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
+            ensure_application_structure(app.handle()).map_err(io::Error::other)?;
             let connection = open_database(app.handle()).map_err(io::Error::other)?;
             seed_starter_templates(app.handle()).map_err(io::Error::other)?;
             app.manage(AppState(Mutex::new(connection)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, list_templates, select_template_file, validate_template, generate_report])
+        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, list_templates, select_template_file, validate_template, generate_report, open_generated_report, open_generated_report_folder])
         .run(tauri::generate_context!())
         .expect("Не вдалося запустити застосунок");
 }
