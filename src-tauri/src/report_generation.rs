@@ -93,6 +93,19 @@ fn safe_name(value: &str) -> String { value.chars().map(|character| if character
 mod tests {
     use super::*;
     use crate::database;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temporary_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("report-generator-{name}-{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()))
+    }
+
+    fn write_test_template(path: &Path, body: &str) {
+        let file = File::create(path).unwrap();
+        let mut writer = ZipWriter::new(file);
+        writer.start_file("word/document.xml", SimpleFileOptions::default()).unwrap();
+        writer.write_all(body.as_bytes()).unwrap();
+        writer.finish().unwrap();
+    }
 
     #[test]
     fn reports_missing_template_cleanly() {
@@ -119,5 +132,34 @@ mod tests {
         let mut values = HashMap::new();
         values.insert("soldier.fullName".to_string(), "ТЕСТ & Син".to_string());
         assert_eq!(replace_variables("<w:t>{{soldier.fullName}}</w:t>", &values), "<w:t>ТЕСТ &amp; Син</w:t>");
+    }
+
+    #[test]
+    fn rejects_single_person_template_for_multiple_people() {
+        let template_path = temporary_path("single.docx");
+        write_test_template(&template_path, "<w:t>{{soldier.fullName}}</w:t>");
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let result = validate(&connection, template_path.to_str().unwrap(), &[1, 2]);
+        assert!(!result.is_valid);
+        assert!(result.errors.iter().any(|error| error.contains("однією особою")));
+        fs::remove_file(template_path).unwrap();
+    }
+
+    #[test]
+    fn creates_docx_in_a_new_report_folder() {
+        let root = temporary_path("output");
+        fs::create_dir_all(&root).unwrap();
+        let template_path = root.join("test-template.docx");
+        write_test_template(&template_path, "<w:t>{{soldier.fullName}}</w:t>");
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let report = generate(&connection, &root, GenerateReportRequest { template_path: template_path.to_string_lossy().to_string(), personnel_ids: vec![1] }).unwrap();
+        assert!(Path::new(&report.docx_path).is_file());
+        let mut archive = ZipArchive::new(File::open(&report.docx_path).unwrap()).unwrap();
+        let mut document = String::new();
+        archive.by_name("word/document.xml").unwrap().read_to_string(&mut document).unwrap();
+        assert!(document.contains("ВАСИЛЬОК Іван Аркадійович"));
+        fs::remove_dir_all(root).unwrap();
     }
 }
