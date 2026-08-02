@@ -81,6 +81,28 @@ body { overflow: hidden; }
   margin: 0;
 }
 
+.screen-body:has(.people-layout) .filter-bar {
+  display: grid;
+  grid-template-columns: max-content max-content max-content max-content max-content minmax(max-content, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.screen-body:has(.people-layout) .filter-bar span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.screen-body:has(.people-layout) .filter-bar .reset {
+  justify-self: end;
+  margin: 0;
+  white-space: nowrap;
+}
+
 .screen-body:has(.people-layout) .people-layout {
   min-height: 0;
   overflow: hidden;
@@ -205,4 +227,6 @@ body { overflow: hidden; }
   .screen-body:has(.people-layout) .person-details { height: auto; overflow: visible; }
   .screen-body:has(.people-layout) .data-table { display: block; }
   .screen-body:has(.people-layout) .data-table table { display: table; overflow: visible; }
+  .screen-body:has(.people-layout) .filter-bar { grid-template-columns: repeat(3, max-content); }
+  .screen-body:has(.people-layout) .filter-bar .reset { justify-self: start; }
 }
