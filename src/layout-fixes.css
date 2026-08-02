@@ -66,6 +66,52 @@ body { overflow: hidden; }
 .sidebar nav button svg,
 .product-logo > svg { flex: 0 0 auto; }
 
+/* Template state is a compact, anchored indicator instead of inline text. */
+.template-row .status-pill {
+  position: absolute;
+  top: 14px;
+  right: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.template-row .status-pill::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.template-row .status-pill.ready { background: #12381e; border-color: #276737; }
+.template-row .status-pill.warning { background: #382b13; border-color: #755e27; }
+.template-row .status-pill.error { background: #371819; border-color: #743536; }
+.template-row b { padding-right: 112px; }
+
+/* The repeat action remains easy to find without competing with the result. */
+.validation-good,
+.validation-bad {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
+}
+
+.validation-good .button,
+.validation-bad .button {
+  grid-column: 1 / -1;
+  justify-self: center;
+  margin: 18px 0 0;
+}
+
 @media (max-width: 1080px) {
   body { overflow: auto; }
   .product-shell { height: auto; overflow: visible; }
