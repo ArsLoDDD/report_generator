@@ -33,6 +33,19 @@ describe("navigation and report generation", () => {
     expect(generate).toBeEnabled();
   });
 
+  it("toggles templates and personnel selection from their full rows", () => {
+    render(<App />);
+    const vacationTemplate = screen.getByRole("button", { name: /Рапорт на відпустку/ });
+    fireEvent.click(vacationTemplate);
+    expect(vacationTemplate).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(vacationTemplate);
+    expect(vacationTemplate).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
+    expect(screen.getByText("Вибрано:").parentElement).toHaveTextContent("Вибрано: 1");
+    fireEvent.click(screen.getByRole("button", { name: "Очистити вибір" }));
+    expect(screen.getByText("Вибрано:").parentElement).toHaveTextContent("Вибрано: 0");
+  });
+
   it("switches settings to signer details", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));

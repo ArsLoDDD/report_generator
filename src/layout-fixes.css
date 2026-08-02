@@ -20,7 +20,7 @@ body { overflow: hidden; }
 .page-frame__tools { grid-row: 2; }
 .page-frame__content { grid-row: 3; }
 .page-frame__footer { grid-row: 4; }
-.generation-page .page-frame__content { display: grid; align-content: center; }
+.generation-page .page-frame__content { display: grid; align-content: center; transform: translateY(-18px); }
 .generation-page .generation-layout { height: calc(100% - 36px); min-height: 0; }
 .generation-page .template-picker, .generation-page .people-select { display: grid; min-height: 0; overflow: hidden; }
 .generation-page .template-picker { height: 100%; }
@@ -30,6 +30,13 @@ body { overflow: hidden; }
 .generation-page .template-picker__scroll, .generation-page .people-select__scroll { min-height: 0; overflow: auto; }
 .generation-page .people-select { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
 .generation-page .people-select table { margin-top: 0; max-height: none; }
+.generation-page .people-select__scroll { overscroll-behavior: contain; }
+.generation-page .people-select__scroll thead { position: sticky; top: 0; z-index: 2; background: #0d1922; }
+.generation-page .people-select__scroll th { background: #0d1922; }
+.generation-page .people-select__scroll tbody tr { cursor: pointer; }
+.generation-page .people-select__scroll tbody tr:hover { background: #12212a; }
+.generation-page .template-card b { padding-right: 42px; }
+.generation-page .template-card .green { right: 13px; top: 13px; }
 
 /* Templates: fixed header and filters, separate list/detail scrolling. */
 .templates-page .templates-layout { height: 100%; min-height: 0; }
