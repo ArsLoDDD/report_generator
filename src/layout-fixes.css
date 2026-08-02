@@ -39,6 +39,24 @@ body { overflow: hidden; }
 
 .page-title { gap: 20px; }
 
+/* Each workspace keeps its command header and statistics footer in view. */
+.page-title {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 7px 2px 18px;
+  margin-bottom: 5px;
+  background: linear-gradient(180deg, #081219 78%, rgba(8, 18, 25, 0));
+}
+
+.statbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 9;
+  margin-bottom: 0;
+  box-shadow: 0 -12px 22px rgba(5, 12, 17, .42);
+}
+
 .template-card b,
 .template-row b {
   display: block;
@@ -117,4 +135,5 @@ body { overflow: hidden; }
   .product-shell { height: auto; overflow: visible; }
   .sidebar { height: auto; overflow: visible; }
   .workspace { height: auto; overflow: visible; }
+  .page-title, .statbar { position: static; }
 }
