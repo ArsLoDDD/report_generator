@@ -85,6 +85,16 @@ body { overflow: hidden; }
 .recent-report-row small { color: #91a0aa; font-size: 11px; }
 .recent-report-row .icon-button { width: 30px; height: 30px; }
 
+.documentation-page .page-frame__content { overflow: auto; }
+.documentation { max-width: 1060px; padding: 24px; }
+.documentation__intro { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 20px; }
+.documentation__intro > svg { color: #54d14e; }
+.documentation h2, .documentation h3 { margin: 0; }
+.documentation p { color: #a9b6be; line-height: 1.45; }
+.documentation article > header { display: flex; gap: 10px; align-items: flex-start; }
+.documentation article > header svg { color: #8ea1ad; }
+.documentation .tag-list code { padding: 6px 8px; border: 1px solid #2a3c48; border-radius: 5px; background: #13212b; color: #d6e0e6; font: 11px/1.25 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
 @media (max-width: 1080px) {
   .page-frame { height: auto; display: block; }
   .page-frame__header, .page-frame__tools, .page-frame__footer { margin-bottom: 14px; }

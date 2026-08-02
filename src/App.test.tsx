@@ -2,8 +2,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
-vi.mock("./lib/desktop", () => ({
-  desktop: { listPeople: vi.fn().mockRejectedValue(new Error("desktop unavailable")) }
+vi.mock("./shared/services/personnelService", () => ({
+  personnelService: { list: vi.fn().mockRejectedValue(new Error("desktop unavailable")), create: vi.fn(), update: vi.fn() }
 }));
 
 afterEach(cleanup);
@@ -20,6 +20,8 @@ describe("navigation and report generation", () => {
     expect(screen.getByRole("heading", { name: "Згенеровані рапорти" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
     expect(screen.getByRole("heading", { name: "Налаштування" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
+    expect(screen.getByRole("heading", { name: "Довідник" })).toBeInTheDocument();
   });
 
   it("enables generation after selecting a template and a person", () => {

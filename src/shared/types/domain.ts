@@ -12,8 +12,22 @@ export type Person = {
   id: number;
   fullName: string;
   rank: string;
+  surname: string;
+  givenName: string;
+  patronymic: string;
   position: string;
-  unit: string;
+  taxId: string;
+  birthDate: string;
+  educationLevel: string;
+  educationDetails: string;
+  armedForcesServiceStartDate: string;
+  positionAssignedDate: string;
+  positionAssignmentOrder: string;
+  militaryId: string;
+  assignedVehicleName: string;
+  assignedVehicleRegistration: string;
 };
 
-export type Screen = "generator" | "templates" | "people" | "generated" | "settings";
+export type PersonnelDraft = Omit<Person, "id" | "fullName">;
+
+export type Screen = "generator" | "templates" | "people" | "generated" | "settings" | "documentation";

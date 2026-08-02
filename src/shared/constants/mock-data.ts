@@ -10,9 +10,7 @@ export const templates: Template[] = [
 ];
 
 export const samplePeople: Person[] = [
-  ["Іваненко Іван Іванович", "Солдат", "Стрілець", "1 взвод"], ["Петренко Петро Петрович", "Старший солдат", "Оператор БпЛА", "1 взвод"],
-  ["Сидоренко Сидір Сидорович", "Сержант", "Командир відділення", "2 взвод"], ["Коваленко Дмитро Сергійович", "Молодший сержант", "Стрілець", "2 взвод"],
-  ["Бондаренко Андрій Олексійович", "Солдат", "Помічник оператора", "1 взвод"], ["Ткаченко Олексій Миколайович", "Старший солдат", "Механік-водій", "3 взвод"],
-  ["Шевченко Тарас Григорович", "Сержант", "Командир відділення", "2 взвод"], ["Мельник Віталій Васильович", "Солдат", "Стрілець", "3 взвод"],
-  ["Гнатюк Роман Ігорович", "Солдат", "Стрілець", "1 взвод"], ["Кравчук Олег Петрович", "Молодший сержант", "Оператор БпЛА", "2 взвод"]
-].map(([fullName, rank, position, unit], index) => ({ id: index + 1, fullName, rank, position, unit }));
+  { id: 1, rank: "Солдат", surname: "ВАСИЛЬОК", givenName: "Іван", patronymic: "Аркадійович", fullName: "ВАСИЛЬОК Іван Аркадійович", position: "Стрілець, військова частина А0000", taxId: "7462389812", birthDate: "02.03.1999 року", educationLevel: "вища", educationDetails: "Львівська комерційна академія у 2002р", armedForcesServiceStartDate: "у ЗС — із 27.02.2022 року", positionAssignedDate: "02.08.2026 року", positionAssignmentOrder: "КВ ОК «Пуп» №000-ПС", militaryId: "АВ №077672", assignedVehicleName: "Great Wall", assignedVehicleRegistration: "АВ 7265" },
+  { id: 2, rank: "Старший солдат", surname: "ПЕТРЕНКО", givenName: "Петро", patronymic: "Петрович", fullName: "ПЕТРЕНКО Петро Петрович", position: "Оператор БпЛА, військова частина А0000", taxId: "7462389813", birthDate: "14.05.1998 року", educationLevel: "середня спеціальна", educationDetails: "Львівський фаховий коледж у 2018р", armedForcesServiceStartDate: "у ЗС — із 24.02.2022 року", positionAssignedDate: "10.03.2023 року", positionAssignmentOrder: "КВ ОК «Пуп» №018-ПС", militaryId: "АВ №077673", assignedVehicleName: "Mitsubishi L200", assignedVehicleRegistration: "АВ 7266" },
+  { id: 3, rank: "Сержант", surname: "СИДОРЕНКО", givenName: "Сидір", patronymic: "Сидорович", fullName: "СИДОРЕНКО Сидір Сидорович", position: "Командир відділення, військова частина А0000", taxId: "7462389814", birthDate: "21.11.1995 року", educationLevel: "вища", educationDetails: "Національний університет у 2017р", armedForcesServiceStartDate: "у ЗС — із 01.09.2018 року", positionAssignedDate: "12.06.2024 року", positionAssignmentOrder: "КВ ОК «Пуп» №044-ПС", militaryId: "АВ №077674", assignedVehicleName: "Great Wall", assignedVehicleRegistration: "АВ 7267" }
+];
