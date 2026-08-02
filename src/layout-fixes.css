@@ -1,0 +1,74 @@
+/* A fixed desktop application frame: sidebar stays visible, work area scrolls. */
+html, body, #root { height: 100%; }
+
+body { overflow: hidden; }
+
+.product-shell {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sidebar {
+  height: 100vh;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.workspace {
+  height: 100vh;
+  min-width: 0;
+  margin: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.panel,
+.page-title > div:first-child,
+.template-card > div,
+.template-row > div { min-width: 0; }
+
+.product-logo b,
+.sidebar nav button,
+.page-title h1,
+.page-title p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-title { gap: 20px; }
+
+.template-card b,
+.template-row b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-card p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.template-card small,
+.template-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.button svg,
+.sidebar nav button svg,
+.product-logo > svg { flex: 0 0 auto; }
+
+@media (max-width: 1080px) {
+  body { overflow: auto; }
+  .product-shell { height: auto; overflow: visible; }
+  .sidebar { height: auto; overflow: visible; }
+  .workspace { height: auto; overflow: visible; }
+}
