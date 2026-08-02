@@ -82,9 +82,9 @@ body { overflow: hidden; }
 }
 
 .screen-body:has(.people-layout) .filter-bar {
-  display: grid;
-  grid-template-columns: max-content max-content max-content max-content max-content minmax(max-content, 1fr);
+  display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 12px;
   min-width: 0;
 }
@@ -98,11 +98,15 @@ body { overflow: hidden; }
 }
 
 .screen-body:has(.people-layout) .filter-bar .reset {
-  grid-column: 1 / -1;
-  justify-self: end;
-  margin: 0;
+  width: 38px;
+  min-height: 38px;
+  margin-left: auto;
+  padding: 0;
+  font-size: 0;
   white-space: nowrap;
 }
+
+.screen-body:has(.people-layout) .filter-bar .reset svg { width: 19px; height: 19px; }
 
 .screen-body:has(.people-layout) .people-layout {
   min-height: 0;
@@ -259,8 +263,8 @@ body { overflow: hidden; }
   .screen-body:has(.people-layout) .person-details { height: auto; overflow: visible; }
   .screen-body:has(.people-layout) .data-table { display: block; }
   .screen-body:has(.people-layout) .data-table table { display: table; overflow: visible; }
-  .screen-body:has(.people-layout) .filter-bar { grid-template-columns: repeat(3, max-content); }
-  .screen-body:has(.people-layout) .filter-bar .reset { grid-column: auto; justify-self: start; }
+  .screen-body:has(.people-layout) .filter-bar { flex-wrap: wrap; }
+  .screen-body:has(.people-layout) .filter-bar .reset { width: auto; padding: 0 10px; margin-left: 0; font-size: 12px; }
   .screen-body:has(.generation-layout) { overflow: visible; }
   .screen-body:has(.generation-layout) .generation-layout { height: auto; }
   .screen-body:has(.generation-layout) .template-picker,
