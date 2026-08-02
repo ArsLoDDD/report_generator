@@ -73,4 +73,12 @@ describe("navigation and report generation", () => {
     expect(screen.getByText("Останні рапорти")).toBeInTheDocument();
     expect(screen.queryByText("Усього шаблонів")).not.toBeInTheDocument();
   });
+
+  it("shows an example after selecting a template variable in documentation", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
+    fireEvent.click(screen.getByRole("button", { name: /\{\{soldier\.taxId\}\}/ }));
+    expect(screen.getByText("Десятизначний ідентифікаційний номер.")).toBeInTheDocument();
+    expect(screen.getByText("7462389812")).toBeInTheDocument();
+  });
 });
