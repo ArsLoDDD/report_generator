@@ -68,6 +68,57 @@ body { overflow: hidden; }
   margin-bottom: 0;
 }
 
+/* Personnel is a nested work area: controls never move with either pane. */
+.screen-body:has(.people-layout) {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 14px;
+  overflow: hidden;
+}
+
+.screen-body:has(.people-layout) .main-tools,
+.screen-body:has(.people-layout) .filter-bar {
+  margin: 0;
+}
+
+.screen-body:has(.people-layout) .people-layout {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.screen-body:has(.people-layout) .data-table,
+.screen-body:has(.people-layout) .person-details {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+
+.screen-body:has(.people-layout) .data-table {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.screen-body:has(.people-layout) .data-table table {
+  display: block;
+  min-height: 0;
+  overflow: auto;
+}
+
+.screen-body:has(.people-layout) .data-table .pagination {
+  align-self: stretch;
+  margin: 0;
+  padding: 16px;
+  border-top: 1px solid #20323d;
+  background: #0c1821;
+}
+
+.screen-body:has(.people-layout) .data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #0d1922;
+}
+
 .template-card b,
 .template-row b {
   display: block;
@@ -148,4 +199,10 @@ body { overflow: hidden; }
   .workspace { height: auto; overflow: visible; }
   .screen-frame { height: auto; display: block; }
   .screen-body { overflow: visible; }
+  .screen-body:has(.people-layout) { display: block; overflow: visible; }
+  .screen-body:has(.people-layout) .people-layout,
+  .screen-body:has(.people-layout) .data-table,
+  .screen-body:has(.people-layout) .person-details { height: auto; overflow: visible; }
+  .screen-body:has(.people-layout) .data-table { display: block; }
+  .screen-body:has(.people-layout) .data-table table { display: table; overflow: visible; }
 }
