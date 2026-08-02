@@ -1,5 +1,4 @@
 import { FileCheck2, FileText, Filter, Folder, CheckCircle2 } from "lucide-react";
-import { templates } from "../../shared/constants/mock-data";
 import type { Person, Template } from "../../shared/types/domain";
 import { CheckBox } from "../../shared/ui/CheckBox";
 import { PageFrame } from "../../shared/ui/PageFrame";
@@ -8,6 +7,7 @@ import { useReportGeneration } from "./hooks/useReportGeneration";
 
 type Props = {
   template: Template | null;
+  templates: Template[];
   people: Person[];
   selected: number[];
   onToggle: (id: number) => void;
@@ -16,7 +16,7 @@ type Props = {
   onChoose: (template: Template) => void;
 };
 
-export function ReportGenerationPage({ template, people, selected, onToggle, onAll, onClear, onChoose }: Props) {
+export function ReportGenerationPage({ template, templates, people, selected, onToggle, onAll, onClear, onChoose }: Props) {
   const { error, generatedReport, isGenerating, selectTemplateFile, validation, generate } = useReportGeneration();
   const canGenerate = Boolean(template?.sourcePath && selected.length);
 

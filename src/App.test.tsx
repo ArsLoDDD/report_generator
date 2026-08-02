@@ -14,6 +14,16 @@ vi.mock("./features/report-generation/services/reportGenerationService", () => (
   }
 }));
 
+vi.mock("./features/templates/services/templateService", () => ({
+  templateService: {
+    list: vi.fn().mockResolvedValue([
+      { name: "Рапорт на відпустку", description: "Рапорт на надання відпустки військовослужбовцю", changed: "Локальний файл", status: "ready", variables: 7, sourcePath: "/templates/Рапорт на відпустку.docx" },
+      { name: "Рапорт на матеріальну допомогу", description: "Рапорт на отримання матеріальної допомоги", changed: "Локальний файл", status: "ready", variables: 8, sourcePath: "/templates/Рапорт на матеріальну допомогу.docx" },
+      { name: "Список військовослужбовців", description: "Приклад шаблону з кількома військовослужбовцями", changed: "Локальний файл", status: "ready", variables: 10, sourcePath: "/templates/Список військовослужбовців.docx" }
+    ])
+  }
+}));
+
 afterEach(cleanup);
 
 describe("navigation and report generation", () => {
@@ -42,8 +52,9 @@ describe("navigation and report generation", () => {
     expect(generate).toBeEnabled();
   });
 
-  it("toggles templates and personnel selection from their full rows", () => {
+  it("toggles templates and personnel selection from their full rows", async () => {
     render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /Рапорт на відпустку/ })).toBeInTheDocument());
     const vacationTemplate = screen.getByRole("button", { name: /Рапорт на відпустку/ });
     fireEvent.click(vacationTemplate);
     expect(vacationTemplate).toHaveAttribute("aria-pressed", "true");
@@ -65,10 +76,10 @@ describe("navigation and report generation", () => {
     expect(screen.getByText(/Основний підписант/)).toBeInTheDocument();
   });
 
-  it("shows template variables and recent reports without a templates footer", () => {
+  it("shows template variables and recent reports without a templates footer", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
-    expect(screen.getByText("Поля документа")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Поля документа")).toBeInTheDocument());
     expect(screen.getByText("Військовослужбовці")).toBeInTheDocument();
     expect(screen.getByText("Останні рапорти")).toBeInTheDocument();
     expect(screen.queryByText("Усього шаблонів")).not.toBeInTheDocument();

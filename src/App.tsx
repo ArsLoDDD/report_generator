@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { BookOpen, FileCheck2, FileText, Folder, Home, Settings, Users } from "lucide-react";
-import { templates } from "./shared/constants/mock-data";
 import type { Screen, Template } from "./shared/types/domain";
 import { usePersonnel } from "./features/personnel/hooks/usePersonnel";
 import { ReportGenerationPage } from "./features/report-generation/ReportGenerationPage";
@@ -9,6 +8,7 @@ import { PersonnelPage } from "./features/personnel/PersonnelPage";
 import { GeneratedReportsPage } from "./features/generated-reports/GeneratedReportsPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
 import { DocumentationPage } from "./features/documentation/DocumentationPage";
+import { useTemplates } from "./features/templates/hooks/useTemplates";
 
 const navigation = [
   ["generator", "Генерація рапортів", Home], ["templates", "Шаблони", FileText], ["people", "Особовий склад", Users],
@@ -18,9 +18,10 @@ const navigation = [
 export default function App() {
   const [screen, setScreen] = useState<Screen>("generator");
   const { personnel: people } = usePersonnel();
+  const { templates } = useTemplates();
   const [selectedPeople, setSelectedPeople] = useState<number[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
-  const [templateInfo, setTemplateInfo] = useState(templates[0]);
+  const [templateInfo, setTemplateInfo] = useState<Template | null>(null);
   const [settingsTab, setSettingsTab] = useState<"paths" | "signers">("paths");
 
   const togglePerson = (id: number) => setSelectedPeople((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
@@ -28,5 +29,5 @@ export default function App() {
   const clearSelectedPeople = () => setSelectedPeople([]);
   const toggleTemplate = (template: Template) => setSelectedTemplate((current) => current?.name === template.name ? null : template);
 
-  return <div className="product-shell"><aside className="sidebar"><div className="product-logo"><FileCheck2 /><div><b>Генератор рапортів</b><span>по шаблону</span></div></div><nav>{navigation.map(([id, label, Icon]) => <button key={id} onClick={() => setScreen(id)} className={screen === id ? "nav-active" : ""}><Icon size={23} />{label}</button>)}</nav><div className="version">Версія 1.0.0</div></aside><main className="workspace">{screen === "generator" && <ReportGenerationPage template={selectedTemplate} people={people} selected={selectedPeople} onToggle={togglePerson} onAll={toggleAllPeople} onClear={clearSelectedPeople} onChoose={toggleTemplate} />}{screen === "templates" && <TemplatesPage selected={templateInfo} onSelect={setTemplateInfo} />}{screen === "people" && <PersonnelPage people={people} />}{screen === "generated" && <GeneratedReportsPage />}{screen === "settings" && <SettingsPage active={settingsTab} onChange={setSettingsTab} />}{screen === "documentation" && <DocumentationPage />}</main></div>;
+  return <div className="product-shell"><aside className="sidebar"><div className="product-logo"><FileCheck2 /><div><b>Генератор рапортів</b><span>по шаблону</span></div></div><nav>{navigation.map(([id, label, Icon]) => <button key={id} onClick={() => setScreen(id)} className={screen === id ? "nav-active" : ""}><Icon size={23} />{label}</button>)}</nav><div className="version">Версія 1.0.0</div></aside><main className="workspace">{screen === "generator" && <ReportGenerationPage template={selectedTemplate} templates={templates} people={people} selected={selectedPeople} onToggle={togglePerson} onAll={toggleAllPeople} onClear={clearSelectedPeople} onChoose={toggleTemplate} />}{screen === "templates" && <TemplatesPage templates={templates} selected={templateInfo ?? templates[0] ?? null} onSelect={setTemplateInfo} />}{screen === "people" && <PersonnelPage people={people} />}{screen === "generated" && <GeneratedReportsPage />}{screen === "settings" && <SettingsPage active={settingsTab} onChange={setSettingsTab} />}{screen === "documentation" && <DocumentationPage />}</main></div>;
 }
