@@ -28,7 +28,7 @@ body { overflow: hidden; }
 .generation-page .people-select { flex: 1 1 auto; }
 .generation-page .template-picker { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .generation-page .template-picker__scroll, .generation-page .people-select__scroll { min-height: 0; overflow: auto; }
-.generation-page .people-select { grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
+.generation-page .people-select { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .generation-page .people-select table { margin-top: 0; max-height: none; }
 .generation-page .people-select__scroll { overscroll-behavior: contain; }
 .generation-page .people-select__scroll thead { position: sticky; top: 0; z-index: 2; background: #0d1922; }
