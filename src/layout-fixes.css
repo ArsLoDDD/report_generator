@@ -252,16 +252,17 @@ body { overflow: hidden; }
 .validation-good,
 .validation-bad {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: 42px minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 14px;
 }
 
 .validation-good .button,
 .validation-bad .button {
-  grid-column: 1 / -1;
-  justify-self: center;
-  margin: 18px 0 0;
+  grid-column: 3;
+  justify-self: end;
+  align-self: center;
+  margin: 0;
 }
 
 @media (max-width: 1080px) {
