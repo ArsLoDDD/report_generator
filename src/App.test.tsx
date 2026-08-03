@@ -20,6 +20,7 @@ vi.mock("./features/settings/services/settingsService", () => ({
 vi.mock("./features/report-generation/services/reportGenerationService", () => ({
   reportGenerationService: {
     selectTemplateFile: vi.fn().mockResolvedValue("/templates/Нагородний рапорт.docx"),
+    inspectTemplate: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: ["document.date"] }),
     validateTemplate: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: [] }),
     generateReport: vi.fn().mockResolvedValue({ docxPath: "/Reports/2026-08-03/Рапорт на відпустку/Рапорт на відпустку.docx", folderPath: "/Reports/2026-08-03/Рапорт на відпустку" }),
     openGeneratedReport: vi.fn(),
@@ -33,7 +34,8 @@ vi.mock("./features/templates/services/templateService", () => ({
       { name: "Рапорт на відпустку", description: "Рапорт на надання відпустки військовослужбовцю", changed: "Локальний файл", status: "ready", variables: 7, sourcePath: "/templates/Рапорт на відпустку.docx" },
       { name: "Рапорт на матеріальну допомогу", description: "Рапорт на отримання матеріальної допомоги", changed: "Локальний файл", status: "ready", variables: 8, sourcePath: "/templates/Рапорт на матеріальну допомогу.docx" },
       { name: "Список військовослужбовців", description: "Приклад шаблону з кількома військовослужбовцями", changed: "Локальний файл", status: "ready", variables: 10, sourcePath: "/templates/Список військовослужбовців.docx" }
-    ])
+    ]),
+    inspect: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: ["soldier.fullName", "main.fullName"] })
   }
 }));
 
@@ -130,7 +132,7 @@ describe("navigation and report generation", () => {
   it("shows template variables and recent reports without a templates footer", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
-    await waitFor(() => expect(screen.getByText("Поля документа")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Використовувані змінні")).toBeInTheDocument());
     expect(screen.getByText("Військовослужбовці")).toBeInTheDocument();
     expect(screen.getByText("Останні рапорти")).toBeInTheDocument();
     expect(screen.queryByText("Усього шаблонів")).not.toBeInTheDocument();
@@ -142,5 +144,21 @@ describe("navigation and report generation", () => {
     fireEvent.click(screen.getByRole("button", { name: /\{\{soldier\.taxId\}\}/ }));
     expect(screen.getByText("Десятизначний ідентифікаційний номер.")).toBeInTheDocument();
     expect(screen.getByText("ІПН: 7462389812")).toBeInTheDocument();
+  });
+
+  it("shows a date picker only for a template that uses document.date", async () => {
+    render(<App />);
+    const templateCard = await screen.findByRole("button", { name: /Рапорт на відпустку/ });
+    fireEvent.click(templateCard);
+    await waitFor(() => expect(screen.getByText("Дата рапорту")).toBeInTheDocument());
+    expect(screen.getByDisplayValue(/^\d{4}-\d{2}-\d{2}$/)).toBeInTheDocument();
+  });
+
+  it("notifies after copying a template variable", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
+    fireEvent.click(screen.getByRole("button", { name: /\{\{soldier\.rank\}\}/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Скопіювати змінну" }));
+    await waitFor(() => expect(screen.getByText("Змінну скопійовано.")).toBeInTheDocument());
   });
 });

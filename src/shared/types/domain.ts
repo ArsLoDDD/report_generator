@@ -9,6 +9,12 @@ export type Template = {
   sourcePath?: string;
 };
 
+export type TemplateInspection = {
+  isValid: boolean;
+  errors: string[];
+  variables: string[];
+};
+
 export type Person = {
   id: number;
   fullName: string;

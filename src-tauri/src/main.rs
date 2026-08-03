@@ -140,8 +140,10 @@ fn list_templates(app: tauri::AppHandle) -> Result<Vec<TemplateFile>, String> {
         .filter(|path| path.extension().and_then(|value| value.to_str()).is_some_and(|extension| extension.eq_ignore_ascii_case("docx")))
         .filter_map(|path| {
             let file_name = path.file_name()?.to_str()?.to_string();
-            let (description, variables) = template_description(&file_name);
-            Some(TemplateFile { name: path.file_stem()?.to_str()?.to_string(), description: description.to_string(), changed: "Локальний файл".to_string(), status: "ready".to_string(), variables, source_path: path.to_string_lossy().to_string() })
+            let (description, _) = template_description(&file_name);
+            let source_path = path.to_string_lossy().to_string();
+            let inspection = report_generation::inspect(&source_path);
+            Some(TemplateFile { name: path.file_stem()?.to_str()?.to_string(), description: description.to_string(), changed: "Локальний файл".to_string(), status: if inspection.is_valid { "ready".to_string() } else { "error".to_string() }, variables: inspection.variables.len() as u16, source_path })
         }).collect::<Vec<_>>();
     templates.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(templates)
@@ -157,9 +159,14 @@ fn select_template_file(app: tauri::AppHandle) -> Result<Option<String>, String>
 }
 
 #[tauri::command]
-fn validate_template(state: tauri::State<AppState>, template_path: String, personnel_ids: Vec<i64>) -> Result<report_generation::TemplateValidationResult, String> {
+fn inspect_template(template_path: String) -> Result<report_generation::TemplateValidationResult, String> {
+    Ok(report_generation::inspect(&template_path))
+}
+
+#[tauri::command]
+fn validate_template(state: tauri::State<AppState>, template_path: String, personnel_ids: Vec<i64>, report_date: Option<String>) -> Result<report_generation::TemplateValidationResult, String> {
     let connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
-    Ok(report_generation::validate(&connection, &template_path, &personnel_ids))
+    Ok(report_generation::validate(&connection, &template_path, &personnel_ids, report_date.as_deref()))
 }
 
 #[tauri::command]
@@ -252,7 +259,7 @@ fn main() {
             app.manage(AppState(Mutex::new(connection)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, get_app_settings, update_signer_settings, list_templates, select_template_file, validate_template, generate_report, open_generated_report, open_generated_report_folder, open_application_directory, create_database_backup, list_generated_reports])
+        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, get_app_settings, update_signer_settings, list_templates, select_template_file, inspect_template, validate_template, generate_report, open_generated_report, open_generated_report_folder, open_application_directory, create_database_backup, list_generated_reports])
         .run(tauri::generate_context!())
         .expect("Не вдалося запустити застосунок");
 }

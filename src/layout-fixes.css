@@ -46,6 +46,10 @@ body { overflow: hidden; }
 .generation-page .selection-footer .button:disabled { opacity: .45; cursor: not-allowed; }
 .generation-result { display: grid; gap: 9px; margin-top: 11px; text-align: center; }
 .generation-result > div { display: flex; justify-content: center; gap: 9px; }
+.report-date-picker { display: grid; grid-template-columns: minmax(0, 1fr) 190px; align-items: center; gap: 16px; margin-top: 13px; padding: 12px 16px; }
+.report-date-picker span { color: #cfd9de; font-weight: 650; }
+.report-date-picker input { width: 100%; min-height: 40px; border: 1px solid #2a3b46; border-radius: 6px; background: #0a151e; color: #e7eef2; padding: 0 10px; color-scheme: dark; }
+.selection-column:has(.report-date-picker) .people-select { flex: 1 1 0; }
 
 /* Reusable search filters: the native control keeps full keyboard accessibility. */
 .shared-select { position: relative; display: inline-flex; align-items: center; min-width: 160px; }
@@ -150,13 +154,15 @@ body { overflow: hidden; }
 .variable-token:hover { border-color: #43ad4c; background: #12251b; }
 .variable-token code, .variable-preview > code { color: #62db60; font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .variable-token span { font-size: 11px; color: #aab7c0; }
-.variable-preview { align-self: start; padding: 20px; display: grid; gap: 13px; }
+.variable-preview { align-self: start; padding: 20px; display: grid; gap: 16px; }
 .variable-preview h2, .variable-preview p { margin: 0; }
-.variable-preview > div { display: grid; gap: 7px; padding: 12px; border-radius: 6px; }
+.variable-preview__header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 13px; border-radius: 7px; background: linear-gradient(100deg, #10341d, #154b25); color: #68e269; font-weight: 650; }
+.variable-preview__header code { color: #d4f5d6; font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; text-align: right; }
+.variable-preview > div { display: grid; gap: 8px; padding: 15px; border-radius: 8px; }
 .variable-preview > div span { color: #91a1ab; font-size: 11px; }
-.word-example { border: 1px solid #2a4050; background: #0c1820; }
-.word-example code { display: block; overflow-wrap: anywhere; white-space: pre-wrap; color: #d8e3e8; font: 13px/1.5 Georgia, serif; }
-.variable-result { background: #10202a; }
+.word-example { border: 1px solid #2b4d60; background: linear-gradient(145deg, #13212b, #0e1a22); box-shadow: inset 3px 0 #4a9bd0; }
+.word-example code { display: block; overflow-wrap: anywhere; white-space: pre-wrap; color: #e5edf0; font: 600 17px/1.45 Georgia, "Times New Roman", serif; }
+.variable-result { background: #10202a; border: 1px solid #203846; }
 .variable-result b { overflow-wrap: anywhere; white-space: normal; line-height: 1.45; }
 .variable-preview .button { justify-self: start; }
 

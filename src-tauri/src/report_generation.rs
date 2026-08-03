@@ -1,5 +1,5 @@
 use crate::{personnel::{self, Personnel}, settings, SIGNATURES_DIRECTORY_NAME, REPORTS_DIRECTORY_NAME};
-use chrono::Local;
+use chrono::{Local, NaiveDate};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs::{self, File}, io::{Read, Write}, path::Path};
@@ -7,7 +7,7 @@ use zip::{read::ZipArchive, write::{SimpleFileOptions, ZipWriter}, CompressionMe
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GenerateReportRequest { pub template_path: String, pub personnel_ids: Vec<i64> }
+pub struct GenerateReportRequest { pub template_path: String, pub personnel_ids: Vec<i64>, pub report_date: Option<String> }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,30 +17,41 @@ pub struct TemplateValidationResult { pub is_valid: bool, pub errors: Vec<String
 #[serde(rename_all = "camelCase")]
 pub struct GeneratedReport { pub docx_path: String, pub folder_path: String }
 
-pub fn validate(connection: &Connection, template_path: &str, personnel_ids: &[i64]) -> TemplateValidationResult {
+pub fn inspect(template_path: &str) -> TemplateValidationResult {
     let mut errors = Vec::new();
-    if personnel_ids.is_empty() { errors.push("Оберіть щонайменше одного військовослужбовця.".into()); }
     let variables = match read_variables(Path::new(template_path)) { Ok(variables) => variables, Err(error) => { errors.push(error); Vec::new() } };
-    let allowed_prefix = if personnel_ids.len() == 1 { "soldier." } else { "soldiers[" };
     for variable in &variables {
-        if variable.starts_with("soldier.") && allowed_prefix != "soldier." { errors.push(format!("Змінна «{{{{{variable}}}}}» призначена для шаблону з однією особою.")); }
-        if variable.starts_with("soldiers[") && allowed_prefix != "soldiers[" { errors.push(format!("Змінна «{{{{{variable}}}}}» потребує вибору двох або більше осіб.")); }
         if !is_supported_variable(variable) { errors.push(format!("Невідома змінна «{{{{{variable}}}}}». Перевірте довідник мови шаблонів.")); }
-    }
-    if errors.is_empty() {
-        let available = personnel::list(connection).unwrap_or_default();
-        if personnel_ids.iter().any(|id| !available.iter().any(|person| person.id == *id)) { errors.push("Один або кілька обраних військовослужбовців більше не існують. Оновіть список.".into()); }
     }
     TemplateValidationResult { is_valid: errors.is_empty(), errors, variables }
 }
 
+pub fn validate(connection: &Connection, template_path: &str, personnel_ids: &[i64], report_date: Option<&str>) -> TemplateValidationResult {
+    let mut inspection = inspect(template_path);
+    let errors = &mut inspection.errors;
+    if personnel_ids.is_empty() { errors.push("Оберіть щонайменше одного військовослужбовця.".into()); }
+    let allowed_prefix = if personnel_ids.len() == 1 { "soldier." } else { "soldiers[" };
+    for variable in &inspection.variables {
+        if variable.starts_with("soldier.") && allowed_prefix != "soldier." { errors.push(format!("Змінна «{{{{{variable}}}}}» призначена для шаблону з однією особою.")); }
+        if variable.starts_with("soldiers[") && allowed_prefix != "soldiers[" { errors.push(format!("Змінна «{{{{{variable}}}}}» потребує вибору двох або більше осіб.")); }
+    }
+    if inspection.variables.iter().any(|variable| variable == "document.date") && report_date.filter(|date| !date.is_empty()).is_none() { errors.push("Оберіть дату для змінної «{{document.date}}».".into()); }
+    if let Some(date) = report_date.filter(|date| !date.is_empty()) { if NaiveDate::parse_from_str(date, "%Y-%m-%d").is_err() { errors.push("Дата рапорту має формат РРРР-ММ-ДД.".into()); } }
+    if errors.is_empty() {
+        let available = personnel::list(connection).unwrap_or_default();
+        if personnel_ids.iter().any(|id| !available.iter().any(|person| person.id == *id)) { errors.push("Один або кілька обраних військовослужбовців більше не існують. Оновіть список.".into()); }
+    }
+    inspection.is_valid = errors.is_empty();
+    inspection
+}
+
 pub fn generate(connection: &Connection, app_data_directory: &Path, request: GenerateReportRequest) -> Result<GeneratedReport, String> {
-    let validation = validate(connection, &request.template_path, &request.personnel_ids);
+    let validation = validate(connection, &request.template_path, &request.personnel_ids, request.report_date.as_deref());
     if !validation.is_valid { return Err(validation.errors.join(" ")); }
     let personnel = selected_personnel(connection, &request.personnel_ids)?;
     let settings = settings::load(app_data_directory)?;
-    let values = values_for(&personnel, &settings);
-    let signature_image = if validation.variables.iter().any(|variable| variable == "mainSignature") {
+    let values = values_for(&personnel, &settings, request.report_date.as_deref())?;
+    let signature_image = if validation.variables.iter().any(|variable| variable == "mainSignature" || variable == "main.signature") {
         let signature_name = settings.main_signer.signature_file_name.as_deref().unwrap_or("main.png");
         let signature_path = app_data_directory.join(SIGNATURES_DIRECTORY_NAME).join(signature_name);
         Some(fs::read(&signature_path).map_err(|_| format!("Не вдалося знайти підпис «{signature_name}» у папці «Підписи». Додайте PNG-файл або змініть його назву в налаштуваннях."))?)
@@ -70,7 +81,7 @@ fn available_file_name(directory: &Path, report_name: &str, timestamp: String) -
 
 fn selected_personnel(connection: &Connection, ids: &[i64]) -> Result<Vec<Personnel>, String> { let all = personnel::list(connection)?; ids.iter().map(|id| all.iter().find(|person| person.id == *id).cloned().ok_or_else(|| "Не знайдено обраного військовослужбовця.".to_string())).collect() }
 
-fn values_for(personnel: &[Personnel], settings: &settings::AppSettings) -> HashMap<String, String> {
+fn values_for(personnel: &[Personnel], settings: &settings::AppSettings, report_date: Option<&str>) -> Result<HashMap<String, String>, String> {
     let mut values = HashMap::new();
     if personnel.len() == 1 {
         add_person_values(&mut values, "soldier", &personnel[0]);
@@ -80,6 +91,10 @@ fn values_for(personnel: &[Personnel], settings: &settings::AppSettings) -> Hash
         }
     }
     values.extend([
+        ("main.rank".to_string(), settings.main_signer.rank.clone()),
+        ("main.fullName".to_string(), settings.main_signer.full_name.clone()),
+        ("main.position".to_string(), settings.main_signer.position.clone()),
+        ("main.signature".to_string(), "".to_string()),
         ("mainRank".to_string(), settings.main_signer.rank.clone()),
         ("mainName".to_string(), settings.main_signer.full_name.clone()),
         ("mainPosition".to_string(), settings.main_signer.position.clone()),
@@ -87,7 +102,11 @@ fn values_for(personnel: &[Personnel], settings: &settings::AppSettings) -> Hash
         ("commanderName".to_string(), settings.commander.full_name.clone()),
         ("chiefName".to_string(), settings.chief.full_name.clone()),
     ]);
-    values
+    if let Some(value) = report_date.filter(|date| !date.is_empty()) {
+        let date = NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| "Не вдалося прочитати дату рапорту.".to_string())?;
+        values.insert("document.date".to_string(), date.format("%d.%m.%Y року").to_string());
+    }
+    Ok(values)
 }
 
 fn add_person_values(values: &mut HashMap<String, String>, prefix: &str, person: &Personnel) {
@@ -96,7 +115,7 @@ fn add_person_values(values: &mut HashMap<String, String>, prefix: &str, person:
 
 fn read_variables(path: &Path) -> Result<Vec<String>, String> { let file = File::open(path).map_err(|_| "Не вдалося відкрити шаблон. Перевірте шлях і доступ до файлу.".to_string())?; let mut archive = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-шаблоном.".to_string())?; let mut variables = Vec::new(); for index in 0..archive.len() { let mut entry = archive.by_index(index).map_err(|_| "Не вдалося прочитати вміст шаблону.".to_string())?; if !entry.name().ends_with(".xml") { continue; } let mut content = String::new(); let _ = entry.read_to_string(&mut content); variables.extend(extract_variables(&content)); } variables.sort(); variables.dedup(); Ok(variables) }
 fn extract_variables(content: &str) -> Vec<String> { let mut values = Vec::new(); let mut remaining = content; while let Some(start) = remaining.find("{{") { let after_start = &remaining[start + 2..]; if let Some(end) = after_start.find("}}") { values.push(after_start[..end].to_string()); remaining = &after_start[end + 2..]; } else { break; } } values }
-fn is_supported_variable(variable: &str) -> bool { let person_fields = ["rank", "surname", "givenName", "patronymic", "fullName", "position", "taxId", "birthDate", "educationLevel", "educationDetails", "armedForcesServiceStartDate", "positionAssignedDate", "positionAssignmentOrder", "militaryId", "assignedVehicleName", "assignedVehicleRegistration"]; person_fields.iter().any(|field| variable == &format!("soldier.{field}") || (variable.starts_with("soldiers[") && variable.ends_with(&format!("].{field}")))) || ["mainRank", "mainName", "mainPosition", "mainSignature", "commanderName", "chiefName"].contains(&variable) }
+fn is_supported_variable(variable: &str) -> bool { let person_fields = ["rank", "surname", "givenName", "patronymic", "fullName", "position", "taxId", "birthDate", "educationLevel", "educationDetails", "armedForcesServiceStartDate", "positionAssignedDate", "positionAssignmentOrder", "militaryId", "assignedVehicleName", "assignedVehicleRegistration"]; person_fields.iter().any(|field| variable == &format!("soldier.{field}") || (variable.starts_with("soldiers[") && variable.ends_with(&format!("].{field}")))) || ["main.rank", "main.fullName", "main.position", "main.signature", "document.date", "mainRank", "mainName", "mainPosition", "mainSignature", "commanderName", "chiefName"].contains(&variable) }
 fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>, signature_image: Option<&[u8]>) -> Result<(), String> {
     let file = File::open(input).map_err(|_| "Не вдалося відкрити DOCX-шаблон.".to_string())?;
     let mut archive = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-шаблоном.".to_string())?;
@@ -130,7 +149,7 @@ fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>, sig
 fn replace_signature_token(content: &str, has_signature: bool) -> String {
     if !has_signature { return content.to_string(); }
     let drawing = r#"<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="1371600" cy="457200"/><wp:docPr id="101" name="Підпис основного підписанта"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="main-signature.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdMainSignature"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1371600" cy="457200"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>"#;
-    content.replace("<w:t>{{mainSignature}}</w:t>", drawing)
+    content.replace("<w:t>{{mainSignature}}</w:t>", drawing).replace("<w:t>{{main.signature}}</w:t>", drawing)
 }
 fn add_signature_relationship(content: &str) -> String { content.replace("</Relationships>", "<Relationship Id=\"rIdMainSignature\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/main-signature.png\"/></Relationships>") }
 fn add_png_content_type(content: &str) -> String { if content.contains("Extension=\"png\"") { content.to_string() } else { content.replace("</Types>", "<Default Extension=\"png\" ContentType=\"image/png\"/></Types>") } }
@@ -160,7 +179,7 @@ mod tests {
     fn reports_missing_template_cleanly() {
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
-        let result = validate(&connection, "/missing.docx", &[1]);
+        let result = validate(&connection, "/missing.docx", &[1], None);
         assert!(!result.is_valid);
         assert!(result.errors.iter().any(|error| error.contains("Не вдалося відкрити шаблон")));
     }
@@ -170,10 +189,20 @@ mod tests {
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
         let people = selected_personnel(&connection, &[1, 2]).unwrap();
-        let values = values_for(&people, &settings::defaults());
+        let values = values_for(&people, &settings::defaults(), None).unwrap();
         assert!(values.contains_key("soldiers[0].fullName"));
         assert!(values.contains_key("soldiers[1].fullName"));
         assert!(!values.contains_key("soldier.fullName"));
+    }
+
+    #[test]
+    fn provides_main_namespace_and_formats_report_date() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let people = selected_personnel(&connection, &[1]).unwrap();
+        let values = values_for(&people, &settings::defaults(), Some("2026-08-03")).unwrap();
+        assert_eq!(values.get("main.fullName").unwrap(), "Іваненко Іван Іванович");
+        assert_eq!(values.get("document.date").unwrap(), "03.08.2026 року");
     }
 
     #[test]
@@ -194,9 +223,21 @@ mod tests {
         write_test_template(&template_path, "<w:t>{{soldier.fullName}}</w:t>");
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
-        let result = validate(&connection, template_path.to_str().unwrap(), &[1, 2]);
+        let result = validate(&connection, template_path.to_str().unwrap(), &[1, 2], None);
         assert!(!result.is_valid);
         assert!(result.errors.iter().any(|error| error.contains("однією особою")));
+        fs::remove_file(template_path).unwrap();
+    }
+
+    #[test]
+    fn requires_a_date_when_template_uses_document_date() {
+        let template_path = temporary_path("date.docx");
+        write_test_template(&template_path, "<w:t>{{document.date}}</w:t>");
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let result = validate(&connection, template_path.to_str().unwrap(), &[1], None);
+        assert!(!result.is_valid);
+        assert!(result.errors.iter().any(|error| error.contains("Оберіть дату")));
         fs::remove_file(template_path).unwrap();
     }
 
@@ -208,7 +249,7 @@ mod tests {
         write_test_template(&template_path, "<w:t>{{soldier.fullName}}</w:t>");
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
-        let report = generate(&connection, &root, GenerateReportRequest { template_path: template_path.to_string_lossy().to_string(), personnel_ids: vec![1] }).unwrap();
+        let report = generate(&connection, &root, GenerateReportRequest { template_path: template_path.to_string_lossy().to_string(), personnel_ids: vec![1], report_date: None }).unwrap();
         assert!(Path::new(&report.docx_path).is_file());
         let mut archive = ZipArchive::new(File::open(&report.docx_path).unwrap()).unwrap();
         let mut document = String::new();
