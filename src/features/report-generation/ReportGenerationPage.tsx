@@ -12,6 +12,13 @@ import { useReportGeneration } from "./hooks/useReportGeneration";
 
 type Props = { template: Template | null; templates: Template[]; people: Person[]; selected: number[]; onToggle: (id: number) => void; onAll: () => void; onClear: () => void; onChoose: (template: Template) => void };
 
+function currentLocalDateForInput() {
+  const date = new Date();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
 export function ReportGenerationPage({ template, templates, people, selected, onToggle, onAll, onClear, onChoose }: Props) {
   const { error, generatedReport, inspection, isGenerating, selectTemplateFile, inspectTemplate, validation, generate, openReport, openReportFolder, resetResult } = useReportGeneration();
   const { notify } = useNotifications();
@@ -19,7 +26,7 @@ export function ReportGenerationPage({ template, templates, people, selected, on
   const [personQuery, setPersonQuery] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [rank, setRank] = useState("all");
-  const [reportDate, setReportDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reportDate, setReportDate] = useState(currentLocalDateForInput);
   const generationContext = useMemo(() => `${template?.sourcePath ?? ""}:${selected.join(",")}`, [template?.sourcePath, selected]);
   const requiresDate = inspection?.variables.includes("document.date") ?? false;
   const canGenerate = Boolean(template?.sourcePath && selected.length && (!requiresDate || reportDate));

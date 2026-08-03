@@ -35,7 +35,6 @@ pub fn validate(connection: &Connection, template_path: &str, personnel_ids: &[i
         if variable.starts_with("soldier.") && allowed_prefix != "soldier." { errors.push(format!("Змінна «{{{{{variable}}}}}» призначена для шаблону з однією особою.")); }
         if variable.starts_with("soldiers[") && allowed_prefix != "soldiers[" { errors.push(format!("Змінна «{{{{{variable}}}}}» потребує вибору двох або більше осіб.")); }
     }
-    if inspection.variables.iter().any(|variable| variable == "document.date") && report_date.filter(|date| !date.is_empty()).is_none() { errors.push("Оберіть дату для змінної «{{document.date}}».".into()); }
     if let Some(date) = report_date.filter(|date| !date.is_empty()) { if NaiveDate::parse_from_str(date, "%Y-%m-%d").is_err() { errors.push("Дата рапорту має формат РРРР-ММ-ДД.".into()); } }
     if errors.is_empty() {
         let available = personnel::list(connection).unwrap_or_default();
@@ -106,10 +105,11 @@ fn values_for(personnel: &[Personnel], settings: &settings::AppSettings, report_
         ("commanderName".to_string(), settings.commander.full_name.clone()),
         ("chiefName".to_string(), settings.chief.full_name.clone()),
     ]);
-    if let Some(value) = report_date.filter(|date| !date.is_empty()) {
-        let date = NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| "Не вдалося прочитати дату рапорту.".to_string())?;
-        values.insert("document.date".to_string(), date.format("%d.%m.%Y року").to_string());
-    }
+    let report_date = match report_date.filter(|date| !date.is_empty()) {
+        Some(value) => NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| "Не вдалося прочитати дату рапорту.".to_string())?,
+        None => Local::now().date_naive(),
+    };
+    values.insert("document.date".to_string(), report_date.format("%d.%m.%Y року").to_string());
     Ok(values)
 }
 
@@ -413,14 +413,16 @@ mod tests {
     }
 
     #[test]
-    fn requires_a_date_when_template_uses_document_date() {
+    fn uses_todays_date_when_template_does_not_provide_one() {
         let template_path = temporary_path("date.docx");
         write_test_template(&template_path, "<w:t>{{document.date}}</w:t>");
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
         let result = validate(&connection, template_path.to_str().unwrap(), &[1], None);
-        assert!(!result.is_valid);
-        assert!(result.errors.iter().any(|error| error.contains("Оберіть дату")));
+        assert!(result.is_valid);
+        let people = selected_personnel(&connection, &[1]).unwrap();
+        let values = values_for(&people, &settings::defaults(), None).unwrap();
+        assert_eq!(values.get("document.date").unwrap(), &Local::now().format("%d.%m.%Y року").to_string());
         fs::remove_file(template_path).unwrap();
     }
 
