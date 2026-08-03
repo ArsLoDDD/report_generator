@@ -83,6 +83,7 @@ fn selected_personnel(connection: &Connection, ids: &[i64]) -> Result<Vec<Person
 
 fn values_for(personnel: &[Personnel], settings: &settings::AppSettings, report_date: Option<&str>) -> Result<HashMap<String, String>, String> {
     let mut values = HashMap::new();
+    let main_name = signer_name_parts(&settings.main_signer.full_name);
     if personnel.len() == 1 {
         add_person_values(&mut values, "soldier", &personnel[0]);
     } else {
@@ -92,7 +93,10 @@ fn values_for(personnel: &[Personnel], settings: &settings::AppSettings, report_
     }
     values.extend([
         ("main.rank".to_string(), settings.main_signer.rank.clone()),
-        ("main.fullName".to_string(), settings.main_signer.full_name.clone()),
+        ("main.surname".to_string(), main_name.0.clone()),
+        ("main.givenName".to_string(), main_name.1.clone()),
+        ("main.patronymic".to_string(), main_name.2.clone()),
+        ("main.fullName".to_string(), [main_name.0.clone(), main_name.1.clone(), main_name.2.clone()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")),
         ("main.position".to_string(), settings.main_signer.position.clone()),
         ("main.signature".to_string(), "".to_string()),
         ("mainRank".to_string(), settings.main_signer.rank.clone()),
@@ -118,6 +122,11 @@ fn format_person_full_name(person: &Personnel) -> String {
     [name_case(&person.surname), name_case(&person.given_name), name_case(&person.patronymic)].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
+fn signer_name_parts(full_name: &str) -> (String, String, String) {
+    let parts = full_name.split_whitespace().map(name_case).collect::<Vec<_>>();
+    (parts.first().cloned().unwrap_or_default(), parts.get(1).cloned().unwrap_or_default(), parts.get(2..).unwrap_or_default().join(" "))
+}
+
 fn name_case(value: &str) -> String {
     value.split_whitespace().map(|word| word.split('-').map(|part| {
         let mut characters = part.chars();
@@ -128,7 +137,7 @@ fn name_case(value: &str) -> String {
 
 fn read_variables(path: &Path) -> Result<Vec<String>, String> { let file = File::open(path).map_err(|_| "Не вдалося відкрити шаблон. Перевірте шлях і доступ до файлу.".to_string())?; let mut archive = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-шаблоном.".to_string())?; let mut variables = Vec::new(); for index in 0..archive.len() { let mut entry = archive.by_index(index).map_err(|_| "Не вдалося прочитати вміст шаблону.".to_string())?; if !entry.name().ends_with(".xml") { continue; } let mut content = String::new(); let _ = entry.read_to_string(&mut content); variables.extend(extract_variables(&content)); } variables.sort(); variables.dedup(); Ok(variables) }
 fn extract_variables(content: &str) -> Vec<String> { let mut values = Vec::new(); let mut remaining = content; while let Some(start) = remaining.find("{{") { let after_start = &remaining[start + 2..]; if let Some(end) = after_start.find("}}") { values.push(after_start[..end].to_string()); remaining = &after_start[end + 2..]; } else { break; } } values }
-fn is_supported_variable(variable: &str) -> bool { let person_fields = ["rank", "surname", "givenName", "patronymic", "fullName", "position", "taxId", "birthDate", "educationLevel", "educationDetails", "armedForcesServiceStartDate", "positionAssignedDate", "positionAssignmentOrder", "militaryId", "assignedVehicleName", "assignedVehicleRegistration"]; person_fields.iter().any(|field| variable == &format!("soldier.{field}") || (variable.starts_with("soldiers[") && variable.ends_with(&format!("].{field}")))) || ["main.rank", "main.fullName", "main.position", "main.signature", "document.date", "mainRank", "mainName", "mainPosition", "mainSignature", "commanderName", "chiefName"].contains(&variable) }
+fn is_supported_variable(variable: &str) -> bool { let person_fields = ["rank", "surname", "givenName", "patronymic", "fullName", "position", "taxId", "birthDate", "educationLevel", "educationDetails", "armedForcesServiceStartDate", "positionAssignedDate", "positionAssignmentOrder", "militaryId", "assignedVehicleName", "assignedVehicleRegistration"]; person_fields.iter().any(|field| variable == &format!("soldier.{field}") || (variable.starts_with("soldiers[") && variable.ends_with(&format!("].{field}")))) || ["main.rank", "main.surname", "main.givenName", "main.patronymic", "main.fullName", "main.position", "main.signature", "document.date", "mainRank", "mainName", "mainPosition", "mainSignature", "commanderName", "chiefName"].contains(&variable) }
 fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>, signature_image: Option<&[u8]>) -> Result<(), String> {
     let file = File::open(input).map_err(|_| "Не вдалося відкрити DOCX-шаблон.".to_string())?;
     let mut archive = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-шаблоном.".to_string())?;
@@ -215,6 +224,9 @@ mod tests {
         let people = selected_personnel(&connection, &[1]).unwrap();
         let values = values_for(&people, &settings::defaults(), Some("2026-08-03")).unwrap();
         assert_eq!(values.get("main.fullName").unwrap(), "Іваненко Іван Іванович");
+        assert_eq!(values.get("main.surname").unwrap(), "Іваненко");
+        assert_eq!(values.get("main.givenName").unwrap(), "Іван");
+        assert_eq!(values.get("main.patronymic").unwrap(), "Іванович");
         assert_eq!(values.get("document.date").unwrap(), "03.08.2026 року");
     }
 

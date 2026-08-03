@@ -36,6 +36,9 @@ export const documentVariables: TemplateVariable[] = [
 
 export const signerVariables: TemplateVariable[] = [
   { token: "{{main.rank}}", label: "Звання основного підписанта", description: "Звання основного підписанта з налаштувань програми.", example: "майор" },
+  { token: "{{main.surname}}", label: "Прізвище основного підписанта", description: "Перше слово з ПІБ основного підписанта; починається з великої літери.", example: "Іваненко" },
+  { token: "{{main.givenName}}", label: "Ім’я основного підписанта", description: "Друге слово з ПІБ основного підписанта.", example: "Іван" },
+  { token: "{{main.patronymic}}", label: "По батькові основного підписанта", description: "Третє слово з ПІБ основного підписанта.", example: "Іванович" },
   { token: "{{main.fullName}}", label: "Повне ПІБ основного підписанта", description: "ПІБ основного підписанта з налаштувань програми.", example: "Іваненко Іван Іванович" },
   { token: "{{main.position}}", label: "Посада основного підписанта", description: "Посада основного підписанта з налаштувань програми.", example: "Заступник командира з ППП" },
   { token: "{{main.signature}}", label: "Підпис основного підписанта", description: "PNG-зображення з папки «Підписи». Назва файлу налаштовується лише для основного підписанта.", example: "[зображення підпису]" },
