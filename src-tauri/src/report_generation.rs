@@ -136,7 +136,38 @@ fn name_case(value: &str) -> String {
 }
 
 fn read_variables(path: &Path) -> Result<Vec<String>, String> { let file = File::open(path).map_err(|_| "Не вдалося відкрити шаблон. Перевірте шлях і доступ до файлу.".to_string())?; let mut archive = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-шаблоном.".to_string())?; let mut variables = Vec::new(); for index in 0..archive.len() { let mut entry = archive.by_index(index).map_err(|_| "Не вдалося прочитати вміст шаблону.".to_string())?; if !entry.name().ends_with(".xml") { continue; } let mut content = String::new(); let _ = entry.read_to_string(&mut content); variables.extend(extract_variables(&content)); } variables.sort(); variables.dedup(); Ok(variables) }
-fn extract_variables(content: &str) -> Vec<String> { let mut values = Vec::new(); let mut remaining = content; while let Some(start) = remaining.find("{{") { let after_start = &remaining[start + 2..]; if let Some(end) = after_start.find("}}") { values.push(after_start[..end].to_string()); remaining = &after_start[end + 2..]; } else { break; } } values }
+
+// Word may split one value such as {{main.surname}} into several w:t elements.
+// Validation therefore reads visible XML text, rather than searching raw markup.
+fn extract_variables(content: &str) -> Vec<String> {
+    let visible_text = xml_visible_text(content);
+    let mut values = Vec::new();
+    let mut remaining = visible_text.as_str();
+    while let Some(start) = remaining.find("{{") {
+        let after_start = &remaining[start + 2..];
+        if let Some(end) = after_start.find("}}") {
+            values.push(after_start[..end].to_string());
+            remaining = &after_start[end + 2..];
+        } else {
+            break;
+        }
+    }
+    values
+}
+
+fn xml_visible_text(content: &str) -> String {
+    let mut visible_text = String::new();
+    let mut in_tag = false;
+    for character in content.chars() {
+        match character {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => visible_text.push(character),
+            _ => {}
+        }
+    }
+    visible_text
+}
 fn is_supported_variable(variable: &str) -> bool { let person_fields = ["rank", "surname", "givenName", "patronymic", "fullName", "position", "taxId", "birthDate", "educationLevel", "educationDetails", "armedForcesServiceStartDate", "positionAssignedDate", "positionAssignmentOrder", "militaryId", "assignedVehicleName", "assignedVehicleRegistration"]; person_fields.iter().any(|field| variable == &format!("soldier.{field}") || (variable.starts_with("soldiers[") && variable.ends_with(&format!("].{field}")))) || ["main.rank", "main.surname", "main.givenName", "main.patronymic", "main.fullName", "main.position", "main.signature", "document.date", "mainRank", "mainName", "mainPosition", "mainSignature", "commanderName", "chiefName"].contains(&variable) }
 fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>, signature_image: Option<&[u8]>) -> Result<(), String> {
     let file = File::open(input).map_err(|_| "Не вдалося відкрити DOCX-шаблон.".to_string())?;
@@ -243,6 +274,12 @@ mod tests {
         let mut values = HashMap::new();
         values.insert("soldier.fullName".to_string(), "ТЕСТ & Син".to_string());
         assert_eq!(replace_variables("<w:t>{{soldier.fullName}}</w:t>", &values), "<w:t>ТЕСТ &amp; Син</w:t>");
+    }
+
+    #[test]
+    fn reads_a_variable_split_by_word_text_runs() {
+        let content = "<w:r><w:t>{{main.</w:t></w:r><w:r><w:t>surname}}</w:t></w:r>";
+        assert_eq!(extract_variables(content), vec!["main.surname"]);
     }
 
     #[test]
