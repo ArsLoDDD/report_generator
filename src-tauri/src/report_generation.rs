@@ -184,7 +184,11 @@ fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>, sig
         entry.read_to_end(&mut bytes).map_err(|_| "Не вдалося прочитати частину шаблону.".to_string())?;
         writer.start_file(name.clone(), options).map_err(|_| "Не вдалося сформувати DOCX.".to_string())?;
         let content = String::from_utf8_lossy(&bytes);
-        if name == "word/document.xml" { writer.write_all(replace_variables(&replace_signature_token(&content, signature_image.is_some()), values).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
+        if name == "word/document.xml" {
+            let document = replace_variables(&replace_signature_token(&content, signature_image.is_some()), values);
+            let document = if signature_image.is_some() { add_drawing_namespaces(&document) } else { document };
+            writer.write_all(document.as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?;
+        }
         else if name == "word/_rels/document.xml.rels" && signature_image.is_some() { wrote_relationships = true; writer.write_all(add_signature_relationship(&content).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
         else if name == "[Content_Types].xml" && signature_image.is_some() { writer.write_all(add_png_content_type(&content).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
         else { writer.write_all(&bytes).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
@@ -215,6 +219,16 @@ fn replace_signature_token(content: &str, has_signature: bool) -> String {
 }
 fn add_signature_relationship(content: &str) -> String { content.replace("</Relationships>", "<Relationship Id=\"rIdMainSignature\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/main-signature.png\"/></Relationships>") }
 fn add_png_content_type(content: &str) -> String { if content.contains("Extension=\"png\"") { content.to_string() } else { content.replace("</Types>", "<Default Extension=\"png\" ContentType=\"image/png\"/></Types>") } }
+fn add_drawing_namespaces(content: &str) -> String {
+    let mut document = content.to_string();
+    if !document.contains("xmlns:a=") {
+        document = document.replacen("<w:document ", "<w:document xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" ", 1);
+    }
+    if !document.contains("xmlns:pic=") {
+        document = document.replacen("<w:document ", "<w:document xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\" ", 1);
+    }
+    document
+}
 fn replace_variables(content: &str, values: &HashMap<String, String>) -> String {
     values.iter()
         .filter(|(key, _)| key.as_str() != "main.signature" && key.as_str() != "mainSignature")
@@ -372,6 +386,13 @@ mod tests {
         assert!(!result.contains("{{main.signature}}"));
         assert!(result.contains("<w:drawing>"));
         assert!(result.contains("rIdMainSignature"));
+    }
+
+    #[test]
+    fn adds_xml_namespaces_required_for_signature_images() {
+        let document = add_drawing_namespaces("<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">");
+        assert!(document.contains("xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\""));
+        assert!(document.contains("xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\""));
     }
 
     #[test]
