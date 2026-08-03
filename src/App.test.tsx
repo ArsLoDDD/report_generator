@@ -14,7 +14,7 @@ vi.mock("./features/generated-reports/services/generatedReportsService", () => (
 }));
 
 vi.mock("./features/settings/services/settingsService", () => ({
-  settingsService: { get: vi.fn().mockResolvedValue({ mainSigner: { fullName: "Іваненко Іван Іванович", rank: "майор", position: "Заступник командира з ППП", signatureFileName: "main.png" }, commander: { fullName: "Петренко Петро Петрович", rank: "капітан", position: "Командир" }, chief: { fullName: "Сидоренко Сергій Сергійович", rank: "капітан", position: "Начальник штабу" } }), updateSigner: vi.fn() }
+  settingsService: { get: vi.fn().mockResolvedValue({ mainSigner: { fullName: "Іваненко Іван Іванович", rank: "майор", position: "Заступник командира з ППП", signatureFileName: "main.png" }, commander: { fullName: "Петренко Петро Петрович", rank: "капітан", position: "Командир" }, chief: { fullName: "Сидоренко Сергій Сергійович", rank: "капітан", position: "Начальник штабу" } }), updateSigner: vi.fn(), openApplicationDirectory: vi.fn(), createDatabaseBackup: vi.fn().mockResolvedValue("/backups/Резервна копія БД 10-00-00.zip") }
 }));
 
 vi.mock("./features/report-generation/services/reportGenerationService", () => ({
@@ -123,6 +123,8 @@ describe("navigation and report generation", () => {
     await waitFor(() => expect(screen.getByText(/Основний підписант/)).toBeInTheDocument());
     expect(screen.getByDisplayValue("main.png")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Змінити" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Створити копію БД" }));
+    await waitFor(() => expect(screen.getByText("Резервну копію бази даних створено.")).toBeInTheDocument());
   });
 
   it("shows template variables and recent reports without a templates footer", async () => {

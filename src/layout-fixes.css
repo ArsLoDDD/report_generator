@@ -484,5 +484,11 @@ body { overflow: hidden; }
 .signer-card > footer { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
 .settings-storage { display: grid; gap: 14px; padding: 20px; }
 .settings-storage > svg:last-child { color: #9ca9b1; }
+.settings-actions { display: grid; gap: 13px; align-content: start; padding: 20px; }
+.settings-actions > div { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 10px; align-items: start; }
+.settings-actions > div svg { color: #55d64e; grid-row: span 2; }
+.settings-actions h2 { margin: 0; font-size: 16px; }
+.settings-actions p { grid-column: 2; margin: 5px 0 0; color: #aeb9c1; line-height: 1.45; }
+.settings-actions .button { width: 100%; }
 @media (max-width: 1260px) { .settings-content { grid-template-columns: 1fr; } }
 @media (max-width: 640px) { .signer-fields { grid-template-columns: 1fr; } }

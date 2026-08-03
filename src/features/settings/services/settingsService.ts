@@ -3,5 +3,7 @@ import type { AppSettings, SignerRole, SignerSettings } from "../../../shared/ty
 
 export const settingsService = {
   get: () => invoke<AppSettings>("get_app_settings"),
-  updateSigner: (role: SignerRole, signer: SignerSettings) => invoke<AppSettings>("update_signer_settings", { role, signer })
+  updateSigner: (role: SignerRole, signer: SignerSettings) => invoke<AppSettings>("update_signer_settings", { role, signer }),
+  openApplicationDirectory: () => invoke<void>("open_application_directory"),
+  createDatabaseBackup: () => invoke<string>("create_database_backup")
 };

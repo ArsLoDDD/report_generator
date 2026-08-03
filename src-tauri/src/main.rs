@@ -5,10 +5,11 @@ mod settings;
 
 use rusqlite::Connection;
 use serde::Serialize;
-use std::{fs, io, path::{Path, PathBuf}, process::Command, sync::Mutex};
+use std::{fs, io::{self, Read, Write}, path::{Path, PathBuf}, process::Command, sync::Mutex};
 use chrono::{DateTime, Local};
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
+use zip::{write::{SimpleFileOptions, ZipWriter}, CompressionMethod};
 
 struct AppState(Mutex<Connection>);
 
@@ -196,6 +197,31 @@ fn open_generated_report_folder(app: tauri::AppHandle, folder_path: String) -> R
 }
 
 #[tauri::command]
+fn open_application_directory(app: tauri::AppHandle) -> Result<(), String> {
+    open_path(&ensure_application_structure(&app)?)
+}
+
+#[tauri::command]
+fn create_database_backup(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<String, String> {
+    let _connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    let root = ensure_application_structure(&app)?;
+    let now = Local::now();
+    let directory = root.join(BACKUPS_DIRECTORY_NAME).join(now.format("%d.%m.%Y").to_string());
+    fs::create_dir_all(&directory).map_err(|_| "Не вдалося створити папку резервних копій.".to_string())?;
+    let backup_path = directory.join(format!("Резервна копія БД {}.zip", now.format("%H-%M-%S")));
+    let database_path = root.join(DATABASE_DIRECTORY_NAME).join("особовий_склад.db");
+    let mut database = fs::File::open(&database_path).map_err(|_| "Не вдалося відкрити базу даних для резервного копіювання.".to_string())?;
+    let output = fs::File::create(&backup_path).map_err(|_| "Не вдалося створити резервну копію бази даних.".to_string())?;
+    let mut archive = ZipWriter::new(output);
+    archive.start_file("особовий_склад.db", SimpleFileOptions::default().compression_method(CompressionMethod::Deflated)).map_err(|_| "Не вдалося сформувати резервну копію.".to_string())?;
+    let mut bytes = Vec::new();
+    database.read_to_end(&mut bytes).map_err(|_| "Не вдалося прочитати базу даних для резервного копіювання.".to_string())?;
+    archive.write_all(&bytes).map_err(|_| "Не вдалося записати резервну копію.".to_string())?;
+    archive.finish().map_err(|_| "Не вдалося завершити резервне копіювання.".to_string())?;
+    Ok(backup_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn list_generated_reports(app: tauri::AppHandle) -> Result<Vec<GeneratedReportFile>, String> {
     let reports_directory = ensure_application_structure(&app)?.join(REPORTS_DIRECTORY_NAME);
     let template_names = list_templates(app)?.into_iter().map(|template| template.name).collect::<Vec<_>>();
@@ -226,7 +252,7 @@ fn main() {
             app.manage(AppState(Mutex::new(connection)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, get_app_settings, update_signer_settings, list_templates, select_template_file, validate_template, generate_report, open_generated_report, open_generated_report_folder, list_generated_reports])
+        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, get_app_settings, update_signer_settings, list_templates, select_template_file, validate_template, generate_report, open_generated_report, open_generated_report_folder, open_application_directory, create_database_backup, list_generated_reports])
         .run(tauri::generate_context!())
         .expect("Не вдалося запустити застосунок");
 }
