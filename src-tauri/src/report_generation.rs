@@ -202,7 +202,16 @@ fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>, sig
 fn replace_signature_token(content: &str, has_signature: bool) -> String {
     if !has_signature { return content.to_string(); }
     let drawing = r#"<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="1371600" cy="457200"/><wp:docPr id="101" name="Підпис основного підписанта"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="main-signature.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdMainSignature"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1371600" cy="457200"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>"#;
-    content.replace("<w:t>{{mainSignature}}</w:t>", drawing).replace("<w:t>{{main.signature}}</w:t>", drawing)
+    let mut result = content.to_string();
+    for token in ["{{mainSignature}}", "{{main.signature}}"] {
+        while let Some((nodes, start_node, _, _, _)) = token_location(&result, token) {
+            let text_end = nodes[start_node].1;
+            let Some(run_end_relative) = result[text_end..].find("</w:r>") else { break; };
+            result.insert_str(text_end + run_end_relative, drawing);
+            result = replace_word_token(&result, token, "");
+        }
+    }
+    result
 }
 fn add_signature_relationship(content: &str) -> String { content.replace("</Relationships>", "<Relationship Id=\"rIdMainSignature\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/main-signature.png\"/></Relationships>") }
 fn add_png_content_type(content: &str) -> String { if content.contains("Extension=\"png\"") { content.to_string() } else { content.replace("</Types>", "<Default Extension=\"png\" ContentType=\"image/png\"/></Types>") } }
@@ -354,6 +363,15 @@ mod tests {
     fn keeps_signature_token_available_for_image_replacement() {
         let values = HashMap::from([("main.signature".to_string(), String::new())]);
         assert!(replace_variables("<w:t>{{main.signature}}</w:t>", &values).contains("{{main.signature}}"));
+    }
+
+    #[test]
+    fn inserts_a_signature_image_for_a_split_word_token() {
+        let content = "<w:r><w:t>{{main.</w:t></w:r><w:r><w:t>signature}}</w:t></w:r>";
+        let result = replace_signature_token(content, true);
+        assert!(!result.contains("{{main.signature}}"));
+        assert!(result.contains("<w:drawing>"));
+        assert!(result.contains("rIdMainSignature"));
     }
 
     #[test]
