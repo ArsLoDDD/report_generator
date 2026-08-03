@@ -423,18 +423,22 @@ body { overflow: hidden; }
 
 .validation {
   display: grid;
-  place-items: center;
-  min-height: 150px;
-  text-align: center;
+  padding: 14px 18px;
 }
 
 .validation-summary {
   display: grid;
-  gap: 14px;
-  justify-items: center;
+  gap: 8px;
 }
 
-.validation-summary h3 { margin: 0; }
+.validation-summary h3 {
+  margin: 0;
+  color: #9eafb9;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
 
 /* The result and its heading form one group; the repeat action shares its centre. */
 .validation-good,

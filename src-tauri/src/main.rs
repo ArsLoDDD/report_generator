@@ -84,6 +84,25 @@ fn seed_starter_templates(app: &tauri::AppHandle) -> Result<(), String> {
             fs::write(path, content).map_err(|_| "Не вдалося створити стартовий DOCX-шаблон.".to_string())?;
         }
     }
+    create_validation_example_template(&directory.join("Тестовий шаблон з помилкою.docx"))?;
+    Ok(())
+}
+
+fn create_validation_example_template(path: &Path) -> Result<(), String> {
+    if path.exists() { return Ok(()); }
+    let file = fs::File::create(path).map_err(|_| "Не вдалося створити тестовий шаблон.".to_string())?;
+    let mut archive = ZipWriter::new(file);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let entries = [
+        ("[Content_Types].xml", r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#),
+        ("_rels/.rels", r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#),
+        ("word/document.xml", r#"<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Тест повної перевірки шаблону</w:t></w:r></w:p><w:p><w:r><w:t>{{main.unknownField}}</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>"#),
+    ];
+    for (name, contents) in entries {
+        archive.start_file(name, options).map_err(|_| "Не вдалося сформувати тестовий шаблон.".to_string())?;
+        archive.write_all(contents.as_bytes()).map_err(|_| "Не вдалося записати тестовий шаблон.".to_string())?;
+    }
+    archive.finish().map_err(|_| "Не вдалося завершити створення тестового шаблону.".to_string())?;
     Ok(())
 }
 
@@ -93,6 +112,7 @@ fn template_description(file_name: &str) -> (&'static str, u16) {
         "Рапорт на відпустку з датою.docx" => ("Рапорт на надання відпустки з вибором дати", 8),
         "Рапорт на матеріальну допомогу.docx" => ("Рапорт на отримання матеріальної допомоги", 8),
         "Список військовослужбовців.docx" => ("Приклад шаблону з кількома військовослужбовцями", 10),
+        "Тестовий шаблон з помилкою.docx" => ("Приклад для перевірки повідомлень про невідомі змінні", 1),
         _ => ("Локальний DOCX-шаблон рапорту", 0),
     }
 }
@@ -264,4 +284,21 @@ fn main() {
         .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, get_app_settings, update_signer_settings, list_templates, select_template_file, inspect_template, validate_template, generate_report, open_generated_report, open_generated_report_folder, open_application_directory, create_database_backup, list_generated_reports])
         .run(tauri::generate_context!())
         .expect("Не вдалося запустити застосунок");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn creates_a_template_with_an_intentional_validation_error() {
+        let directory = std::env::temp_dir().join(format!("report-generator-invalid-template-{}", Local::now().timestamp_nanos_opt().unwrap_or_default()));
+        fs::create_dir_all(&directory).unwrap();
+        let template_path = directory.join("Тестовий шаблон з помилкою.docx");
+        create_validation_example_template(&template_path).unwrap();
+        let inspection = report_generation::inspect(template_path.to_str().unwrap());
+        assert!(!inspection.is_valid);
+        assert!(inspection.errors.iter().any(|error| error.contains("main.unknownField")));
+        fs::remove_dir_all(directory).unwrap();
+    }
 }

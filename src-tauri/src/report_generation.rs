@@ -184,7 +184,7 @@ fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>, sig
         entry.read_to_end(&mut bytes).map_err(|_| "Не вдалося прочитати частину шаблону.".to_string())?;
         writer.start_file(name.clone(), options).map_err(|_| "Не вдалося сформувати DOCX.".to_string())?;
         let content = String::from_utf8_lossy(&bytes);
-        if name == "word/document.xml" { writer.write_all(replace_signature_token(&replace_variables(&content, values), signature_image.is_some()).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
+        if name == "word/document.xml" { writer.write_all(replace_variables(&replace_signature_token(&content, signature_image.is_some()), values).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
         else if name == "word/_rels/document.xml.rels" && signature_image.is_some() { wrote_relationships = true; writer.write_all(add_signature_relationship(&content).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
         else if name == "[Content_Types].xml" && signature_image.is_some() { writer.write_all(add_png_content_type(&content).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
         else { writer.write_all(&bytes).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
@@ -206,7 +206,69 @@ fn replace_signature_token(content: &str, has_signature: bool) -> String {
 }
 fn add_signature_relationship(content: &str) -> String { content.replace("</Relationships>", "<Relationship Id=\"rIdMainSignature\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/main-signature.png\"/></Relationships>") }
 fn add_png_content_type(content: &str) -> String { if content.contains("Extension=\"png\"") { content.to_string() } else { content.replace("</Types>", "<Default Extension=\"png\" ContentType=\"image/png\"/></Types>") } }
-fn replace_variables(content: &str, values: &HashMap<String, String>) -> String { values.iter().fold(content.to_string(), |result, (key, value)| result.replace(&format!("{{{{{key}}}}}"), &escape_xml(value))) }
+fn replace_variables(content: &str, values: &HashMap<String, String>) -> String {
+    values.iter()
+        .filter(|(key, _)| key.as_str() != "main.signature" && key.as_str() != "mainSignature")
+        .fold(content.to_string(), |result, (key, value)| replace_word_token(&result, &format!("{{{{{key}}}}}"), &escape_xml(value)))
+}
+
+fn replace_word_token(content: &str, token: &str, replacement: &str) -> String {
+    let mut result = content.to_string();
+    while let Some((nodes, start_node, start_offset, end_node, end_offset)) = token_location(&result, token) {
+        let mut text_values = nodes.iter().map(|(start, end)| result[*start..*end].to_string()).collect::<Vec<_>>();
+        if start_node == end_node {
+            text_values[start_node].replace_range(start_offset..end_offset, replacement);
+        } else {
+            text_values[start_node].replace_range(start_offset.., replacement);
+            for value in &mut text_values[start_node + 1..end_node] { value.clear(); }
+            text_values[end_node].replace_range(..end_offset, "");
+        }
+        let mut rebuilt = String::new();
+        let mut cursor = 0;
+        for ((start, end), value) in nodes.iter().zip(text_values) {
+            rebuilt.push_str(&result[cursor..*start]);
+            rebuilt.push_str(&value);
+            cursor = *end;
+        }
+        rebuilt.push_str(&result[cursor..]);
+        result = rebuilt;
+    }
+    result
+}
+
+fn token_location(content: &str, token: &str) -> Option<(Vec<(usize, usize)>, usize, usize, usize, usize)> {
+    let nodes = word_text_nodes(content);
+    let text = nodes.iter().map(|(start, end)| &content[*start..*end]).collect::<String>();
+    let start = text.find(token)?;
+    let end = start + token.len();
+    let mut cursor = 0;
+    let mut start_location = None;
+    let mut end_location = None;
+    for (index, (node_start, node_end)) in nodes.iter().enumerate() {
+        let length = node_end - node_start;
+        if start_location.is_none() && start < cursor + length { start_location = Some((index, start - cursor)); }
+        if end > cursor && end <= cursor + length { end_location = Some((index, end - cursor)); break; }
+        cursor += length;
+    }
+    let (start_node, start_offset) = start_location?;
+    let (end_node, end_offset) = end_location?;
+    Some((nodes, start_node, start_offset, end_node, end_offset))
+}
+
+fn word_text_nodes(content: &str) -> Vec<(usize, usize)> {
+    let mut nodes = Vec::new();
+    let mut remaining = 0;
+    while let Some(relative_start) = content[remaining..].find("<w:t") {
+        let tag_start = remaining + relative_start;
+        let Some(tag_end_relative) = content[tag_start..].find('>') else { break; };
+        let text_start = tag_start + tag_end_relative + 1;
+        let Some(text_end_relative) = content[text_start..].find("</w:t>") else { break; };
+        let text_end = text_start + text_end_relative;
+        nodes.push((text_start, text_end));
+        remaining = text_end + "</w:t>".len();
+    }
+    nodes
+}
 fn escape_xml(value: &str) -> String { value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;") }
 fn safe_name(value: &str) -> String { value.chars().map(|character| if matches!(character, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || character.is_control() { '_' } else { character }).collect::<String>().trim().to_string() }
 
@@ -280,6 +342,18 @@ mod tests {
     fn reads_a_variable_split_by_word_text_runs() {
         let content = "<w:r><w:t>{{main.</w:t></w:r><w:r><w:t>surname}}</w:t></w:r>";
         assert_eq!(extract_variables(content), vec!["main.surname"]);
+    }
+
+    #[test]
+    fn replaces_a_variable_split_by_word_text_runs() {
+        let content = "<w:r><w:t>{{</w:t></w:r><w:r><w:t>main</w:t></w:r><w:r><w:t>.givenName}}</w:t></w:r>";
+        assert_eq!(replace_word_token(content, "{{main.givenName}}", "Іван"), "<w:r><w:t>Іван</w:t></w:r><w:r><w:t></w:t></w:r><w:r><w:t></w:t></w:r>");
+    }
+
+    #[test]
+    fn keeps_signature_token_available_for_image_replacement() {
+        let values = HashMap::from([("main.signature".to_string(), String::new())]);
+        assert!(replace_variables("<w:t>{{main.signature}}</w:t>", &values).contains("{{main.signature}}"));
     }
 
     #[test]
