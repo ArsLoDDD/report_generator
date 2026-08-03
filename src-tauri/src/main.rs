@@ -34,8 +34,9 @@ struct GeneratedReportFile {
     folder_path: String,
 }
 
-const STARTER_TEMPLATES: [(&str, &[u8]); 3] = [
+const STARTER_TEMPLATES: [(&str, &[u8]); 4] = [
     ("Рапорт на відпустку.docx", include_bytes!("../templates/Рапорт на відпустку.docx")),
+    ("Рапорт на відпустку з датою.docx", include_bytes!("../templates/Рапорт на відпустку з датою.docx")),
     ("Рапорт на матеріальну допомогу.docx", include_bytes!("../templates/Рапорт на матеріальну допомогу.docx")),
     ("Список військовослужбовців.docx", include_bytes!("../templates/Список військовослужбовців.docx")),
 ];
@@ -89,6 +90,7 @@ fn seed_starter_templates(app: &tauri::AppHandle) -> Result<(), String> {
 fn template_description(file_name: &str) -> (&'static str, u16) {
     match file_name {
         "Рапорт на відпустку.docx" => ("Рапорт на надання відпустки військовослужбовцю", 7),
+        "Рапорт на відпустку з датою.docx" => ("Рапорт на надання відпустки з вибором дати", 8),
         "Рапорт на матеріальну допомогу.docx" => ("Рапорт на отримання матеріальної допомоги", 8),
         "Список військовослужбовців.docx" => ("Приклад шаблону з кількома військовослужбовцями", 10),
         _ => ("Локальний DOCX-шаблон рапорту", 0),
