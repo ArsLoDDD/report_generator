@@ -39,4 +39,19 @@ export type GeneratedReportSummary = {
   folderPath: string;
 };
 
+export type SignerRole = "main" | "commander" | "chief";
+
+export type SignerSettings = {
+  fullName: string;
+  rank: string;
+  position: string;
+  signatureFileName?: string;
+};
+
+export type AppSettings = {
+  mainSigner: SignerSettings;
+  commander: SignerSettings;
+  chief: SignerSettings;
+};
+
 export type Screen = "generator" | "templates" | "people" | "generated" | "settings" | "documentation";

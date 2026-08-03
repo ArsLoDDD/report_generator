@@ -467,3 +467,22 @@ body { overflow: hidden; }
   .screen-body:has(.generation-layout) .people-select { overflow: visible; }
   .screen-body:has(.generation-layout) .template-picker { align-self: stretch; max-height: none; }
 }
+
+.settings-content { display: grid; grid-template-columns: minmax(0, 1fr) minmax(270px, .48fr); gap: 14px; align-items: start; }
+.settings-section-title { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 16px; }
+.settings-section-title svg, .settings-storage > svg { color: #55d64e; }
+.settings-section-title h2, .settings-storage h2 { margin: 0 0 5px; }
+.settings-section-title p, .settings-storage p, .settings-storage small { color: #aeb9c1; line-height: 1.45; }
+.settings-panel.signers { width: auto; }
+.signer-card { min-height: 0; padding: 16px; }
+.signer-card > header { display: flex; align-items: center; gap: 9px; }
+.signer-card > header .status-pill { margin-left: 0; }
+.signer-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; margin-top: 15px; }
+.signer-fields label { display: grid; gap: 6px; color: #b7c1c8; font-size: 12px; }
+.signer-fields input { min-width: 0; border: 1px solid #2b3b47; background: #0a151e; border-radius: 5px; padding: 9px; color: #e0e8eb; }
+.signer-fields small { color: #909da6; line-height: 1.35; }
+.signer-card > footer { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.settings-storage { display: grid; gap: 14px; padding: 20px; }
+.settings-storage > svg:last-child { color: #9ca9b1; }
+@media (max-width: 1260px) { .settings-content { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .signer-fields { grid-template-columns: 1fr; } }

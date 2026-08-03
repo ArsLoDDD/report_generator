@@ -1,8 +1,15 @@
-import { Pencil } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Save } from "lucide-react";
+import type { SignerRole, SignerSettings } from "../../../shared/types/domain";
 
-type Props = { number: number; role: string; name: string; rank: string; position: string; mark: string };
+type Props = { number: number; role: SignerRole; title: string; value: SignerSettings; isSaving: boolean; onSave: (role: SignerRole, signer: SignerSettings) => Promise<boolean> };
 
-/** Reused signer card for main signer, commander, and chief of staff. */
-export function SignerForm({ number, role, name, rank, position, mark }: Props) {
-  return <article className="signer-card"><b>{number}. {role}</b><button className="button"><Pencil />Редагувати</button><div className="signature-mark">{mark}</div><dl><dt>ПІБ</dt><dd>{name}</dd><dt>Звання</dt><dd>{rank}</dd><dt>Посада</dt><dd>{position}</dd></dl></article>;
+/** One reusable form; only the main signer exposes a signature file field. */
+export function SignerForm({ number, role, title, value, isSaving, onSave }: Props) {
+  const [draft, setDraft] = useState(value);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { setDraft(value); }, [value]);
+  const change = (field: keyof SignerSettings, fieldValue: string) => { setSaved(false); setDraft((current) => ({ ...current, [field]: fieldValue })); };
+  const submit = async () => { if (await onSave(role, draft)) setSaved(true); };
+  return <article className="signer-card"><header><b>{number}. {title}</b>{role === "main" && <span className="status-pill ready">Єдиний підпис</span>}</header><div className="signer-fields"><label>ПІБ<input value={draft.fullName} onChange={(event) => change("fullName", event.target.value)} /></label><label>Звання<input value={draft.rank} onChange={(event) => change("rank", event.target.value)} /></label><label>Посада<input value={draft.position} onChange={(event) => change("position", event.target.value)} /></label>{role === "main" && <label>PNG-файл підпису<input value={draft.signatureFileName ?? "main.png"} onChange={(event) => change("signatureFileName", event.target.value)} /><small>Файл має бути у папці «Підписи». За замовчуванням — main.png.</small></label>}</div><footer><button className="button primary" onClick={() => void submit()} disabled={isSaving}><Save />{isSaving ? "Збереження…" : "Зберегти"}</button>{saved && <span className="green">Збережено</span>}</footer></article>;
 }

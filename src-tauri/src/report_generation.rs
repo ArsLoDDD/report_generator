@@ -1,4 +1,4 @@
-use crate::{personnel::{self, Personnel}, REPORTS_DIRECTORY_NAME};
+use crate::{personnel::{self, Personnel}, settings, SIGNATURES_DIRECTORY_NAME, REPORTS_DIRECTORY_NAME};
 use chrono::Local;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,13 @@ pub fn generate(connection: &Connection, app_data_directory: &Path, request: Gen
     let validation = validate(connection, &request.template_path, &request.personnel_ids);
     if !validation.is_valid { return Err(validation.errors.join(" ")); }
     let personnel = selected_personnel(connection, &request.personnel_ids)?;
-    let values = values_for(&personnel);
+    let settings = settings::load(app_data_directory)?;
+    let values = values_for(&personnel, &settings);
+    let signature_image = if validation.variables.iter().any(|variable| variable == "mainSignature") {
+        let signature_name = settings.main_signer.signature_file_name.as_deref().unwrap_or("main.png");
+        let signature_path = app_data_directory.join(SIGNATURES_DIRECTORY_NAME).join(signature_name);
+        Some(fs::read(&signature_path).map_err(|_| format!("Не вдалося знайти підпис «{signature_name}» у папці «Підписи». Додайте PNG-файл або змініть його назву в налаштуваннях."))?)
+    } else { None };
     let now = Local::now();
     let date_directory = now.format("%d.%m.%Y").to_string();
     let template_name = safe_name(Path::new(&request.template_path).file_stem().and_then(|name| name.to_str()).unwrap_or("Рапорт"));
@@ -49,7 +55,7 @@ pub fn generate(connection: &Connection, app_data_directory: &Path, request: Gen
     let file_name = available_file_name(&reports_root, &report_name, now.format("%H-%M-%S").to_string());
     let final_path = reports_root.join(&file_name);
     let temporary_path = reports_root.join(format!(".{file_name}.tmp"));
-    let result = write_docx(Path::new(&request.template_path), &temporary_path, &values);
+    let result = write_docx(Path::new(&request.template_path), &temporary_path, &values, signature_image.as_deref());
     match result {
         Ok(()) => { fs::rename(&temporary_path, &final_path).map_err(|_| "Не вдалося завершити створення рапорту.".to_string())?; Ok(GeneratedReport { docx_path: final_path.to_string_lossy().to_string(), folder_path: reports_root.to_string_lossy().to_string() }) }
         Err(error) => { let _ = fs::remove_file(&temporary_path); Err(error) }
@@ -64,7 +70,7 @@ fn available_file_name(directory: &Path, report_name: &str, timestamp: String) -
 
 fn selected_personnel(connection: &Connection, ids: &[i64]) -> Result<Vec<Personnel>, String> { let all = personnel::list(connection)?; ids.iter().map(|id| all.iter().find(|person| person.id == *id).cloned().ok_or_else(|| "Не знайдено обраного військовослужбовця.".to_string())).collect() }
 
-fn values_for(personnel: &[Personnel]) -> HashMap<String, String> {
+fn values_for(personnel: &[Personnel], settings: &settings::AppSettings) -> HashMap<String, String> {
     let mut values = HashMap::new();
     if personnel.len() == 1 {
         add_person_values(&mut values, "soldier", &personnel[0]);
@@ -74,12 +80,12 @@ fn values_for(personnel: &[Personnel]) -> HashMap<String, String> {
         }
     }
     values.extend([
-        ("mainRank".to_string(), "майор".to_string()),
-        ("mainName".to_string(), "Іваненко Іван Іванович".to_string()),
-        ("mainPosition".to_string(), "Заступник командира з ППП".to_string()),
+        ("mainRank".to_string(), settings.main_signer.rank.clone()),
+        ("mainName".to_string(), settings.main_signer.full_name.clone()),
+        ("mainPosition".to_string(), settings.main_signer.position.clone()),
         ("mainSignature".to_string(), "".to_string()),
-        ("commanderName".to_string(), "Петренко Петро Петрович".to_string()),
-        ("chiefName".to_string(), "Сидоренко Сергій Сергійович".to_string()),
+        ("commanderName".to_string(), settings.commander.full_name.clone()),
+        ("chiefName".to_string(), settings.chief.full_name.clone()),
     ]);
     values
 }
@@ -91,7 +97,43 @@ fn add_person_values(values: &mut HashMap<String, String>, prefix: &str, person:
 fn read_variables(path: &Path) -> Result<Vec<String>, String> { let file = File::open(path).map_err(|_| "Не вдалося відкрити шаблон. Перевірте шлях і доступ до файлу.".to_string())?; let mut archive = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-шаблоном.".to_string())?; let mut variables = Vec::new(); for index in 0..archive.len() { let mut entry = archive.by_index(index).map_err(|_| "Не вдалося прочитати вміст шаблону.".to_string())?; if !entry.name().ends_with(".xml") { continue; } let mut content = String::new(); let _ = entry.read_to_string(&mut content); variables.extend(extract_variables(&content)); } variables.sort(); variables.dedup(); Ok(variables) }
 fn extract_variables(content: &str) -> Vec<String> { let mut values = Vec::new(); let mut remaining = content; while let Some(start) = remaining.find("{{") { let after_start = &remaining[start + 2..]; if let Some(end) = after_start.find("}}") { values.push(after_start[..end].to_string()); remaining = &after_start[end + 2..]; } else { break; } } values }
 fn is_supported_variable(variable: &str) -> bool { let person_fields = ["rank", "surname", "givenName", "patronymic", "fullName", "position", "taxId", "birthDate", "educationLevel", "educationDetails", "armedForcesServiceStartDate", "positionAssignedDate", "positionAssignmentOrder", "militaryId", "assignedVehicleName", "assignedVehicleRegistration"]; person_fields.iter().any(|field| variable == &format!("soldier.{field}") || (variable.starts_with("soldiers[") && variable.ends_with(&format!("].{field}")))) || ["mainRank", "mainName", "mainPosition", "mainSignature", "commanderName", "chiefName"].contains(&variable) }
-fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>) -> Result<(), String> { let file = File::open(input).map_err(|_| "Не вдалося відкрити DOCX-шаблон.".to_string())?; let mut archive = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-шаблоном.".to_string())?; let output_file = File::create(output).map_err(|_| "Не вдалося створити DOCX-файл.".to_string())?; let mut writer = ZipWriter::new(output_file); for index in 0..archive.len() { let mut entry = archive.by_index(index).map_err(|_| "Не вдалося прочитати файл шаблону.".to_string())?; let name = entry.name().to_owned(); let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated); if entry.is_dir() { writer.add_directory(name, options).map_err(|_| "Не вдалося сформувати DOCX.".to_string())?; continue; } let mut bytes = Vec::new(); entry.read_to_end(&mut bytes).map_err(|_| "Не вдалося прочитати частину шаблону.".to_string())?; writer.start_file(name.clone(), options).map_err(|_| "Не вдалося сформувати DOCX.".to_string())?; if name.ends_with(".xml") { let content = String::from_utf8_lossy(&bytes); writer.write_all(replace_variables(&content, values).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; } else { writer.write_all(&bytes).map_err(|_| "Не вдалося записати DOCX.".to_string())?; } } writer.finish().map_err(|_| "Не вдалося завершити DOCX.".to_string())?; Ok(()) }
+fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>, signature_image: Option<&[u8]>) -> Result<(), String> {
+    let file = File::open(input).map_err(|_| "Не вдалося відкрити DOCX-шаблон.".to_string())?;
+    let mut archive = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-шаблоном.".to_string())?;
+    let output_file = File::create(output).map_err(|_| "Не вдалося створити DOCX-файл.".to_string())?;
+    let mut writer = ZipWriter::new(output_file);
+    let mut wrote_relationships = false;
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(|_| "Не вдалося прочитати файл шаблону.".to_string())?;
+        let name = entry.name().to_owned();
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        if entry.is_dir() { writer.add_directory(name, options).map_err(|_| "Не вдалося сформувати DOCX.".to_string())?; continue; }
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).map_err(|_| "Не вдалося прочитати частину шаблону.".to_string())?;
+        writer.start_file(name.clone(), options).map_err(|_| "Не вдалося сформувати DOCX.".to_string())?;
+        let content = String::from_utf8_lossy(&bytes);
+        if name == "word/document.xml" { writer.write_all(replace_signature_token(&replace_variables(&content, values), signature_image.is_some()).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
+        else if name == "word/_rels/document.xml.rels" && signature_image.is_some() { wrote_relationships = true; writer.write_all(add_signature_relationship(&content).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
+        else if name == "[Content_Types].xml" && signature_image.is_some() { writer.write_all(add_png_content_type(&content).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
+        else { writer.write_all(&bytes).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
+    }
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    if let Some(image) = signature_image {
+        if !wrote_relationships { return Err("DOCX-шаблон не містить зв’язків документа для вставлення підпису.".into()); }
+        writer.start_file("word/media/main-signature.png", options).map_err(|_| "Не вдалося додати підпис до DOCX.".to_string())?;
+        writer.write_all(image).map_err(|_| "Не вдалося додати підпис до DOCX.".to_string())?;
+    }
+    writer.finish().map_err(|_| "Не вдалося завершити DOCX.".to_string())?;
+    Ok(())
+}
+
+fn replace_signature_token(content: &str, has_signature: bool) -> String {
+    if !has_signature { return content.to_string(); }
+    let drawing = r#"<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="1371600" cy="457200"/><wp:docPr id="101" name="Підпис основного підписанта"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="main-signature.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdMainSignature"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1371600" cy="457200"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>"#;
+    content.replace("<w:t>{{mainSignature}}</w:t>", drawing)
+}
+fn add_signature_relationship(content: &str) -> String { content.replace("</Relationships>", "<Relationship Id=\"rIdMainSignature\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/main-signature.png\"/></Relationships>") }
+fn add_png_content_type(content: &str) -> String { if content.contains("Extension=\"png\"") { content.to_string() } else { content.replace("</Types>", "<Default Extension=\"png\" ContentType=\"image/png\"/></Types>") } }
 fn replace_variables(content: &str, values: &HashMap<String, String>) -> String { values.iter().fold(content.to_string(), |result, (key, value)| result.replace(&format!("{{{{{key}}}}}"), &escape_xml(value))) }
 fn escape_xml(value: &str) -> String { value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;") }
 fn safe_name(value: &str) -> String { value.chars().map(|character| if matches!(character, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || character.is_control() { '_' } else { character }).collect::<String>().trim().to_string() }
@@ -128,7 +170,7 @@ mod tests {
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
         let people = selected_personnel(&connection, &[1, 2]).unwrap();
-        let values = values_for(&people);
+        let values = values_for(&people, &settings::defaults());
         assert!(values.contains_key("soldiers[0].fullName"));
         assert!(values.contains_key("soldiers[1].fullName"));
         assert!(!values.contains_key("soldier.fullName"));

@@ -1,6 +1,7 @@
 mod database;
 mod personnel;
 mod report_generation;
+mod settings;
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -65,16 +66,7 @@ fn ensure_application_structure(app: &tauri::AppHandle) -> Result<PathBuf, Strin
     for directory in [DATABASE_DIRECTORY_NAME, TEMPLATES_DIRECTORY_NAME, SIGNATURES_DIRECTORY_NAME, REPORTS_DIRECTORY_NAME, BACKUPS_DIRECTORY_NAME, CONFIG_DIRECTORY_NAME] {
         fs::create_dir_all(root.join(directory)).map_err(|_| format!("Не вдалося створити папку «{directory}»."))?;
     }
-    let settings_path = root.join(CONFIG_DIRECTORY_NAME).join("налаштування.json");
-    if !settings_path.exists() {
-        fs::write(settings_path, r#"{
-  "databasePath": "База даних/особовий_склад.db",
-  "templatesPath": "Шаблони",
-  "signaturesPath": "Підписи",
-  "reportsPath": "Згенеровані рапорти",
-  "backupsPath": "Резервні копії"
-}"#).map_err(|_| "Не вдалося створити файл налаштувань.".to_string())?;
-    }
+    settings::load(&root)?;
     Ok(root)
 }
 
@@ -126,6 +118,16 @@ fn create_personnel(state: tauri::State<AppState>, draft: personnel::PersonnelDr
 fn update_personnel(state: tauri::State<AppState>, personnel_id: i64, draft: personnel::PersonnelDraft) -> Result<personnel::Personnel, String> {
     let connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
     personnel::update(&connection, personnel_id, draft)
+}
+
+#[tauri::command]
+fn get_app_settings(app: tauri::AppHandle) -> Result<settings::AppSettings, String> {
+    settings::load(&ensure_application_structure(&app)?)
+}
+
+#[tauri::command]
+fn update_signer_settings(app: tauri::AppHandle, role: String, signer: settings::SignerSettings) -> Result<settings::AppSettings, String> {
+    settings::update_signer(&ensure_application_structure(&app)?, &role, signer)
 }
 
 #[tauri::command]
@@ -224,7 +226,7 @@ fn main() {
             app.manage(AppState(Mutex::new(connection)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, list_templates, select_template_file, validate_template, generate_report, open_generated_report, open_generated_report_folder, list_generated_reports])
+        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, get_app_settings, update_signer_settings, list_templates, select_template_file, validate_template, generate_report, open_generated_report, open_generated_report_folder, list_generated_reports])
         .run(tauri::generate_context!())
         .expect("Не вдалося запустити застосунок");
 }

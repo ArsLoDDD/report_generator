@@ -13,6 +13,10 @@ vi.mock("./features/generated-reports/services/generatedReportsService", () => (
   generatedReportsService: { list: vi.fn().mockResolvedValue([{ name: "Рапорт на відпустку", template: "Рапорт на відпустку", generatedAt: "2026-08-03 10:15:30", docxPath: "/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30/Рапорт на відпустку.docx", folderPath: "/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30" }]), openDocument: vi.fn(), openFolder: vi.fn() }
 }));
 
+vi.mock("./features/settings/services/settingsService", () => ({
+  settingsService: { get: vi.fn().mockResolvedValue({ mainSigner: { fullName: "Іваненко Іван Іванович", rank: "майор", position: "Заступник командира з ППП", signatureFileName: "main.png" }, commander: { fullName: "Петренко Петро Петрович", rank: "капітан", position: "Командир" }, chief: { fullName: "Сидоренко Сергій Сергійович", rank: "капітан", position: "Начальник штабу" } }), updateSigner: vi.fn() }
+}));
+
 vi.mock("./features/report-generation/services/reportGenerationService", () => ({
   reportGenerationService: {
     selectTemplateFile: vi.fn().mockResolvedValue("/templates/Нагородний рапорт.docx"),
@@ -113,12 +117,12 @@ describe("navigation and report generation", () => {
     expect(screen.getAllByText("Рапорт на відпустку").length).toBeGreaterThan(0);
   });
 
-  it("switches settings to signer details", () => {
+  it("shows saved signer settings without editable paths", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
-    fireEvent.click(screen.getByRole("button", { name: "Підписанти" }));
-    expect(screen.getByText("Дані підписантів")).toBeInTheDocument();
-    expect(screen.getByText(/Основний підписант/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Основний підписант/)).toBeInTheDocument());
+    expect(screen.getByDisplayValue("main.png")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Змінити" })).not.toBeInTheDocument();
   });
 
   it("shows template variables and recent reports without a templates footer", async () => {
