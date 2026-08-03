@@ -57,7 +57,6 @@ export function useReportGeneration() {
   const resetResult = useCallback(() => {
     setGeneratedReport(null);
     setValidation(null);
-    setInspection(null);
     setError(null);
   }, []);
 

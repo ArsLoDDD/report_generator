@@ -110,7 +110,20 @@ fn values_for(personnel: &[Personnel], settings: &settings::AppSettings, report_
 }
 
 fn add_person_values(values: &mut HashMap<String, String>, prefix: &str, person: &Personnel) {
-    for (key, value) in [("rank", &person.rank), ("surname", &person.surname), ("givenName", &person.given_name), ("patronymic", &person.patronymic), ("fullName", &person.full_name), ("position", &person.position), ("taxId", &person.tax_id), ("birthDate", &person.birth_date), ("educationLevel", &person.education_level), ("educationDetails", &person.education_details), ("armedForcesServiceStartDate", &person.armed_forces_service_start_date), ("positionAssignedDate", &person.position_assigned_date), ("positionAssignmentOrder", &person.position_assignment_order), ("militaryId", &person.military_id), ("assignedVehicleName", &person.assigned_vehicle_name), ("assignedVehicleRegistration", &person.assigned_vehicle_registration)] { values.insert(format!("{prefix}.{key}"), value.clone()); }
+    let full_name = format_person_full_name(person);
+    for (key, value) in [("rank", &person.rank), ("surname", &person.surname), ("givenName", &person.given_name), ("patronymic", &person.patronymic), ("fullName", &full_name), ("position", &person.position), ("taxId", &person.tax_id), ("birthDate", &person.birth_date), ("educationLevel", &person.education_level), ("educationDetails", &person.education_details), ("armedForcesServiceStartDate", &person.armed_forces_service_start_date), ("positionAssignedDate", &person.position_assigned_date), ("positionAssignmentOrder", &person.position_assignment_order), ("militaryId", &person.military_id), ("assignedVehicleName", &person.assigned_vehicle_name), ("assignedVehicleRegistration", &person.assigned_vehicle_registration)] { values.insert(format!("{prefix}.{key}"), value.clone()); }
+}
+
+fn format_person_full_name(person: &Personnel) -> String {
+    [name_case(&person.surname), name_case(&person.given_name), name_case(&person.patronymic)].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")
+}
+
+fn name_case(value: &str) -> String {
+    value.split_whitespace().map(|word| word.split('-').map(|part| {
+        let mut characters = part.chars();
+        let Some(first) = characters.next() else { return String::new(); };
+        first.to_uppercase().collect::<String>() + &characters.flat_map(char::to_lowercase).collect::<String>()
+    }).collect::<Vec<_>>().join("-")).collect::<Vec<_>>().join(" ")
 }
 
 fn read_variables(path: &Path) -> Result<Vec<String>, String> { let file = File::open(path).map_err(|_| "Не вдалося відкрити шаблон. Перевірте шлях і доступ до файлу.".to_string())?; let mut archive = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-шаблоном.".to_string())?; let mut variables = Vec::new(); for index in 0..archive.len() { let mut entry = archive.by_index(index).map_err(|_| "Не вдалося прочитати вміст шаблону.".to_string())?; if !entry.name().ends_with(".xml") { continue; } let mut content = String::new(); let _ = entry.read_to_string(&mut content); variables.extend(extract_variables(&content)); } variables.sort(); variables.dedup(); Ok(variables) }
@@ -206,6 +219,14 @@ mod tests {
     }
 
     #[test]
+    fn formats_person_full_name_without_all_caps_surname() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let person = selected_personnel(&connection, &[1]).unwrap().remove(0);
+        assert_eq!(format_person_full_name(&person), "Васильок Іван Аркадійович");
+    }
+
+    #[test]
     fn replaces_template_tokens_and_escapes_xml() {
         let mut values = HashMap::new();
         values.insert("soldier.fullName".to_string(), "ТЕСТ & Син".to_string());
@@ -254,7 +275,7 @@ mod tests {
         let mut archive = ZipArchive::new(File::open(&report.docx_path).unwrap()).unwrap();
         let mut document = String::new();
         archive.by_name("word/document.xml").unwrap().read_to_string(&mut document).unwrap();
-        assert!(document.contains("ВАСИЛЬОК Іван Аркадійович"));
+        assert!(document.contains("Васильок Іван Аркадійович"));
         assert!(report.docx_path.contains("Згенеровані рапорти"));
         assert!(Path::new(&report.docx_path).file_name().unwrap().to_string_lossy().contains("ВАСИЛЬОК"));
         assert_eq!(Path::new(&report.folder_path).file_name().unwrap(), now_date_directory_name().as_str());

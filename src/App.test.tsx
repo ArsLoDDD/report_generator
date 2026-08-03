@@ -73,6 +73,10 @@ describe("navigation and report generation", () => {
     const vacationTemplate = screen.getByRole("button", { name: /Рапорт на відпустку/ });
     fireEvent.click(vacationTemplate);
     expect(vacationTemplate).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(screen.getByText("Дата рапорту")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
+    expect(screen.getByText("Дата рапорту")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
     fireEvent.click(vacationTemplate);
     expect(vacationTemplate).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));

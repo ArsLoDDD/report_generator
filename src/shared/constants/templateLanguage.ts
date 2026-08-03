@@ -12,7 +12,7 @@ const personnelFields: PersonnelField[] = [
   { key: "surname", label: "Прізвище", description: "Прізвище у затвердженому написанні.", example: "ВАСИЛЬОК" },
   { key: "givenName", label: "Ім’я", description: "Ім’я військовослужбовця.", example: "Іван" },
   { key: "patronymic", label: "По батькові", description: "По батькові військовослужбовця.", example: "Аркадійович" },
-  { key: "fullName", label: "Повне ПІБ", description: "Прізвище, ім’я та по батькові одним рядком.", example: "ВАСИЛЬОК Іван Аркадійович" },
+  { key: "fullName", label: "Повне ПІБ", description: "Прізвище, ім’я та по батькові одним рядком; прізвище починається з великої літери.", example: "Васильок Іван Аркадійович" },
   { key: "position", label: "Посада", description: "Повна посада разом із військовою частиною.", example: "Стрілець, військова частина А0000" },
   { key: "taxId", label: "ІПН", description: "Десятизначний ідентифікаційний номер.", example: "7462389812" },
   { key: "birthDate", label: "Дата народження", description: "Дата народження у форматі, який зберігається в особовій справі.", example: "02.03.1999 року" },
