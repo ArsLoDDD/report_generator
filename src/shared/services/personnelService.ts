@@ -5,5 +5,6 @@ import type { Person, PersonnelDraft } from "../types/domain";
 export const personnelService = {
   list: () => invoke<Person[]>("list_personnel"),
   create: (draft: PersonnelDraft) => invoke<Person>("create_personnel", { draft }),
-  update: (personnelId: number, draft: PersonnelDraft) => invoke<Person>("update_personnel", { personnelId, draft })
+  update: (personnelId: number, draft: PersonnelDraft) => invoke<Person>("update_personnel", { personnelId, draft }),
+  delete: (personnelId: number) => invoke<void>("delete_personnel", { personnelId })
 };

@@ -6,7 +6,11 @@ vi.mock("./shared/services/personnelService", () => ({
   personnelService: { list: vi.fn().mockResolvedValue([
     { id: 1, fullName: "ВАСИЛЬОК Іван Аркадійович", rank: "Солдат", surname: "ВАСИЛЬОК", givenName: "Іван", patronymic: "Аркадійович", position: "Стрілець, військова частина А0000", taxId: "7462389812", birthDate: "02.03.1999 року", educationLevel: "вища", educationDetails: "Академія", armedForcesServiceStartDate: "2022", positionAssignedDate: "2026", positionAssignmentOrder: "№1", militaryId: "АВ №077672", assignedVehicleName: "Great Wall", assignedVehicleRegistration: "АВ 7265" },
     { id: 2, fullName: "ПЕТРЕНКО Петро Петрович", rank: "Старший солдат", surname: "ПЕТРЕНКО", givenName: "Петро", patronymic: "Петрович", position: "Оператор БпЛА, військова частина А0000", taxId: "7462389813", birthDate: "14.05.1998 року", educationLevel: "середня спеціальна", educationDetails: "Коледж", armedForcesServiceStartDate: "2022", positionAssignedDate: "2023", positionAssignmentOrder: "№2", militaryId: "АВ №077673", assignedVehicleName: "Mitsubishi L200", assignedVehicleRegistration: "АВ 7266" }
-  ]), create: vi.fn(), update: vi.fn() }
+  ]), create: vi.fn(), update: vi.fn(), delete: vi.fn() }
+}));
+
+vi.mock("./app/services/applicationService", () => ({
+  applicationService: { getStartupWarnings: vi.fn().mockResolvedValue([{ code: "templates-missing", title: "Шаблони були відсутні", message: "Стартові шаблони відновлено." }]) }
 }));
 
 vi.mock("./features/generated-reports/services/generatedReportsService", () => ({
@@ -46,7 +50,7 @@ describe("navigation and report generation", () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: "Виберіть шаблон рапорту" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
-    expect(screen.getByRole("heading", { name: "Шаблони" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Шаблони завантажуються" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Особовий склад" }));
     expect(screen.getByRole("heading", { name: "Особовий склад" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Згенеровані рапорти" }));
@@ -55,6 +59,11 @@ describe("navigation and report generation", () => {
     expect(screen.getByRole("heading", { name: "Налаштування" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
     expect(screen.getByRole("heading", { name: "Довідник" })).toBeInTheDocument();
+  });
+
+  it("shows startup diagnostics in the sidebar", async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("Шаблони були відсутні")).toBeInTheDocument());
   });
 
   it("enables generation after selecting a DOCX template and a person", async () => {
@@ -140,6 +149,7 @@ describe("navigation and report generation", () => {
     expect(screen.getByText("Військовослужбовці")).toBeInTheDocument();
     expect(screen.getByText("Останні рапорти")).toBeInTheDocument();
     expect(screen.queryByText("Усього шаблонів")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Шаблони" })).not.toBeInTheDocument();
   });
 
   it("shows an example after selecting a template variable in documentation", () => {

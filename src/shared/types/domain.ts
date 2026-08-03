@@ -60,4 +60,10 @@ export type AppSettings = {
   chief: SignerSettings;
 };
 
+export type StartupWarning = {
+  code: "database-created" | "templates-missing" | "personnel-empty";
+  title: string;
+  message: string;
+};
+
 export type Screen = "generator" | "templates" | "people" | "generated" | "settings" | "documentation";

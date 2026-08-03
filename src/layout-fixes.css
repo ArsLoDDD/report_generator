@@ -65,6 +65,8 @@ body { overflow: hidden; }
 .templates-page .template-list__scroll, .templates-page .template-details__scroll { min-height: 0; overflow: auto; }
 .templates-page .template-details { min-height: 0; overflow: hidden; padding: 0; }
 .templates-page .template-details__scroll { height: 100%; padding: 23px; }
+.templates-page { grid-template-rows: minmax(0, 1fr); }
+.templates-page > .page-frame__content { grid-row: 1; }
 
 /* Personnel and generated reports: table and details pan independently. */
 .personnel-page .people-layout, .generated-page .generated-layout { height: 100%; min-height: 0; }
@@ -72,6 +74,51 @@ body { overflow: hidden; }
 .personnel-page .data-table__scroll, .personnel-page .person-details, .generated-page .data-table__scroll, .generated-page .report-details { min-height: 0; overflow: auto; }
 .personnel-page .data-table__scroll table, .generated-page .data-table__scroll table { display: table; min-height: auto; overflow: visible; }
 .personnel-page .data-table__scroll thead, .generated-page .data-table__scroll thead { position: sticky; top: 0; z-index: 1; background: #0d1922; }
+.personnel-page .data-table__scroll { overflow: auto; }
+.personnel-page .personnel-table { display: table !important; min-width: 2860px; }
+.personnel-page .personnel-table th { position: sticky; top: 0; z-index: 3; background: #0d1922; }
+.personnel-page .personnel-table tbody tr { cursor: pointer; }
+.personnel-page .personnel-table tbody tr:hover { background: #12212a; }
+.personnel-table__actions { position: sticky; right: 0; z-index: 2; background: #0e1922; }
+.personnel-table th:last-child { position: sticky; right: 0; z-index: 4; }
+.personnel-table td:nth-child(6), .personnel-table td:nth-child(10) { max-width: 310px; overflow: hidden; text-overflow: ellipsis; }
+
+/* Application diagnostics use the otherwise empty lower part of the static sidebar. */
+.sidebar-warnings { margin: auto 7px 0; display: grid; gap: 7px; min-height: 0; overflow: auto; }
+.sidebar-warnings article { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 9px; padding: 10px; border: 1px solid #4f431f; border-radius: 7px; background: #211c0f; }
+.sidebar-warnings svg { width: 18px; color: #f2b72c; }
+.sidebar-warnings b { display: block; font-size: 12px; color: #f1d58d; }
+.sidebar-warnings span { display: -webkit-box; margin-top: 4px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: #bcae87; font-size: 10px; line-height: 1.35; }
+.sidebar-warnings + .version { margin-top: 12px; }
+
+/* Reusable modal surface and the personnel editor. */
+.modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 28px; background: #02070bc7; backdrop-filter: blur(4px); }
+.modal-panel { width: min(720px, 100%); max-height: calc(100vh - 56px); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border: 1px solid #2b414d; border-radius: 10px; background: #0c1821; box-shadow: 0 24px 80px #000a; }
+.modal-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 20px; border-bottom: 1px solid #263945; }
+.modal-header h2 { margin: 0; font-size: 18px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid #263945; background: #0a151d; }
+.personnel-editor { width: min(960px, 100%); }
+.personnel-form { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
+.personnel-form__scroll { overflow: auto; padding: 20px; }
+.personnel-form__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 18px; }
+.form-field { min-width: 0; display: grid; gap: 7px; color: #b8c4cb; font-size: 12px; }
+.form-field--wide { grid-column: 1 / -1; }
+.form-field span b { color: #f06060; }
+.form-field input { min-width: 0; width: 100%; height: 41px; border: 1px solid #2a3d48; border-radius: 6px; outline: none; background: #08141c; color: #e5edf1; padding: 0 11px; }
+.form-field input:focus { border-color: #3ba74a; box-shadow: 0 0 0 2px #2c8d3a25; }
+.form-error { color: #ff7373; margin: 14px 0 0; }
+.confirm-dialog { width: min(500px, 100%); }
+.confirm-dialog__message { display: flex; align-items: flex-start; gap: 13px; padding: 22px 20px; }
+.confirm-dialog__message svg { flex: 0 0 auto; color: #f1ad32; }
+.confirm-dialog__message p { margin: 0; color: #c4ced4; line-height: 1.5; }
+.personnel-state { min-height: 240px; height: 100%; display: grid; place-content: center; justify-items: center; gap: 10px; color: #91a0aa; text-align: center; }
+.personnel-state > svg { width: 34px; height: 34px; }
+.personnel-state b { color: #e4ebef; font-size: 16px; }
+.personnel-state--error svg { color: #f16f6f; }
+.person-details__fields { display: grid; gap: 0; }
+.person-detail { display: grid; gap: 5px; padding: 10px 0; border-top: 1px solid #21343f; }
+.person-detail span { color: #91a0aa; font-size: 11px; }
+.person-detail b { overflow-wrap: anywhere; font-size: 12px; font-weight: 500; line-height: 1.4; }
 
 .settings-page .page-frame__content { overflow: auto; padding-right: 3px; }
 
