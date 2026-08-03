@@ -11,7 +11,15 @@ use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 use zip::{write::{SimpleFileOptions, ZipWriter}, CompressionMethod};
 
-struct AppState(Mutex<Connection>);
+struct AppState(Mutex<Connection>, Vec<StartupWarning>);
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StartupWarning {
+    code: String,
+    title: String,
+    message: String,
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,7 +49,8 @@ const STARTER_TEMPLATES: [(&str, &[u8]); 4] = [
     ("Список військовослужбовців.docx", include_bytes!("../templates/Список військовослужбовців.docx")),
 ];
 
-pub const DATABASE_DIRECTORY_NAME: &str = "База даних";
+pub const DATABASE_FILE_NAME: &str = "особовий_склад.db";
+pub const LEGACY_DATABASE_DIRECTORY_NAME: &str = "База даних";
 pub const TEMPLATES_DIRECTORY_NAME: &str = "Шаблони";
 pub const SIGNATURES_DIRECTORY_NAME: &str = "Підписи";
 pub const REPORTS_DIRECTORY_NAME: &str = "Згенеровані рапорти";
@@ -65,7 +74,7 @@ fn application_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn ensure_application_structure(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let root = application_root(app)?;
-    for directory in [DATABASE_DIRECTORY_NAME, TEMPLATES_DIRECTORY_NAME, SIGNATURES_DIRECTORY_NAME, REPORTS_DIRECTORY_NAME, BACKUPS_DIRECTORY_NAME, CONFIG_DIRECTORY_NAME] {
+    for directory in [TEMPLATES_DIRECTORY_NAME, SIGNATURES_DIRECTORY_NAME, REPORTS_DIRECTORY_NAME, BACKUPS_DIRECTORY_NAME, CONFIG_DIRECTORY_NAME] {
         fs::create_dir_all(root.join(directory)).map_err(|_| format!("Не вдалося створити папку «{directory}»."))?;
     }
     settings::load(&root)?;
@@ -117,12 +126,48 @@ fn template_description(file_name: &str) -> (&'static str, u16) {
     }
 }
 
-fn open_database(app: &tauri::AppHandle) -> Result<Connection, String> {
+fn prepare_database_path(root: &Path) -> Result<(PathBuf, bool), String> {
+    let database_path = root.join(DATABASE_FILE_NAME);
+    let legacy_directory = root.join(LEGACY_DATABASE_DIRECTORY_NAME);
+    let legacy_path = legacy_directory.join(DATABASE_FILE_NAME);
+    let database_was_missing = !database_path.exists() && !legacy_path.exists();
+    if !database_path.exists() && legacy_path.exists() {
+        fs::rename(&legacy_path, &database_path).or_else(|_| {
+            fs::copy(&legacy_path, &database_path)?;
+            fs::remove_file(&legacy_path)
+        }).map_err(|_| "Не вдалося перенести базу даних у головну папку програми.".to_string())?;
+        let _ = fs::remove_dir(&legacy_directory);
+    }
+    Ok((database_path, database_was_missing))
+}
+
+fn open_database(app: &tauri::AppHandle) -> Result<(Connection, bool), String> {
     let root = ensure_application_structure(app)?;
-    let database_path = root.join(DATABASE_DIRECTORY_NAME).join("особовий_склад.db");
+    let (database_path, database_was_missing) = prepare_database_path(&root)?;
     let connection = Connection::open(database_path).map_err(|_| "Не вдалося відкрити базу даних програми.".to_string())?;
     database::initialise(&connection)?;
-    Ok(connection)
+    Ok((connection, database_was_missing))
+}
+
+fn directory_contains_docx(directory: &Path) -> bool {
+    fs::read_dir(directory).ok().into_iter().flatten().filter_map(Result::ok).any(|entry| {
+        entry.path().extension().and_then(|value| value.to_str()).is_some_and(|extension| extension.eq_ignore_ascii_case("docx"))
+    })
+}
+
+fn startup_warnings(connection: &Connection, database_was_missing: bool, templates_were_missing: bool) -> Vec<StartupWarning> {
+    let mut warnings = Vec::new();
+    if database_was_missing {
+        warnings.push(StartupWarning { code: "database-created".into(), title: "Базу даних створено".into(), message: "Файл особовий_склад.db був відсутній і створений у головній папці програми.".into() });
+    }
+    if templates_were_missing {
+        warnings.push(StartupWarning { code: "templates-missing".into(), title: "Шаблони були відсутні".into(), message: "Папка не містила DOCX-файлів. Стартові шаблони відновлено автоматично.".into() });
+    }
+    let personnel_count = connection.query_row("SELECT COUNT(*) FROM personnel", [], |row| row.get::<_, i64>(0)).unwrap_or(0);
+    if personnel_count == 0 {
+        warnings.push(StartupWarning { code: "personnel-empty".into(), title: "Особовий склад порожній".into(), message: "Додайте хоча б одного військовослужбовця, щоб генерувати рапорти.".into() });
+    }
+    warnings
 }
 
 #[tauri::command]
@@ -141,6 +186,17 @@ fn create_personnel(state: tauri::State<AppState>, draft: personnel::PersonnelDr
 fn update_personnel(state: tauri::State<AppState>, personnel_id: i64, draft: personnel::PersonnelDraft) -> Result<personnel::Personnel, String> {
     let connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
     personnel::update(&connection, personnel_id, draft)
+}
+
+#[tauri::command]
+fn delete_personnel(state: tauri::State<AppState>, personnel_id: i64) -> Result<(), String> {
+    let connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    personnel::delete(&connection, personnel_id)
+}
+
+#[tauri::command]
+fn get_startup_warnings(state: tauri::State<AppState>) -> Vec<StartupWarning> {
+    state.1.clone()
 }
 
 #[tauri::command]
@@ -238,7 +294,7 @@ fn create_database_backup(app: tauri::AppHandle, state: tauri::State<AppState>) 
     let directory = root.join(BACKUPS_DIRECTORY_NAME).join(now.format("%d.%m.%Y").to_string());
     fs::create_dir_all(&directory).map_err(|_| "Не вдалося створити папку резервних копій.".to_string())?;
     let backup_path = directory.join(format!("Резервна копія БД {}.zip", now.format("%H-%M-%S")));
-    let database_path = root.join(DATABASE_DIRECTORY_NAME).join("особовий_склад.db");
+    let database_path = root.join(DATABASE_FILE_NAME);
     let mut database = fs::File::open(&database_path).map_err(|_| "Не вдалося відкрити базу даних для резервного копіювання.".to_string())?;
     let output = fs::File::create(&backup_path).map_err(|_| "Не вдалося створити резервну копію бази даних.".to_string())?;
     let mut archive = ZipWriter::new(output);
@@ -275,13 +331,15 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            ensure_application_structure(app.handle()).map_err(io::Error::other)?;
-            let connection = open_database(app.handle()).map_err(io::Error::other)?;
+            let root = ensure_application_structure(app.handle()).map_err(io::Error::other)?;
+            let templates_were_missing = !directory_contains_docx(&root.join(TEMPLATES_DIRECTORY_NAME));
+            let (connection, database_was_missing) = open_database(app.handle()).map_err(io::Error::other)?;
+            let warnings = startup_warnings(&connection, database_was_missing, templates_were_missing);
             seed_starter_templates(app.handle()).map_err(io::Error::other)?;
-            app.manage(AppState(Mutex::new(connection)));
+            app.manage(AppState(Mutex::new(connection), warnings));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, get_app_settings, update_signer_settings, list_templates, select_template_file, inspect_template, validate_template, generate_report, open_generated_report, open_generated_report_folder, open_application_directory, create_database_backup, list_generated_reports])
+        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, delete_personnel, get_startup_warnings, get_app_settings, update_signer_settings, list_templates, select_template_file, inspect_template, validate_template, generate_report, open_generated_report, open_generated_report_folder, open_application_directory, create_database_backup, list_generated_reports])
         .run(tauri::generate_context!())
         .expect("Не вдалося запустити застосунок");
 }
@@ -300,5 +358,28 @@ mod tests {
         assert!(!inspection.is_valid);
         assert!(inspection.errors.iter().any(|error| error.contains("main.unknownField")));
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn migrates_the_legacy_database_into_the_application_root() {
+        let root = std::env::temp_dir().join(format!("report-generator-database-migration-{}", Local::now().timestamp_nanos_opt().unwrap_or_default()));
+        let legacy_directory = root.join(LEGACY_DATABASE_DIRECTORY_NAME);
+        fs::create_dir_all(&legacy_directory).unwrap();
+        fs::write(legacy_directory.join(DATABASE_FILE_NAME), b"existing database").unwrap();
+        let (path, was_missing) = prepare_database_path(&root).unwrap();
+        assert!(!was_missing);
+        assert_eq!(fs::read(path).unwrap(), b"existing database");
+        assert!(!legacy_directory.join(DATABASE_FILE_NAME).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reports_an_empty_personnel_database_at_startup() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let warnings = startup_warnings(&connection, true, true);
+        assert!(warnings.iter().any(|warning| warning.code == "database-created"));
+        assert!(warnings.iter().any(|warning| warning.code == "templates-missing"));
+        assert!(warnings.iter().any(|warning| warning.code == "personnel-empty"));
     }
 }

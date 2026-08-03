@@ -80,6 +80,15 @@ pub fn update(connection: &Connection, id: i64, draft: PersonnelDraft) -> Result
     find(connection, id)
 }
 
+pub fn delete(connection: &Connection, id: i64) -> Result<(), String> {
+    let deleted = connection.execute("DELETE FROM personnel WHERE id=?1", [id])
+        .map_err(|_| "Не вдалося видалити військовослужбовця.".to_string())?;
+    if deleted == 0 {
+        return Err("Військовослужбовця не знайдено. Оновіть список і спробуйте знову.".to_string());
+    }
+    Ok(())
+}
+
 fn find(connection: &Connection, id: i64) -> Result<Personnel, String> {
     connection.query_row("SELECT id, rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, assigned_vehicle_name, assigned_vehicle_registration FROM personnel WHERE id=?1", [id], map_row)
         .map_err(|_| "Не вдалося знайти збережений запис.".to_string())
@@ -101,7 +110,17 @@ mod tests {
     }
 
     #[test]
-    fn saves_and_reads_valid_personnel() { let connection = Connection::open_in_memory().unwrap(); database::initialise(&connection).unwrap(); let saved = create(&connection, valid_draft()).unwrap(); assert_eq!(saved.full_name, "ТЕСТ Іван Іванович"); assert_eq!(list(&connection).unwrap().len(), 16); }
+    fn saves_reads_updates_and_deletes_valid_personnel() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let saved = create(&connection, valid_draft()).unwrap();
+        assert_eq!(saved.full_name, "ТЕСТ Іван Іванович");
+        let mut changed = valid_draft();
+        changed.position = "Командир відділення, в/ч А0000".into();
+        assert_eq!(update(&connection, saved.id, changed).unwrap().position, "Командир відділення, в/ч А0000");
+        delete(&connection, saved.id).unwrap();
+        assert!(list(&connection).unwrap().is_empty());
+    }
 
     #[test]
     fn rejects_invalid_tax_id() { let mut draft = valid_draft(); draft.tax_id = "123".into(); assert_eq!(validate(&draft).unwrap_err(), "ІПН має містити рівно 10 цифр."); }

@@ -317,6 +317,7 @@ mod tests {
     fn reports_missing_template_cleanly() {
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
+        database::seed_test_personnel(&connection).unwrap();
         let result = validate(&connection, "/missing.docx", &[1], None);
         assert!(!result.is_valid);
         assert!(result.errors.iter().any(|error| error.contains("Не вдалося відкрити шаблон")));
@@ -326,6 +327,7 @@ mod tests {
     fn uses_indexed_values_only_for_multiple_people() {
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
+        database::seed_test_personnel(&connection).unwrap();
         let people = selected_personnel(&connection, &[1, 2]).unwrap();
         let values = values_for(&people, &settings::defaults(), None).unwrap();
         assert!(values.contains_key("soldiers[0].fullName"));
@@ -337,6 +339,7 @@ mod tests {
     fn provides_main_namespace_and_formats_report_date() {
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
+        database::seed_test_personnel(&connection).unwrap();
         let people = selected_personnel(&connection, &[1]).unwrap();
         let values = values_for(&people, &settings::defaults(), Some("2026-08-03")).unwrap();
         assert_eq!(values.get("main.fullName").unwrap(), "Іваненко Іван Іванович");
@@ -350,6 +353,7 @@ mod tests {
     fn formats_person_full_name_without_all_caps_surname() {
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
+        database::seed_test_personnel(&connection).unwrap();
         let person = selected_personnel(&connection, &[1]).unwrap().remove(0);
         assert_eq!(format_person_full_name(&person), "Васильок Іван Аркадійович");
     }
@@ -406,6 +410,7 @@ mod tests {
         write_test_template(&template_path, "<w:t>{{soldier.fullName}}</w:t>");
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
+        database::seed_test_personnel(&connection).unwrap();
         let result = validate(&connection, template_path.to_str().unwrap(), &[1, 2], None);
         assert!(!result.is_valid);
         assert!(result.errors.iter().any(|error| error.contains("однією особою")));
@@ -418,6 +423,7 @@ mod tests {
         write_test_template(&template_path, "<w:t>{{document.date}}</w:t>");
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
+        database::seed_test_personnel(&connection).unwrap();
         let result = validate(&connection, template_path.to_str().unwrap(), &[1], None);
         assert!(result.is_valid);
         let people = selected_personnel(&connection, &[1]).unwrap();
@@ -434,6 +440,7 @@ mod tests {
         write_test_template(&template_path, "<w:t>{{soldier.fullName}}</w:t>");
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
+        database::seed_test_personnel(&connection).unwrap();
         let report = generate(&connection, &root, GenerateReportRequest { template_path: template_path.to_string_lossy().to_string(), personnel_ids: vec![1], report_date: None }).unwrap();
         assert!(Path::new(&report.docx_path).is_file());
         let mut archive = ZipArchive::new(File::open(&report.docx_path).unwrap()).unwrap();
