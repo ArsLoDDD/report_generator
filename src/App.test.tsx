@@ -81,6 +81,24 @@ describe("navigation and report generation", () => {
     expect(screen.queryByRole("button", { name: "Відкрити DOCX" })).not.toBeInTheDocument();
   });
 
+  it("filters personnel by text and rank", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Особовий склад" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Пошук за ПІБ, ІПН або посадою…" }), { target: { value: "ВАСИЛЬОК" } });
+    expect(screen.getByText("Показано 1 із 15")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Додаткові фільтри" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Фільтр за званням" }), { target: { value: "Сержант" } });
+    expect(screen.getByText("Показано 0 із 15")).toBeInTheDocument();
+  });
+
+  it("filters real templates by text", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Пошук шаблонів…" })).toBeInTheDocument());
+    fireEvent.change(screen.getByRole("textbox", { name: "Пошук шаблонів…" }), { target: { value: "матеріальну" } });
+    expect(screen.getByText("Показано 1 із 3")).toBeInTheDocument();
+  });
+
   it("switches settings to signer details", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
