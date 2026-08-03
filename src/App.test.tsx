@@ -123,7 +123,7 @@ describe("navigation and report generation", () => {
     await waitFor(() => expect(screen.getByText(/Основний підписант/)).toBeInTheDocument());
     expect(screen.getByDisplayValue("main.png")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Змінити" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Створити копію БД" }));
+    fireEvent.click(screen.getByRole("button", { name: "Створити резервну копію БД" }));
     await waitFor(() => expect(screen.getByText("Резервну копію бази даних створено.")).toBeInTheDocument());
   });
 
