@@ -18,10 +18,6 @@ ReportGenerator/
 
 On Windows the working tree is created alongside the executable. On macOS the writable tree lives in the application-support location because an installed `.app` bundle is not writeable. The in-app settings expose these default directories.
 
-## Compatibility
-
-If the earlier `reports.db` is found before `Database/personnel.db` exists, it is copied to the new database location before opening. No existing database is deleted automatically.
-
 ## Security
 
 Only files and folders inside `Згенеровані рапорти` may be opened through the application’s report-opening commands.

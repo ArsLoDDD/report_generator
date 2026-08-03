@@ -105,10 +105,6 @@ fn template_description(file_name: &str) -> (&'static str, u16) {
 fn open_database(app: &tauri::AppHandle) -> Result<Connection, String> {
     let root = ensure_application_structure(app)?;
     let database_path = root.join(DATABASE_DIRECTORY_NAME).join("особовий_склад.db");
-    let legacy_database_path = root.join("reports.db");
-    if !database_path.exists() && legacy_database_path.exists() {
-        fs::copy(legacy_database_path, &database_path).map_err(|_| "Не вдалося перенести наявну базу даних у папку Database.".to_string())?;
-    }
     let connection = Connection::open(database_path).map_err(|_| "Не вдалося відкрити базу даних програми.".to_string())?;
     database::initialise(&connection)?;
     Ok(connection)
