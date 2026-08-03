@@ -1,8 +1,8 @@
 import { FileText, FolderOpen } from "lucide-react";
 
-export type RecentReport = { name: string; people: number; createdAt: string };
+export type RecentReport = { name: string; createdAt: string };
 
 /** Shared compact representation of generated reports for dashboards and template details. */
 export function RecentReportsList({ reports }: { reports: RecentReport[] }) {
-  return <div className="recent-reports-list">{reports.map((report) => <article className="recent-report-row" key={report.name}><span className="word-icon">W</span><div><b>{report.name}</b><small>{report.people} ос. · {report.createdAt}</small></div><button className="icon-button" aria-label={`Відкрити ${report.name}`}><FolderOpen /></button></article>)}</div>;
+  return <div className="recent-reports-list">{reports.length ? reports.map((report) => <article className="recent-report-row" key={`${report.name}-${report.createdAt}`}><span className="word-icon">W</span><div><b>{report.name}</b><small>{report.createdAt}</small></div><button className="icon-button" aria-label={`Відкрити ${report.name}`}><FolderOpen /></button></article>) : <p className="muted">За цим шаблоном ще не створено рапортів.</p>}</div>;
 }

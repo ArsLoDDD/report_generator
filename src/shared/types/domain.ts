@@ -31,4 +31,12 @@ export type Person = {
 
 export type PersonnelDraft = Omit<Person, "id" | "fullName">;
 
+export type GeneratedReportSummary = {
+  name: string;
+  template: string;
+  generatedAt: string;
+  docxPath: string;
+  folderPath: string;
+};
+
 export type Screen = "generator" | "templates" | "people" | "generated" | "settings" | "documentation";

@@ -21,6 +21,16 @@ struct TemplateFile {
     source_path: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeneratedReportFile {
+    name: String,
+    template: String,
+    generated_at: String,
+    docx_path: String,
+    folder_path: String,
+}
+
 const STARTER_TEMPLATES: [(&str, &[u8]); 3] = [
     ("Рапорт на відпустку.docx", include_bytes!("../templates/Рапорт на відпустку.docx")),
     ("Рапорт на матеріальну допомогу.docx", include_bytes!("../templates/Рапорт на матеріальну допомогу.docx")),
@@ -170,6 +180,28 @@ fn open_generated_report_folder(app: tauri::AppHandle, folder_path: String) -> R
     open_path(&ensure_reports_item(&app, &folder_path)?)
 }
 
+#[tauri::command]
+fn list_generated_reports(app: tauri::AppHandle) -> Result<Vec<GeneratedReportFile>, String> {
+    let reports_directory = ensure_application_structure(&app)?.join("Reports");
+    let mut reports = Vec::new();
+    for date_entry in fs::read_dir(&reports_directory).map_err(|_| "Не вдалося відкрити папку рапортів.".to_string())?.filter_map(Result::ok) {
+        if !date_entry.path().is_dir() { continue; }
+        let date = date_entry.file_name().to_string_lossy().to_string();
+        for report_entry in fs::read_dir(date_entry.path()).map_err(|_| "Не вдалося прочитати папку згенерованих рапортів.".to_string())?.filter_map(Result::ok) {
+            let folder_path = report_entry.path();
+            if !folder_path.is_dir() || folder_path.file_name().and_then(|value| value.to_str()).is_some_and(|value| value.starts_with('.')) { continue; }
+            let docx_path = fs::read_dir(&folder_path).ok().and_then(|entries| entries.filter_map(Result::ok).map(|entry| entry.path()).find(|path| path.extension().and_then(|value| value.to_str()).is_some_and(|extension| extension.eq_ignore_ascii_case("docx"))));
+            let Some(docx_path) = docx_path else { continue; };
+            let template = docx_path.file_stem().and_then(|value| value.to_str()).unwrap_or("Рапорт").to_string();
+            let folder_name = folder_path.file_name().and_then(|value| value.to_str()).unwrap_or(&template);
+            let generated_at = folder_name.strip_prefix(&(template.clone() + " ")).map_or(date.clone(), |time| format!("{date} {}", time.replace('-', ":")));
+            reports.push(GeneratedReportFile { name: template.clone(), template, generated_at, docx_path: docx_path.to_string_lossy().to_string(), folder_path: folder_path.to_string_lossy().to_string() });
+        }
+    }
+    reports.sort_by(|left, right| right.generated_at.cmp(&left.generated_at));
+    Ok(reports)
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -181,7 +213,7 @@ fn main() {
             app.manage(AppState(Mutex::new(connection)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, list_templates, select_template_file, validate_template, generate_report, open_generated_report, open_generated_report_folder])
+        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, list_templates, select_template_file, validate_template, generate_report, open_generated_report, open_generated_report_folder, list_generated_reports])
         .run(tauri::generate_context!())
         .expect("Не вдалося запустити застосунок");
 }

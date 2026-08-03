@@ -3,7 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
 vi.mock("./shared/services/personnelService", () => ({
-  personnelService: { list: vi.fn().mockRejectedValue(new Error("desktop unavailable")), create: vi.fn(), update: vi.fn() }
+  personnelService: { list: vi.fn().mockResolvedValue([
+    { id: 1, fullName: "ВАСИЛЬОК Іван Аркадійович", rank: "Солдат", surname: "ВАСИЛЬОК", givenName: "Іван", patronymic: "Аркадійович", position: "Стрілець, військова частина А0000", taxId: "7462389812", birthDate: "02.03.1999 року", educationLevel: "вища", educationDetails: "Академія", armedForcesServiceStartDate: "2022", positionAssignedDate: "2026", positionAssignmentOrder: "№1", militaryId: "АВ №077672", assignedVehicleName: "Great Wall", assignedVehicleRegistration: "АВ 7265" },
+    { id: 2, fullName: "ПЕТРЕНКО Петро Петрович", rank: "Старший солдат", surname: "ПЕТРЕНКО", givenName: "Петро", patronymic: "Петрович", position: "Оператор БпЛА, військова частина А0000", taxId: "7462389813", birthDate: "14.05.1998 року", educationLevel: "середня спеціальна", educationDetails: "Коледж", armedForcesServiceStartDate: "2022", positionAssignedDate: "2023", positionAssignmentOrder: "№2", militaryId: "АВ №077673", assignedVehicleName: "Mitsubishi L200", assignedVehicleRegistration: "АВ 7266" }
+  ]), create: vi.fn(), update: vi.fn() }
+}));
+
+vi.mock("./features/generated-reports/services/generatedReportsService", () => ({
+  generatedReportsService: { list: vi.fn().mockResolvedValue([{ name: "Рапорт на відпустку", template: "Рапорт на відпустку", generatedAt: "2026-08-03 10:15:30", docxPath: "/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30/Рапорт на відпустку.docx", folderPath: "/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30" }]), openDocument: vi.fn(), openFolder: vi.fn() }
 }));
 
 vi.mock("./features/report-generation/services/reportGenerationService", () => ({
@@ -85,10 +92,10 @@ describe("navigation and report generation", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Особовий склад" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Пошук за ПІБ, ІПН або посадою…" }), { target: { value: "ВАСИЛЬОК" } });
-    expect(screen.getByText("Показано 1 із 15")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Показано 1 із 2")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Додаткові фільтри" }));
     fireEvent.change(screen.getByRole("combobox", { name: "Фільтр за званням" }), { target: { value: "Сержант" } });
-    expect(screen.getByText("Показано 0 із 15")).toBeInTheDocument();
+    expect(screen.getByText("Показано 0 із 2")).toBeInTheDocument();
   });
 
   it("filters real templates by text", async () => {
@@ -97,6 +104,13 @@ describe("navigation and report generation", () => {
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Пошук шаблонів…" })).toBeInTheDocument());
     fireEvent.change(screen.getByRole("textbox", { name: "Пошук шаблонів…" }), { target: { value: "матеріальну" } });
     expect(screen.getByText("Показано 1 із 3")).toBeInTheDocument();
+  });
+
+  it("loads generated reports from the reports service instead of a local list", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Згенеровані рапорти" }));
+    await waitFor(() => expect(screen.getByText("Показано 1 із 1")).toBeInTheDocument());
+    expect(screen.getAllByText("Рапорт на відпустку").length).toBeGreaterThan(0);
   });
 
   it("switches settings to signer details", () => {
