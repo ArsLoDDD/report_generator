@@ -5,6 +5,7 @@ mod report_generation;
 use rusqlite::Connection;
 use serde::Serialize;
 use std::{fs, io, path::{Path, PathBuf}, process::Command, sync::Mutex};
+use chrono::{DateTime, Local};
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
@@ -37,6 +38,22 @@ const STARTER_TEMPLATES: [(&str, &[u8]); 3] = [
     ("Список військовослужбовців.docx", include_bytes!("../templates/Список військовослужбовців.docx")),
 ];
 
+pub const DATABASE_DIRECTORY_NAME: &str = "База даних";
+pub const TEMPLATES_DIRECTORY_NAME: &str = "Шаблони";
+pub const SIGNATURES_DIRECTORY_NAME: &str = "Підписи";
+pub const REPORTS_DIRECTORY_NAME: &str = "Згенеровані рапорти";
+pub const BACKUPS_DIRECTORY_NAME: &str = "Резервні копії";
+pub const CONFIG_DIRECTORY_NAME: &str = "Налаштування";
+
+#[cfg(target_os = "windows")]
+fn application_root(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let executable = std::env::current_exe().map_err(|_| "Не вдалося визначити розташування програми.".to_string())?;
+    let directory = executable.parent().ok_or_else(|| "Не вдалося визначити папку програми.".to_string())?.to_path_buf();
+    fs::create_dir_all(&directory).map_err(|_| "Не вдалося створити робочу папку програми.".to_string())?;
+    Ok(directory)
+}
+
+#[cfg(not(target_os = "windows"))]
 fn application_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let directory = app.path().app_data_dir().map_err(|_| "Не вдалося визначити папку даних програми.".to_string())?;
     fs::create_dir_all(&directory).map_err(|_| "Не вдалося створити папку даних програми.".to_string())?;
@@ -45,24 +62,24 @@ fn application_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn ensure_application_structure(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let root = application_root(app)?;
-    for directory in ["Database", "Templates", "Signatures", "Reports", "DB_Backups", "Config"] {
+    for directory in [DATABASE_DIRECTORY_NAME, TEMPLATES_DIRECTORY_NAME, SIGNATURES_DIRECTORY_NAME, REPORTS_DIRECTORY_NAME, BACKUPS_DIRECTORY_NAME, CONFIG_DIRECTORY_NAME] {
         fs::create_dir_all(root.join(directory)).map_err(|_| format!("Не вдалося створити папку «{directory}»."))?;
     }
-    let settings_path = root.join("Config").join("settings.json");
+    let settings_path = root.join(CONFIG_DIRECTORY_NAME).join("налаштування.json");
     if !settings_path.exists() {
         fs::write(settings_path, r#"{
-  "databasePath": "Database/personnel.db",
-  "templatesPath": "Templates",
-  "signaturesPath": "Signatures",
-  "reportsPath": "Reports",
-  "backupsPath": "DB_Backups"
+  "databasePath": "База даних/особовий_склад.db",
+  "templatesPath": "Шаблони",
+  "signaturesPath": "Підписи",
+  "reportsPath": "Згенеровані рапорти",
+  "backupsPath": "Резервні копії"
 }"#).map_err(|_| "Не вдалося створити файл налаштувань.".to_string())?;
     }
     Ok(root)
 }
 
 fn templates_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(ensure_application_structure(app)?.join("Templates"))
+    Ok(ensure_application_structure(app)?.join(TEMPLATES_DIRECTORY_NAME))
 }
 
 fn seed_starter_templates(app: &tauri::AppHandle) -> Result<(), String> {
@@ -87,7 +104,7 @@ fn template_description(file_name: &str) -> (&'static str, u16) {
 
 fn open_database(app: &tauri::AppHandle) -> Result<Connection, String> {
     let root = ensure_application_structure(app)?;
-    let database_path = root.join("Database").join("personnel.db");
+    let database_path = root.join(DATABASE_DIRECTORY_NAME).join("особовий_склад.db");
     let legacy_database_path = root.join("reports.db");
     if !database_path.exists() && legacy_database_path.exists() {
         fs::copy(legacy_database_path, &database_path).map_err(|_| "Не вдалося перенести наявну базу даних у папку Database.".to_string())?;
@@ -154,7 +171,7 @@ fn generate_report(app: tauri::AppHandle, state: tauri::State<AppState>, request
 }
 
 fn ensure_reports_item(app: &tauri::AppHandle, requested_path: &str) -> Result<PathBuf, String> {
-    let reports_root = ensure_application_structure(app)?.join("Reports").canonicalize().map_err(|_| "Не вдалося відкрити папку рапортів.".to_string())?;
+    let reports_root = ensure_application_structure(app)?.join(REPORTS_DIRECTORY_NAME).canonicalize().map_err(|_| "Не вдалося відкрити папку рапортів.".to_string())?;
     let item = Path::new(requested_path).canonicalize().map_err(|_| "Файл або папку рапорту не знайдено.".to_string())?;
     if !item.starts_with(&reports_root) { return Err("Можна відкривати лише файли та папки зі структури Reports.".to_string()); }
     Ok(item)
@@ -182,20 +199,18 @@ fn open_generated_report_folder(app: tauri::AppHandle, folder_path: String) -> R
 
 #[tauri::command]
 fn list_generated_reports(app: tauri::AppHandle) -> Result<Vec<GeneratedReportFile>, String> {
-    let reports_directory = ensure_application_structure(&app)?.join("Reports");
+    let reports_directory = ensure_application_structure(&app)?.join(REPORTS_DIRECTORY_NAME);
+    let template_names = list_templates(app)?.into_iter().map(|template| template.name).collect::<Vec<_>>();
     let mut reports = Vec::new();
     for date_entry in fs::read_dir(&reports_directory).map_err(|_| "Не вдалося відкрити папку рапортів.".to_string())?.filter_map(Result::ok) {
         if !date_entry.path().is_dir() { continue; }
-        let date = date_entry.file_name().to_string_lossy().to_string();
-        for report_entry in fs::read_dir(date_entry.path()).map_err(|_| "Не вдалося прочитати папку згенерованих рапортів.".to_string())?.filter_map(Result::ok) {
-            let folder_path = report_entry.path();
-            if !folder_path.is_dir() || folder_path.file_name().and_then(|value| value.to_str()).is_some_and(|value| value.starts_with('.')) { continue; }
-            let docx_path = fs::read_dir(&folder_path).ok().and_then(|entries| entries.filter_map(Result::ok).map(|entry| entry.path()).find(|path| path.extension().and_then(|value| value.to_str()).is_some_and(|extension| extension.eq_ignore_ascii_case("docx"))));
-            let Some(docx_path) = docx_path else { continue; };
-            let template = docx_path.file_stem().and_then(|value| value.to_str()).unwrap_or("Рапорт").to_string();
-            let folder_name = folder_path.file_name().and_then(|value| value.to_str()).unwrap_or(&template);
-            let generated_at = folder_name.strip_prefix(&(template.clone() + " ")).map_or(date.clone(), |time| format!("{date} {}", time.replace('-', ":")));
-            reports.push(GeneratedReportFile { name: template.clone(), template, generated_at, docx_path: docx_path.to_string_lossy().to_string(), folder_path: folder_path.to_string_lossy().to_string() });
+        for document_entry in fs::read_dir(date_entry.path()).map_err(|_| "Не вдалося прочитати папку згенерованих рапортів.".to_string())?.filter_map(Result::ok) {
+            let docx_path = document_entry.path();
+            if !docx_path.is_file() || !docx_path.extension().and_then(|value| value.to_str()).is_some_and(|extension| extension.eq_ignore_ascii_case("docx")) { continue; }
+            let name = docx_path.file_stem().and_then(|value| value.to_str()).unwrap_or("Рапорт").to_string();
+            let template = template_names.iter().filter(|template| name.starts_with(template.as_str())).max_by_key(|template| template.len()).cloned().unwrap_or_else(|| name.clone());
+            let generated_at = fs::metadata(&docx_path).ok().and_then(|metadata| metadata.modified().ok()).map(|modified| DateTime::<Local>::from(modified).format("%d.%m.%Y %H:%M").to_string()).unwrap_or_else(|| date_entry.file_name().to_string_lossy().to_string());
+            reports.push(GeneratedReportFile { name, template, generated_at, docx_path: docx_path.to_string_lossy().to_string(), folder_path: date_entry.path().to_string_lossy().to_string() });
         }
     }
     reports.sort_by(|left, right| right.generated_at.cmp(&left.generated_at));

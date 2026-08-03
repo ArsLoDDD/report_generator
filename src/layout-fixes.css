@@ -335,13 +335,13 @@ body { overflow: hidden; }
 .screen-body:has(.generation-layout) .template-picker,
 .screen-body:has(.generation-layout) .people-select {
   min-height: 0;
-  overflow: auto;
+  height: 100%;
+  overflow: hidden;
 }
 
 .screen-body:has(.generation-layout) .template-picker {
-  align-self: center;
-  height: auto;
-  max-height: 100%;
+  align-self: stretch;
+  max-height: none;
 }
 
 .screen-body:has(.generation-layout) .selection-column {
@@ -350,6 +350,12 @@ body { overflow: hidden; }
 
 .screen-body:has(.generation-layout) .people-select {
   flex: 1 1 auto;
+}
+
+.screen-body:has(.generation-layout) .template-picker__scroll,
+.screen-body:has(.generation-layout) .people-select__scroll {
+  min-height: 0;
+  overflow: auto;
 }
 
 .template-card b,

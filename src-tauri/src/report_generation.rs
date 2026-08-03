@@ -1,4 +1,4 @@
-use crate::personnel::{self, Personnel};
+use crate::{personnel::{self, Personnel}, REPORTS_DIRECTORY_NAME};
 use chrono::Local;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -40,19 +40,26 @@ pub fn generate(connection: &Connection, app_data_directory: &Path, request: Gen
     let personnel = selected_personnel(connection, &request.personnel_ids)?;
     let values = values_for(&personnel);
     let now = Local::now();
-    let date_directory = now.format("%Y-%m-%d").to_string();
+    let date_directory = now.format("%d.%m.%Y").to_string();
     let template_name = safe_name(Path::new(&request.template_path).file_stem().and_then(|name| name.to_str()).unwrap_or("Рапорт"));
-    let report_name = format!("{template_name} {}", now.format("%Y-%m-%d %H-%M-%S"));
-    let reports_root = app_data_directory.join("Reports").join(date_directory);
+    let surnames = personnel.iter().map(|person| safe_name(&person.surname)).collect::<Vec<_>>().join(", ");
+    let report_name = format!("{template_name} {surnames}");
+    let reports_root = app_data_directory.join(REPORTS_DIRECTORY_NAME).join(date_directory);
     fs::create_dir_all(&reports_root).map_err(|_| "Не вдалося створити папку для рапортів.".to_string())?;
-    let final_directory = reports_root.join(&report_name);
-    let temporary_directory = reports_root.join(format!(".{report_name}.tmp"));
-    fs::create_dir(&temporary_directory).map_err(|_| "Не вдалося підготувати тимчасову папку для рапорту.".to_string())?;
-    let result = write_docx(Path::new(&request.template_path), &temporary_directory.join(format!("{template_name}.docx")), &values);
+    let file_name = available_file_name(&reports_root, &report_name, now.format("%H-%M-%S").to_string());
+    let final_path = reports_root.join(&file_name);
+    let temporary_path = reports_root.join(format!(".{file_name}.tmp"));
+    let result = write_docx(Path::new(&request.template_path), &temporary_path, &values);
     match result {
-        Ok(()) => { fs::rename(&temporary_directory, &final_directory).map_err(|_| "Не вдалося завершити створення рапорту.".to_string())?; Ok(GeneratedReport { docx_path: final_directory.join(format!("{template_name}.docx")).to_string_lossy().to_string(), folder_path: final_directory.to_string_lossy().to_string() }) }
-        Err(error) => { let _ = fs::remove_dir_all(&temporary_directory); Err(error) }
+        Ok(()) => { fs::rename(&temporary_path, &final_path).map_err(|_| "Не вдалося завершити створення рапорту.".to_string())?; Ok(GeneratedReport { docx_path: final_path.to_string_lossy().to_string(), folder_path: reports_root.to_string_lossy().to_string() }) }
+        Err(error) => { let _ = fs::remove_file(&temporary_path); Err(error) }
     }
+}
+
+fn available_file_name(directory: &Path, report_name: &str, timestamp: String) -> String {
+    let preferred = format!("{report_name}.docx");
+    if !directory.join(&preferred).exists() { return preferred; }
+    format!("{report_name} ({timestamp}).docx")
 }
 
 fn selected_personnel(connection: &Connection, ids: &[i64]) -> Result<Vec<Personnel>, String> { let all = personnel::list(connection)?; ids.iter().map(|id| all.iter().find(|person| person.id == *id).cloned().ok_or_else(|| "Не знайдено обраного військовослужбовця.".to_string())).collect() }
@@ -165,6 +172,11 @@ mod tests {
         let mut document = String::new();
         archive.by_name("word/document.xml").unwrap().read_to_string(&mut document).unwrap();
         assert!(document.contains("ВАСИЛЬОК Іван Аркадійович"));
+        assert!(report.docx_path.contains("Згенеровані рапорти"));
+        assert!(Path::new(&report.docx_path).file_name().unwrap().to_string_lossy().contains("ВАСИЛЬОК"));
+        assert_eq!(Path::new(&report.folder_path).file_name().unwrap(), now_date_directory_name().as_str());
         fs::remove_dir_all(root).unwrap();
     }
+
+    fn now_date_directory_name() -> String { Local::now().format("%d.%m.%Y").to_string() }
 }
