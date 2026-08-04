@@ -15,7 +15,7 @@ vi.mock("./app/services/applicationService", () => ({
 }));
 
 vi.mock("./features/generated-reports/services/generatedReportsService", () => ({
-  generatedReportsService: { list: vi.fn().mockResolvedValue({ items: [{ name: "Рапорт на відпустку", template: "Рапорт на відпустку", generatedAt: "2026-08-03 10:15:30", docxPath: "/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30/Рапорт на відпустку.docx", folderPath: "/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30" }], totalCount: 1 }), openDocument: vi.fn(), openFolder: vi.fn() }
+  generatedReportsService: { list: vi.fn().mockResolvedValue({ items: [{ name: "Рапорт на відпустку", template: "Рапорт на відпустку", generatedAt: "2026-08-03 10:15:30", docxPath: "/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30/Рапорт на відпустку.docx", folderPath: "/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30" }], totalCount: 1 }), openDocument: vi.fn(), openFolder: vi.fn(), delete: vi.fn() }
 }));
 
 vi.mock("./features/settings/services/settingsService", () => ({
@@ -42,7 +42,8 @@ vi.mock("./features/templates/services/templateService", () => ({
     ], totalCount: 3 }),
     inspect: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: ["soldier.fullName", "main.fullName"] }),
     open: vi.fn().mockResolvedValue(undefined),
-    openDirectory: vi.fn().mockResolvedValue(undefined)
+    openDirectory: vi.fn().mockResolvedValue(undefined),
+    delete: vi.fn().mockResolvedValue(undefined)
   }
 }));
 
@@ -57,7 +58,7 @@ describe("navigation and report generation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Особовий склад" }));
     expect(screen.getByRole("heading", { name: "Особовий склад" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Згенеровані рапорти" }));
-    expect(screen.getByRole("heading", { name: "Згенеровані рапорти" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Період рапортів" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
     expect(screen.getByRole("heading", { name: "Налаштування" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
@@ -144,7 +145,16 @@ describe("navigation and report generation", () => {
     await waitFor(() => expect(screen.getByText("Список шаблонів оновлено.")).toBeInTheDocument());
     expect(templateService.list).toHaveBeenCalledTimes(listCallCount + 1);
     expect(screen.queryByRole("button", { name: "Створити копію" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Видалити" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Видалити" })).toBeInTheDocument();
+  });
+
+  it("deletes a selected local template after confirmation", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Видалити" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Видалити" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Видалити" })[1]);
+    await waitFor(() => expect(templateService.delete).toHaveBeenCalledWith("/templates/Рапорт на відпустку.docx"));
   });
 
   it("loads generated reports from the reports service instead of a local list", async () => {
@@ -152,6 +162,20 @@ describe("navigation and report generation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Згенеровані рапорти" }));
     await waitFor(() => expect(screen.getByText("Показано 1 із 1")).toBeInTheDocument());
     expect(screen.getAllByText("Рапорт на відпустку").length).toBeGreaterThan(0);
+  });
+
+  it("selects and deletes generated reports only with checkboxes", async () => {
+    const { generatedReportsService } = await import("./features/generated-reports/services/generatedReportsService");
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Згенеровані рапорти" }));
+    await waitFor(() => expect(screen.getByText("Показано 1 із 1")).toBeInTheDocument());
+    const deleteButton = screen.getByRole("button", { name: "Видалити" });
+    expect(deleteButton).toBeDisabled();
+    fireEvent.click(screen.getAllByRole("button", { name: "Обрати" })[1]);
+    expect(screen.getByRole("button", { name: "Видалити (1)" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Видалити (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Видалити" }));
+    await waitFor(() => expect(generatedReportsService.delete).toHaveBeenCalledWith(["/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30/Рапорт на відпустку.docx"]));
   });
 
   it("shows saved signer settings without editable paths", async () => {
@@ -172,6 +196,15 @@ describe("navigation and report generation", () => {
     expect(screen.getByText("Останні рапорти")).toBeInTheDocument();
     expect(screen.queryByText("Усього шаблонів")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Шаблони" })).not.toBeInTheDocument();
+  });
+
+  it("opens a report from the recent reports list", async () => {
+    const { generatedReportsService } = await import("./features/generated-reports/services/generatedReportsService");
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
+    await waitFor(() => expect(screen.getByText("Останні рапорти")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Відкрити Рапорт на відпустку" }));
+    await waitFor(() => expect(generatedReportsService.openDocument).toHaveBeenCalledWith("/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30/Рапорт на відпустку.docx"));
   });
 
   it("shows an example after selecting a template variable in documentation", () => {

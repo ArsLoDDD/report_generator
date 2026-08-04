@@ -340,6 +340,12 @@ fn open_templates_directory(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn delete_template(app: tauri::AppHandle, template_path: String) -> Result<(), String> {
+    let template = ensure_template_item(&app, &template_path)?;
+    fs::remove_file(template).map_err(|_| "Не вдалося видалити шаблон. Можливо, файл відкритий у Word.".to_string())
+}
+
+#[tauri::command]
 fn open_generated_report(app: tauri::AppHandle, report_path: String) -> Result<(), String> {
     open_path(&ensure_reports_item(&app, &report_path)?)
 }
@@ -347,6 +353,27 @@ fn open_generated_report(app: tauri::AppHandle, report_path: String) -> Result<(
 #[tauri::command]
 fn open_generated_report_folder(app: tauri::AppHandle, folder_path: String) -> Result<(), String> {
     open_path(&ensure_reports_item(&app, &folder_path)?)
+}
+
+#[tauri::command]
+fn delete_generated_reports(app: tauri::AppHandle, report_paths: Vec<String>) -> Result<(), String> {
+    if report_paths.is_empty() { return Ok(()); }
+    let mut folders = Vec::new();
+    for report_path in report_paths {
+        let report = ensure_reports_item(&app, &report_path)?;
+        if !report.extension().and_then(|value| value.to_str()).is_some_and(|extension| extension.eq_ignore_ascii_case("docx")) {
+            return Err("Можна видаляти лише DOCX-рапорти з папки «Згенеровані рапорти».".to_string());
+        }
+        let parent = report.parent().map(Path::to_path_buf);
+        fs::remove_file(&report).map_err(|_| "Не вдалося видалити рапорт. Можливо, файл відкритий у Word.".to_string())?;
+        if let Some(folder) = parent { folders.push(folder); }
+    }
+    for folder in folders {
+        if fs::read_dir(&folder).ok().is_some_and(|mut entries| entries.next().is_none()) {
+            let _ = fs::remove_dir(&folder);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -412,7 +439,7 @@ fn main() {
             app.manage(AppState(Mutex::new(database), warnings));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, delete_personnel, get_startup_warnings, get_app_settings, update_signer_settings, list_templates, select_template_file, inspect_template, validate_template, generate_report, open_template, open_templates_directory, open_generated_report, open_generated_report_folder, open_application_directory, create_database_backup, list_generated_reports])
+        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, delete_personnel, get_startup_warnings, get_app_settings, update_signer_settings, list_templates, select_template_file, inspect_template, validate_template, generate_report, open_template, open_templates_directory, delete_template, open_generated_report, open_generated_report_folder, delete_generated_reports, open_application_directory, create_database_backup, list_generated_reports])
         .run(tauri::generate_context!())
         .expect("Не вдалося запустити застосунок");
 }

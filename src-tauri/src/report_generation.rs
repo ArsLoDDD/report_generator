@@ -59,7 +59,7 @@ pub fn generate(connection: &Connection, app_data_directory: &Path, request: Gen
     let date_directory = now.format("%d.%m.%Y").to_string();
     let template_name = safe_name(Path::new(&request.template_path).file_stem().and_then(|name| name.to_str()).unwrap_or("Рапорт"));
     let surnames = personnel.iter().map(|person| safe_name(&person.surname)).collect::<Vec<_>>().join(", ");
-    let report_name = format!("{template_name} {surnames}");
+    let report_name = format!("{template_name} {surnames} {}", now.format("%d.%m.%Y"));
     let reports_root = app_data_directory.join(REPORTS_DIRECTORY_NAME).join(date_directory);
     fs::create_dir_all(&reports_root).map_err(|_| "Не вдалося створити папку для рапортів.".to_string())?;
     let file_name = available_file_name(&reports_root, &report_name, now.format("%H-%M-%S").to_string());
@@ -468,6 +468,7 @@ mod tests {
         assert!(document.contains("Васильок Іван Аркадійович"));
         assert!(report.docx_path.contains("Згенеровані рапорти"));
         assert!(Path::new(&report.docx_path).file_name().unwrap().to_string_lossy().contains("ВАСИЛЬОК"));
+        assert!(Path::new(&report.docx_path).file_name().unwrap().to_string_lossy().contains(&Local::now().format("%d.%m.%Y").to_string()));
         assert_eq!(Path::new(&report.folder_path).file_name().unwrap(), now_date_directory_name().as_str());
         fs::remove_dir_all(root).unwrap();
     }

@@ -5,5 +5,6 @@ import type { GeneratedReportSummary, PaginatedResult } from "../../../shared/ty
 export const generatedReportsService = {
   list: (offset: number, limit: number) => invoke<PaginatedResult<GeneratedReportSummary>>("list_generated_reports", { offset, limit }),
   openDocument: (reportPath: string) => invoke<void>("open_generated_report", { reportPath }),
-  openFolder: (folderPath: string) => invoke<void>("open_generated_report_folder", { folderPath })
+  openFolder: (folderPath: string) => invoke<void>("open_generated_report_folder", { folderPath }),
+  delete: (reportPaths: string[]) => invoke<void>("delete_generated_reports", { reportPaths })
 };

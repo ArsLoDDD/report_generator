@@ -1,36 +1,47 @@
 import { useEffect, useMemo, useState } from "react";
-import { Archive, CalendarDays, Download, Eye, FileText, FolderOpen, MoreVertical, RefreshCw, X } from "lucide-react";
+import { Eye, FolderOpen, Trash2 } from "lucide-react";
 import type { GeneratedReportSummary } from "../../shared/types/domain";
 import { CheckBox } from "../../shared/ui/CheckBox";
-import { FilterButton } from "../../shared/ui/FilterButton";
+import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
 import { PageFrame } from "../../shared/ui/PageFrame";
-import { PageTitle } from "../../shared/ui/PageTitle";
 import { SearchInput } from "../../shared/ui/SearchInput";
 import { Select } from "../../shared/ui/Select";
-import { Stat } from "../../shared/ui/Stat";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { useLoadMoreOnScroll } from "../../shared/hooks/useLoadMoreOnScroll";
 import { includesSearch } from "../../shared/utils/search";
 import { useGeneratedReports } from "./hooks/useGeneratedReports";
 import { generatedReportsService } from "./services/generatedReportsService";
 
+type Period = "today" | "week" | "month";
+
+function isInPeriod(report: GeneratedReportSummary, period: Period) {
+  const match = report.generatedAt.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+  if (!match) return true;
+  const reportDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (period === "today") return reportDate.getTime() === today.getTime();
+  const start = new Date(today);
+  start.setDate(today.getDate() - (period === "week" ? 6 : 29));
+  return reportDate >= start && reportDate <= today;
+}
+
 export function GeneratedReportsPage() {
   const { reports, totalCount, hasMore, isLoading, isLoadingMore, errorMessage, refresh, loadMore } = useGeneratedReports();
   const { notify } = useNotifications();
   const [query, setQuery] = useState("");
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const [template, setTemplate] = useState("all");
-  const [sort, setSort] = useState("new");
-  const [selectedReport, setSelectedReport] = useState<GeneratedReportSummary | null>(null);
-  const templates = useMemo(() => [...new Set(reports.map((report) => report.template))], [reports]);
-  const filteredReports = reports
-    .filter((report) => (template === "all" || report.template === template) && includesSearch(query, report.name, report.template, report.generatedAt))
-    .sort((left, right) => sort === "new" ? right.generatedAt.localeCompare(left.generatedAt) : left.generatedAt.localeCompare(right.generatedAt));
-  const details = selectedReport ?? filteredReports[0] ?? null;
-  const resetFilters = () => { setQuery(""); setTemplate("all"); setSort("new"); };
+  const [period, setPeriod] = useState<Period>("week");
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [pathsToDelete, setPathsToDelete] = useState<string[] | null>(null);
+  const filteredReports = useMemo(() => reports.filter((report) => isInPeriod(report, period) && includesSearch(query, report.name, report.template, report.generatedAt)), [reports, period, query]);
   const onReportsScroll = useLoadMoreOnScroll({ hasMore, isLoading: isLoadingMore, loadMore });
-  useEffect(() => { if (errorMessage) notify(errorMessage, "error"); }, [errorMessage, notify]);
 
+  useEffect(() => { if (errorMessage) notify(errorMessage, "error"); }, [errorMessage, notify]);
+  useEffect(() => { setSelectedPaths((current) => current.filter((path) => reports.some((report) => report.docxPath === path))); }, [reports]);
+
+  const toggleReport = (path: string) => setSelectedPaths((current) => current.includes(path) ? current.filter((currentPath) => currentPath !== path) : [...current, path]);
+  const toggleVisibleReports = () => setSelectedPaths((current) => filteredReports.length > 0 && filteredReports.every((report) => current.includes(report.docxPath)) ? current.filter((path) => !filteredReports.some((report) => report.docxPath === path)) : [...new Set([...current, ...filteredReports.map((report) => report.docxPath)])]);
   const openDocument = async (reportPath: string) => {
     try { await generatedReportsService.openDocument(reportPath); }
     catch { notify("Не вдалося відкрити рапорт. Перевірте, чи файл існує.", "error"); }
@@ -39,8 +50,20 @@ export function GeneratedReportsPage() {
     try { await generatedReportsService.openFolder(folderPath); }
     catch { notify("Не вдалося відкрити папку з рапортом.", "error"); }
   };
+  const confirmDelete = async () => {
+    if (!pathsToDelete?.length) return;
+    setIsDeleting(true);
+    try {
+      await generatedReportsService.delete(pathsToDelete);
+      setSelectedPaths((current) => current.filter((path) => !pathsToDelete.includes(path)));
+      setPathsToDelete(null);
+      await refresh();
+      notify(pathsToDelete.length === 1 ? "Рапорт видалено." : `Видалено рапортів: ${pathsToDelete.length}.`, "success");
+    } catch { notify("Не вдалося видалити рапорт. Можливо, файл відкритий у Word.", "error"); }
+    finally { setIsDeleting(false); }
+  };
 
-  const tools = <section className="panel generated-filters"><SearchInput placeholder="Пошук рапортів…" value={query} onChange={setQuery} /><FilterButton active={filtersOpen} onClick={() => setFiltersOpen((current) => !current)} />{filtersOpen && <><Select ariaLabel="Фільтр за шаблоном" value={template} onChange={setTemplate} options={[{ value: "all", label: "Усі шаблони" }, ...templates.map((item) => ({ value: item, label: item }))]} /><Select ariaLabel="Сортування рапортів" value={sort} onChange={setSort} options={[{ value: "new", label: "Дата: нові спочатку" }, { value: "old", label: "Дата: старі спочатку" }]} /><button className="button" onClick={resetFilters}>Скинути</button></>}<div className="quick-filter"><button>Усі <b>{totalCount}</b></button></div></section>;
+  const tools = <section className="panel generated-tools"><SearchInput placeholder="Пошук рапортів…" value={query} onChange={setQuery} /><Select ariaLabel="Період рапортів" value={period} onChange={(value) => setPeriod(value as Period)} options={[{ value: "today", label: "Сьогодні" }, { value: "week", label: "За тиждень" }, { value: "month", label: "За місяць" }]} /><button className="button danger" disabled={!selectedPaths.length} onClick={() => setPathsToDelete(selectedPaths)}><Trash2 />Видалити{selectedPaths.length ? ` (${selectedPaths.length})` : ""}</button></section>;
 
-  return <PageFrame header={<PageTitle title="Згенеровані рапорти" subtitle="Файли, створені у папці Reports" actions={<><button className="button" onClick={() => void refresh()}><RefreshCw />Оновити</button><button className="button"><Download />Експорт списку</button><button className="button primary" onClick={() => details && void openFolder(details.folderPath)} disabled={!details}><FolderOpen />Відкрити папку з рапортом</button></>} />} tools={tools} footer={<div className="statbar"><Stat icon={Archive} label="Усього рапортів" value={totalCount} /><Stat icon={CalendarDays} label="Завантажено" value={reports.length} /><Stat icon={FileText} label="Джерело" value="Reports" /></div>} className="generated-page"><div className="generated-layout"><section className="panel data-table"><div className="data-table__scroll" onScroll={onReportsScroll}><table><thead><tr><th><CheckBox /></th><th>Назва рапорту</th><th>Шаблон</th><th>Дата генерації</th><th>Дії</th></tr></thead><tbody>{filteredReports.map((report) => <tr className={details?.folderPath === report.folderPath ? "selected-row" : ""} key={report.docxPath} onClick={() => setSelectedReport(report)}><td><CheckBox checked={details?.folderPath === report.folderPath} onChange={() => setSelectedReport(report)} /></td><td><span className="word-icon">W</span>{report.name}</td><td>{report.template}</td><td>{report.generatedAt}</td><td><button className="icon-button" aria-label={`Відкрити ${report.name}`} onClick={(event) => { event.stopPropagation(); void openDocument(report.docxPath); }}><Eye /></button><button className="icon-button" aria-label={`Відкрити папку ${report.name}`} onClick={(event) => { event.stopPropagation(); void openFolder(report.folderPath); }}><FolderOpen /></button><button className="icon-button"><MoreVertical /></button></td></tr>)}</tbody></table>{isLoadingMore && <div className="infinite-loading">Завантаження наступних 20 рапортів…</div>}</div><div className="pagination">{isLoading ? "Завантаження…" : `Показано ${reports.length} із ${totalCount}`}</div></section><aside className="panel report-details">{details && <button className="close" onClick={() => setSelectedReport(null)}><X /></button>}<h2>{details?.name ?? "Рапортів не знайдено"}</h2>{details ? <><p><span className="word-icon">W</span> DOCX · {details.generatedAt}</p><div className="actions-line"><button className="button primary" onClick={() => void openDocument(details.docxPath)}><Eye />Відкрити</button><button className="button" onClick={() => void openFolder(details.folderPath)}><FolderOpen />Відкрити папку</button></div></> : <p>Після створення рапорти з’являться тут автоматично.</p>}</aside></div></PageFrame>;
+  return <PageFrame tools={tools} className="generated-page"><section className="panel data-table"><div className="data-table__scroll" onScroll={onReportsScroll}><table><thead><tr><th><CheckBox checked={filteredReports.length > 0 && filteredReports.every((report) => selectedPaths.includes(report.docxPath))} onChange={toggleVisibleReports} /></th><th>Назва рапорту</th><th>Шаблон</th><th>Дата генерації</th><th>Дії</th></tr></thead><tbody>{filteredReports.map((report) => <tr className={selectedPaths.includes(report.docxPath) ? "selected-row" : ""} key={report.docxPath}><td><CheckBox checked={selectedPaths.includes(report.docxPath)} onChange={() => toggleReport(report.docxPath)} /></td><td><span className="word-icon">W</span>{report.name}</td><td>{report.template}</td><td>{report.generatedAt}</td><td><button className="icon-button" aria-label={`Відкрити ${report.name}`} onClick={() => void openDocument(report.docxPath)}><Eye /></button><button className="icon-button" aria-label={`Відкрити папку ${report.name}`} onClick={() => void openFolder(report.folderPath)}><FolderOpen /></button><button className="icon-button danger" aria-label={`Видалити ${report.name}`} onClick={() => setPathsToDelete([report.docxPath])}><Trash2 /></button></td></tr>)}</tbody></table>{isLoadingMore && <div className="infinite-loading">Завантаження наступних 20 рапортів…</div>}{!isLoading && filteredReports.length === 0 && <div className="infinite-loading">За вибраний період рапортів не знайдено.</div>}</div><div className="pagination">{isLoading ? "Завантаження…" : `Показано ${filteredReports.length} із ${totalCount}`}</div></section>{pathsToDelete && <ConfirmDialog title={pathsToDelete.length === 1 ? "Видалити рапорт?" : "Видалити рапорти?"} message={pathsToDelete.length === 1 ? "DOCX-файл буде видалено без можливості відновлення." : `Буде видалено файлів: ${pathsToDelete.length}. Цю дію не можна скасувати.`} confirmLabel="Видалити" onConfirm={() => void confirmDelete()} onCancel={() => setPathsToDelete(null)} busy={isDeleting} />}</PageFrame>;
 }

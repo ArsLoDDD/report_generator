@@ -100,6 +100,17 @@ body { overflow: hidden; }
 .personnel-table td:nth-child(6), .personnel-table td:nth-child(10) { max-width: 310px; overflow: hidden; text-overflow: ellipsis; }
 .infinite-loading { padding: 12px 16px; color: #9caab4; font-size: 12px; text-align: center; }
 
+/* Generated reports use the full work area; filters stay static above the only scrollable table. */
+.generated-page { grid-template-rows: auto minmax(0, 1fr); }
+.generated-page .page-frame__tools { grid-row: 1; }
+.generated-page .page-frame__content { grid-row: 2; display: grid; min-height: 0; }
+.generated-page .data-table { height: 100%; }
+.generated-tools { display: grid; grid-template-columns: minmax(260px, 1fr) 180px auto; gap: 12px; align-items: center; padding: 12px; }
+.generated-page .data-table__scroll th:last-child, .generated-page .data-table__scroll td:last-child { position: static; background: transparent; }
+.generated-page .data-table__scroll td:last-child { white-space: nowrap; min-width: 136px; }
+.generated-page .data-table__scroll .icon-button { margin-right: 4px; }
+.generated-page .data-table__scroll .icon-button:last-child { margin-right: 0; }
+
 /* Application diagnostics use the otherwise empty lower part of the static sidebar. */
 .sidebar-warnings { margin: auto 7px 0; display: grid; gap: 7px; min-height: 0; overflow: auto; }
 .sidebar-warnings article { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 9px; padding: 10px; border: 1px solid #4f431f; border-radius: 7px; background: #211c0f; }
@@ -182,7 +193,7 @@ body { overflow: hidden; }
 .recent-report-row > div { min-width: 0; display: grid; gap: 3px; }
 .recent-report-row b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .recent-report-row small { color: #91a0aa; font-size: 11px; }
-.recent-report-row .icon-button { width: 30px; height: 30px; }
+.recent-report-row .icon-button { width: 30px; min-width: 30px; height: 30px; margin-right: 0; }
 
 .documentation-page .page-frame__content { overflow: auto; }
 .documentation { max-width: 1060px; padding: 24px; }
