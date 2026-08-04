@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { templateService } from "./features/templates/services/templateService";
 
 vi.mock("./shared/services/personnelService", () => ({
   personnelService: { list: vi.fn().mockResolvedValue([
@@ -39,18 +40,20 @@ vi.mock("./features/templates/services/templateService", () => ({
       { name: "Рапорт на матеріальну допомогу", description: "Рапорт на отримання матеріальної допомоги", changed: "Локальний файл", status: "ready", variables: 8, sourcePath: "/templates/Рапорт на матеріальну допомогу.docx" },
       { name: "Список військовослужбовців", description: "Приклад шаблону з кількома військовослужбовцями", changed: "Локальний файл", status: "ready", variables: 10, sourcePath: "/templates/Список військовослужбовців.docx" }
     ]),
-    inspect: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: ["soldier.fullName", "main.fullName"] })
+    inspect: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: ["soldier.fullName", "main.fullName"] }),
+    open: vi.fn().mockResolvedValue(undefined),
+    openDirectory: vi.fn().mockResolvedValue(undefined)
   }
 }));
 
 afterEach(cleanup);
 
 describe("navigation and report generation", () => {
-  it("opens every primary workspace from the sidebar", () => {
+  it("opens every primary workspace from the sidebar", async () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: "Виберіть шаблон рапорту" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
-    expect(screen.getByRole("heading", { name: "Шаблони завантажуються" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Використовувані змінні")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Особовий склад" }));
     expect(screen.getByRole("heading", { name: "Особовий склад" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Згенеровані рапорти" }));
@@ -123,6 +126,25 @@ describe("navigation and report generation", () => {
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Пошук шаблонів…" })).toBeInTheDocument());
     fireEvent.change(screen.getByRole("textbox", { name: "Пошук шаблонів…" }), { target: { value: "матеріальну" } });
     expect(screen.getByText("Показано 1 із 3")).toBeInTheDocument();
+  });
+
+  it("opens the selected template and refreshes the templates directory", async () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Відкрити" })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Відкрити" }));
+    await waitFor(() => expect(templateService.open).toHaveBeenCalledWith("/templates/Рапорт на відпустку.docx"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Відкрити папку" }));
+    await waitFor(() => expect(templateService.openDirectory).toHaveBeenCalled());
+
+    const listCallCount = vi.mocked(templateService.list).mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Оновити" }));
+    await waitFor(() => expect(screen.getByText("Список шаблонів оновлено.")).toBeInTheDocument());
+    expect(templateService.list).toHaveBeenCalledTimes(listCallCount + 1);
+    expect(screen.queryByRole("button", { name: "Створити копію" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Видалити" })).not.toBeInTheDocument();
   });
 
   it("loads generated reports from the reports service instead of a local list", async () => {

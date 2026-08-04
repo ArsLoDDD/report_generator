@@ -296,6 +296,28 @@ fn open_path(path: &Path) -> Result<(), String> {
     result.map(|_| ()).map_err(|_| "Не вдалося відкрити файл або папку. Перевірте, чи є програма для DOCX-файлів.".to_string())
 }
 
+fn ensure_template_path(templates_directory: &Path, requested_path: &str) -> Result<PathBuf, String> {
+    let templates_root = templates_directory.canonicalize().map_err(|_| "Не вдалося відкрити папку шаблонів.".to_string())?;
+    let template = Path::new(requested_path).canonicalize().map_err(|_| "Шаблон не знайдено. Оновіть список шаблонів.".to_string())?;
+    let is_docx = template.extension().and_then(|value| value.to_str()).is_some_and(|extension| extension.eq_ignore_ascii_case("docx"));
+    if !template.starts_with(&templates_root) || !is_docx { return Err("Можна відкривати лише DOCX-файли з папки «Шаблони».".to_string()); }
+    Ok(template)
+}
+
+fn ensure_template_item(app: &tauri::AppHandle, requested_path: &str) -> Result<PathBuf, String> {
+    ensure_template_path(&templates_directory(app)?, requested_path)
+}
+
+#[tauri::command]
+fn open_template(app: tauri::AppHandle, template_path: String) -> Result<(), String> {
+    open_path(&ensure_template_item(&app, &template_path)?)
+}
+
+#[tauri::command]
+fn open_templates_directory(app: tauri::AppHandle) -> Result<(), String> {
+    open_path(&templates_directory(&app)?)
+}
+
 #[tauri::command]
 fn open_generated_report(app: tauri::AppHandle, report_path: String) -> Result<(), String> {
     open_path(&ensure_reports_item(&app, &report_path)?)
@@ -365,7 +387,7 @@ fn main() {
             app.manage(AppState(Mutex::new(database), warnings));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, delete_personnel, get_startup_warnings, get_app_settings, update_signer_settings, list_templates, select_template_file, inspect_template, validate_template, generate_report, open_generated_report, open_generated_report_folder, open_application_directory, create_database_backup, list_generated_reports])
+        .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, delete_personnel, get_startup_warnings, get_app_settings, update_signer_settings, list_templates, select_template_file, inspect_template, validate_template, generate_report, open_template, open_templates_directory, open_generated_report, open_generated_report_folder, open_application_directory, create_database_backup, list_generated_reports])
         .run(tauri::generate_context!())
         .expect("Не вдалося запустити застосунок");
 }
@@ -421,6 +443,25 @@ mod tests {
         assert!(path.exists());
         assert!(state.is_persistent);
         drop(state);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_docx_files_inside_the_templates_directory_can_be_opened() {
+        let root = std::env::temp_dir().join(format!("report-generator-template-path-{}", Local::now().timestamp_nanos_opt().unwrap_or_default()));
+        let templates = root.join(TEMPLATES_DIRECTORY_NAME);
+        fs::create_dir_all(&templates).unwrap();
+        let template = templates.join("Рапорт.docx");
+        let other_file = templates.join("Нотатки.txt");
+        let outside_template = root.join("Інший рапорт.docx");
+        fs::write(&template, b"docx").unwrap();
+        fs::write(&other_file, b"text").unwrap();
+        fs::write(&outside_template, b"docx").unwrap();
+
+        assert_eq!(ensure_template_path(&templates, template.to_str().unwrap()).unwrap(), template.canonicalize().unwrap());
+        assert!(ensure_template_path(&templates, other_file.to_str().unwrap()).is_err());
+        assert!(ensure_template_path(&templates, outside_template.to_str().unwrap()).is_err());
+
         fs::remove_dir_all(root).unwrap();
     }
 }

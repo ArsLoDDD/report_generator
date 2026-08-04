@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, BookOpen, FileCheck2, FileText, Folder, Home, Settings, Users } from "lucide-react";
-import type { Screen, Template } from "./shared/types/domain";
+import { useStartupWarnings } from "./app/hooks/useStartupWarnings";
+import { DocumentationPage } from "./features/documentation/DocumentationPage";
+import { GeneratedReportsPage } from "./features/generated-reports/GeneratedReportsPage";
+import { PersonnelPage } from "./features/personnel/PersonnelPage";
 import { usePersonnel } from "./features/personnel/hooks/usePersonnel";
 import { ReportGenerationPage } from "./features/report-generation/ReportGenerationPage";
-import { TemplatesPage } from "./features/templates/TemplatesPage";
-import { PersonnelPage } from "./features/personnel/PersonnelPage";
-import { GeneratedReportsPage } from "./features/generated-reports/GeneratedReportsPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
-import { DocumentationPage } from "./features/documentation/DocumentationPage";
+import { TemplatesPage } from "./features/templates/TemplatesPage";
 import { useTemplates } from "./features/templates/hooks/useTemplates";
+import type { Screen, Template } from "./shared/types/domain";
 import { NotificationProvider } from "./shared/ui/NotificationProvider";
-import { useStartupWarnings } from "./app/hooks/useStartupWarnings";
 
 const navigation = [
   ["generator", "Генерація рапортів", Home], ["templates", "Шаблони", FileText], ["people", "Особовий склад", Users],
@@ -20,7 +20,7 @@ const navigation = [
 export default function App() {
   const [screen, setScreen] = useState<Screen>("generator");
   const { personnel: people, isLoading: personnelLoading, errorMessage: personnelError, refresh: refreshPersonnel, createPersonnel, updatePersonnel, deletePersonnel } = usePersonnel();
-  const { templates } = useTemplates();
+  const { templates, refresh: refreshTemplates } = useTemplates();
   const startupWarnings = useStartupWarnings().filter((warning) => !["personnel-empty", "database-missing"].includes(warning.code) || people.length === 0);
   const [selectedPeople, setSelectedPeople] = useState<number[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
@@ -30,10 +30,30 @@ export default function App() {
   const toggleAllPeople = () => setSelectedPeople((current) => current.length === people.length ? [] : people.map((person) => person.id));
   const clearSelectedPeople = () => setSelectedPeople([]);
   const toggleTemplate = (template: Template) => setSelectedTemplate((current) => current?.name === template.name ? null : template);
+
   useEffect(() => {
     const existingIds = new Set(people.map((person) => person.id));
     setSelectedPeople((current) => current.filter((id) => existingIds.has(id)));
   }, [people]);
 
-  return <NotificationProvider><div className="product-shell"><aside className="sidebar"><div className="product-logo"><FileCheck2 /><div><b>Генератор рапортів</b><span>по шаблону</span></div></div><nav>{navigation.map(([id, label, Icon]) => <button key={id} onClick={() => setScreen(id)} className={screen === id ? "nav-active" : ""}><Icon size={23} />{label}</button>)}</nav>{startupWarnings.length > 0 && <section className="sidebar-warnings" aria-label="Попередження програми">{startupWarnings.map((warning) => <article key={warning.code} title={warning.message}><AlertTriangle /><div><b>{warning.title}</b><span>{warning.message}</span></div></article>)}</section>}<div className="version">Версія 1.0.0</div></aside><main className="workspace">{screen === "generator" && <ReportGenerationPage template={selectedTemplate} templates={templates} people={people} selected={selectedPeople} onToggle={togglePerson} onAll={toggleAllPeople} onClear={clearSelectedPeople} onChoose={toggleTemplate} />}{screen === "templates" && <TemplatesPage templates={templates} selected={templateInfo ?? templates[0] ?? null} onSelect={setTemplateInfo} />}{screen === "people" && <PersonnelPage people={people} isLoading={personnelLoading} errorMessage={personnelError} onCreate={createPersonnel} onUpdate={updatePersonnel} onDelete={deletePersonnel} onRefresh={refreshPersonnel} />}{screen === "generated" && <GeneratedReportsPage />}{screen === "settings" && <SettingsPage />}{screen === "documentation" && <DocumentationPage />}</main></div></NotificationProvider>;
+  useEffect(() => {
+    setTemplateInfo((current) => current ? templates.find((template) => template.sourcePath === current.sourcePath) ?? templates[0] ?? null : current);
+  }, [templates]);
+
+  return <NotificationProvider><div className="product-shell">
+    <aside className="sidebar">
+      <div className="product-logo"><FileCheck2 /><div><b>Генератор рапортів</b><span>по шаблону</span></div></div>
+      <nav>{navigation.map(([id, label, Icon]) => <button key={id} onClick={() => setScreen(id)} className={screen === id ? "nav-active" : ""}><Icon size={23} />{label}</button>)}</nav>
+      {startupWarnings.length > 0 && <section className="sidebar-warnings" aria-label="Попередження програми">{startupWarnings.map((warning) => <article key={warning.code} title={warning.message}><AlertTriangle /><div><b>{warning.title}</b><span>{warning.message}</span></div></article>)}</section>}
+      <div className="version">Версія 1.0.0</div>
+    </aside>
+    <main className="workspace">
+      {screen === "generator" && <ReportGenerationPage template={selectedTemplate} templates={templates} people={people} selected={selectedPeople} onToggle={togglePerson} onAll={toggleAllPeople} onClear={clearSelectedPeople} onChoose={toggleTemplate} />}
+      {screen === "templates" && <TemplatesPage templates={templates} selected={templateInfo ?? templates[0] ?? null} onSelect={setTemplateInfo} onRefresh={refreshTemplates} />}
+      {screen === "people" && <PersonnelPage people={people} isLoading={personnelLoading} errorMessage={personnelError} onCreate={createPersonnel} onUpdate={updatePersonnel} onDelete={deletePersonnel} onRefresh={refreshPersonnel} />}
+      {screen === "generated" && <GeneratedReportsPage />}
+      {screen === "settings" && <SettingsPage />}
+      {screen === "documentation" && <DocumentationPage />}
+    </main>
+  </div></NotificationProvider>;
 }
