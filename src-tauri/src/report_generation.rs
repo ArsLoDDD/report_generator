@@ -1,4 +1,4 @@
-use crate::{personnel::{self, Personnel}, settings, SIGNATURES_DIRECTORY_NAME, REPORTS_DIRECTORY_NAME};
+use crate::{personnel::{self, Personnel}, settings, REPORTS_DIRECTORY_NAME};
 use chrono::{Local, NaiveDate};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -50,11 +50,6 @@ pub fn generate(connection: &Connection, app_data_directory: &Path, request: Gen
     let personnel = selected_personnel(connection, &request.personnel_ids)?;
     let settings = settings::load(app_data_directory)?;
     let values = values_for(&personnel, &settings, request.report_date.as_deref())?;
-    let signature_image = if validation.variables.iter().any(|variable| variable == "mainSignature" || variable == "main.signature") {
-        let signature_name = settings.main_signer.signature_file_name.as_deref().unwrap_or("main.png");
-        let signature_path = app_data_directory.join(SIGNATURES_DIRECTORY_NAME).join(signature_name);
-        Some(fs::read(&signature_path).map_err(|_| format!("Не вдалося знайти підпис «{signature_name}» у папці «Підписи». Додайте PNG-файл або змініть його назву в налаштуваннях."))?)
-    } else { None };
     let now = Local::now();
     let date_directory = now.format("%d.%m.%Y").to_string();
     let template_name = safe_name(Path::new(&request.template_path).file_stem().and_then(|name| name.to_str()).unwrap_or("Рапорт"));
@@ -65,7 +60,7 @@ pub fn generate(connection: &Connection, app_data_directory: &Path, request: Gen
     let file_name = available_file_name(&reports_root, &report_name, now.format("%H-%M-%S").to_string());
     let final_path = reports_root.join(&file_name);
     let temporary_path = reports_root.join(format!(".{file_name}.tmp"));
-    let result = write_docx(Path::new(&request.template_path), &temporary_path, &values, signature_image.as_deref());
+    let result = write_docx(Path::new(&request.template_path), &temporary_path, &values);
     match result {
         Ok(()) => { fs::rename(&temporary_path, &final_path).map_err(|_| "Не вдалося завершити створення рапорту.".to_string())?; Ok(GeneratedReport { docx_path: final_path.to_string_lossy().to_string(), folder_path: reports_root.to_string_lossy().to_string() }) }
         Err(error) => { let _ = fs::remove_file(&temporary_path); Err(error) }
@@ -93,32 +88,34 @@ fn values_for(personnel: &[Personnel], settings: &settings::AppSettings, report_
         }
     }
     values.extend([
-        ("main.rank".to_string(), settings.main_signer.rank.clone()),
+        ("main.rank".to_string(), sentence_case(&settings.main_signer.rank)),
         ("main.surname".to_string(), main_name.0.clone()),
         ("main.givenName".to_string(), main_name.1.clone()),
         ("main.patronymic".to_string(), main_name.2.clone()),
         ("main.fullName".to_string(), [main_name.0.clone(), main_name.1.clone(), main_name.2.clone()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")),
-        ("main.position".to_string(), settings.main_signer.position.clone()),
-        ("main.signature".to_string(), "".to_string()),
-        ("mainRank".to_string(), settings.main_signer.rank.clone()),
+        ("main.position".to_string(), sentence_case(&settings.main_signer.position)),
+        ("mainRank".to_string(), sentence_case(&settings.main_signer.rank)),
         ("mainName".to_string(), settings.main_signer.full_name.clone()),
-        ("mainPosition".to_string(), settings.main_signer.position.clone()),
-        ("mainSignature".to_string(), "".to_string()),
+        ("mainPosition".to_string(), sentence_case(&settings.main_signer.position)),
         ("commanderName".to_string(), settings.commander.full_name.clone()),
         ("chiefName".to_string(), settings.chief.full_name.clone()),
-        ("commander.rank".to_string(), settings.commander.rank.clone()),
+        ("commander.rank".to_string(), sentence_case(&settings.commander.rank)),
         ("commander.surname".to_string(), commander_name.0.clone()),
         ("commander.givenName".to_string(), commander_name.1.clone()),
         ("commander.patronymic".to_string(), commander_name.2.clone()),
         ("commander.fullName".to_string(), [commander_name.0.clone(), commander_name.1.clone(), commander_name.2.clone()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")),
-        ("commander.position".to_string(), settings.commander.position.clone()),
-        ("chief.rank".to_string(), settings.chief.rank.clone()),
+        ("commander.position".to_string(), sentence_case(&settings.commander.position)),
+        ("chief.rank".to_string(), sentence_case(&settings.chief.rank)),
         ("chief.surname".to_string(), chief_name.0.clone()),
         ("chief.givenName".to_string(), chief_name.1.clone()),
         ("chief.patronymic".to_string(), chief_name.2.clone()),
         ("chief.fullName".to_string(), [chief_name.0.clone(), chief_name.1.clone(), chief_name.2.clone()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")),
-        ("chief.position".to_string(), settings.chief.position.clone()),
+        ("chief.position".to_string(), sentence_case(&settings.chief.position)),
     ]);
+    add_signer_values(&mut values, "deputyPpp", &settings.deputy_ppp);
+    add_signer_values(&mut values, "deputyArmament", &settings.deputy_armament);
+    add_signer_values(&mut values, "deputyRear", &settings.deputy_rear);
+    add_signer_values(&mut values, "fuelChief", &settings.fuel_chief);
     let report_date = match report_date.filter(|date| !date.is_empty()) {
         Some(value) => NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| "Не вдалося прочитати дату рапорту.".to_string())?,
         None => Local::now().date_naive(),
@@ -127,18 +124,36 @@ fn values_for(personnel: &[Personnel], settings: &settings::AppSettings, report_
     Ok(values)
 }
 
+fn add_signer_values(values: &mut HashMap<String, String>, prefix: &str, signer: &settings::SignerSettings) {
+    let name = signer_name_parts(&signer.full_name);
+    values.extend([
+        (format!("{prefix}.rank"), sentence_case(&signer.rank)),
+        (format!("{prefix}.surname"), name.0.clone()),
+        (format!("{prefix}.givenName"), name.1.clone()),
+        (format!("{prefix}.patronymic"), name.2.clone()),
+        (format!("{prefix}.fullName"), [name.0, name.1, name.2].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")),
+        (format!("{prefix}.position"), sentence_case(&signer.position)),
+    ]);
+}
+
 fn add_person_values(values: &mut HashMap<String, String>, prefix: &str, person: &Personnel) {
     let full_name = format_person_full_name(person);
-    for (key, value) in [("rank", &person.rank), ("surname", &person.surname), ("givenName", &person.given_name), ("patronymic", &person.patronymic), ("fullName", &full_name), ("position", &person.position), ("taxId", &person.tax_id), ("birthDate", &person.birth_date), ("educationLevel", &person.education_level), ("educationDetails", &person.education_details), ("armedForcesServiceStartDate", &person.armed_forces_service_start_date), ("positionAssignedDate", &person.position_assigned_date), ("positionAssignmentOrder", &person.position_assignment_order), ("militaryId", &person.military_id), ("assignedVehicleName", &person.assigned_vehicle_name), ("assignedVehicleRegistration", &person.assigned_vehicle_registration)] { values.insert(format!("{prefix}.{key}"), value.clone()); }
+    for (key, value) in [("rank", sentence_case(&person.rank)), ("surname", person.surname.to_uppercase()), ("givenName", person.given_name.clone()), ("patronymic", person.patronymic.clone()), ("fullName", full_name), ("position", sentence_case(&person.position)), ("taxId", person.tax_id.clone()), ("birthDate", person.birth_date.clone()), ("educationLevel", person.education_level.clone()), ("educationDetails", person.education_details.clone()), ("armedForcesServiceStartDate", person.armed_forces_service_start_date.clone()), ("positionAssignedDate", person.position_assigned_date.clone()), ("positionAssignmentOrder", person.position_assignment_order.clone()), ("militaryId", person.military_id.clone()), ("assignedVehicleName", person.assigned_vehicle_name.clone()), ("assignedVehicleRegistration", person.assigned_vehicle_registration.clone())] { values.insert(format!("{prefix}.{key}"), value); }
 }
 
 fn format_person_full_name(person: &Personnel) -> String {
-    [name_case(&person.surname), name_case(&person.given_name), name_case(&person.patronymic)].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")
+    [person.surname.to_uppercase(), name_case(&person.given_name), name_case(&person.patronymic)].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
 fn signer_name_parts(full_name: &str) -> (String, String, String) {
     let parts = full_name.split_whitespace().map(name_case).collect::<Vec<_>>();
-    (parts.first().cloned().unwrap_or_default(), parts.get(1).cloned().unwrap_or_default(), parts.get(2..).unwrap_or_default().join(" "))
+    (parts.first().map(|value| value.to_uppercase()).unwrap_or_default(), parts.get(1).cloned().unwrap_or_default(), parts.get(2..).unwrap_or_default().join(" "))
+}
+
+fn sentence_case(value: &str) -> String {
+    let mut characters = value.trim().chars();
+    let Some(first) = characters.next() else { return String::new(); };
+    first.to_lowercase().collect::<String>() + characters.as_str()
 }
 
 fn name_case(value: &str) -> String {
@@ -182,13 +197,12 @@ fn xml_visible_text(content: &str) -> String {
     }
     visible_text
 }
-fn is_supported_variable(variable: &str) -> bool { let person_fields = ["rank", "surname", "givenName", "patronymic", "fullName", "position", "taxId", "birthDate", "educationLevel", "educationDetails", "armedForcesServiceStartDate", "positionAssignedDate", "positionAssignmentOrder", "militaryId", "assignedVehicleName", "assignedVehicleRegistration"]; let signer_fields = ["rank", "surname", "givenName", "patronymic", "fullName", "position"]; person_fields.iter().any(|field| variable == &format!("soldier.{field}") || (variable.starts_with("soldiers[") && variable.ends_with(&format!("].{field}")))) || signer_fields.iter().any(|field| ["main", "commander", "chief"].iter().any(|signer| variable == &format!("{signer}.{field}"))) || ["main.signature", "document.date", "mainRank", "mainName", "mainPosition", "mainSignature", "commanderName", "chiefName"].contains(&variable) }
-fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>, signature_image: Option<&[u8]>) -> Result<(), String> {
+fn is_supported_variable(variable: &str) -> bool { let person_fields = ["rank", "surname", "givenName", "patronymic", "fullName", "position", "taxId", "birthDate", "educationLevel", "educationDetails", "armedForcesServiceStartDate", "positionAssignedDate", "positionAssignmentOrder", "militaryId", "assignedVehicleName", "assignedVehicleRegistration"]; let signer_fields = ["rank", "surname", "givenName", "patronymic", "fullName", "position"]; person_fields.iter().any(|field| variable == &format!("soldier.{field}") || (variable.starts_with("soldiers[") && variable.ends_with(&format!("].{field}")))) || signer_fields.iter().any(|field| ["main", "commander", "chief", "deputyPpp", "deputyArmament", "deputyRear", "fuelChief"].iter().any(|signer| variable == &format!("{signer}.{field}"))) || ["document.date", "mainRank", "mainName", "mainPosition", "commanderName", "chiefName"].contains(&variable) }
+fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>) -> Result<(), String> {
     let file = File::open(input).map_err(|_| "Не вдалося відкрити DOCX-шаблон.".to_string())?;
     let mut archive = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-шаблоном.".to_string())?;
     let output_file = File::create(output).map_err(|_| "Не вдалося створити DOCX-файл.".to_string())?;
     let mut writer = ZipWriter::new(output_file);
-    let mut wrote_relationships = false;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(|_| "Не вдалося прочитати файл шаблону.".to_string())?;
         let name = entry.name().to_owned();
@@ -199,53 +213,17 @@ fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>, sig
         writer.start_file(name.clone(), options).map_err(|_| "Не вдалося сформувати DOCX.".to_string())?;
         let content = String::from_utf8_lossy(&bytes);
         if name == "word/document.xml" {
-            let document = replace_variables(&replace_signature_token(&content, signature_image.is_some()), values);
-            let document = if signature_image.is_some() { add_drawing_namespaces(&document) } else { document };
+            let document = replace_variables(&content, values);
             writer.write_all(document.as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?;
         }
-        else if name == "word/_rels/document.xml.rels" && signature_image.is_some() { wrote_relationships = true; writer.write_all(add_signature_relationship(&content).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
-        else if name == "[Content_Types].xml" && signature_image.is_some() { writer.write_all(add_png_content_type(&content).as_bytes()).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
         else { writer.write_all(&bytes).map_err(|_| "Не вдалося записати DOCX.".to_string())?; }
-    }
-    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-    if let Some(image) = signature_image {
-        if !wrote_relationships { return Err("DOCX-шаблон не містить зв’язків документа для вставлення підпису.".into()); }
-        writer.start_file("word/media/main-signature.png", options).map_err(|_| "Не вдалося додати підпис до DOCX.".to_string())?;
-        writer.write_all(image).map_err(|_| "Не вдалося додати підпис до DOCX.".to_string())?;
     }
     writer.finish().map_err(|_| "Не вдалося завершити DOCX.".to_string())?;
     Ok(())
 }
 
-fn replace_signature_token(content: &str, has_signature: bool) -> String {
-    if !has_signature { return content.to_string(); }
-    let drawing = r#"<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="1371600" cy="457200"/><wp:docPr id="101" name="Підпис основного підписанта"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="main-signature.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdMainSignature"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="1371600" cy="457200"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>"#;
-    let mut result = content.to_string();
-    for token in ["{{mainSignature}}", "{{main.signature}}"] {
-        while let Some((nodes, start_node, _, _, _)) = token_location(&result, token) {
-            let text_end = nodes[start_node].1;
-            let Some(run_end_relative) = result[text_end..].find("</w:r>") else { break; };
-            result.insert_str(text_end + run_end_relative, drawing);
-            result = replace_word_token(&result, token, "");
-        }
-    }
-    result
-}
-fn add_signature_relationship(content: &str) -> String { content.replace("</Relationships>", "<Relationship Id=\"rIdMainSignature\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/main-signature.png\"/></Relationships>") }
-fn add_png_content_type(content: &str) -> String { if content.contains("Extension=\"png\"") { content.to_string() } else { content.replace("</Types>", "<Default Extension=\"png\" ContentType=\"image/png\"/></Types>") } }
-fn add_drawing_namespaces(content: &str) -> String {
-    let mut document = content.to_string();
-    if !document.contains("xmlns:a=") {
-        document = document.replacen("<w:document ", "<w:document xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" ", 1);
-    }
-    if !document.contains("xmlns:pic=") {
-        document = document.replacen("<w:document ", "<w:document xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\" ", 1);
-    }
-    document
-}
 fn replace_variables(content: &str, values: &HashMap<String, String>) -> String {
     values.iter()
-        .filter(|(key, _)| key.as_str() != "main.signature" && key.as_str() != "mainSignature")
         .fold(content.to_string(), |result, (key, value)| replace_word_token(&result, &format!("{{{{{key}}}}}"), &escape_xml(value)))
 }
 
@@ -355,26 +333,30 @@ mod tests {
         database::initialise(&connection).unwrap();
         database::seed_test_personnel(&connection).unwrap();
         let people = selected_personnel(&connection, &[1]).unwrap();
-        let values = values_for(&people, &settings::defaults(), Some("2026-08-03")).unwrap();
-        assert_eq!(values.get("main.fullName").unwrap(), "Іваненко Іван Іванович");
-        assert_eq!(values.get("main.surname").unwrap(), "Іваненко");
-        assert_eq!(values.get("commander.fullName").unwrap(), "Петренко Петро Петрович");
-        assert_eq!(values.get("commander.position").unwrap(), "Командир");
+        let mut app_settings = settings::defaults();
+        app_settings.main_signer = settings::SignerSettings { full_name: "Іваненко Іван Іванович".into(), rank: "майор".into(), position: "Заступник командира з ППП".into() };
+        app_settings.commander = settings::SignerSettings { full_name: "Петренко Петро Петрович".into(), rank: "капітан".into(), position: "Командир".into() };
+        app_settings.chief = settings::SignerSettings { full_name: "Сидоренко Сергій Сергійович".into(), rank: "капітан".into(), position: "Начальник штабу".into() };
+        let values = values_for(&people, &app_settings, Some("2026-08-03")).unwrap();
+        assert_eq!(values.get("main.fullName").unwrap(), "ІВАНЕНКО Іван Іванович");
+        assert_eq!(values.get("main.surname").unwrap(), "ІВАНЕНКО");
+        assert_eq!(values.get("commander.fullName").unwrap(), "ПЕТРЕНКО Петро Петрович");
+        assert_eq!(values.get("commander.position").unwrap(), "командир");
         assert_eq!(values.get("chief.givenName").unwrap(), "Сергій");
-        assert!(!values.contains_key("commander.signature"));
-        assert!(!values.contains_key("chief.signature"));
         assert_eq!(values.get("main.givenName").unwrap(), "Іван");
         assert_eq!(values.get("main.patronymic").unwrap(), "Іванович");
+        assert!(values.contains_key("deputyPpp.fullName"));
+        assert!(is_supported_variable("fuelChief.position"));
         assert_eq!(values.get("document.date").unwrap(), "03.08.2026 року");
     }
 
     #[test]
-    fn formats_person_full_name_without_all_caps_surname() {
+    fn formats_person_full_name_with_all_caps_surname() {
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
         database::seed_test_personnel(&connection).unwrap();
         let person = selected_personnel(&connection, &[1]).unwrap().remove(0);
-        assert_eq!(format_person_full_name(&person), "Васильок Іван Аркадійович");
+        assert_eq!(format_person_full_name(&person), "ВАСИЛЬОК Іван Аркадійович");
     }
 
     #[test]
@@ -394,28 +376,6 @@ mod tests {
     fn replaces_a_variable_split_by_word_text_runs() {
         let content = "<w:r><w:t>{{</w:t></w:r><w:r><w:t>main</w:t></w:r><w:r><w:t>.givenName}}</w:t></w:r>";
         assert_eq!(replace_word_token(content, "{{main.givenName}}", "Іван"), "<w:r><w:t>Іван</w:t></w:r><w:r><w:t></w:t></w:r><w:r><w:t></w:t></w:r>");
-    }
-
-    #[test]
-    fn keeps_signature_token_available_for_image_replacement() {
-        let values = HashMap::from([("main.signature".to_string(), String::new())]);
-        assert!(replace_variables("<w:t>{{main.signature}}</w:t>", &values).contains("{{main.signature}}"));
-    }
-
-    #[test]
-    fn inserts_a_signature_image_for_a_split_word_token() {
-        let content = "<w:r><w:t>{{main.</w:t></w:r><w:r><w:t>signature}}</w:t></w:r>";
-        let result = replace_signature_token(content, true);
-        assert!(!result.contains("{{main.signature}}"));
-        assert!(result.contains("<w:drawing>"));
-        assert!(result.contains("rIdMainSignature"));
-    }
-
-    #[test]
-    fn adds_xml_namespaces_required_for_signature_images() {
-        let document = add_drawing_namespaces("<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">");
-        assert!(document.contains("xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\""));
-        assert!(document.contains("xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\""));
     }
 
     #[test]
@@ -465,7 +425,7 @@ mod tests {
         let mut archive = ZipArchive::new(File::open(&report.docx_path).unwrap()).unwrap();
         let mut document = String::new();
         archive.by_name("word/document.xml").unwrap().read_to_string(&mut document).unwrap();
-        assert!(document.contains("Васильок Іван Аркадійович"));
+        assert!(document.contains("ВАСИЛЬОК Іван Аркадійович"));
         assert!(report.docx_path.contains("Згенеровані рапорти"));
         assert!(Path::new(&report.docx_path).file_name().unwrap().to_string_lossy().contains("ВАСИЛЬОК"));
         assert!(Path::new(&report.docx_path).file_name().unwrap().to_string_lossy().contains(&Local::now().format("%d.%m.%Y").to_string()));

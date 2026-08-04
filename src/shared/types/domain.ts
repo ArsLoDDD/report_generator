@@ -50,19 +50,22 @@ export type PaginatedResult<T> = {
   totalCount: number;
 };
 
-export type SignerRole = "main" | "commander" | "chief";
+export type SignerRole = "main" | "commander" | "chief" | "deputyPpp" | "deputyArmament" | "deputyRear" | "fuelChief";
 
 export type SignerSettings = {
   fullName: string;
   rank: string;
   position: string;
-  signatureFileName?: string;
 };
 
 export type AppSettings = {
   mainSigner: SignerSettings;
   commander: SignerSettings;
   chief: SignerSettings;
+  deputyPpp: SignerSettings;
+  deputyArmament: SignerSettings;
+  deputyRear: SignerSettings;
+  fuelChief: SignerSettings;
 };
 
 export type StartupWarning = {

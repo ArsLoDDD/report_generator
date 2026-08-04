@@ -8,12 +8,12 @@ export type TemplateVariable = {
 type PersonnelField = Omit<TemplateVariable, "token"> & { key: string };
 
 const personnelFields: PersonnelField[] = [
-  { key: "rank", label: "Звання", description: "Військове звання обраної особи.", example: "Солдат" },
+  { key: "rank", label: "Звання", description: "Військове звання обраної особи з малої літери.", example: "солдат" },
   { key: "surname", label: "Прізвище", description: "Прізвище у затвердженому написанні.", example: "ВАСИЛЬОК" },
   { key: "givenName", label: "Ім’я", description: "Ім’я військовослужбовця.", example: "Іван" },
   { key: "patronymic", label: "По батькові", description: "По батькові військовослужбовця.", example: "Аркадійович" },
-  { key: "fullName", label: "Повне ПІБ", description: "Прізвище, ім’я та по батькові одним рядком; прізвище починається з великої літери.", example: "Васильок Іван Аркадійович" },
-  { key: "position", label: "Посада", description: "Повна посада разом із військовою частиною.", example: "Стрілець, військова частина А0000" },
+  { key: "fullName", label: "Повне ПІБ", description: "Прізвище, ім’я та по батькові одним рядком; прізвище пишеться ВЕЛИКИМИ літерами.", example: "ВАСИЛЬОК Іван Аркадійович" },
+  { key: "position", label: "Посада", description: "Повна посада разом із військовою частиною, з малої літери.", example: "стрілець, військова частина А0000" },
   { key: "taxId", label: "ІПН", description: "Десятизначний ідентифікаційний номер.", example: "7462389812" },
   { key: "birthDate", label: "Дата народження", description: "Дата народження у форматі, який зберігається в особовій справі.", example: "02.03.1999 року" },
   { key: "educationLevel", label: "Рівень освіти", description: "Формат або рівень здобутої освіти.", example: "вища" },
@@ -36,12 +36,11 @@ export const documentVariables: TemplateVariable[] = [
 
 export const signerVariables: TemplateVariable[] = [
   { token: "{{main.rank}}", label: "Звання основного підписанта", description: "Звання основного підписанта з налаштувань програми.", example: "майор" },
-  { token: "{{main.surname}}", label: "Прізвище основного підписанта", description: "Перше слово з ПІБ основного підписанта; починається з великої літери.", example: "Іваненко" },
+  { token: "{{main.surname}}", label: "Прізвище основного підписанта", description: "Перше слово з ПІБ основного підписанта ВЕЛИКИМИ літерами.", example: "ІВАНЕНКО" },
   { token: "{{main.givenName}}", label: "Ім’я основного підписанта", description: "Друге слово з ПІБ основного підписанта.", example: "Іван" },
   { token: "{{main.patronymic}}", label: "По батькові основного підписанта", description: "Третє слово з ПІБ основного підписанта.", example: "Іванович" },
-  { token: "{{main.fullName}}", label: "Повне ПІБ основного підписанта", description: "ПІБ основного підписанта з налаштувань програми.", example: "Іваненко Іван Іванович" },
-  { token: "{{main.position}}", label: "Посада основного підписанта", description: "Посада основного підписанта з налаштувань програми.", example: "Заступник командира з ППП" },
-  { token: "{{main.signature}}", label: "Підпис основного підписанта", description: "PNG-зображення з папки «Підписи». Назва файлу налаштовується лише для основного підписанта.", example: "[зображення підпису]" },
+  { token: "{{main.fullName}}", label: "Повне ПІБ основного підписанта", description: "ПІБ основного підписанта з налаштувань програми; прізвище ВЕЛИКИМИ літерами.", example: "ІВАНЕНКО Іван Іванович" },
+  { token: "{{main.position}}", label: "Посада основного підписанта", description: "Посада основного підписанта з налаштувань програми, з малої літери.", example: "заступник командира з ППП" },
   { token: "{{commander.rank}}", label: "Звання командира", description: "Звання командира з налаштувань програми.", example: "капітан" },
   { token: "{{commander.surname}}", label: "Прізвище командира", description: "Прізвище командира з налаштувань програми.", example: "Петренко" },
   { token: "{{commander.givenName}}", label: "Ім’я командира", description: "Ім’я командира з налаштувань програми.", example: "Петро" },
@@ -55,3 +54,19 @@ export const signerVariables: TemplateVariable[] = [
   { token: "{{chief.fullName}}", label: "Повне ПІБ начальника штабу", description: "Повне ПІБ начальника штабу з налаштувань програми.", example: "Сидоренко Сергій Сергійович" },
   { token: "{{chief.position}}", label: "Посада начальника штабу", description: "Посада начальника штабу з налаштувань програми.", example: "Начальник штабу" }
 ];
+
+const signerFields = [
+  ["rank", "Звання", "капітан"], ["surname", "Прізвище", "ПЕТРЕНКО"], ["givenName", "Ім’я", "Петро"],
+  ["patronymic", "По батькові", "Петрович"], ["fullName", "Повне ПІБ", "ПЕТРЕНКО Петро Петрович"], ["position", "Посада", "заступник командира"]
+] as const;
+
+function extraSignerVariables(namespace: string, label: string): TemplateVariable[] {
+  return signerFields.map(([field, fieldLabel, example]) => ({ token: `{{${namespace}.${field}}}`, label: `${fieldLabel}: ${label}`, description: `Дані «${label}» з налаштувань програми.`, example }));
+}
+
+signerVariables.push(
+  ...extraSignerVariables("deputyPpp", "заступник з ППП"),
+  ...extraSignerVariables("deputyArmament", "заступник з Озброєння"),
+  ...extraSignerVariables("deputyRear", "заступник з Тилу"),
+  ...extraSignerVariables("fuelChief", "начальник ПММ")
+);

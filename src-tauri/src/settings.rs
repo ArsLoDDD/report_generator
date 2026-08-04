@@ -7,7 +7,6 @@ pub struct SignerSettings {
     pub full_name: String,
     pub rank: String,
     pub position: String,
-    pub signature_file_name: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -16,13 +15,31 @@ pub struct AppSettings {
     pub main_signer: SignerSettings,
     pub commander: SignerSettings,
     pub chief: SignerSettings,
+    #[serde(default = "default_deputy_ppp")]
+    pub deputy_ppp: SignerSettings,
+    #[serde(default = "default_deputy_armament")]
+    pub deputy_armament: SignerSettings,
+    #[serde(default = "default_deputy_rear")]
+    pub deputy_rear: SignerSettings,
+    #[serde(default = "default_fuel_chief")]
+    pub fuel_chief: SignerSettings,
 }
+
+fn empty_signer(position: &str) -> SignerSettings { SignerSettings { full_name: String::new(), rank: String::new(), position: position.into() } }
+fn default_deputy_ppp() -> SignerSettings { empty_signer("Заступник командира з ППП") }
+fn default_deputy_armament() -> SignerSettings { empty_signer("Заступник командира з Озброєння") }
+fn default_deputy_rear() -> SignerSettings { empty_signer("Заступник командира з Тилу") }
+fn default_fuel_chief() -> SignerSettings { empty_signer("Начальник ПММ") }
 
 pub fn defaults() -> AppSettings {
     AppSettings {
-        main_signer: SignerSettings { full_name: "Іваненко Іван Іванович".into(), rank: "майор".into(), position: "Заступник командира з ППП".into(), signature_file_name: Some("main.png".into()) },
-        commander: SignerSettings { full_name: "Петренко Петро Петрович".into(), rank: "капітан".into(), position: "Командир".into(), signature_file_name: None },
-        chief: SignerSettings { full_name: "Сидоренко Сергій Сергійович".into(), rank: "капітан".into(), position: "Начальник штабу".into(), signature_file_name: None },
+        main_signer: empty_signer("Основний підписант"),
+        commander: empty_signer("Командир"),
+        chief: empty_signer("Начальник штабу"),
+        deputy_ppp: default_deputy_ppp(),
+        deputy_armament: default_deputy_armament(),
+        deputy_rear: default_deputy_rear(),
+        fuel_chief: default_fuel_chief(),
     }
 }
 
@@ -44,15 +61,10 @@ pub fn save(root: &Path, settings: &AppSettings) -> Result<(), String> {
     fs::write(path(root), content).map_err(|_| "Не вдалося зберегти налаштування підписантів.".to_string())
 }
 
-pub fn update_signer(root: &Path, role: &str, mut signer: SignerSettings) -> Result<AppSettings, String> {
+pub fn update_signer(root: &Path, role: &str, signer: SignerSettings) -> Result<AppSettings, String> {
     if signer.full_name.trim().is_empty() || signer.rank.trim().is_empty() || signer.position.trim().is_empty() { return Err("Заповніть ПІБ, звання та посаду підписанта.".into()); }
-    if role == "main" {
-        let file_name = signer.signature_file_name.take().unwrap_or_else(|| "main.png".into());
-        if file_name.contains(['/', '\\']) || !file_name.to_ascii_lowercase().ends_with(".png") { return Err("Вкажіть назву PNG-файлу з папки «Підписи», наприклад main.png.".into()); }
-        signer.signature_file_name = Some(file_name);
-    } else { signer.signature_file_name = None; }
     let mut settings = load(root)?;
-    match role { "main" => settings.main_signer = signer, "commander" => settings.commander = signer, "chief" => settings.chief = signer, _ => return Err("Невідомий тип підписанта.".into()) }
+    match role { "main" => settings.main_signer = signer, "commander" => settings.commander = signer, "chief" => settings.chief = signer, "deputyPpp" => settings.deputy_ppp = signer, "deputyArmament" => settings.deputy_armament = signer, "deputyRear" => settings.deputy_rear = signer, "fuelChief" => settings.fuel_chief = signer, _ => return Err("Невідомий тип підписанта.".into()) }
     save(root, &settings)?;
     Ok(settings)
 }
@@ -61,11 +73,11 @@ pub fn update_signer(root: &Path, role: &str, mut signer: SignerSettings) -> Res
 mod tests {
     use super::*;
     #[test]
-    fn only_main_signer_keeps_a_signature_file() {
+    fn saves_each_additional_signer_role() {
         let root = std::env::temp_dir().join(format!("raportgen-settings-{}", std::process::id()));
         fs::create_dir_all(root.join("Налаштування")).unwrap();
-        let saved = update_signer(&root, "commander", SignerSettings { full_name: "Тест".into(), rank: "капітан".into(), position: "Командир".into(), signature_file_name: Some("other.png".into()) }).unwrap();
-        assert_eq!(saved.commander.signature_file_name, None);
+        let saved = update_signer(&root, "fuelChief", SignerSettings { full_name: "Тест Тестович Тестенко".into(), rank: "капітан".into(), position: "Начальник ПММ".into() }).unwrap();
+        assert_eq!(saved.fuel_chief.position, "Начальник ПММ");
         let _ = fs::remove_dir_all(root);
     }
 }

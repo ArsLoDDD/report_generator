@@ -62,17 +62,15 @@ struct TemplatesPage {
     total_count: u64,
 }
 
-const STARTER_TEMPLATES: [(&str, &[u8]); 4] = [
+const STARTER_TEMPLATES: [(&str, &[u8]); 3] = [
     ("Рапорт на відпустку.docx", include_bytes!("../templates/Рапорт на відпустку.docx")),
     ("Рапорт на відпустку з датою.docx", include_bytes!("../templates/Рапорт на відпустку з датою.docx")),
     ("Рапорт на матеріальну допомогу.docx", include_bytes!("../templates/Рапорт на матеріальну допомогу.docx")),
-    ("Список військовослужбовців.docx", include_bytes!("../templates/Список військовослужбовців.docx")),
 ];
 
 pub const DATABASE_FILE_NAME: &str = "особовий_склад.db";
 pub const LEGACY_DATABASE_DIRECTORY_NAME: &str = "База даних";
 pub const TEMPLATES_DIRECTORY_NAME: &str = "Шаблони";
-pub const SIGNATURES_DIRECTORY_NAME: &str = "Підписи";
 pub const REPORTS_DIRECTORY_NAME: &str = "Згенеровані рапорти";
 pub const BACKUPS_DIRECTORY_NAME: &str = "Резервні копії";
 pub const CONFIG_DIRECTORY_NAME: &str = "Налаштування";
@@ -94,7 +92,7 @@ fn application_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn ensure_application_structure(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let root = application_root(app)?;
-    for directory in [TEMPLATES_DIRECTORY_NAME, SIGNATURES_DIRECTORY_NAME, REPORTS_DIRECTORY_NAME, BACKUPS_DIRECTORY_NAME, CONFIG_DIRECTORY_NAME] {
+    for directory in [TEMPLATES_DIRECTORY_NAME, REPORTS_DIRECTORY_NAME, BACKUPS_DIRECTORY_NAME, CONFIG_DIRECTORY_NAME] {
         fs::create_dir_all(root.join(directory)).map_err(|_| format!("Не вдалося створити папку «{directory}»."))?;
     }
     settings::load(&root)?;
@@ -113,10 +111,10 @@ fn seed_starter_templates(app: &tauri::AppHandle) -> Result<(), String> {
             fs::write(path, content).map_err(|_| "Не вдалося створити стартовий DOCX-шаблон.".to_string())?;
         }
     }
-    create_validation_example_template(&directory.join("Тестовий шаблон з помилкою.docx"))?;
     Ok(())
 }
 
+#[cfg(test)]
 fn create_validation_example_template(path: &Path) -> Result<(), String> {
     if path.exists() { return Ok(()); }
     let file = fs::File::create(path).map_err(|_| "Не вдалося створити тестовий шаблон.".to_string())?;
@@ -140,8 +138,6 @@ fn template_description(file_name: &str) -> (&'static str, u16) {
         "Рапорт на відпустку.docx" => ("Рапорт на надання відпустки військовослужбовцю", 7),
         "Рапорт на відпустку з датою.docx" => ("Рапорт на надання відпустки з вибором дати", 8),
         "Рапорт на матеріальну допомогу.docx" => ("Рапорт на отримання матеріальної допомоги", 8),
-        "Список військовослужбовців.docx" => ("Приклад шаблону з кількома військовослужбовцями", 10),
-        "Тестовий шаблон з помилкою.docx" => ("Приклад для перевірки повідомлень про невідомі змінні", 1),
         _ => ("Локальний DOCX-шаблон рапорту", 0),
     }
 }
