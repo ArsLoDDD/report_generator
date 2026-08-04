@@ -56,7 +56,7 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Personnel> {
 }
 
 pub fn list(connection: &Connection) -> Result<Vec<Personnel>, String> {
-    let mut statement = connection.prepare("SELECT id, rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, assigned_vehicle_name, assigned_vehicle_registration FROM personnel ORDER BY surname, given_name")
+    let mut statement = connection.prepare("SELECT id, rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, assigned_vehicle_name, assigned_vehicle_registration FROM personnel ORDER BY id ASC")
         .map_err(|_| "Не вдалося відкрити особовий склад. Спробуйте перезапустити програму.".to_string())?;
     let rows = statement.query_map([], map_row)
         .map_err(|_| "Не вдалося прочитати особовий склад.".to_string())?;
@@ -94,7 +94,7 @@ fn find(connection: &Connection, id: i64) -> Result<Personnel, String> {
         .map_err(|_| "Не вдалося знайти збережений запис.".to_string())
 }
 
-fn validate(draft: &PersonnelDraft) -> Result<(), String> {
+pub(crate) fn validate(draft: &PersonnelDraft) -> Result<(), String> {
     if [draft.rank.as_str(), draft.surname.as_str(), draft.given_name.as_str(), draft.position.as_str()].iter().any(|value| value.trim().is_empty()) { return Err("Заповніть звання, прізвище, ім'я та посаду.".to_string()); }
     if draft.tax_id.len() != 10 || !draft.tax_id.chars().all(|character| character.is_ascii_digit()) { return Err("ІПН має містити рівно 10 цифр.".to_string()); }
     Ok(())
@@ -124,4 +124,18 @@ mod tests {
 
     #[test]
     fn rejects_invalid_tax_id() { let mut draft = valid_draft(); draft.tax_id = "123".into(); assert_eq!(validate(&draft).unwrap_err(), "ІПН має містити рівно 10 цифр."); }
+
+    #[test]
+    fn lists_personnel_by_ascending_id() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let mut first = valid_draft();
+        first.surname = "ЯКОВЕНКО".into();
+        create(&connection, first).unwrap();
+        let mut second = valid_draft();
+        second.surname = "АБРАМЕНКО".into();
+        second.tax_id = "7462389898".into();
+        create(&connection, second).unwrap();
+        assert_eq!(list(&connection).unwrap().iter().map(|person| person.id).collect::<Vec<_>>(), vec![1, 2]);
+    }
 }

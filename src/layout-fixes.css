@@ -79,6 +79,11 @@ body { overflow: hidden; }
 .personnel-page .personnel-table th { position: sticky; top: 0; z-index: 3; background: #0d1922; }
 .personnel-page .personnel-table tbody tr { cursor: pointer; }
 .personnel-page .personnel-table tbody tr:hover { background: #12212a; }
+.personnel-page .personnel-table .incomplete-row { background: linear-gradient(90deg, #3a280f80, transparent 42%); }
+.personnel-page .personnel-table .incomplete-row td:first-child { box-shadow: inset 3px 0 #f0ad22; }
+.personnel-id { display: flex; align-items: center; gap: 9px; }
+.personnel-incomplete-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border-radius: 10px; background: #3c2b11; color: #f2b530; font-size: 10px; }
+.personnel-incomplete-badge svg { width: 13px; height: 13px; }
 .personnel-table__actions { position: sticky; right: 0; z-index: 2; background: #0e1922; }
 .personnel-table th:last-child { position: sticky; right: 0; z-index: 4; }
 .personnel-table td:nth-child(6), .personnel-table td:nth-child(10) { max-width: 310px; overflow: hidden; text-overflow: ellipsis; }

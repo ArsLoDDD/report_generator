@@ -61,7 +61,7 @@ export type AppSettings = {
 };
 
 export type StartupWarning = {
-  code: "database-created" | "templates-missing" | "personnel-empty";
+  code: "database-missing" | "templates-missing" | "personnel-empty";
   title: string;
   message: string;
 };

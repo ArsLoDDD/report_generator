@@ -11,7 +11,13 @@ use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 use zip::{write::{SimpleFileOptions, ZipWriter}, CompressionMethod};
 
-struct AppState(Mutex<Connection>, Vec<StartupWarning>);
+struct DatabaseState {
+    connection: Connection,
+    path: PathBuf,
+    is_persistent: bool,
+}
+
+struct AppState(Mutex<DatabaseState>, Vec<StartupWarning>);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -141,12 +147,29 @@ fn prepare_database_path(root: &Path) -> Result<(PathBuf, bool), String> {
     Ok((database_path, database_was_missing))
 }
 
-fn open_database(app: &tauri::AppHandle) -> Result<(Connection, bool), String> {
+fn open_database(app: &tauri::AppHandle) -> Result<(DatabaseState, bool), String> {
     let root = ensure_application_structure(app)?;
     let (database_path, database_was_missing) = prepare_database_path(&root)?;
-    let connection = Connection::open(database_path).map_err(|_| "Не вдалося відкрити базу даних програми.".to_string())?;
+    Ok((connect_database(database_path, database_was_missing)?, database_was_missing))
+}
+
+fn connect_database(database_path: PathBuf, database_was_missing: bool) -> Result<DatabaseState, String> {
+    let connection = if database_was_missing {
+        Connection::open_in_memory()
+    } else {
+        Connection::open(&database_path)
+    }.map_err(|_| "Не вдалося відкрити базу даних програми.".to_string())?;
     database::initialise(&connection)?;
-    Ok((connection, database_was_missing))
+    Ok(DatabaseState { connection, path: database_path, is_persistent: !database_was_missing })
+}
+
+fn ensure_persistent_database(database_state: &mut DatabaseState) -> Result<(), String> {
+    if database_state.is_persistent { return Ok(()); }
+    let connection = Connection::open(&database_state.path).map_err(|_| "Не вдалося створити базу даних у головній папці програми.".to_string())?;
+    database::initialise(&connection)?;
+    database_state.connection = connection;
+    database_state.is_persistent = true;
+    Ok(())
 }
 
 fn directory_contains_docx(directory: &Path) -> bool {
@@ -158,7 +181,7 @@ fn directory_contains_docx(directory: &Path) -> bool {
 fn startup_warnings(connection: &Connection, database_was_missing: bool, templates_were_missing: bool) -> Vec<StartupWarning> {
     let mut warnings = Vec::new();
     if database_was_missing {
-        warnings.push(StartupWarning { code: "database-created".into(), title: "Базу даних створено".into(), message: "Файл особовий_склад.db був відсутній і створений у головній папці програми.".into() });
+        warnings.push(StartupWarning { code: "database-missing".into(), title: "База даних відсутня".into(), message: "Файл особовий_склад.db не знайдено. Його буде створено після додавання першого військовослужбовця.".into() });
     }
     if templates_were_missing {
         warnings.push(StartupWarning { code: "templates-missing".into(), title: "Шаблони були відсутні".into(), message: "Папка не містила DOCX-файлів. Стартові шаблони відновлено автоматично.".into() });
@@ -172,26 +195,28 @@ fn startup_warnings(connection: &Connection, database_was_missing: bool, templat
 
 #[tauri::command]
 fn list_personnel(state: tauri::State<AppState>) -> Result<Vec<personnel::Personnel>, String> {
-    let connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
-    personnel::list(&connection)
+    let database = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    personnel::list(&database.connection)
 }
 
 #[tauri::command]
 fn create_personnel(state: tauri::State<AppState>, draft: personnel::PersonnelDraft) -> Result<personnel::Personnel, String> {
-    let connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
-    personnel::create(&connection, draft)
+    personnel::validate(&draft)?;
+    let mut database = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    ensure_persistent_database(&mut database)?;
+    personnel::create(&database.connection, draft)
 }
 
 #[tauri::command]
 fn update_personnel(state: tauri::State<AppState>, personnel_id: i64, draft: personnel::PersonnelDraft) -> Result<personnel::Personnel, String> {
-    let connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
-    personnel::update(&connection, personnel_id, draft)
+    let database = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    personnel::update(&database.connection, personnel_id, draft)
 }
 
 #[tauri::command]
 fn delete_personnel(state: tauri::State<AppState>, personnel_id: i64) -> Result<(), String> {
-    let connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
-    personnel::delete(&connection, personnel_id)
+    let database = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    personnel::delete(&database.connection, personnel_id)
 }
 
 #[tauri::command]
@@ -243,15 +268,15 @@ fn inspect_template(template_path: String) -> Result<report_generation::Template
 
 #[tauri::command]
 fn validate_template(state: tauri::State<AppState>, template_path: String, personnel_ids: Vec<i64>, report_date: Option<String>) -> Result<report_generation::TemplateValidationResult, String> {
-    let connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
-    Ok(report_generation::validate(&connection, &template_path, &personnel_ids, report_date.as_deref()))
+    let database = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    Ok(report_generation::validate(&database.connection, &template_path, &personnel_ids, report_date.as_deref()))
 }
 
 #[tauri::command]
 fn generate_report(app: tauri::AppHandle, state: tauri::State<AppState>, request: report_generation::GenerateReportRequest) -> Result<report_generation::GeneratedReport, String> {
-    let connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    let database = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
     let root = ensure_application_structure(&app)?;
-    report_generation::generate(&connection, &root, request)
+    report_generation::generate(&database.connection, &root, request)
 }
 
 fn ensure_reports_item(app: &tauri::AppHandle, requested_path: &str) -> Result<PathBuf, String> {
@@ -288,7 +313,8 @@ fn open_application_directory(app: tauri::AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn create_database_backup(app: tauri::AppHandle, state: tauri::State<AppState>) -> Result<String, String> {
-    let _connection = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    let database = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    if !database.is_persistent { return Err("Неможливо створити резервну копію: файл бази даних ще не існує. Спочатку додайте військовослужбовця.".to_string()); }
     let root = ensure_application_structure(&app)?;
     let now = Local::now();
     let directory = root.join(BACKUPS_DIRECTORY_NAME).join(now.format("%d.%m.%Y").to_string());
@@ -333,10 +359,10 @@ fn main() {
         .setup(|app| {
             let root = ensure_application_structure(app.handle()).map_err(io::Error::other)?;
             let templates_were_missing = !directory_contains_docx(&root.join(TEMPLATES_DIRECTORY_NAME));
-            let (connection, database_was_missing) = open_database(app.handle()).map_err(io::Error::other)?;
-            let warnings = startup_warnings(&connection, database_was_missing, templates_were_missing);
+            let (database, database_was_missing) = open_database(app.handle()).map_err(io::Error::other)?;
+            let warnings = startup_warnings(&database.connection, database_was_missing, templates_were_missing);
             seed_starter_templates(app.handle()).map_err(io::Error::other)?;
-            app.manage(AppState(Mutex::new(connection), warnings));
+            app.manage(AppState(Mutex::new(database), warnings));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![list_personnel, create_personnel, update_personnel, delete_personnel, get_startup_warnings, get_app_settings, update_signer_settings, list_templates, select_template_file, inspect_template, validate_template, generate_report, open_generated_report, open_generated_report_folder, open_application_directory, create_database_backup, list_generated_reports])
@@ -378,8 +404,23 @@ mod tests {
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
         let warnings = startup_warnings(&connection, true, true);
-        assert!(warnings.iter().any(|warning| warning.code == "database-created"));
+        assert!(warnings.iter().any(|warning| warning.code == "database-missing"));
         assert!(warnings.iter().any(|warning| warning.code == "templates-missing"));
         assert!(warnings.iter().any(|warning| warning.code == "personnel-empty"));
+    }
+
+    #[test]
+    fn missing_database_stays_in_memory_until_the_first_write() {
+        let root = std::env::temp_dir().join(format!("report-generator-delayed-database-{}", Local::now().timestamp_nanos_opt().unwrap_or_default()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join(DATABASE_FILE_NAME);
+        let mut state = connect_database(path.clone(), true).unwrap();
+        assert!(!path.exists());
+        assert!(!state.is_persistent);
+        ensure_persistent_database(&mut state).unwrap();
+        assert!(path.exists());
+        assert!(state.is_persistent);
+        drop(state);
+        fs::remove_dir_all(root).unwrap();
     }
 }

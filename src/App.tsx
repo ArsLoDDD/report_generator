@@ -21,7 +21,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("generator");
   const { personnel: people, isLoading: personnelLoading, errorMessage: personnelError, refresh: refreshPersonnel, createPersonnel, updatePersonnel, deletePersonnel } = usePersonnel();
   const { templates } = useTemplates();
-  const startupWarnings = useStartupWarnings().filter((warning) => warning.code !== "personnel-empty" || people.length === 0);
+  const startupWarnings = useStartupWarnings().filter((warning) => !["personnel-empty", "database-missing"].includes(warning.code) || people.length === 0);
   const [selectedPeople, setSelectedPeople] = useState<number[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [templateInfo, setTemplateInfo] = useState<Template | null>(null);

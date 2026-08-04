@@ -32,6 +32,11 @@ describe("PersonnelPage CRUD", () => {
     expect(screen.queryByRole("button", { name: "Експорт" })).not.toBeInTheDocument();
   });
 
+  it("highlights personnel records with missing fields", () => {
+    renderPage({ people: [{ ...person, educationDetails: "" }] });
+    expect(screen.getByTitle("Неповні дані")).toBeInTheDocument();
+  });
+
   it("creates a person through the shared editor form", async () => {
     const props = renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Додати військовослужбовця" }));

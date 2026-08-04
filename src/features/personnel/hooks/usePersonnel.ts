@@ -15,12 +15,12 @@ export function usePersonnel() {
   useEffect(() => { void refresh(); }, [refresh]);
   const createPersonnel = useCallback(async (draft: PersonnelDraft) => {
     const created = await personnelService.create(draft);
-    setPersonnel((current) => [...current, created].sort((left, right) => left.fullName.localeCompare(right.fullName, "uk")));
+    setPersonnel((current) => [...current, created].sort((left, right) => left.id - right.id));
     return created;
   }, []);
   const updatePersonnel = useCallback(async (personnelId: number, draft: PersonnelDraft) => {
     const updated = await personnelService.update(personnelId, draft);
-    setPersonnel((current) => current.map((person) => person.id === personnelId ? updated : person).sort((left, right) => left.fullName.localeCompare(right.fullName, "uk")));
+    setPersonnel((current) => current.map((person) => person.id === personnelId ? updated : person).sort((left, right) => left.id - right.id));
     return updated;
   }, []);
   const deletePersonnel = useCallback(async (personnelId: number) => {
