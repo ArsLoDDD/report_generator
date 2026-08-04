@@ -3,16 +3,31 @@ import type { Template } from "../../../shared/types/domain";
 import { templateService } from "../services/templateService";
 
 const pageSize = 20;
+let cachedTemplatesPage: { items: Template[]; totalCount: number } | null = null;
+let firstPageRequest: Promise<{ items: Template[]; totalCount: number }> | null = null;
+
+async function loadFirstTemplatesPage() {
+  if (!firstPageRequest) {
+    firstPageRequest = templateService.list(0, pageSize).finally(() => { firstPageRequest = null; });
+  }
+  const page = await firstPageRequest;
+  cachedTemplatesPage = page;
+  return page;
+}
 
 export function useTemplates() {
-  const [templates, setTemplates] = useState<Template[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
+  const [templates, setTemplates] = useState<Template[]>(() => cachedTemplatesPage?.items ?? []);
+  const [totalCount, setTotalCount] = useState(() => cachedTemplatesPage?.totalCount ?? 0);
+  const [isRefreshing, setIsRefreshing] = useState(() => cachedTemplatesPage === null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const refresh = useCallback(async () => {
-    const page = await templateService.list(0, pageSize);
-    setTemplates(page.items);
-    setTotalCount(page.totalCount);
-    return page.items;
+    setIsRefreshing(true);
+    try {
+      const page = await loadFirstTemplatesPage();
+      setTemplates(page.items);
+      setTotalCount(page.totalCount);
+      return page.items;
+    } finally { setIsRefreshing(false); }
   }, []);
   useEffect(() => { void refresh().catch(() => setTemplates([])); }, [refresh]);
   const loadMore = useCallback(async () => {
@@ -20,9 +35,13 @@ export function useTemplates() {
     setIsLoadingMore(true);
     try {
       const page = await templateService.list(templates.length, pageSize);
-      setTemplates((current) => [...current, ...page.items.filter((template) => !current.some((existing) => existing.sourcePath === template.sourcePath))]);
+      setTemplates((current) => {
+        const next = [...current, ...page.items.filter((template) => !current.some((existing) => existing.sourcePath === template.sourcePath))];
+        cachedTemplatesPage = { items: next, totalCount: page.totalCount };
+        return next;
+      });
       setTotalCount(page.totalCount);
     } finally { setIsLoadingMore(false); }
   }, [isLoadingMore, templates.length, totalCount]);
-  return { templates, totalCount, hasMore: templates.length < totalCount, isLoadingMore, loadMore, refresh };
+  return { templates, totalCount, hasMore: templates.length < totalCount, isRefreshing, isLoadingMore, loadMore, refresh };
 }

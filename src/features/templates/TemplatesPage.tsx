@@ -21,6 +21,7 @@ type TemplatesPageProps = {
   templates: Template[];
   totalCount: number;
   hasMore: boolean;
+  isRefreshing: boolean;
   isLoadingMore: boolean;
   onLoadMore: () => Promise<void>;
   selected: Template | null;
@@ -28,7 +29,7 @@ type TemplatesPageProps = {
   onRefresh: () => Promise<Template[]>;
 };
 
-export function TemplatesPage({ templates, totalCount, hasMore, isLoadingMore, onLoadMore, selected, onSelect, onRefresh }: TemplatesPageProps) {
+export function TemplatesPage({ templates, totalCount, hasMore, isRefreshing: isBackgroundRefreshing, isLoadingMore, onLoadMore, selected, onSelect, onRefresh }: TemplatesPageProps) {
   const [query, setQuery] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [status, setStatus] = useState("all");
@@ -101,7 +102,7 @@ export function TemplatesPage({ templates, totalCount, hasMore, isLoadingMore, o
   }), [inspection.variables]);
   const onTemplatesScroll = useLoadMoreOnScroll({ hasMore, isLoading: isLoadingMore, loadMore: onLoadMore });
 
-  const listFooter = <div className="pagination template-list__footer"><span>Показано {filteredTemplates.length} із {totalCount}</span><div><button className="button" onClick={() => void openTemplatesDirectory()}><FolderOpen />Відкрити папку</button><button className="button icon-only" aria-label="Оновити" title="Оновити" onClick={() => void refreshTemplates()} disabled={isRefreshing}><RefreshCw className={isRefreshing ? "spin" : undefined} /></button></div></div>;
+  const listFooter = <div className="pagination template-list__footer"><span>{isBackgroundRefreshing && templates.length > 0 ? "Оновлення…" : `Показано ${filteredTemplates.length} із ${totalCount}`}</span><div><button className="button" onClick={() => void openTemplatesDirectory()}><FolderOpen />Відкрити папку</button><button className="button icon-only" aria-label="Оновити" title="Оновити" onClick={() => void refreshTemplates()} disabled={isRefreshing || isBackgroundRefreshing}><RefreshCw className={isRefreshing || isBackgroundRefreshing ? "spin" : undefined} /></button></div></div>;
 
   if (!selected) return <PageFrame className="templates-page"><section className="panel template-empty-page"><div><FileText /><h2>Шаблони не знайдено</h2><p>Додайте DOCX-файли до папки шаблонів і оновіть список.</p></div>{listFooter}</section></PageFrame>;
 
