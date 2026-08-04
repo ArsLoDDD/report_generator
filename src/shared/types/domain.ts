@@ -45,6 +45,11 @@ export type GeneratedReportSummary = {
   folderPath: string;
 };
 
+export type PaginatedResult<T> = {
+  items: T[];
+  totalCount: number;
+};
+
 export type SignerRole = "main" | "commander" | "chief";
 
 export type SignerSettings = {

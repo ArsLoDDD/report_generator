@@ -23,6 +23,13 @@ pub struct Personnel {
     pub assigned_vehicle_registration: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonnelPage {
+    pub items: Vec<Personnel>,
+    pub total_count: u64,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PersonnelDraft {
@@ -63,6 +70,20 @@ pub fn list(connection: &Connection) -> Result<Vec<Personnel>, String> {
     rows
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| "Не вдалося прочитати один із записів особового складу.".to_string())
+}
+
+pub fn list_page(connection: &Connection, offset: u32, limit: u32) -> Result<PersonnelPage, String> {
+    let total_count = connection.query_row("SELECT COUNT(*) FROM personnel", [], |row| row.get::<_, u64>(0))
+        .map_err(|_| "Не вдалося визначити кількість записів особового складу.".to_string())?;
+    let safe_limit = i64::from(limit.clamp(1, 100));
+    let safe_offset = i64::from(offset);
+    let mut statement = connection.prepare("SELECT id, rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, assigned_vehicle_name, assigned_vehicle_registration FROM personnel ORDER BY id ASC LIMIT ?1 OFFSET ?2")
+        .map_err(|_| "Не вдалося відкрити особовий склад. Спробуйте перезапустити програму.".to_string())?;
+    let items = statement.query_map(params![safe_limit, safe_offset], map_row)
+        .map_err(|_| "Не вдалося прочитати особовий склад.".to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Не вдалося прочитати один із записів особового складу.".to_string())?;
+    Ok(PersonnelPage { items, total_count })
 }
 
 pub fn create(connection: &Connection, draft: PersonnelDraft) -> Result<Personnel, String> {
@@ -137,5 +158,22 @@ mod tests {
         second.tax_id = "7462389898".into();
         create(&connection, second).unwrap();
         assert_eq!(list(&connection).unwrap().iter().map(|person| person.id).collect::<Vec<_>>(), vec![1, 2]);
+    }
+
+    #[test]
+    fn reads_personnel_in_fixed_pages() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        for index in 0..25 {
+            let mut draft = valid_draft();
+            draft.tax_id = format!("7462389{index:03}");
+            create(&connection, draft).unwrap();
+        }
+        let first_page = list_page(&connection, 0, 20).unwrap();
+        let second_page = list_page(&connection, 20, 20).unwrap();
+        assert_eq!(first_page.total_count, 25);
+        assert_eq!(first_page.items.len(), 20);
+        assert_eq!(second_page.items.len(), 5);
+        assert_eq!(second_page.items.first().unwrap().id, 21);
     }
 }

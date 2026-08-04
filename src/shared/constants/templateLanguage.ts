@@ -42,6 +42,16 @@ export const signerVariables: TemplateVariable[] = [
   { token: "{{main.fullName}}", label: "Повне ПІБ основного підписанта", description: "ПІБ основного підписанта з налаштувань програми.", example: "Іваненко Іван Іванович" },
   { token: "{{main.position}}", label: "Посада основного підписанта", description: "Посада основного підписанта з налаштувань програми.", example: "Заступник командира з ППП" },
   { token: "{{main.signature}}", label: "Підпис основного підписанта", description: "PNG-зображення з папки «Підписи». Назва файлу налаштовується лише для основного підписанта.", example: "[зображення підпису]" },
-  { token: "{{commanderName}}", label: "ПІБ командира", description: "ПІБ командира з налаштувань програми.", example: "Петренко Петро Петрович" },
-  { token: "{{chiefName}}", label: "ПІБ начальника штабу", description: "ПІБ начальника штабу з налаштувань програми.", example: "Сидоренко Сергій Сергійович" }
+  { token: "{{commander.rank}}", label: "Звання командира", description: "Звання командира з налаштувань програми.", example: "капітан" },
+  { token: "{{commander.surname}}", label: "Прізвище командира", description: "Прізвище командира з налаштувань програми.", example: "Петренко" },
+  { token: "{{commander.givenName}}", label: "Ім’я командира", description: "Ім’я командира з налаштувань програми.", example: "Петро" },
+  { token: "{{commander.patronymic}}", label: "По батькові командира", description: "По батькові командира з налаштувань програми.", example: "Петрович" },
+  { token: "{{commander.fullName}}", label: "Повне ПІБ командира", description: "Повне ПІБ командира з налаштувань програми.", example: "Петренко Петро Петрович" },
+  { token: "{{commander.position}}", label: "Посада командира", description: "Посада командира з налаштувань програми.", example: "Командир" },
+  { token: "{{chief.rank}}", label: "Звання начальника штабу", description: "Звання начальника штабу з налаштувань програми.", example: "капітан" },
+  { token: "{{chief.surname}}", label: "Прізвище начальника штабу", description: "Прізвище начальника штабу з налаштувань програми.", example: "Сидоренко" },
+  { token: "{{chief.givenName}}", label: "Ім’я начальника штабу", description: "Ім’я начальника штабу з налаштувань програми.", example: "Сергій" },
+  { token: "{{chief.patronymic}}", label: "По батькові начальника штабу", description: "По батькові начальника штабу з налаштувань програми.", example: "Сергійович" },
+  { token: "{{chief.fullName}}", label: "Повне ПІБ начальника штабу", description: "Повне ПІБ начальника штабу з налаштувань програми.", example: "Сидоренко Сергій Сергійович" },
+  { token: "{{chief.position}}", label: "Посада начальника штабу", description: "Посада начальника штабу з налаштувань програми.", example: "Начальник штабу" }
 ];

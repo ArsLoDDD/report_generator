@@ -88,14 +88,17 @@ body { overflow: hidden; }
 .personnel-page .personnel-table th { position: sticky; top: 0; z-index: 3; background: #0d1922; }
 .personnel-page .personnel-table tbody tr { cursor: pointer; }
 .personnel-page .personnel-table tbody tr:hover { background: #12212a; }
-.personnel-page .personnel-table .incomplete-row { background: linear-gradient(90deg, #3a280f80, transparent 42%); }
-.personnel-page .personnel-table .incomplete-row td:first-child { box-shadow: inset 3px 0 #f0ad22; }
+.personnel-page .personnel-table .incomplete-row td:first-child { background: linear-gradient(90deg, #3a280f80, #241c0d80); box-shadow: inset 3px 0 #f0ad22; }
 .personnel-id { display: flex; align-items: center; gap: 9px; }
 .personnel-incomplete-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border-radius: 10px; background: #3c2b11; color: #f2b530; font-size: 10px; }
 .personnel-incomplete-badge svg { width: 13px; height: 13px; }
+.icon-only { min-width: 34px; padding: 0 !important; }
+.spin { animation: icon-spin .8s linear infinite; }
+@keyframes icon-spin { to { transform: rotate(360deg); } }
 .personnel-table__actions { position: sticky; right: 0; z-index: 2; background: #0e1922; }
 .personnel-table th:last-child { position: sticky; right: 0; z-index: 4; }
 .personnel-table td:nth-child(6), .personnel-table td:nth-child(10) { max-width: 310px; overflow: hidden; text-overflow: ellipsis; }
+.infinite-loading { padding: 12px 16px; color: #9caab4; font-size: 12px; text-align: center; }
 
 /* Application diagnostics use the otherwise empty lower part of the static sidebar. */
 .sidebar-warnings { margin: auto 7px 0; display: grid; gap: 7px; min-height: 0; overflow: auto; }

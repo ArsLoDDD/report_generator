@@ -83,6 +83,8 @@ fn selected_personnel(connection: &Connection, ids: &[i64]) -> Result<Vec<Person
 fn values_for(personnel: &[Personnel], settings: &settings::AppSettings, report_date: Option<&str>) -> Result<HashMap<String, String>, String> {
     let mut values = HashMap::new();
     let main_name = signer_name_parts(&settings.main_signer.full_name);
+    let commander_name = signer_name_parts(&settings.commander.full_name);
+    let chief_name = signer_name_parts(&settings.chief.full_name);
     if personnel.len() == 1 {
         add_person_values(&mut values, "soldier", &personnel[0]);
     } else {
@@ -104,6 +106,18 @@ fn values_for(personnel: &[Personnel], settings: &settings::AppSettings, report_
         ("mainSignature".to_string(), "".to_string()),
         ("commanderName".to_string(), settings.commander.full_name.clone()),
         ("chiefName".to_string(), settings.chief.full_name.clone()),
+        ("commander.rank".to_string(), settings.commander.rank.clone()),
+        ("commander.surname".to_string(), commander_name.0.clone()),
+        ("commander.givenName".to_string(), commander_name.1.clone()),
+        ("commander.patronymic".to_string(), commander_name.2.clone()),
+        ("commander.fullName".to_string(), [commander_name.0.clone(), commander_name.1.clone(), commander_name.2.clone()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")),
+        ("commander.position".to_string(), settings.commander.position.clone()),
+        ("chief.rank".to_string(), settings.chief.rank.clone()),
+        ("chief.surname".to_string(), chief_name.0.clone()),
+        ("chief.givenName".to_string(), chief_name.1.clone()),
+        ("chief.patronymic".to_string(), chief_name.2.clone()),
+        ("chief.fullName".to_string(), [chief_name.0.clone(), chief_name.1.clone(), chief_name.2.clone()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")),
+        ("chief.position".to_string(), settings.chief.position.clone()),
     ]);
     let report_date = match report_date.filter(|date| !date.is_empty()) {
         Some(value) => NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| "Не вдалося прочитати дату рапорту.".to_string())?,
@@ -168,7 +182,7 @@ fn xml_visible_text(content: &str) -> String {
     }
     visible_text
 }
-fn is_supported_variable(variable: &str) -> bool { let person_fields = ["rank", "surname", "givenName", "patronymic", "fullName", "position", "taxId", "birthDate", "educationLevel", "educationDetails", "armedForcesServiceStartDate", "positionAssignedDate", "positionAssignmentOrder", "militaryId", "assignedVehicleName", "assignedVehicleRegistration"]; person_fields.iter().any(|field| variable == &format!("soldier.{field}") || (variable.starts_with("soldiers[") && variable.ends_with(&format!("].{field}")))) || ["main.rank", "main.surname", "main.givenName", "main.patronymic", "main.fullName", "main.position", "main.signature", "document.date", "mainRank", "mainName", "mainPosition", "mainSignature", "commanderName", "chiefName"].contains(&variable) }
+fn is_supported_variable(variable: &str) -> bool { let person_fields = ["rank", "surname", "givenName", "patronymic", "fullName", "position", "taxId", "birthDate", "educationLevel", "educationDetails", "armedForcesServiceStartDate", "positionAssignedDate", "positionAssignmentOrder", "militaryId", "assignedVehicleName", "assignedVehicleRegistration"]; let signer_fields = ["rank", "surname", "givenName", "patronymic", "fullName", "position"]; person_fields.iter().any(|field| variable == &format!("soldier.{field}") || (variable.starts_with("soldiers[") && variable.ends_with(&format!("].{field}")))) || signer_fields.iter().any(|field| ["main", "commander", "chief"].iter().any(|signer| variable == &format!("{signer}.{field}"))) || ["main.signature", "document.date", "mainRank", "mainName", "mainPosition", "mainSignature", "commanderName", "chiefName"].contains(&variable) }
 fn write_docx(input: &Path, output: &Path, values: &HashMap<String, String>, signature_image: Option<&[u8]>) -> Result<(), String> {
     let file = File::open(input).map_err(|_| "Не вдалося відкрити DOCX-шаблон.".to_string())?;
     let mut archive = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-шаблоном.".to_string())?;
@@ -344,6 +358,11 @@ mod tests {
         let values = values_for(&people, &settings::defaults(), Some("2026-08-03")).unwrap();
         assert_eq!(values.get("main.fullName").unwrap(), "Іваненко Іван Іванович");
         assert_eq!(values.get("main.surname").unwrap(), "Іваненко");
+        assert_eq!(values.get("commander.fullName").unwrap(), "Петренко Петро Петрович");
+        assert_eq!(values.get("commander.position").unwrap(), "Командир");
+        assert_eq!(values.get("chief.givenName").unwrap(), "Сергій");
+        assert!(!values.contains_key("commander.signature"));
+        assert!(!values.contains_key("chief.signature"));
         assert_eq!(values.get("main.givenName").unwrap(), "Іван");
         assert_eq!(values.get("main.patronymic").unwrap(), "Іванович");
         assert_eq!(values.get("document.date").unwrap(), "03.08.2026 року");

@@ -48,6 +48,20 @@ struct GeneratedReportFile {
     folder_path: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeneratedReportsPage {
+    items: Vec<GeneratedReportFile>,
+    total_count: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TemplatesPage {
+    items: Vec<TemplateFile>,
+    total_count: u64,
+}
+
 const STARTER_TEMPLATES: [(&str, &[u8]); 4] = [
     ("Рапорт на відпустку.docx", include_bytes!("../templates/Рапорт на відпустку.docx")),
     ("Рапорт на відпустку з датою.docx", include_bytes!("../templates/Рапорт на відпустку з датою.docx")),
@@ -194,9 +208,9 @@ fn startup_warnings(connection: &Connection, database_was_missing: bool, templat
 }
 
 #[tauri::command]
-fn list_personnel(state: tauri::State<AppState>) -> Result<Vec<personnel::Personnel>, String> {
+fn list_personnel(state: tauri::State<AppState>, offset: u32, limit: u32) -> Result<personnel::PersonnelPage, String> {
     let database = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
-    personnel::list(&database.connection)
+    personnel::list_page(&database.connection, offset, limit)
 }
 
 #[tauri::command]
@@ -234,8 +248,7 @@ fn update_signer_settings(app: tauri::AppHandle, role: String, signer: settings:
     settings::update_signer(&ensure_application_structure(&app)?, &role, signer)
 }
 
-#[tauri::command]
-fn list_templates(app: tauri::AppHandle) -> Result<Vec<TemplateFile>, String> {
+fn list_all_templates(app: tauri::AppHandle) -> Result<Vec<TemplateFile>, String> {
     let directory = templates_directory(&app)?;
     let mut templates = fs::read_dir(directory).map_err(|_| "Не вдалося відкрити папку шаблонів.".to_string())?
         .filter_map(Result::ok)
@@ -250,6 +263,14 @@ fn list_templates(app: tauri::AppHandle) -> Result<Vec<TemplateFile>, String> {
         }).collect::<Vec<_>>();
     templates.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(templates)
+}
+
+#[tauri::command]
+fn list_templates(app: tauri::AppHandle, offset: u32, limit: u32) -> Result<TemplatesPage, String> {
+    let templates = list_all_templates(app)?;
+    let total_count = templates.len() as u64;
+    let items = templates.into_iter().skip(offset as usize).take(limit.clamp(1, 100) as usize).collect();
+    Ok(TemplatesPage { items, total_count })
 }
 
 #[tauri::command]
@@ -355,9 +376,9 @@ fn create_database_backup(app: tauri::AppHandle, state: tauri::State<AppState>) 
 }
 
 #[tauri::command]
-fn list_generated_reports(app: tauri::AppHandle) -> Result<Vec<GeneratedReportFile>, String> {
+fn list_generated_reports(app: tauri::AppHandle, offset: u32, limit: u32) -> Result<GeneratedReportsPage, String> {
     let reports_directory = ensure_application_structure(&app)?.join(REPORTS_DIRECTORY_NAME);
-    let template_names = list_templates(app)?.into_iter().map(|template| template.name).collect::<Vec<_>>();
+    let template_names = list_all_templates(app)?.into_iter().map(|template| template.name).collect::<Vec<_>>();
     let mut reports = Vec::new();
     for date_entry in fs::read_dir(&reports_directory).map_err(|_| "Не вдалося відкрити папку рапортів.".to_string())?.filter_map(Result::ok) {
         if !date_entry.path().is_dir() { continue; }
@@ -371,7 +392,11 @@ fn list_generated_reports(app: tauri::AppHandle) -> Result<Vec<GeneratedReportFi
         }
     }
     reports.sort_by(|left, right| right.generated_at.cmp(&left.generated_at));
-    Ok(reports)
+    let total_count = reports.len() as u64;
+    let safe_offset = offset as usize;
+    let safe_limit = limit.clamp(1, 100) as usize;
+    let items = reports.into_iter().skip(safe_offset).take(safe_limit).collect();
+    Ok(GeneratedReportsPage { items, total_count })
 }
 
 fn main() {

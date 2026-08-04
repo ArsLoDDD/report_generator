@@ -4,10 +4,10 @@ import App from "./App";
 import { templateService } from "./features/templates/services/templateService";
 
 vi.mock("./shared/services/personnelService", () => ({
-  personnelService: { list: vi.fn().mockResolvedValue([
+  personnelService: { list: vi.fn().mockResolvedValue({ items: [
     { id: 1, fullName: "ВАСИЛЬОК Іван Аркадійович", rank: "Солдат", surname: "ВАСИЛЬОК", givenName: "Іван", patronymic: "Аркадійович", position: "Стрілець, військова частина А0000", taxId: "7462389812", birthDate: "02.03.1999 року", educationLevel: "вища", educationDetails: "Академія", armedForcesServiceStartDate: "2022", positionAssignedDate: "2026", positionAssignmentOrder: "№1", militaryId: "АВ №077672", assignedVehicleName: "Great Wall", assignedVehicleRegistration: "АВ 7265" },
     { id: 2, fullName: "ПЕТРЕНКО Петро Петрович", rank: "Старший солдат", surname: "ПЕТРЕНКО", givenName: "Петро", patronymic: "Петрович", position: "Оператор БпЛА, військова частина А0000", taxId: "7462389813", birthDate: "14.05.1998 року", educationLevel: "середня спеціальна", educationDetails: "Коледж", armedForcesServiceStartDate: "2022", positionAssignedDate: "2023", positionAssignmentOrder: "№2", militaryId: "АВ №077673", assignedVehicleName: "Mitsubishi L200", assignedVehicleRegistration: "АВ 7266" }
-  ]), create: vi.fn(), update: vi.fn(), delete: vi.fn() }
+  ], totalCount: 2 }), create: vi.fn(), update: vi.fn(), delete: vi.fn() }
 }));
 
 vi.mock("./app/services/applicationService", () => ({
@@ -15,7 +15,7 @@ vi.mock("./app/services/applicationService", () => ({
 }));
 
 vi.mock("./features/generated-reports/services/generatedReportsService", () => ({
-  generatedReportsService: { list: vi.fn().mockResolvedValue([{ name: "Рапорт на відпустку", template: "Рапорт на відпустку", generatedAt: "2026-08-03 10:15:30", docxPath: "/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30/Рапорт на відпустку.docx", folderPath: "/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30" }]), openDocument: vi.fn(), openFolder: vi.fn() }
+  generatedReportsService: { list: vi.fn().mockResolvedValue({ items: [{ name: "Рапорт на відпустку", template: "Рапорт на відпустку", generatedAt: "2026-08-03 10:15:30", docxPath: "/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30/Рапорт на відпустку.docx", folderPath: "/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30" }], totalCount: 1 }), openDocument: vi.fn(), openFolder: vi.fn() }
 }));
 
 vi.mock("./features/settings/services/settingsService", () => ({
@@ -35,11 +35,11 @@ vi.mock("./features/report-generation/services/reportGenerationService", () => (
 
 vi.mock("./features/templates/services/templateService", () => ({
   templateService: {
-    list: vi.fn().mockResolvedValue([
+    list: vi.fn().mockResolvedValue({ items: [
       { name: "Рапорт на відпустку", description: "Рапорт на надання відпустки військовослужбовцю", changed: "Локальний файл", status: "ready", variables: 7, sourcePath: "/templates/Рапорт на відпустку.docx" },
       { name: "Рапорт на матеріальну допомогу", description: "Рапорт на отримання матеріальної допомоги", changed: "Локальний файл", status: "ready", variables: 8, sourcePath: "/templates/Рапорт на матеріальну допомогу.docx" },
       { name: "Список військовослужбовців", description: "Приклад шаблону з кількома військовослужбовцями", changed: "Локальний файл", status: "ready", variables: 10, sourcePath: "/templates/Список військовослужбовців.docx" }
-    ]),
+    ], totalCount: 3 }),
     inspect: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: ["soldier.fullName", "main.fullName"] }),
     open: vi.fn().mockResolvedValue(undefined),
     openDirectory: vi.fn().mockResolvedValue(undefined)

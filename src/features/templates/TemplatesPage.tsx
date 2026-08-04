@@ -8,6 +8,7 @@ import { RecentReportsList } from "../../shared/ui/RecentReportsList";
 import { SearchInput } from "../../shared/ui/SearchInput";
 import { Select } from "../../shared/ui/Select";
 import { includesSearch } from "../../shared/utils/search";
+import { useLoadMoreOnScroll } from "../../shared/hooks/useLoadMoreOnScroll";
 import { useGeneratedReports } from "../generated-reports/hooks/useGeneratedReports";
 import { VariableGroup } from "./components/VariableGroup";
 import { templateService } from "./services/templateService";
@@ -16,12 +17,16 @@ const emptyInspection: TemplateInspection = { isValid: true, errors: [], variabl
 
 type TemplatesPageProps = {
   templates: Template[];
+  totalCount: number;
+  hasMore: boolean;
+  isLoadingMore: boolean;
+  onLoadMore: () => Promise<void>;
   selected: Template | null;
   onSelect: (template: Template | null) => void;
   onRefresh: () => Promise<Template[]>;
 };
 
-export function TemplatesPage({ templates, selected, onSelect, onRefresh }: TemplatesPageProps) {
+export function TemplatesPage({ templates, totalCount, hasMore, isLoadingMore, onLoadMore, selected, onSelect, onRefresh }: TemplatesPageProps) {
   const [query, setQuery] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [status, setStatus] = useState("all");
@@ -73,15 +78,16 @@ export function TemplatesPage({ templates, selected, onSelect, onRefresh }: Temp
     people: inspection.variables.filter((value) => value.startsWith("soldier.") || value.startsWith("soldiers[")),
     signers: inspection.variables.filter((value) => !value.startsWith("document.") && !value.startsWith("soldier.") && !value.startsWith("soldiers["))
   }), [inspection.variables]);
+  const onTemplatesScroll = useLoadMoreOnScroll({ hasMore, isLoading: isLoadingMore, loadMore: onLoadMore });
 
-  const listFooter = <div className="pagination template-list__footer"><span>Показано {filteredTemplates.length} із {templates.length}</span><div><button className="button" onClick={() => void openTemplatesDirectory()}><FolderOpen />Відкрити папку</button><button className="button" onClick={() => void refreshTemplates()} disabled={isRefreshing}><RefreshCw />{isRefreshing ? "Оновлення…" : "Оновити"}</button></div></div>;
+  const listFooter = <div className="pagination template-list__footer"><span>Показано {filteredTemplates.length} із {totalCount}</span><div><button className="button" onClick={() => void openTemplatesDirectory()}><FolderOpen />Відкрити папку</button><button className="button icon-only" aria-label="Оновити" title="Оновити" onClick={() => void refreshTemplates()} disabled={isRefreshing}><RefreshCw className={isRefreshing ? "spin" : undefined} /></button></div></div>;
 
   if (!selected) return <PageFrame className="templates-page"><section className="panel template-empty-page"><div><FileText /><h2>Шаблони не знайдено</h2><p>Додайте DOCX-файли до папки шаблонів і оновіть список.</p></div>{listFooter}</section></PageFrame>;
 
   return <PageFrame className="templates-page"><div className="templates-layout">
     <section className="panel template-list">
       <div className="template-list__tools"><div className="table-tools"><SearchInput placeholder="Пошук шаблонів…" value={query} onChange={setQuery} /><FilterButton active={filtersOpen} onClick={() => setFiltersOpen((current) => !current)} /></div>{filtersOpen && <div className="inline-filters"><Select ariaLabel="Статус шаблону" value={status} onChange={setStatus} options={[{ value: "all", label: "Усі статуси" }, { value: "ready", label: "Готові" }, { value: "error", label: "З помилками" }]} /><button className="button" onClick={() => { setQuery(""); setStatus("all"); }}>Скинути</button></div>}<div className="list-sort"><span>Знайдено: <b>{filteredTemplates.length}</b></span><span>Сортування: <b>Назва (А-Я)</b></span></div></div>
-      <div className="template-list__scroll">{filteredTemplates.map((item) => <button key={item.sourcePath ?? item.name} onClick={() => onSelect(item)} className={`template-row ${selected.sourcePath === item.sourcePath ? "template-selected" : ""}`}><FileText /><div><b>{item.name}</b><span className={`status-pill ${item.status}`}>{item.status === "ready" ? "Готовий" : "Є помилки"}</span><p>{item.description}</p><small>Останнє редагування: {item.changed}</small></div><MoreVertical /></button>)}</div>
+      <div className="template-list__scroll" onScroll={onTemplatesScroll}>{filteredTemplates.map((item) => <button key={item.sourcePath ?? item.name} onClick={() => onSelect(item)} className={`template-row ${selected.sourcePath === item.sourcePath ? "template-selected" : ""}`}><FileText /><div><b>{item.name}</b><span className={`status-pill ${item.status}`}>{item.status === "ready" ? "Готовий" : "Є помилки"}</span><p>{item.description}</p><small>Останнє редагування: {item.changed}</small></div><MoreVertical /></button>)}{isLoadingMore && <div className="infinite-loading">Завантаження наступних 20 шаблонів…</div>}</div>
       {listFooter}
     </section>
     <section className="panel template-details"><div className="template-details__scroll">

@@ -14,9 +14,9 @@ const person: Person = {
 
 function renderPage(overrides: Partial<Parameters<typeof PersonnelPage>[0]> = {}) {
   const props: Parameters<typeof PersonnelPage>[0] = {
-    people: [person], isLoading: false, errorMessage: null, onCreate: vi.fn(async (draft: PersonnelDraft) => ({ ...draft, id: 2, fullName: `${draft.surname} ${draft.givenName} ${draft.patronymic}` })),
+    people: [person], totalCount: 1, hasMore: false, isLoading: false, isLoadingMore: false, errorMessage: null, onCreate: vi.fn(async (draft: PersonnelDraft) => ({ ...draft, id: 2, fullName: `${draft.surname} ${draft.givenName} ${draft.patronymic}` })),
     onUpdate: vi.fn(async (_id, draft) => ({ ...draft, id: 1, fullName: `${draft.surname} ${draft.givenName} ${draft.patronymic}` })),
-    onDelete: vi.fn(async () => undefined), onRefresh: vi.fn(async () => undefined), ...overrides
+    onDelete: vi.fn(async () => undefined), onRefresh: vi.fn(async () => undefined), onLoadMore: vi.fn(async () => undefined), ...overrides
   };
   render(<NotificationProvider><PersonnelPage {...props} /></NotificationProvider>);
   return props;
