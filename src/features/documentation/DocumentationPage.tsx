@@ -1,32 +1,49 @@
-import { useState } from "react";
-import { BookOpen, Copy, FileText, Info, ListChecks, PenTool, Users, type LucideIcon } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { BookOpen, Copy, Search } from "lucide-react";
 import { PageFrame } from "../../shared/ui/PageFrame";
+import { SearchInput } from "../../shared/ui/SearchInput";
+import { Select } from "../../shared/ui/Select";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
-import { PageTitle } from "../../shared/ui/PageTitle";
-import { documentVariables, multiPersonVariables, serviceVariables, singlePersonVariables, type TemplateVariable } from "./constants/templateVariables";
+import { modifierRegistry, tokenFor, variableRegistry, type VariableDefinition } from "../../shared/template-language/registry";
+import { morphologyService, type UkrainianCase } from "../../shared/services/morphologyService";
 
-type VariableSectionProps = { icon: LucideIcon; title: string; description: string; variables: TemplateVariable[]; onSelect: (variable: TemplateVariable) => void };
+const categories = ["Усі", ...new Set(variableRegistry.map((item) => item.category))];
+const textModifiers = new Set(["великими", "маленькими", "з_великої"]);
 
-function VariableSection({ icon: Icon, title, description, variables, onSelect }: VariableSectionProps) {
-  return <section className="documentation-section"><header><Icon /><div><h2>{title}</h2><p>{description}</p></div></header><div className="variable-grid">{variables.map((variable) => <button className="variable-token" key={variable.token} onClick={() => onSelect(variable)}><code>{variable.token}</code><span>{variable.label}</span></button>)}</div></section>;
-}
-
-function TemplateFlow() {
-  return <section className="documentation-flow"><header><ListChecks /><div><h2>Як працює генерація</h2><p>Короткий порядок роботи з шаблоном і даними.</p></div></header><ol><li>Оберіть DOCX-файл шаблону та одного або кількох військовослужбовців.</li><li>Програма перевіряє, що режим змінних відповідає кількості обраних осіб.</li><li>Для однієї особи підставляється <code>{"{{soldier.field}}"}</code>.</li><li>Для кількох осіб формується масив повної довжини: <code>{"{{soldiers[0].field}}"}</code>, <code>{"{{soldiers[1].field}}"}</code>, <code>{"{{soldiers[2].field}}"}</code> … до останньої обраної особи.</li><li>Один запуск створює один DOCX у новій папці рапортів.</li></ol></section>;
-}
-
-function SignersGuide() {
-  return <section className="documentation-flow"><header><PenTool /><div><h2>Підписанти</h2><p>Налаштовуються у розділі «Налаштування» та застосовуються до кожної генерації.</p></div></header><ol><li><b>Основний підписант</b> використовує простір імен <code>main</code>: звання, окремі частини ПІБ, повне ПІБ і посаду.</li><li><b>Командир</b> та <b>начальник штабу</b> використовують простори імен <code>commander</code> і <code>chief</code> з однаковим набором полів.</li><li><b>Заступники та начальник ПММ</b> мають відповідно простори імен <code>deputyPpp</code>, <code>deputyArmament</code>, <code>deputyRear</code> і <code>fuelChief</code>. Для кожного доступні <code>rank</code>, <code>surname</code>, <code>givenName</code>, <code>patronymic</code>, <code>fullName</code> та <code>position</code>.</li><li>Папки даних створюються програмою автоматично, тому шляхи вручну не налаштовуються.</li></ol></section>;
+function Preview({ variable, modifiers }: { variable: VariableDefinition; modifiers: string[] }) {
+  const [result, setResult] = useState(variable.example);
+  useEffect(() => { let active = true; void (async () => {
+    const grammaticalCase = modifiers.find((item) => !textModifiers.has(item)) as UkrainianCase | undefined;
+    let value = variable.example;
+    if (grammaticalCase && variable.kind === "person-name") { const [surname, givenName, patronymic] = value.split(/\s+/); value = (await morphologyService.declineName({ surname, givenName, patronymic, gender: "чоловіча" }, grammaticalCase)).value; }
+    else if (grammaticalCase && variable.kind === "rank") value = morphologyService.declineRank(value, grammaticalCase);
+    else if (grammaticalCase && variable.kind === "position") value = morphologyService.declinePosition(value, grammaticalCase);
+    for (const modifier of modifiers.filter((item) => textModifiers.has(item))) value = morphologyService.transformText(value, modifier as "великими" | "маленькими" | "з_великої");
+    if (active) setResult(value);
+  })(); return () => { active = false; }; }, [variable, modifiers]);
+  return <b>{result}</b>;
 }
 
 export function DocumentationPage() {
-  const [selectedVariable, setSelectedVariable] = useState<TemplateVariable>(singlePersonVariables[0]);
-  const { notify } = useNotifications();
-  const copySelectedVariable = async () => {
-    try { await navigator.clipboard?.writeText(selectedVariable.token); notify("Змінну скопійовано.", "success"); }
-    catch { notify("Не вдалося скопіювати змінну.", "error"); }
-  };
-  const wordLine = `${selectedVariable.label}: ${selectedVariable.token}`;
-  const completedLine = `${selectedVariable.label}: ${selectedVariable.example}`;
-  return <PageFrame header={<PageTitle title="Довідник" subtitle="Повний опис мови шаблонів і доступних змінних" />} className="documentation-page"><section className="documentation-layout"><main className="panel documentation"><div className="documentation__intro"><BookOpen /><div><h1>Мова шаблонів</h1><p>Змінні записуються у подвійних фігурних дужках без пробілів. Натисніть на будь-яку змінну, щоб переглянути приклад.</p></div></div><TemplateFlow /><SignersGuide /><VariableSection icon={FileText} title="Один військовослужбовець" description="Повний перелік змінних для шаблону з однією обраною особою." variables={singlePersonVariables} onSelect={setSelectedVariable} /><VariableSection icon={Users} title="Кілька військовослужбовців" description="Повний перелік полів, доступних для кожного елемента масиву обраних осіб." variables={multiPersonVariables} onSelect={setSelectedVariable} /><VariableSection icon={BookOpen} title="Дата та службові змінні" description="Дата рапорту та значення з налаштувань програми й підписантів." variables={[...documentVariables, ...serviceVariables]} onSelect={setSelectedVariable} /></main><aside className="panel variable-preview"><header className="variable-preview__header"><span>Приклад підстановки у Word</span></header><h2>{selectedVariable.label}</h2><p>{selectedVariable.description}</p><div className="word-example"><span>У тексті DOCX-шаблону</span><code>{wordLine}</code></div><div className="variable-result"><span>Результат після генерації</span><b>{completedLine}</b></div><button className="button" onClick={() => void copySelectedVariable()}><Copy />Скопіювати змінну</button></aside></section></PageFrame>;
+  const [query, setQuery] = useState(""); const [category, setCategory] = useState("Усі"); const [selected, setSelected] = useState(variableRegistry[0]);
+  const [personNumber, setPersonNumber] = useState("1"); const [declension, setDeclension] = useState(""); const [textTransform, setTextTransform] = useState(""); const { notify } = useNotifications();
+  const isPerson = selected.id.startsWith("військовий_"); const variableId = isPerson ? selected.id.replace(/^військовий_\d+_/, `військовий_${Math.max(1, Number(personNumber) || 1)}_`) : selected.id;
+  const modifiers = useMemo(() => [declension, textTransform].filter(Boolean), [declension, textTransform]); const token = tokenFor(variableId, modifiers);
+  const found = useMemo(() => variableRegistry.filter((item) => (category === "Усі" || item.category === category) && `${item.name} ${item.category} ${item.description} ${item.id}`.toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"))), [category, query]);
+  const choose = (item: VariableDefinition) => { setSelected(item); setDeclension(""); setTextTransform(""); };
+  const copy = async () => { try { await navigator.clipboard.writeText(token); notify("Змінну скопійовано.", "success"); } catch { notify("Не вдалося скопіювати змінну.", "error"); } };
+  return <PageFrame className="documentation-page"><section className="documentation-layout">
+    <main className="panel documentation"><header className="documentation__intro"><BookOpen /><div><h1>Довідник</h1><h2>Реєстр змінних</h2><p>Змінна — це напис у фігурних дужках, який програма замінить даними під час створення рапорту. Номер військовослужбовця починається з 1.</p></div></header>
+      <div className="documentation-search"><SearchInput placeholder="Пошук змінної..." value={query} onChange={setQuery} /><Select ariaLabel="Категорія змінних" value={category} onChange={setCategory} options={categories.map((value) => ({ value, label: value }))} /></div><p className="documentation-count"><Search /> Знайдено: {found.length}</p>
+      {categories.slice(1).map((group) => { const items = found.filter((item) => item.category === group); return items.length ? <section className="documentation-section" key={group}><h2>{group}</h2><div className="variable-grid">{items.map((item) => <button className={`variable-token ${selected.id === item.id ? "variable-token--selected" : ""}`} key={item.id} onClick={() => choose(item)}><code>{tokenFor(item.id)}</code><b>{item.name}</b><span>{item.description}</span></button>)}</div></section> : null; })}
+    </main>
+    <aside className="panel variable-preview"><header className="variable-preview__header">Конструктор змінної</header><h2>{selected.name}</h2><p>{selected.description}</p>
+      {isPerson && <label className="field">Військовослужбовець<input type="number" min="1" value={personNumber} onChange={(event) => setPersonNumber(event.target.value)} /></label>}
+      {selected.supportsCases && <Select ariaLabel="Відмінок" value={declension} onChange={setDeclension} options={[{ value: "", label: "Без відмінювання" }, ...modifierRegistry.filter((item) => item.group === "case").map((item) => ({ value: item.id, label: item.name }))]} />}
+      {selected.kind !== "number" && <Select ariaLabel="Регістр" value={textTransform} onChange={setTextTransform} options={[{ value: "", label: "Без зміни регістру" }, ...modifierRegistry.filter((item) => item.group === "text").map((item) => ({ value: item.id, label: item.name }))]} />}
+      <button className="button primary" onClick={() => void copy()}><Copy />Скопіювати змінну</button>
+      <div className="word-example"><span>Вставте у Word-шаблон</span><code>{token}</code></div><div className="variable-result"><span>Приклад результату</span><Preview variable={selected} modifiers={modifiers} /></div>
+      <p className="variable-help">Модифікатори виконуються зліва направо. Одночасно можна вибрати один відмінок і один спосіб написання.</p>
+    </aside>
+  </section></PageFrame>;
 }

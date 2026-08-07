@@ -11,7 +11,7 @@ Templates and generated reports are documents, not database entities. Storing th
 - SQLite stores personnel and approved future personnel fields only.
 - The prototype `templates` and `reports` tables are not used by the current application and must not be used for new functionality. They may remain in an existing development database until an explicit, backed-up cleanup migration is approved.
 - Each generation is atomic: the DOCX is written into a temporary sibling folder and that folder is renamed only after the document has been completed successfully.
-- One generation run produces exactly one DOCX. With one selected person, template variables use `soldier.*`; with two or more, they use `soldiers[0].*`, `soldiers[1].*`, and so on.
+- One generation run produces exactly one DOCX. Selected personnel use the same numbered v2 form for every count: `{{військовий_1_піб}}`, `{{військовий_2_піб}}`, and so on.
 
 ## Affected modules
 

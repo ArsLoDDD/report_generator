@@ -25,7 +25,7 @@ vi.mock("./features/settings/services/settingsService", () => ({
 vi.mock("./features/report-generation/services/reportGenerationService", () => ({
   reportGenerationService: {
     selectTemplateFile: vi.fn().mockResolvedValue("/templates/Нагородний рапорт.docx"),
-    inspectTemplate: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: ["document.date"] }),
+    inspectTemplate: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: ["дата_рапорту"] }),
     validateTemplate: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: [] }),
     generateReport: vi.fn().mockResolvedValue({ docxPath: "/Reports/2026-08-03/Рапорт на відпустку/Рапорт на відпустку.docx", folderPath: "/Reports/2026-08-03/Рапорт на відпустку" }),
     openGeneratedReport: vi.fn(),
@@ -40,7 +40,7 @@ vi.mock("./features/templates/services/templateService", () => ({
       { name: "Рапорт на матеріальну допомогу", description: "Рапорт на отримання матеріальної допомоги", changed: "Локальний файл", status: "ready", variables: 8, sourcePath: "/templates/Рапорт на матеріальну допомогу.docx" },
       { name: "Список військовослужбовців", description: "Приклад шаблону з кількома військовослужбовцями", changed: "Локальний файл", status: "ready", variables: 10, sourcePath: "/templates/Список військовослужбовців.docx" }
     ], totalCount: 3 }),
-    inspect: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: ["soldier.fullName", "main.fullName"] }),
+    inspect: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: ["військовий_1_піб", "основний_підписант_піб"] }),
     open: vi.fn().mockResolvedValue(undefined),
     openDirectory: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn().mockResolvedValue(undefined)
@@ -62,7 +62,7 @@ describe("navigation and report generation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
     expect(screen.getByRole("heading", { name: "Налаштування" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
-    expect(screen.getByRole("heading", { name: "Довідник" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Реєстр змінних" })).toBeInTheDocument();
   });
 
   it("shows startup diagnostics in the sidebar", async () => {
@@ -210,12 +210,11 @@ describe("navigation and report generation", () => {
   it("shows an example after selecting a template variable in documentation", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
-    fireEvent.click(screen.getByRole("button", { name: /\{\{soldier\.taxId\}\}/ }));
-    expect(screen.getByText("Десятизначний ідентифікаційний номер.")).toBeInTheDocument();
-    expect(screen.getByText("ІПН: 7462389812")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /\{\{військовий_1_іпн\}\}/ }));
+    expect(screen.getAllByText("ІПН вибраного військовослужбовця.").length).toBeGreaterThan(0);
   });
 
-  it("shows a date picker only for a template that uses document.date", async () => {
+  it("shows a date picker only for a template that uses a date variable", async () => {
     render(<App />);
     const templateCard = await screen.findByRole("button", { name: /Рапорт на відпустку/ });
     fireEvent.click(templateCard);
@@ -226,7 +225,7 @@ describe("navigation and report generation", () => {
   it("notifies after copying a template variable", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
-    fireEvent.click(screen.getByRole("button", { name: /\{\{soldier\.rank\}\}/ }));
+    fireEvent.click(screen.getByRole("button", { name: /\{\{військовий_1_звання\}\}/ }));
     fireEvent.click(screen.getByRole("button", { name: "Скопіювати змінну" }));
     await waitFor(() => expect(screen.getByText("Змінну скопійовано.")).toBeInTheDocument());
   });

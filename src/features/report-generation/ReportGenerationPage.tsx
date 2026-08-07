@@ -29,7 +29,7 @@ export function ReportGenerationPage({ template, templates, hasMoreTemplates, is
   const [rank, setRank] = useState("all");
   const [reportDate, setReportDate] = useState(currentLocalDateForInput);
   const generationContext = useMemo(() => `${template?.sourcePath ?? ""}:${selected.join(",")}`, [template?.sourcePath, selected]);
-  const requiresDate = inspection?.variables.includes("document.date") ?? false;
+  const requiresDate = inspection?.variables.some((value) => value.split(":")[0] === "дата_рапорту") ?? false;
   const canGenerate = Boolean(template?.sourcePath && selected.length && (!requiresDate || reportDate));
   const ranks = useMemo(() => [...new Set(people.map((person) => person.rank))], [people]);
   const filteredTemplates = templates.filter((item) => includesSearch(templateQuery, item.name, item.description));

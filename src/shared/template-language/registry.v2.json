@@ -1,0 +1,44 @@
+{
+  "version": 2,
+  "personPrefix": "військовий_{n}_",
+  "personFields": [
+    {"id":"прізвище","name":"Прізвище","kind":"person-name","example":"ШЕВЧЕНКО","cases":true,"description":"Прізвище вибраного військовослужбовця."},
+    {"id":"імя","name":"Ім’я","kind":"person-name","example":"Іван","cases":true,"description":"Ім’я вибраного військовослужбовця."},
+    {"id":"по_батькові","name":"По батькові","kind":"person-name","example":"Аркадійович","cases":true,"description":"По батькові вибраного військовослужбовця."},
+    {"id":"піб","name":"ПІБ","kind":"person-name","example":"ШЕВЧЕНКО Іван Аркадійович","cases":true,"description":"Повне ім’я: прізвище, ім’я та по батькові."},
+    {"id":"звання","name":"Звання","kind":"rank","example":"старший солдат","cases":true,"description":"Військове звання."},
+    {"id":"посада","name":"Посада","kind":"position","example":"командир відділення","cases":true,"description":"Повна назва посади."},
+    {"id":"іпн","name":"ІПН","kind":"number","example":"7462389812","cases":false,"description":"ІПН вибраного військовослужбовця."},
+    {"id":"дата_народження","name":"Дата народження","kind":"date","example":"02.03.1999 року","cases":false,"description":"Дата народження у збереженому форматі."},
+    {"id":"освіта","name":"Рівень освіти","kind":"text","example":"вища","cases":false,"description":"Рівень або формат освіти."},
+    {"id":"де_отримана_освіта","name":"Де отримана освіта","kind":"text","example":"Львівська комерційна академія у 2002 р.","cases":false,"description":"Заклад і рік отримання освіти."},
+    {"id":"служба_в_зсу","name":"Початок служби в ЗСУ","kind":"text","example":"у ЗС — із 27.02.2022 року","cases":false,"description":"Відомості про початок служби."},
+    {"id":"дата_призначення","name":"Дата призначення","kind":"date","example":"02.08.2026 року","cases":false,"description":"Дата призначення на посаду."},
+    {"id":"наказ_призначення","name":"Наказ про призначення","kind":"text","example":"КВ ОК №000-ПС","cases":false,"description":"Реквізити наказу про призначення."},
+    {"id":"військовий_квиток","name":"Військовий квиток","kind":"text","example":"АВ №077672","cases":false,"description":"Серія та номер військового квитка."},
+    {"id":"автомобіль","name":"Закріплений автомобіль","kind":"text","example":"Great Wall","cases":false,"description":"Назва закріпленого автомобіля."},
+    {"id":"номер_автомобіля","name":"Номер автомобіля","kind":"text","example":"АВ 7265","cases":false,"description":"Реєстраційний номер автомобіля."}
+  ],
+  "signerRoles": [
+    {"id":"основний_підписант","name":"Основний підписант","settingsKey":"mainSigner"},
+    {"id":"командир","name":"Командир","settingsKey":"commander"},
+    {"id":"начальник_штабу","name":"Начальник штабу","settingsKey":"chief"},
+    {"id":"заступник_ппп","name":"Заступник командира з ППП","settingsKey":"deputyPpp"},
+    {"id":"заступник_озброєння","name":"Заступник командира з озброєння","settingsKey":"deputyArmament"},
+    {"id":"заступник_тилу","name":"Заступник командира з тилу","settingsKey":"deputyRear"},
+    {"id":"начальник_пмм","name":"Начальник ПММ","settingsKey":"fuelChief"}
+  ],
+  "signerFields": [
+    {"id":"прізвище","name":"Прізвище","kind":"person-name","example":"ІВАНЕНКО","cases":true},
+    {"id":"імя","name":"Ім’я","kind":"person-name","example":"Іван","cases":true},
+    {"id":"по_батькові","name":"По батькові","kind":"person-name","example":"Іванович","cases":true},
+    {"id":"піб","name":"ПІБ","kind":"person-name","example":"ІВАНЕНКО Іван Іванович","cases":true},
+    {"id":"звання","name":"Звання","kind":"rank","example":"майор","cases":true},
+    {"id":"посада","name":"Посада","kind":"position","example":"командир батальйону","cases":true}
+  ],
+  "documentFields": [{"id":"дата_рапорту","name":"Дата рапорту","kind":"date","example":"07.08.2026 року","cases":false,"description":"Дата, яку користувач обирає перед генерацією."}],
+  "modifiers": [
+    {"id":"називний","name":"Називний","group":"case"},{"id":"родовий","name":"Родовий","group":"case"},{"id":"давальний","name":"Давальний","group":"case"},{"id":"знахідний","name":"Знахідний","group":"case"},{"id":"орудний","name":"Орудний","group":"case"},{"id":"місцевий","name":"Місцевий","group":"case"},{"id":"кличний","name":"Кличний","group":"case"},
+    {"id":"великими","name":"Великими літерами","group":"text"},{"id":"маленькими","name":"Маленькими літерами","group":"text"},{"id":"з_великої","name":"З великої літери","group":"text"}
+  ]
+}

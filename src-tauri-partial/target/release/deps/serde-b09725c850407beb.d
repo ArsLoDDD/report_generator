@@ -1,0 +1,14 @@
+/Users/macbook/.codex/.chatgpt-projects/RaportGen/src-tauri/target/release/deps/serde-b09725c850407beb.d: /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /Users/macbook/.codex/.chatgpt-projects/RaportGen/src-tauri/target/release/build/serde-2392dc71c01dd448/out/private.rs
+
+/Users/macbook/.codex/.chatgpt-projects/RaportGen/src-tauri/target/release/deps/libserde-b09725c850407beb.rlib: /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /Users/macbook/.codex/.chatgpt-projects/RaportGen/src-tauri/target/release/build/serde-2392dc71c01dd448/out/private.rs
+
+/Users/macbook/.codex/.chatgpt-projects/RaportGen/src-tauri/target/release/deps/libserde-b09725c850407beb.rmeta: /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /Users/macbook/.codex/.chatgpt-projects/RaportGen/src-tauri/target/release/build/serde-2392dc71c01dd448/out/private.rs
+
+/Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs:
+/Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs:
+/Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs:
+/Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs:
+/Users/macbook/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs:
+/Users/macbook/.codex/.chatgpt-projects/RaportGen/src-tauri/target/release/build/serde-2392dc71c01dd448/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/macbook/.codex/.chatgpt-projects/RaportGen/src-tauri/target/release/build/serde-2392dc71c01dd448/out

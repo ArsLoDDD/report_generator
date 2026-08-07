@@ -4,7 +4,7 @@ import type { PersonnelDraft } from "../../../shared/types/domain";
 export const emptyPersonnelDraft: PersonnelDraft = {
   rank: "", surname: "", givenName: "", patronymic: "", position: "", taxId: "", birthDate: "",
   educationLevel: "", educationDetails: "", armedForcesServiceStartDate: "", positionAssignedDate: "",
-  positionAssignmentOrder: "", militaryId: "", assignedVehicleName: "", assignedVehicleRegistration: ""
+  positionAssignmentOrder: "", militaryId: "", assignedVehicleName: "", assignedVehicleRegistration: "", gender: ""
 };
 
 type DraftKey = keyof PersonnelDraft;
@@ -45,7 +45,7 @@ export function PersonnelForm({ initialValue, submitLabel, onSubmit, onCancel }:
     try { await onSubmit(draft); } finally { setIsSaving(false); }
   };
   return <form className="personnel-form" onSubmit={(event) => void submit(event)}>
-    <div className="personnel-form__scroll"><div className="personnel-form__grid">{fields.map((field) => <label key={field.key} className={field.wide ? "form-field form-field--wide" : "form-field"}><span>{field.label}{field.required && <b> *</b>}</span><input value={draft[field.key]} placeholder={field.placeholder} required={field.required} onChange={(event) => change(field.key, event.target.value)} /></label>)}</div>{validationMessage && <p className="form-error" role="alert">{validationMessage}</p>}</div>
+    <div className="personnel-form__scroll"><div className="personnel-form__grid"><label className="form-field"><span>Стать</span><select value={draft.gender} onChange={(event) => change("gender", event.target.value)}><option value="">Визначати автоматично</option><option value="чоловіча">Чоловіча</option><option value="жіноча">Жіноча</option></select></label>{fields.map((field) => <label key={field.key} className={field.wide ? "form-field form-field--wide" : "form-field"}><span>{field.label}{field.required && <b> *</b>}</span><input value={draft[field.key]} placeholder={field.placeholder} required={field.required} onChange={(event) => change(field.key, event.target.value)} /></label>)}</div>{!draft.gender && <p className="form-warning">Стать не вказана. Під час відмінювання програма спробує визначити її за ПІБ і попередить, якщо це неможливо.</p>}{validationMessage && <p className="form-error" role="alert">{validationMessage}</p>}</div>
     <footer className="modal-actions"><button className="button" type="button" onClick={onCancel} disabled={isSaving}>Скасувати</button><button className="button primary" type="submit" disabled={isSaving}>{isSaving ? "Збереження…" : submitLabel}</button></footer>
   </form>;
 }

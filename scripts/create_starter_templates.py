@@ -41,32 +41,34 @@ def base_document(title):
     style._element.rPr.rFonts.set(qn("w:hAnsi"), "Times New Roman")
     style.font.size = Pt(12)
     add_paragraph(document, "КОМАНДИРУ ВІЙСЬКОВОЇ ЧАСТИНИ", WD_ALIGN_PARAGRAPH.RIGHT, after=0)
-    add_paragraph(document, "від {{soldier.rank}} {{soldier.fullName}}", WD_ALIGN_PARAGRAPH.RIGHT, after=0)
-    add_paragraph(document, "{{soldier.position}}", WD_ALIGN_PARAGRAPH.RIGHT, after=14)
+    add_paragraph(document, "від {{військовий_1_звання:родовий}} {{військовий_1_піб:родовий}}", WD_ALIGN_PARAGRAPH.RIGHT, after=0)
+    add_paragraph(document, "{{військовий_1_посада:родовий}}", WD_ALIGN_PARAGRAPH.RIGHT, after=14)
     add_paragraph(document, "РАПОРТ", WD_ALIGN_PARAGRAPH.CENTER, after=5, bold=True, size=14)
     add_paragraph(document, title, WD_ALIGN_PARAGRAPH.CENTER, after=14, size=12)
     return document
 
 
-def save_vacation():
+def save_vacation(with_date=False):
     document = base_document("про надання відпустки")
     add_paragraph(document, "Прошу надати мені щорічну основну відпустку відповідно до законодавства України.", after=10)
-    add_paragraph(document, "Дата народження: {{soldier.birthDate}}", after=4)
-    add_paragraph(document, "ІПН: {{soldier.taxId}}", after=20)
-    add_paragraph(document, "{{mainRank}} {{mainName}}", WD_ALIGN_PARAGRAPH.RIGHT, after=0)
-    add_paragraph(document, "{{mainPosition}}", WD_ALIGN_PARAGRAPH.RIGHT, after=0)
-    document.save(OUTPUT / "Рапорт на відпустку.docx")
+    if with_date:
+        add_paragraph(document, "Дата рапорту: {{дата_рапорту}}", after=4)
+    add_paragraph(document, "Дата народження: {{військовий_1_дата_народження}}", after=4)
+    add_paragraph(document, "ІПН: {{військовий_1_іпн}}", after=20)
+    add_paragraph(document, "{{основний_підписант_звання}} {{основний_підписант_піб}}", WD_ALIGN_PARAGRAPH.RIGHT, after=0)
+    add_paragraph(document, "{{основний_підписант_посада}}", WD_ALIGN_PARAGRAPH.RIGHT, after=0)
+    document.save(OUTPUT / ("Рапорт на відпустку з датою.docx" if with_date else "Рапорт на відпустку.docx"))
 
 
 def save_material_assistance():
     document = base_document("про надання матеріальної допомоги")
     add_paragraph(document, "Прошу розглянути питання щодо надання мені матеріальної допомоги.", after=10)
-    add_paragraph(document, "Освіта: {{soldier.educationLevel}}. {{soldier.educationDetails}}", after=4)
-    add_paragraph(document, "Служба в ЗСУ: {{soldier.armedForcesServiceStartDate}}", after=4)
-    add_paragraph(document, "Призначений на посаду: {{soldier.positionAssignedDate}}", after=4)
-    add_paragraph(document, "Наказ: {{soldier.positionAssignmentOrder}}", after=20)
-    add_paragraph(document, "{{mainRank}} {{mainName}}", WD_ALIGN_PARAGRAPH.RIGHT, after=0)
-    add_paragraph(document, "{{mainPosition}}", WD_ALIGN_PARAGRAPH.RIGHT, after=0)
+    add_paragraph(document, "Освіта: {{військовий_1_освіта}}. {{військовий_1_де_отримана_освіта}}", after=4)
+    add_paragraph(document, "Служба в ЗСУ: {{військовий_1_служба_в_зсу}}", after=4)
+    add_paragraph(document, "Призначений на посаду: {{військовий_1_дата_призначення}}", after=4)
+    add_paragraph(document, "Наказ: {{військовий_1_наказ_призначення}}", after=20)
+    add_paragraph(document, "{{основний_підписант_звання}} {{основний_підписант_піб}}", WD_ALIGN_PARAGRAPH.RIGHT, after=0)
+    add_paragraph(document, "{{основний_підписант_посада}}", WD_ALIGN_PARAGRAPH.RIGHT, after=0)
     document.save(OUTPUT / "Рапорт на матеріальну допомогу.docx")
 
 
@@ -78,16 +80,17 @@ def save_personnel_list():
     section.left_margin = Cm(2)
     section.right_margin = Cm(2)
     add_paragraph(document, "СПИСОК ВІЙСЬКОВОСЛУЖБОВЦІВ", WD_ALIGN_PARAGRAPH.CENTER, after=14, bold=True, size=14)
-    add_paragraph(document, "1. {{soldiers[0].rank}} {{soldiers[0].fullName}}, {{soldiers[0].position}}", after=4)
-    add_paragraph(document, "2. {{soldiers[1].rank}} {{soldiers[1].fullName}}, {{soldiers[1].position}}", after=4)
-    add_paragraph(document, "3. {{soldiers[2].rank}} {{soldiers[2].fullName}}, {{soldiers[2].position}}", after=16)
-    add_paragraph(document, "Командир: {{commanderName}}", WD_ALIGN_PARAGRAPH.RIGHT, after=0)
+    add_paragraph(document, "1. {{військовий_1_звання}} {{військовий_1_піб}}, {{військовий_1_посада}}", after=4)
+    add_paragraph(document, "2. {{військовий_2_звання}} {{військовий_2_піб}}, {{військовий_2_посада}}", after=4)
+    add_paragraph(document, "3. {{військовий_3_звання}} {{військовий_3_піб}}, {{військовий_3_посада}}", after=16)
+    add_paragraph(document, "Командир: {{командир_піб}}", WD_ALIGN_PARAGRAPH.RIGHT, after=0)
     document.save(OUTPUT / "Список військовослужбовців.docx")
 
 
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
     save_vacation()
+    save_vacation(with_date=True)
     save_material_assistance()
     save_personnel_list()
 

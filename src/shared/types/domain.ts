@@ -33,6 +33,7 @@ export type Person = {
   militaryId: string;
   assignedVehicleName: string;
   assignedVehicleRegistration: string;
+  gender?: "чоловіча" | "жіноча" | "";
 };
 
 export type PersonnelDraft = Omit<Person, "id" | "fullName">;
