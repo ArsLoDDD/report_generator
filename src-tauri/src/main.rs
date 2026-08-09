@@ -369,7 +369,15 @@ fn create_custom_field(
         .map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
     ensure_persistent_database(&mut database)?;
     let root = ensure_application_structure(&app)?;
+    let seed_existing = if root.join(CUSTOM_VARIABLES_FILE_NAME).exists() {
+        Vec::new()
+    } else {
+        database::list_custom_fields(&database.connection)?
+    };
     let saved = database::create_custom_field(&database.connection, field)?;
+    for existing in seed_existing {
+        database::save_custom_field_file(&root, CUSTOM_VARIABLES_FILE_NAME, &existing)?;
+    }
     database::save_custom_field_file(&root, CUSTOM_VARIABLES_FILE_NAME, &saved)?;
     Ok(saved)
 }
