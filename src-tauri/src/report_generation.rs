@@ -159,11 +159,12 @@ pub fn generate(
         return Err(check.errors.join(" "));
     }
     let people = selected_personnel(connection, &request.personnel_ids)?;
-    let values = values_for(
+    let mut values = values_for(
         &people,
         &settings::load(root)?,
         request.report_date.as_deref(),
     )?;
+    add_custom_values(connection, &people, &mut values)?;
     let now = Local::now();
     let dir = root
         .join(REPORTS_DIRECTORY_NAME)
@@ -202,6 +203,9 @@ fn validate_token(token: &str) -> Vec<String> {
     let parts = token.split(':').collect::<Vec<_>>();
     let base = parts[0].trim();
     let Some(field) = field_for(base) else {
+        if custom_field_token(base) {
+            return Vec::new();
+        }
         return vec![format!(
             "Невідома змінна «{{{{{token}}}}}». У v2 старі назви не підтримуються."
         )];
@@ -241,6 +245,21 @@ fn validate_token(token: &str) -> Vec<String> {
         }
     }
     errors
+}
+fn custom_field_token(base: &str) -> bool {
+    let Some(rest) = base.strip_prefix("військовий_") else {
+        return false;
+    };
+    let Some((number, key)) = rest.split_once('_') else {
+        return false;
+    };
+    number.parse::<usize>().is_ok()
+        && number != "0"
+        && key.starts_with("custom_")
+        && key.len() > 7
+        && key
+            .chars()
+            .all(|c| c == '_' || c.is_ascii_lowercase() || c.is_ascii_digit())
 }
 fn field_for(base: &str) -> Option<&'static Field> {
     if let Some(c) = base.strip_prefix("військовий_") {
@@ -384,6 +403,30 @@ fn values_for(
     );
     Ok(map)
 }
+
+fn add_custom_values(
+    connection: &Connection,
+    people: &[Personnel],
+    values: &mut HashMap<String, Value>,
+) -> Result<(), String> {
+    for (index, person) in people.iter().enumerate() {
+        let mut statement = connection.prepare("SELECT field_key, field_value FROM personnel_custom_fields WHERE personnel_id = ?1").map_err(|_| "Не вдалося прочитати додаткові поля.".to_string())?;
+        let fields = statement
+            .query_map([person.id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|_| "Не вдалося прочитати додаткові поля.".to_string())?;
+        for field in fields {
+            let (key, value) =
+                field.map_err(|_| "Не вдалося прочитати додаткове поле.".to_string())?;
+            values.insert(
+                format!("військовий_{}_{}", index + 1, key),
+                Value::new(value, "text", None),
+            );
+        }
+    }
+    Ok(())
+}
 fn add_signer(map: &mut HashMap<String, Value>, prefix: &str, s: &settings::SignerSettings) {
     let parts = s.full_name.split_whitespace().collect::<Vec<_>>();
     let surname = parts.first().copied().unwrap_or("");
@@ -438,7 +481,7 @@ fn apply_modifiers(value: &Value, mods: &[&str]) -> Result<String, String> {
             text = match *m {
                 "великими" => text.to_uppercase(),
                 "маленькими" => text.to_lowercase(),
-                "з_великої" => name_case(&text),
+                "з_великої" => capitalize_first(&text),
                 _ => text,
             }
         }
@@ -456,8 +499,8 @@ fn decline(value: &str, kind: &str, case: &str, gender: Option<&str>) -> Result<
     if kind == "position" {
         return Ok(value
             .split_once(',')
-            .map(|(head, tail)| format!("{},{}", decline_phrase(head, case, gender), tail))
-            .unwrap_or_else(|| decline_phrase(value, case, gender)));
+            .map(|(head, tail)| format!("{},{}", decline_position_head(head, case), tail))
+            .unwrap_or_else(|| decline_position_head(value, case)));
     }
     Ok(value
         .split_whitespace()
@@ -544,6 +587,40 @@ fn decline_phrase(value: &str, case: &str, gender: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
+fn decline_position_head(value: &str, case: &str) -> String {
+    let mut parts = value.splitn(2, char::is_whitespace);
+    let head = parts.next().unwrap_or_default();
+    let rest = parts.next().unwrap_or_default();
+    let lower = head.to_lowercase();
+    let changed = if lower.ends_with("ець") {
+        format!(
+            "{}{}",
+            &lower[..lower.len() - 6],
+            if case == "орудний" {
+                "цем"
+            } else {
+                "ця"
+            }
+        )
+    } else if lower.ends_with("ий") && matches!(case, "родовий" | "знахідний") {
+        format!("{}ого", &lower[..lower.len() - 4])
+    } else {
+        let suffix = match case {
+            "родовий" | "знахідний" => "а",
+            "давальний" => "у",
+            "орудний" => "ом",
+            "місцевий" => "і",
+            "кличний" => "е",
+            _ => "",
+        };
+        format!("{lower}{suffix}")
+    };
+    if rest.is_empty() {
+        changed
+    } else {
+        format!("{changed} {rest}")
+    }
+}
 fn decline_word(word: &str, case: &str, gender: &str) -> String {
     let upper = word == word.to_uppercase();
     let lower = word.to_lowercase();
@@ -590,6 +667,15 @@ fn decline_word(word: &str, case: &str, gender: &str) -> String {
     } else {
         name_case(&result)
     }
+}
+
+fn capitalize_first(value: &str) -> String {
+    let lowered = value.to_lowercase();
+    let mut chars = lowered.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+        .unwrap_or_default()
 }
 
 fn read_variables(path: &Path) -> Result<Vec<String>, String> {
@@ -860,7 +946,18 @@ mod tests {
     #[test]
     fn rank_and_female_declensions() {
         assert_eq!(decline_rank("солдат", "орудний", "чоловіча"), "солдатом");
-        assert_eq!(decline_word("Олена", "родовий", "жіноча"), "Олени")
+        assert_eq!(decline_word("Олена", "родовий", "жіноча"), "Олени");
+        assert_eq!(
+            decline_position_head(
+                "оператор безпілотних літальних апаратів 1 відділення",
+                "родовий"
+            ),
+            "оператора безпілотних літальних апаратів 1 відділення"
+        );
+        assert_eq!(
+            capitalize_first("оператор безпілотних літальних апаратів"),
+            "Оператор безпілотних літальних апаратів"
+        );
     }
 
     #[test]

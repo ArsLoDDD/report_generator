@@ -1,7 +1,17 @@
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomFieldDefinition {
+    pub field_key: String,
+    pub display_name: String,
+    pub description: String,
+    pub initial_value: String,
+}
 
 pub fn initialise(connection: &Connection) -> Result<(), String> {
-    connection.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS personnel (id INTEGER PRIMARY KEY, rank TEXT NOT NULL, surname TEXT NOT NULL, given_name TEXT NOT NULL, patronymic TEXT NOT NULL DEFAULT '', position TEXT NOT NULL, tax_id TEXT NOT NULL UNIQUE CHECK(length(tax_id) = 10), birth_date TEXT NOT NULL, education_level TEXT NOT NULL, education_details TEXT NOT NULL, armed_forces_service_start_date TEXT NOT NULL, position_assigned_date TEXT NOT NULL, position_assignment_order TEXT NOT NULL, military_id TEXT NOT NULL, assigned_vehicle_name TEXT NOT NULL, assigned_vehicle_registration TEXT NOT NULL, gender TEXT NOT NULL DEFAULT '' CHECK(gender IN ('', 'чоловіча', 'жіноча')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS personnel_custom_fields (personnel_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(personnel_id, field_key), FOREIGN KEY(personnel_id) REFERENCES personnel(id) ON DELETE CASCADE);")
+    connection.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS personnel (id INTEGER PRIMARY KEY, rank TEXT NOT NULL, surname TEXT NOT NULL, given_name TEXT NOT NULL, patronymic TEXT NOT NULL DEFAULT '', position TEXT NOT NULL, tax_id TEXT NOT NULL UNIQUE CHECK(length(tax_id) = 10), birth_date TEXT NOT NULL, education_level TEXT NOT NULL, education_details TEXT NOT NULL, armed_forces_service_start_date TEXT NOT NULL, position_assigned_date TEXT NOT NULL, position_assignment_order TEXT NOT NULL, military_id TEXT NOT NULL, assigned_vehicle_name TEXT NOT NULL, assigned_vehicle_registration TEXT NOT NULL, gender TEXT NOT NULL DEFAULT '' CHECK(gender IN ('', 'чоловіча', 'жіноча')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS personnel_custom_fields (personnel_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(personnel_id, field_key), FOREIGN KEY(personnel_id) REFERENCES personnel(id) ON DELETE CASCADE); CREATE TABLE IF NOT EXISTS custom_field_definitions (field_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, description TEXT NOT NULL, initial_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);")
         .map_err(|_| "Не вдалося підготувати базу даних.".to_string())?;
     let has_gender = connection
         .prepare("PRAGMA table_info(personnel)")
@@ -24,6 +34,60 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         .pragma_update(None, "user_version", 2)
         .map_err(|_| "Не вдалося завершити міграцію бази даних.".to_string())?;
     Ok(())
+}
+
+pub fn list_custom_fields(connection: &Connection) -> Result<Vec<CustomFieldDefinition>, String> {
+    let mut statement = connection.prepare("SELECT field_key, display_name, description, initial_value FROM custom_field_definitions ORDER BY display_name COLLATE NOCASE").map_err(|_| "Не вдалося відкрити список додаткових полів.".to_string())?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(CustomFieldDefinition {
+                field_key: row.get(0)?,
+                display_name: row.get(1)?,
+                description: row.get(2)?,
+                initial_value: row.get(3)?,
+            })
+        })
+        .map_err(|_| "Не вдалося прочитати додаткові поля.".to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Не вдалося прочитати додаткове поле.".to_string())?;
+    Ok(rows)
+}
+
+pub fn create_custom_field(
+    connection: &Connection,
+    field: CustomFieldDefinition,
+) -> Result<CustomFieldDefinition, String> {
+    let key = field.field_key.trim();
+    if key.is_empty()
+        || !key
+            .chars()
+            .all(|c| c == '_' || c.is_ascii_lowercase() || c.is_ascii_digit())
+        || key.starts_with('_')
+        || key.chars().next().is_some_and(|c| c.is_ascii_digit())
+    {
+        return Err("Ключ поля має містити лише малі латинські літери, цифри та підкреслення і починатися з літери.".into());
+    }
+    if field.display_name.trim().is_empty() {
+        return Err("Вкажіть українську назву поля.".into());
+    }
+    connection.execute("INSERT INTO custom_field_definitions (field_key, display_name, description, initial_value) VALUES (?1, ?2, ?3, ?4)", params![key, field.display_name.trim(), field.description.trim(), field.initial_value]).map_err(|_| "Поле з таким ключем уже існує або не може бути збережене.".to_string())?;
+    let ids = connection
+        .prepare("SELECT id FROM personnel")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, i64>(0))
+                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        })
+        .map_err(|_| "Не вдалося прочитати особовий склад.".to_string())?;
+    for id in ids {
+        connection.execute("INSERT INTO personnel_custom_fields (personnel_id, field_key, field_value) VALUES (?1, ?2, ?3)", params![id, key, field.initial_value]).map_err(|_| "Не вдалося встановити початкове значення додаткового поля.".to_string())?;
+    }
+    Ok(CustomFieldDefinition {
+        field_key: key.into(),
+        display_name: field.display_name.trim().into(),
+        description: field.description.trim().into(),
+        initial_value: field.initial_value,
+    })
 }
 
 #[cfg(test)]

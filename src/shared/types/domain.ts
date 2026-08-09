@@ -50,6 +50,7 @@ export type PaginatedResult<T> = {
   items: T[];
   totalCount: number;
 };
+export type CustomFieldDefinition = { fieldKey: string; displayName: string; description: string; initialValue: string };
 
 export type SignerRole = "main" | "commander" | "chief" | "deputyPpp" | "deputyArmament" | "deputyRear" | "fuelChief";
 
@@ -75,4 +76,4 @@ export type StartupWarning = {
   message: string;
 };
 
-export type Screen = "generator" | "templates" | "people" | "generated" | "settings" | "documentation";
+export type Screen = "generator" | "templates" | "people" | "generated" | "settings" | "documentation" | "variable-constructor";

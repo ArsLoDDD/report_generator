@@ -353,6 +353,30 @@ fn delete_personnel(state: tauri::State<AppState>, personnel_id: i64) -> Result<
 }
 
 #[tauri::command]
+fn list_custom_fields(
+    state: tauri::State<AppState>,
+) -> Result<Vec<database::CustomFieldDefinition>, String> {
+    let database = state
+        .0
+        .lock()
+        .map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    database::list_custom_fields(&database.connection)
+}
+
+#[tauri::command]
+fn create_custom_field(
+    state: tauri::State<AppState>,
+    field: database::CustomFieldDefinition,
+) -> Result<database::CustomFieldDefinition, String> {
+    let mut database = state
+        .0
+        .lock()
+        .map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    ensure_persistent_database(&mut database)?;
+    database::create_custom_field(&database.connection, field)
+}
+
+#[tauri::command]
 fn get_startup_warnings(state: tauri::State<AppState>) -> Vec<StartupWarning> {
     state.1.clone()
 }
@@ -738,6 +762,8 @@ fn main() {
             create_personnel,
             update_personnel,
             delete_personnel,
+            list_custom_fields,
+            create_custom_field,
             get_startup_warnings,
             get_app_settings,
             update_signer_settings,

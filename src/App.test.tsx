@@ -7,7 +7,7 @@ vi.mock("./shared/services/personnelService", () => ({
   personnelService: { list: vi.fn().mockResolvedValue({ items: [
     { id: 1, fullName: "ВАСИЛЬОК Іван Аркадійович", rank: "Солдат", surname: "ВАСИЛЬОК", givenName: "Іван", patronymic: "Аркадійович", position: "Стрілець, військова частина А0000", taxId: "7462389812", birthDate: "02.03.1999 року", educationLevel: "вища", educationDetails: "Академія", armedForcesServiceStartDate: "2022", positionAssignedDate: "2026", positionAssignmentOrder: "№1", militaryId: "АВ №077672", assignedVehicleName: "Great Wall", assignedVehicleRegistration: "АВ 7265" },
     { id: 2, fullName: "ПЕТРЕНКО Петро Петрович", rank: "Старший солдат", surname: "ПЕТРЕНКО", givenName: "Петро", patronymic: "Петрович", position: "Оператор БпЛА, військова частина А0000", taxId: "7462389813", birthDate: "14.05.1998 року", educationLevel: "середня спеціальна", educationDetails: "Коледж", armedForcesServiceStartDate: "2022", positionAssignedDate: "2023", positionAssignmentOrder: "№2", militaryId: "АВ №077673", assignedVehicleName: "Mitsubishi L200", assignedVehicleRegistration: "АВ 7266" }
-  ], totalCount: 2 }), create: vi.fn(), update: vi.fn(), delete: vi.fn() }
+  ], totalCount: 2 }), create: vi.fn(), update: vi.fn(), delete: vi.fn(), listCustomFields: vi.fn().mockResolvedValue([]), createCustomField: vi.fn() }
 }));
 
 vi.mock("./app/services/applicationService", () => ({
@@ -62,7 +62,9 @@ describe("navigation and report generation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
     expect(screen.getByRole("heading", { name: "Налаштування" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
-    expect(screen.getByRole("heading", { name: "Реєстр змінних" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Як працює програма" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Конструктор змінних" }));
+    expect(screen.getByRole("heading", { name: "Покрокове складання" })).toBeInTheDocument();
   });
 
   it("shows startup diagnostics in the sidebar", async () => {
@@ -209,7 +211,8 @@ describe("navigation and report generation", () => {
 
   it("shows an example after selecting a template variable in documentation", () => {
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
+    fireEvent.click(screen.getByRole("button", { name: "Конструктор змінних" }));
+    fireEvent.click(screen.getByRole("button", { name: /Військовослужбовець/ }));
     fireEvent.click(screen.getByRole("button", { name: /\{\{військовий_1_іпн\}\}/ }));
     expect(screen.getAllByText("ІПН вибраного військовослужбовця.").length).toBeGreaterThan(0);
   });
@@ -224,7 +227,8 @@ describe("navigation and report generation", () => {
 
   it("notifies after copying a template variable", async () => {
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
+    fireEvent.click(screen.getByRole("button", { name: "Конструктор змінних" }));
+    fireEvent.click(screen.getByRole("button", { name: /Військовослужбовець/ }));
     fireEvent.click(screen.getByRole("button", { name: /\{\{військовий_1_звання\}\}/ }));
     fireEvent.click(screen.getByRole("button", { name: "Скопіювати змінну" }));
     await waitFor(() => expect(screen.getByText("Змінну скопійовано.")).toBeInTheDocument());

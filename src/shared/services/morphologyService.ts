@@ -23,8 +23,24 @@ export const morphologyService = {
     return forms[value.toLocaleLowerCase("uk")]?.[grammaticalCase] ?? value;
   },
   declinePosition(value: string, grammaticalCase: UkrainianCase) {
-    const replacements: Partial<Record<UkrainianCase, Array<[RegExp, string]>>> = { родовий: [[/командир/iu, "командира"], [/начальник/iu, "начальника"], [/стрілець/iu, "стрільця"]], давальний: [[/командир/iu, "командиру"], [/начальник/iu, "начальнику"], [/стрілець/iu, "стрільцю"]], знахідний: [[/командир/iu, "командира"], [/начальник/iu, "начальника"], [/стрілець/iu, "стрільця"]], орудний: [[/командир/iu, "командиром"], [/начальник/iu, "начальником"], [/стрілець/iu, "стрільцем"]], місцевий: [[/командир/iu, "командирі"], [/начальник/iu, "начальнику"], [/стрілець/iu, "стрільці"]], кличний: [[/командир/iu, "командире"], [/начальник/iu, "начальнику"], [/стрілець/iu, "стрільцю"]] };
-    return (replacements[grammaticalCase] ?? []).reduce((result, [pattern, replacement]) => result.replace(pattern, replacement), value);
+    if (grammaticalCase === "називний") return value;
+    const [head, ...tail] = value.split(/(\s+)/);
+    const lower = head.toLocaleLowerCase("uk");
+    const endings: Record<UkrainianCase, [string, string]> = {
+      називний: ["", ""], родовий: ["а", ""], давальний: ["у", ""], знахідний: ["а", ""],
+      орудний: ["ом", ""], місцевий: ["і", ""], кличний: ["е", ""]
+    };
+    let changed = lower;
+    if (lower.endsWith("ець")) changed = `${lower.slice(0, -3)}${grammaticalCase === "орудний" ? "цем" : grammaticalCase === "місцевий" ? "ці" : grammaticalCase === "кличний" ? "цю" : "ця"}`;
+    else if (lower.endsWith("ий")) changed = `${lower.slice(0, -2)}${grammaticalCase === "родовий" || grammaticalCase === "знахідний" ? "ого" : grammaticalCase === "давальний" || grammaticalCase === "місцевий" ? "ому" : grammaticalCase === "орудний" ? "им" : "ий"}`;
+    else changed = `${lower}${endings[grammaticalCase][0]}`;
+    const first = head === head.toLocaleUpperCase("uk") ? changed.toLocaleUpperCase("uk") : changed;
+    return [first, ...tail].join("");
   },
-  transformText(value: string, modifier: "великими" | "маленькими" | "з_великої") { if (modifier === "великими") return value.toUpperCase(); if (modifier === "маленькими") return value.toLowerCase(); return value.toLowerCase().replace(/(^|\s|-)(\p{L})/gu, (_, prefix: string, letter: string) => `${prefix}${letter.toUpperCase()}`); }
+  transformText(value: string, modifier: "великими" | "маленькими" | "з_великої") {
+    if (modifier === "великими") return value.toUpperCase();
+    if (modifier === "маленькими") return value.toLowerCase();
+    const lowered = value.toLocaleLowerCase("uk");
+    return lowered.replace(/^(\s*)(\p{L})/u, (_, prefix: string, letter: string) => `${prefix}${letter.toLocaleUpperCase("uk")}`);
+  }
 };

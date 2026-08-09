@@ -12,4 +12,12 @@ describe("morphologyService", () => {
     const result = await morphologyService.declineName({ surname: "Васильок", givenName: "Іван", patronymic: "Аркадійович" }, "родовий");
     expect(result.value).toBe("Василька Івана Аркадійовича");
   });
+
+  it("declines only the head noun of a position", () => {
+    expect(morphologyService.declinePosition("оператор безпілотних літальних апаратів 1 відділення", "родовий")).toBe("оператора безпілотних літальних апаратів 1 відділення");
+  });
+
+  it("capitalizes only the first letter of the first word", () => {
+    expect(morphologyService.transformText("оператор безпілотних літальних апаратів", "з_великої")).toBe("Оператор безпілотних літальних апаратів");
+  });
 });

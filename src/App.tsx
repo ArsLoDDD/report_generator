@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, BookOpen, FileCheck2, FileText, Folder, Home, Settings, Users } from "lucide-react";
+import { AlertTriangle, BookOpen, FileCheck2, FileText, Folder, Home, Settings, Users, WandSparkles } from "lucide-react";
 import { useStartupWarnings } from "./app/hooks/useStartupWarnings";
-import { DocumentationPage } from "./features/documentation/DocumentationPage";
+import { ProgramGuidePage } from "./features/documentation/ProgramGuidePage";
+import { VariableConstructorPage } from "./features/documentation/DocumentationPage";
 import { GeneratedReportsPage } from "./features/generated-reports/GeneratedReportsPage";
 import { prefetchGeneratedReports } from "./features/generated-reports/hooks/useGeneratedReports";
 import { PersonnelPage } from "./features/personnel/PersonnelPage";
@@ -15,7 +16,7 @@ import { NotificationProvider } from "./shared/ui/NotificationProvider";
 
 const navigation = [
   ["generator", "Генерація рапортів", Home], ["templates", "Шаблони", FileText], ["people", "Особовий склад", Users],
-  ["generated", "Згенеровані рапорти", Folder], ["settings", "Налаштування", Settings], ["documentation", "Довідник", BookOpen]
+  ["generated", "Згенеровані рапорти", Folder], ["settings", "Налаштування", Settings], ["documentation", "Довідник", BookOpen], ["variable-constructor", "Конструктор змінних", WandSparkles]
 ] as const;
 
 export default function App() {
@@ -58,7 +59,8 @@ export default function App() {
       {screen === "people" && <PersonnelPage people={people} totalCount={personnelTotalCount} hasMore={personnelHasMore} isLoading={personnelLoading} isLoadingMore={personnelLoadingMore} errorMessage={personnelError} onCreate={createPersonnel} onUpdate={updatePersonnel} onDelete={deletePersonnel} onRefresh={refreshPersonnel} onLoadMore={loadMorePersonnel} />}
       {screen === "generated" && <GeneratedReportsPage />}
       {screen === "settings" && <SettingsPage />}
-      {screen === "documentation" && <DocumentationPage />}
+      {screen === "documentation" && <ProgramGuidePage />}
+      {screen === "variable-constructor" && <VariableConstructorPage />}
     </main>
   </div></NotificationProvider>;
 }
