@@ -250,8 +250,9 @@ fn custom_field_token(base: &str) -> bool {
     };
     number.parse::<usize>().is_ok()
         && number != "0"
-        && key.starts_with("custom_")
-        && key.len() > 7
+        && !key.is_empty()
+        && key.chars().all(|value| value == '_' || value.is_ascii_lowercase() || value.is_ascii_digit())
+        && key.chars().next().is_some_and(|value| value.is_ascii_lowercase())
         && key
             .chars()
             .all(|c| c == '_' || c.is_ascii_lowercase() || c.is_ascii_digit())

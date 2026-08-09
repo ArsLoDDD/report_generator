@@ -108,12 +108,10 @@ pub fn create_custom_field(
         || !key
             .chars()
             .all(|c| c == '_' || c.is_ascii_lowercase() || c.is_ascii_digit())
-        || !key.starts_with("custom_")
-        || key.len() <= "custom_".len()
         || key.starts_with('_')
         || key.chars().next().is_some_and(|c| c.is_ascii_digit())
     {
-        return Err("Ключ поля має починатися з custom_ і містити лише малі латинські літери, цифри та підкреслення.".into());
+        return Err("Назва поля має починатися з малої латинської літери та містити лише малі латинські літери, цифри й підкреслення.".into());
     }
     if field.display_name.trim().is_empty() {
         return Err("Вкажіть українську назву поля.".into());
@@ -140,7 +138,7 @@ pub fn create_custom_field(
 
 pub fn update_custom_field(connection: &Connection, field: CustomFieldDefinition) -> Result<CustomFieldDefinition, String> {
     let key = field.field_key.trim();
-    if key.is_empty() || !key.starts_with("custom_") || !key.chars().all(|c| c == '_' || c.is_ascii_lowercase() || c.is_ascii_digit()) { return Err("Ключ поля має починатися з custom_ і містити лише малі латинські літери, цифри та підкреслення.".into()); }
+    if key.is_empty() || !key.chars().all(|c| c == '_' || c.is_ascii_lowercase() || c.is_ascii_digit()) || key.starts_with('_') || key.chars().next().is_some_and(|c| c.is_ascii_digit()) { return Err("Назва поля має починатися з малої латинської літери та містити лише малі латинські літери, цифри й підкреслення.".into()); }
     if field.display_name.trim().is_empty() { return Err("Вкажіть українську назву поля.".into()); }
     let changed = connection.execute("UPDATE custom_field_definitions SET display_name = ?1, description = ?2, initial_value = ?3 WHERE field_key = ?4", params![field.display_name.trim(), field.description.trim(), field.initial_value, key]).map_err(|_| "Не вдалося оновити поле БД.".to_string())?;
     if changed == 0 { return Err("Поле БД не знайдено.".into()); }

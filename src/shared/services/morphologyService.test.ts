@@ -25,4 +25,13 @@ describe("morphologyService", () => {
     const cases: UkrainianCase[] = ["називний", "родовий", "давальний", "знахідний", "орудний", "місцевий", "кличний"];
     for (const grammaticalCase of cases) expect(morphologyService.declineRank("майор", grammaticalCase)).toBeTruthy();
   });
+  it("handles female names and compound ranks", async () => {
+    const result = await morphologyService.declineName({ surname: "Ковальчук", givenName: "Олена", patronymic: "Ігорівна", gender: "жіноча" }, "родовий");
+    expect(result.value).toContain("Олени");
+    expect(morphologyService.declineRank("старший сержант", "родовий")).toBe("старшого сержанта");
+  });
+  it("handles punctuation and complex position heads", () => {
+    expect(morphologyService.declinePosition("водій, група", "орудний")).toBe("водієм, група");
+    expect(morphologyService.declinePosition("механік", "місцевий")).toBe("механікі");
+  });
 });
