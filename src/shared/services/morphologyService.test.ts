@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { morphologyService } from "./morphologyService";
+import { morphologyService, type UkrainianCase } from "./morphologyService";
 
 describe("morphologyService", () => {
   it("declines an uppercase Ukrainian surname and preserves its presentation", async () => {
@@ -20,5 +20,9 @@ describe("morphologyService", () => {
 
   it("capitalizes only the first letter of the first word", () => {
     expect(morphologyService.transformText("оператор безпілотних літальних апаратів", "з_великої")).toBe("Оператор безпілотних літальних апаратів");
+  });
+  it("supports all seven grammatical case names", () => {
+    const cases: UkrainianCase[] = ["називний", "родовий", "давальний", "знахідний", "орудний", "місцевий", "кличний"];
+    for (const grammaticalCase of cases) expect(morphologyService.declineRank("майор", grammaticalCase)).toBeTruthy();
   });
 });

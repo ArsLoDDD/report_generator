@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use std::{fs, path::Path};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -8,6 +9,42 @@ pub struct CustomFieldDefinition {
     pub display_name: String,
     pub description: String,
     pub initial_value: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CustomFieldsFile {
+    version: u8,
+    fields: Vec<CustomFieldDefinition>,
+}
+
+pub fn load_custom_fields_file(root: &Path, file_name: &str) -> Result<Vec<CustomFieldDefinition>, String> {
+    let path = root.join(file_name);
+    if !path.exists() { return Err("Файл кастомних змінних ще не створено.".into()); }
+    let text = fs::read_to_string(path).map_err(|_| "Не вдалося прочитати файл кастомних змінних.".to_string())?;
+    let file: CustomFieldsFile = serde_json::from_str(&text).map_err(|_| "Файл кастомних змінних має пошкоджений формат JSON.".to_string())?;
+    Ok(file.fields)
+}
+
+pub fn save_custom_field_file(root: &Path, file_name: &str, field: &CustomFieldDefinition) -> Result<(), String> {
+    let path = root.join(file_name);
+    let mut fields = if path.exists() { load_custom_fields_file(root, file_name)? } else { Vec::new() };
+    if let Some(existing) = fields.iter_mut().find(|item| item.field_key == field.field_key) { *existing = field.clone(); } else { fields.push(field.clone()); }
+    fields.sort_by(|left, right| left.display_name.to_lowercase().cmp(&right.display_name.to_lowercase()));
+    let text = serde_json::to_string_pretty(&CustomFieldsFile { version: 1, fields }).map_err(|_| "Не вдалося сформувати JSON кастомних змінних.".to_string())?;
+    let temp = path.with_extension("json.tmp");
+    fs::write(&temp, format!("{text}\n")).map_err(|_| "Не вдалося записати файл кастомних змінних біля програми.".to_string())?;
+    fs::rename(temp, path).map_err(|_| "Не вдалося завершити запис кастомних змінних.".to_string())
+}
+
+pub fn sync_custom_fields_file(connection: &Connection, root: &Path, file_name: &str) -> Result<(), String> {
+    let fields = match load_custom_fields_file(root, file_name) { Ok(fields) => fields, Err(_) => return Ok(()) };
+    for field in fields {
+        connection.execute("INSERT OR IGNORE INTO custom_field_definitions (field_key, display_name, description, initial_value) VALUES (?1, ?2, ?3, ?4)", params![field.field_key, field.display_name, field.description, field.initial_value])
+            .map_err(|_| "Не вдалося синхронізувати кастомні змінні з базою даних.".to_string())?;
+        connection.execute("INSERT OR IGNORE INTO personnel_custom_fields (personnel_id, field_key, field_value) SELECT id, ?1, ?2 FROM personnel", params![field.field_key, field.initial_value])
+            .map_err(|_| "Не вдалося встановити значення кастомних змінних.".to_string())?;
+    }
+    Ok(())
 }
 
 pub fn initialise(connection: &Connection) -> Result<(), String> {

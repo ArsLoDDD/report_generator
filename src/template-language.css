@@ -22,6 +22,9 @@
 .variable-token--selected { border-color: #48c854; box-shadow: inset 0 0 0 1px #48c854; }
 .constructor-modifiers { display: grid; gap: 14px; }
 .constructor-modifiers h3 { font-size: 16px; }
+.modifier-groups { display: grid; gap: 16px; }
+.modifier-groups section { display: grid; gap: 8px; }
+.modifier-groups h4 { margin: 0; color: #93d89b; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
 .modifier-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(170px,1fr)); gap: 9px; }
 .modifier-grid label { display: flex; align-items: center; gap: 9px; min-height: 46px; padding: 10px 12px; border: 1px solid #263f4c; border-radius: 9px; background: #10202a; color: #c7d3d9; cursor: pointer; }
 .modifier-grid label:has(input:checked) { border-color: #48be50; background: #12351d; color: #ecffed; }
@@ -52,3 +55,14 @@
 .modal input,.modal textarea { width: 100%; border: 1px solid #2c4754; border-radius: 7px; background: #08131b; color: #e6edf1; padding: 10px; outline: 0; }
 .modal textarea { min-height: 75px; resize: vertical; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+@media (max-width: 1080px) {
+  .sidebar-bottom { margin-top: 0; padding: 0; border-top: 0; }
+  .sidebar-bottom button { width: auto; padding: 9px; font-size: 0; }
+  .sidebar-bottom button svg { margin: 0; }
+  .documentation-layout { display: block; height: auto; }
+  .documentation { overflow: visible; }
+  .variable-grid { max-height: none; overflow: visible; }
+  .variable-preview { position: static; }
+  .constructor-steps { position: sticky; top: 0; z-index: 2; }
+  .guide-language__rows { grid-template-columns: 1fr; gap: 5px; }
+}

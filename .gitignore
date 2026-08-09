@@ -7,3 +7,4 @@ src-tauri/reports.db
 vite.config.js
 vite.config.d.ts
 src-tauri/gen/
+custom_variables.json
