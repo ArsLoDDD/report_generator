@@ -25,16 +25,25 @@ export const morphologyService = {
   declinePosition(value: string, grammaticalCase: UkrainianCase) {
     if (grammaticalCase === "називний") return value;
     const [head, ...tail] = value.split(/(\s+)/);
-    const lower = head.toLocaleLowerCase("uk");
+    const punctuation = head.match(/[^\p{L}\d]+$/u)?.[0] ?? "";
+    const lexicalHead = punctuation ? head.slice(0, -punctuation.length) : head;
+    const lower = lexicalHead.toLocaleLowerCase("uk");
     const endings: Record<UkrainianCase, [string, string]> = {
       називний: ["", ""], родовий: ["а", ""], давальний: ["у", ""], знахідний: ["а", ""],
       орудний: ["ом", ""], місцевий: ["і", ""], кличний: ["е", ""]
     };
     let changed = lower;
-    if (lower.endsWith("ець")) changed = `${lower.slice(0, -3)}${grammaticalCase === "орудний" ? "цем" : grammaticalCase === "місцевий" ? "ці" : grammaticalCase === "кличний" ? "цю" : "ця"}`;
+    const known: Record<string, Partial<Record<UkrainianCase, string>>> = {
+      оператор: { родовий: "оператора", давальний: "оператору", знахідний: "оператора", орудний: "оператором", місцевий: "операторі", кличний: "операторе" },
+      командир: { родовий: "командира", давальний: "командиру", знахідний: "командира", орудний: "командиром", місцевий: "командирі", кличний: "командире" },
+      стрілець: { родовий: "стрільця", давальний: "стрільцю", знахідний: "стрільця", орудний: "стрільцем", місцевий: "стрільці", кличний: "стрільцю" },
+      водій: { родовий: "водія", давальний: "водієві", знахідний: "водія", орудний: "водієм", місцевий: "водієві", кличний: "водію" }
+    };
+    if (known[lower]?.[grammaticalCase]) changed = known[lower][grammaticalCase]!;
+    else if (lower.endsWith("ець")) changed = `${lower.slice(0, -3)}${grammaticalCase === "орудний" ? "цем" : grammaticalCase === "місцевий" ? "ці" : grammaticalCase === "кличний" ? "цю" : "ця"}`;
     else if (lower.endsWith("ий")) changed = `${lower.slice(0, -2)}${grammaticalCase === "родовий" || grammaticalCase === "знахідний" ? "ого" : grammaticalCase === "давальний" || grammaticalCase === "місцевий" ? "ому" : grammaticalCase === "орудний" ? "им" : "ий"}`;
     else changed = `${lower}${endings[grammaticalCase][0]}`;
-    const first = head === head.toLocaleUpperCase("uk") ? changed.toLocaleUpperCase("uk") : changed;
+    const first = (head === head.toLocaleUpperCase("uk") ? changed.toLocaleUpperCase("uk") : changed) + punctuation;
     return [first, ...tail].join("");
   },
   transformText(value: string, modifier: "великими" | "маленькими" | "з_великої") {

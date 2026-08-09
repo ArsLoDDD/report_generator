@@ -15,6 +15,7 @@ describe("morphologyService", () => {
 
   it("declines only the head noun of a position", () => {
     expect(morphologyService.declinePosition("оператор безпілотних літальних апаратів 1 відділення", "родовий")).toBe("оператора безпілотних літальних апаратів 1 відділення");
+    expect(morphologyService.declinePosition("стрілець, військова частина А0000", "родовий")).toBe("стрільця, військова частина А0000");
   });
 
   it("capitalizes only the first letter of the first word", () => {

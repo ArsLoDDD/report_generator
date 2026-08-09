@@ -114,7 +114,16 @@ pub fn create(connection: &Connection, draft: PersonnelDraft) -> Result<Personne
     validate(&draft)?;
     connection.execute("INSERT INTO personnel (rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, assigned_vehicle_name, assigned_vehicle_registration, gender) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)", params![draft.rank, draft.surname, draft.given_name, draft.patronymic, draft.position, draft.tax_id, draft.birth_date, draft.education_level, draft.education_details, draft.armed_forces_service_start_date, draft.position_assigned_date, draft.position_assignment_order, draft.military_id, draft.assigned_vehicle_name, draft.assigned_vehicle_registration, draft.gender])
         .map_err(|_| "Не вдалося зберегти військовослужбовця. Перевірте унікальність ІПН.".to_string())?;
-    find(connection, connection.last_insert_rowid())
+    let id = connection.last_insert_rowid();
+    let definitions = connection
+        .prepare("SELECT field_key, initial_value FROM custom_field_definitions")
+        .and_then(|mut statement| statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).and_then(|rows| rows.collect::<Result<Vec<_>, _>>()));
+    if let Ok(definitions) = definitions {
+        for (key, value) in definitions {
+            connection.execute("INSERT INTO personnel_custom_fields (personnel_id, field_key, field_value) VALUES (?1, ?2, ?3)", params![id, key, value]).map_err(|_| "Не вдалося встановити початкові значення додаткових полів.".to_string())?;
+        }
+    }
+    find(connection, id)
 }
 
 pub fn update(

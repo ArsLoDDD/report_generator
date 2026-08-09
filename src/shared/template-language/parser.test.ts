@@ -12,12 +12,15 @@ describe("Template Language v2 registry and validator", () => {
       expect(variableRegistry.some((item) => item.id === `${prefix}_піб`)).toBe(true);
   });
   it("supports arbitrary ordered pipelines", () => expect(parseTemplateTokens("{{військовий_21_піб:родовий:великими}}")[0].modifiers).toEqual(["родовий", "великими"]));
+  it("allows independent DOCX styles and custom fields", () => {
+    expect(validateToken(parseTemplateTokens("{{військовий_1_custom_badge:жирним:підкреслити}}")[0])).toEqual([]);
+  });
   it("rejects duplicates, conflicting case and register modifiers", () => {
     expect(validateToken(parseTemplateTokens("{{військовий_1_піб:родовий:родовий}}")[0]).length).toBeGreaterThan(0);
     expect(validateToken(parseTemplateTokens("{{військовий_1_піб:великими:маленькими}}")[0]).length).toBeGreaterThan(0);
   });
   it("rejects v1, invalid numbers, types and misspelled modifiers", () => {
-    expect(validateToken(parseTemplateTokens("{{soldier.fullName}}")[0])[0].message).toContain("Невідома змінна");
+    expect(validateToken(parseTemplateTokens("{{невідома.змінна}}")[0])[0].message).toContain("Невідома змінна");
     expect(validateToken(parseTemplateTokens("{{військовий_0_піб}}")[0]).length).toBeGreaterThan(0);
     expect(validateToken(parseTemplateTokens("{{військовий_1_іпн:родовий}}")[0]).length).toBeGreaterThan(0);
     expect(validateToken(parseTemplateTokens("{{військовий_1_піб:родовийй}}")[0])[0].message).toContain("родовийй");

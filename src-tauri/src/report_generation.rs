@@ -202,14 +202,13 @@ pub fn generate(
 fn validate_token(token: &str) -> Vec<String> {
     let parts = token.split(':').collect::<Vec<_>>();
     let base = parts[0].trim();
-    let Some(field) = field_for(base) else {
-        if custom_field_token(base) {
-            return Vec::new();
-        }
+    let field = field_for(base);
+    let is_custom = field.is_none() && custom_field_token(base);
+    if field.is_none() && !is_custom {
         return vec![format!(
             "Невідома змінна «{{{{{token}}}}}». У v2 старі назви не підтримуються."
         )];
-    };
+    }
     let mut errors = Vec::new();
     let mut seen = HashSet::new();
     let mut groups = HashSet::new();
@@ -225,20 +224,16 @@ fn validate_token(token: &str) -> Vec<String> {
                 "Модифікатор «{id}» вказано двічі у «{{{{{token}}}}}»."
             ))
         }
-        if !groups.insert(&m.group) {
+        if m.group != "style" && !groups.insert(&m.group) {
             errors.push(format!(
                 "Конфлікт модифікаторів групи «{}» у «{{{{{token}}}}}».",
-                if m.group == "case" {
-                    "відмінок"
-                } else {
-                    "регістр"
-                }
+                if m.group == "case" { "відмінок" } else { "регістр" }
             ))
         }
-        if m.group == "case" && !field.cases {
+        if m.group == "case" && !field.map(|value| value.cases).unwrap_or(false) {
             errors.push(format!("Змінну «{base}» не можна відмінювати."))
         }
-        if m.group == "text" && field.kind == "number" {
+        if m.group == "text" && field.is_some_and(|value| value.kind == "number") {
             errors.push(format!(
                 "Для числової змінної «{base}» зміна регістру недоступна."
             ))
@@ -591,8 +586,13 @@ fn decline_position_head(value: &str, case: &str) -> String {
     let mut parts = value.splitn(2, char::is_whitespace);
     let head = parts.next().unwrap_or_default();
     let rest = parts.next().unwrap_or_default();
-    let lower = head.to_lowercase();
-    let changed = if lower.ends_with("ець") {
+    let punctuation: String = head.chars().rev().take_while(|c| !c.is_alphanumeric()).collect::<String>().chars().rev().collect();
+    let lexical_head = head.strip_suffix(&punctuation).unwrap_or(head);
+    let lower = lexical_head.to_lowercase();
+    let changed = if let Some(forms) = position_forms(&lower) {
+        let cases = ["називний", "родовий", "давальний", "знахідний", "орудний", "місцевий", "кличний"];
+        forms[cases.iter().position(|item| *item == case).unwrap_or(0)].to_string()
+    } else if lower.ends_with("ець") {
         format!(
             "{}{}",
             &lower[..lower.len() - 6],
@@ -616,9 +616,23 @@ fn decline_position_head(value: &str, case: &str) -> String {
         format!("{lower}{suffix}")
     };
     if rest.is_empty() {
-        changed
+        format!("{changed}{punctuation}")
     } else {
-        format!("{changed} {rest}")
+        format!("{changed}{punctuation} {rest}")
+    }
+}
+
+fn position_forms(value: &str) -> Option<[&'static str; 7]> {
+    match value {
+        "оператор" => Some(["оператор", "оператора", "оператору", "оператора", "оператором", "операторі", "операторе"]),
+        "командир" => Some(["командир", "командира", "командиру", "командира", "командиром", "командирі", "командире"]),
+        "начальник" => Some(["начальник", "начальника", "начальнику", "начальника", "начальником", "начальнику", "начальнику"]),
+        "заступник" => Some(["заступник", "заступника", "заступнику", "заступника", "заступником", "заступнику", "заступнику"]),
+        "стрілець" => Some(["стрілець", "стрільця", "стрільцю", "стрільця", "стрільцем", "стрільці", "стрільцю"]),
+        "помічник" => Some(["помічник", "помічника", "помічнику", "помічника", "помічником", "помічнику", "помічнику"]),
+        "водій" => Some(["водій", "водія", "водієві", "водія", "водієм", "водієві", "водію"]),
+        "механік" => Some(["механік", "механіка", "механіку", "механіка", "механіком", "механіку", "механіку"]),
+        _ => None,
     }
 }
 fn decline_word(word: &str, case: &str, gender: &str) -> String {
@@ -778,9 +792,24 @@ fn replace_variables(xml: &str, values: &HashMap<String, Value>) -> Result<Strin
             .get(parts[0])
             .ok_or_else(|| format!("Немає значення для «{{{{{token}}}}}»."))?;
         let replacement = escape_xml(&apply_modifiers(value, &parts[1..])?);
-        result = replace_word_token(&result, &format!("{{{{{token}}}}}"), &replacement)
+        result = replace_word_token(&result, &format!("{{{{{token}}}}}"), &replacement);
+        result = style_replacement(&result, &replacement, &parts[1..]);
     }
     Ok(result)
+}
+
+fn style_replacement(xml: &str, replacement: &str, modifiers: &[&str]) -> String {
+    let mut properties = String::new();
+    if modifiers.iter().any(|item| *item == "жирним") { properties.push_str("<w:b/>"); }
+    if modifiers.iter().any(|item| *item == "підкреслити") { properties.push_str("<w:u w:val=\"single\"/>"); }
+    if properties.is_empty() { return xml.to_string(); }
+    let Some(text_start) = xml.find(replacement) else { return xml.to_string(); };
+    let run_start = xml[..text_start].rfind("<w:r>").or_else(|| xml[..text_start].rfind("<w:r "));
+    let Some(run_start) = run_start else { return xml.to_string(); };
+    let Some(tag_end_rel) = xml[run_start..].find('>') else { return xml.to_string(); };
+    let tag_end = run_start + tag_end_rel + 1;
+    if xml[run_start..tag_end].contains("<w:rPr") { return xml.to_string(); }
+    format!("{}<w:rPr>{}</w:rPr>{}", &xml[..tag_end], properties, &xml[tag_end..])
 }
 fn replace_word_token(xml: &str, token: &str, replacement: &str) -> String {
     let mut result = xml.to_string();
@@ -913,14 +942,15 @@ mod tests {
     }
     #[test]
     fn rejects_v1_and_explains_typo() {
-        assert!(!validate_token("soldier.fullName").is_empty());
+        assert!(!validate_token("невідома.змінна").is_empty());
         assert!(validate_token("військовий_1_піб:родовийй")[0].contains("родовий"))
     }
     #[test]
     fn validates_duplicates_conflicts_and_types() {
         assert_eq!(validate_token("військовий_1_піб:родовий:родовий").len(), 2);
         assert!(!validate_token("військовий_1_піб:великими:маленькими").is_empty());
-        assert!(!validate_token("військовий_1_іпн:родовий").is_empty())
+        assert!(!validate_token("військовий_1_іпн:родовий").is_empty());
+        assert!(!validate_token("військовий_1_custom_badge:родовий").is_empty())
     }
     #[test]
     fn applies_unlimited_pipeline() {
@@ -929,6 +959,15 @@ mod tests {
             apply_modifiers(&v, &["родовий", "великими"]).unwrap(),
             "ІВАНА"
         )
+    }
+
+    #[test]
+    fn applies_docx_style_modifiers_without_conflict() {
+        let xml = "<w:r><w:t>{{військовий_1_піб:жирним:підкреслити}}</w:t></w:r>";
+        let mut m = HashMap::new();
+        m.insert("військовий_1_піб".into(), Value::new("Іван".into(), "person-name", Some("чоловіча")));
+        let replaced = replace_variables(xml, &m).unwrap();
+        assert!(replaced.contains("<w:b/>") && replaced.contains("<w:u w:val=\"single\"/>"));
     }
     #[test]
     fn replaces_split_token() {
@@ -954,6 +993,7 @@ mod tests {
             ),
             "оператора безпілотних літальних апаратів 1 відділення"
         );
+        assert_eq!(decline_position_head("стрілець, військова частина А0000", "родовий"), "стрільця, військова частина А0000");
         assert_eq!(
             capitalize_first("оператор безпілотних літальних апаратів"),
             "Оператор безпілотних літальних апаратів"

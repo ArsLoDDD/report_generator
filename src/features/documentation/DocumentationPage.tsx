@@ -10,12 +10,14 @@ import { personnelService } from "../../shared/services/personnelService";
 import type { CustomFieldDefinition } from "../../shared/types/domain";
 
 const textModifiers = new Set(["великими", "маленькими", "з_великої"]);
+const styleModifiers = new Set(["жирним", "підкреслити"]);
 const objects = [{ id: "person", label: "Військовослужбовець" }, ...[...new Set(variableRegistry.filter((item) => !item.id.startsWith("військовий_") && item.category !== "Дати та службові дані").map((item) => item.category))].map((label) => ({ id: label, label })), { id: "date", label: "Дата рапорту" }];
 
 function Preview({ variable, modifiers }: { variable: VariableDefinition; modifiers: string[] }) {
   const [result, setResult] = useState(variable.example);
-  useEffect(() => { let active = true; void (async () => { let value = variable.example; const grammaticalCase = modifiers.find((item) => !textModifiers.has(item)) as UkrainianCase | undefined; if (grammaticalCase && variable.kind === "person-name") { const [surname, givenName, patronymic] = value.split(/\s+/); value = (await morphologyService.declineName({ surname, givenName, patronymic, gender: "чоловіча" }, grammaticalCase)).value; } else if (grammaticalCase && variable.kind === "rank") value = morphologyService.declineRank(value, grammaticalCase); else if (grammaticalCase && variable.kind === "position") value = morphologyService.declinePosition(value, grammaticalCase); for (const modifier of modifiers.filter((item) => textModifiers.has(item))) value = morphologyService.transformText(value, modifier as "великими" | "маленькими" | "з_великої"); if (active) setResult(value); })(); return () => { active = false; }; }, [variable, modifiers]);
-  return <><b>{result}</b><p className="constructor-sentence">Речення-приклад: «Прошу врахувати: {result}.»</p></>;
+  useEffect(() => { let active = true; void (async () => { let value = variable.example; const grammaticalCase = modifiers.find((item) => !textModifiers.has(item) && !styleModifiers.has(item)) as UkrainianCase | undefined; if (grammaticalCase && variable.kind === "person-name") { const [surname, givenName, patronymic] = value.split(/\s+/); value = (await morphologyService.declineName({ surname, givenName, patronymic, gender: "чоловіча" }, grammaticalCase)).value; } else if (grammaticalCase && variable.kind === "rank") value = morphologyService.declineRank(value, grammaticalCase); else if (grammaticalCase && variable.kind === "position") value = morphologyService.declinePosition(value, grammaticalCase); for (const modifier of modifiers.filter((item) => textModifiers.has(item))) value = morphologyService.transformText(value, modifier as "великими" | "маленькими" | "з_великої"); if (active) setResult(value); })(); return () => { active = false; }; }, [variable, modifiers]);
+  const className = `${modifiers.includes("жирним") ? "preview-bold " : ""}${modifiers.includes("підкреслити") ? "preview-underline" : ""}`;
+  return <><b className={className}>{result}</b><p className="constructor-sentence">Речення-приклад: «Прошу врахувати: <span className={className}>{result}</span>.»</p></>;
 }
 
 export function VariableConstructorPage() {

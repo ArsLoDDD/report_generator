@@ -2,7 +2,7 @@ import source from "./registry.v2.json";
 
 export type VariableKind = "text" | "person-name" | "rank" | "position" | "date" | "number";
 export type VariableDefinition = { id: string; name: string; category: string; description: string; example: string; kind: VariableKind; supportsCases: boolean };
-export type ModifierDefinition = { id: string; name: string; description: string; group: "case" | "text" };
+export type ModifierDefinition = { id: string; name: string; description: string; group: "case" | "text" | "style" };
 type Field = { id: string; name: string; kind: string; example: string; cases: boolean; description?: string };
 
 const fieldToVariable = (field: Field, id: string, category: string): VariableDefinition => ({
@@ -17,7 +17,7 @@ export const variableRegistry: VariableDefinition[] = [
   ...source.signerRoles.flatMap((role) => (source.signerFields as Field[]).map((field) => fieldToVariable(field, `${role.id}_${field.id}`, role.name))),
   ...(source.documentFields as Field[]).map((field) => fieldToVariable(field, field.id, "Дати та службові дані"))
 ];
-export const modifierRegistry: ModifierDefinition[] = source.modifiers.map((item) => ({ ...item, group: item.group as "case" | "text", description: item.group === "case" ? `Відмінює значення: ${item.name.toLowerCase()} відмінок.` : `Змінює написання: ${item.name.toLowerCase()}.` }));
+export const modifierRegistry: ModifierDefinition[] = source.modifiers.map((item) => ({ ...item, group: item.group as ModifierDefinition["group"], description: item.group === "case" ? `Відмінює значення: ${item.name.toLowerCase()} відмінок.` : `Змінює написання: ${item.name.toLowerCase()}.` }));
 export const tokenFor = (id: string, modifiers: string[] = []) => `{{${[id, ...modifiers].join(":")}}}`;
 export function getVariable(id: string) {
   const direct = variableRegistry.find((item) => item.id === id);
@@ -25,5 +25,7 @@ export function getVariable(id: string) {
   const match = /^військовий_([1-9]\d*)_(.+)$/.exec(id);
   if (!match) return undefined;
   const field = personFields.find((item) => item.id === match[2]);
-  return field ? fieldToVariable(field, id, "Військовослужбовець") : undefined;
+  if (field) return fieldToVariable(field, id, "Військовослужбовець");
+  if (/^custom_[a-z0-9_]+$/.test(match[2])) return { id, name: "Кастомне поле", category: "Військовослужбовець", description: "Додаткове поле з бази даних.", example: "Приклад значення", kind: "text", supportsCases: false } satisfies VariableDefinition;
+  return undefined;
 }

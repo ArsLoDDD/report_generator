@@ -62,10 +62,12 @@ pub fn create_custom_field(
         || !key
             .chars()
             .all(|c| c == '_' || c.is_ascii_lowercase() || c.is_ascii_digit())
+        || !key.starts_with("custom_")
+        || key.len() <= "custom_".len()
         || key.starts_with('_')
         || key.chars().next().is_some_and(|c| c.is_ascii_digit())
     {
-        return Err("Ключ поля має містити лише малі латинські літери, цифри та підкреслення і починатися з літери.".into());
+        return Err("Ключ поля має починатися з custom_ і містити лише малі латинські літери, цифри та підкреслення.".into());
     }
     if field.display_name.trim().is_empty() {
         return Err("Вкажіть українську назву поля.".into());
@@ -395,5 +397,15 @@ mod tests {
                 .unwrap(),
             2
         );
+    }
+
+    #[test]
+    fn custom_field_is_seeded_for_existing_personnel() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialise(&connection).unwrap();
+        seed_test_personnel(&connection).unwrap();
+        create_custom_field(&connection, CustomFieldDefinition { field_key: "custom_unit_code".into(), display_name: "Код підрозділу".into(), description: "Внутрішній код".into(), initial_value: "А0000".into() }).unwrap();
+        let count: i64 = connection.query_row("SELECT COUNT(*) FROM personnel_custom_fields WHERE field_key='custom_unit_code' AND field_value='А0000'", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 15);
     }
 }

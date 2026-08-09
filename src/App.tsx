@@ -16,7 +16,7 @@ import { NotificationProvider } from "./shared/ui/NotificationProvider";
 
 const navigation = [
   ["generator", "Генерація рапортів", Home], ["templates", "Шаблони", FileText], ["people", "Особовий склад", Users],
-  ["generated", "Згенеровані рапорти", Folder], ["settings", "Налаштування", Settings], ["documentation", "Довідник", BookOpen], ["variable-constructor", "Конструктор змінних", WandSparkles]
+  ["generated", "Згенеровані рапорти", Folder], ["settings", "Налаштування", Settings], ["variable-constructor", "Конструктор змінних", WandSparkles]
 ] as const;
 
 export default function App() {
@@ -51,6 +51,7 @@ export default function App() {
     <aside className="sidebar">
       <div className="product-logo"><FileCheck2 /><div><b>Генератор рапортів</b><span>по шаблону</span></div></div>
       <nav>{navigation.map(([id, label, Icon]) => <button key={id} onClick={() => setScreen(id)} className={screen === id ? "nav-active" : ""}><Icon size={23} />{label}</button>)}</nav>
+      <div className="sidebar-bottom"><button onClick={() => setScreen("documentation")} className={screen === "documentation" ? "nav-active" : ""}><BookOpen size={23} />Довідник</button></div>
       {startupWarnings.length > 0 && <section className="sidebar-warnings" aria-label="Попередження програми">{startupWarnings.map((warning) => <article key={warning.code} title={warning.message}><AlertTriangle /><div><b>{warning.title}</b><span>{warning.message}</span></div></article>)}</section>}
     </aside>
     <main className="workspace">

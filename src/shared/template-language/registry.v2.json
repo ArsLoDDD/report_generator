@@ -29,16 +29,16 @@
     {"id":"начальник_пмм","name":"Начальник ПММ","settingsKey":"fuelChief"}
   ],
   "signerFields": [
-    {"id":"прізвище","name":"Прізвище","kind":"person-name","example":"ІВАНЕНКО","cases":true},
-    {"id":"імя","name":"Ім’я","kind":"person-name","example":"Іван","cases":true},
-    {"id":"по_батькові","name":"По батькові","kind":"person-name","example":"Іванович","cases":true},
-    {"id":"піб","name":"ПІБ","kind":"person-name","example":"ІВАНЕНКО Іван Іванович","cases":true},
-    {"id":"звання","name":"Звання","kind":"rank","example":"майор","cases":true},
-    {"id":"посада","name":"Посада","kind":"position","example":"командир батальйону","cases":true}
+    {"id":"прізвище","name":"Прізвище","kind":"person-name","example":"ІВАНЕНКО","cases":true,"description":"Прізвище підписанта."},
+    {"id":"імя","name":"Ім’я","kind":"person-name","example":"Іван","cases":true,"description":"Ім’я підписанта."},
+    {"id":"по_батькові","name":"По батькові","kind":"person-name","example":"Іванович","cases":true,"description":"По батькові підписанта."},
+    {"id":"піб","name":"ПІБ","kind":"person-name","example":"ІВАНЕНКО Іван Іванович","cases":true,"description":"Повне ім’я підписанта."},
+    {"id":"звання","name":"Звання","kind":"rank","example":"майор","cases":true,"description":"Військове звання підписанта."},
+    {"id":"посада","name":"Посада","kind":"position","example":"командир батальйону","cases":true,"description":"Посада підписанта."}
   ],
   "documentFields": [{"id":"дата_рапорту","name":"Дата рапорту","kind":"date","example":"07.08.2026 року","cases":false,"description":"Дата, яку користувач обирає перед генерацією."}],
   "modifiers": [
     {"id":"називний","name":"Називний","group":"case"},{"id":"родовий","name":"Родовий","group":"case"},{"id":"давальний","name":"Давальний","group":"case"},{"id":"знахідний","name":"Знахідний","group":"case"},{"id":"орудний","name":"Орудний","group":"case"},{"id":"місцевий","name":"Місцевий","group":"case"},{"id":"кличний","name":"Кличний","group":"case"},
-    {"id":"великими","name":"Великими літерами","group":"text"},{"id":"маленькими","name":"Маленькими літерами","group":"text"},{"id":"з_великої","name":"З великої літери","group":"text"}
+    {"id":"великими","name":"Великими літерами","group":"text"},{"id":"маленькими","name":"Маленькими літерами","group":"text"},{"id":"з_великої","name":"З великої літери","group":"text"},{"id":"жирним","name":"Жирним","group":"style"},{"id":"підкреслити","name":"Підкреслити","group":"style"}
   ]
 }
