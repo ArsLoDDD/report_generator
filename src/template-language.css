@@ -72,6 +72,10 @@
 .custom-field-list > div span { flex: 1; color: #d7e1e6; }
 .custom-field-list code { color: #82d979; font-size: 11px; margin-left: 5px; }
 .custom-field-list .button { min-height: 32px; padding: 0 9px; font-size: 12px; }
+.constructor-custom-fields { display: none; }
 .documentation__intro { position: relative; }
 .constructor-custom-action { margin-left: auto; align-self: flex-start; }
+.constructor-view-switch { display: flex; gap: 8px; margin: 0 0 14px; padding: 5px; border: 1px solid #27434f; border-radius: 10px; background: #0a161f; }
+.constructor-view-switch button { flex: 1; border: 0; border-radius: 7px; padding: 11px 14px; background: transparent; color: #aab9c1; cursor: pointer; font-weight: 650; }
+.constructor-view-switch button.active { color: #fff; background: linear-gradient(100deg,#299b39,#46ad3f); }
 @media (max-width: 720px) { .constructor-custom-action { position: static; margin-top: 12px; } }

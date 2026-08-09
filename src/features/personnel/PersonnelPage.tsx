@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Pencil, RefreshCw, Trash2, UserPlus, Users, X } from "lucide-react";
 import type { Person, PersonnelDraft } from "../../shared/types/domain";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
@@ -58,6 +58,7 @@ export function PersonnelPage({ people, totalCount, hasMore, isLoading, isLoadin
   const [education, setEducation] = useState("all");
   const { notify } = useNotifications();
   const selectedPerson = people.find((person) => person.id === selectedId) ?? null;
+  useEffect(() => { const refresh = () => { void onRefresh(); }; window.addEventListener("personnel-refresh", refresh); return () => window.removeEventListener("personnel-refresh", refresh); }, [onRefresh]);
   const ranks = useMemo(() => [...new Set(people.map((person) => person.rank))], [people]);
   const educationLevels = useMemo(() => [...new Set(people.map((person) => person.educationLevel).filter(Boolean))], [people]);
   const filteredPeople = people.filter((person) => (rank === "all" || person.rank === rank) && (education === "all" || person.educationLevel === education) && includesSearch(query, person.fullName, person.surname, person.givenName, person.taxId, person.position, person.rank, person.militaryId));

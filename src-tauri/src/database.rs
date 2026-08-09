@@ -469,4 +469,22 @@ mod tests {
         let count: i64 = connection.query_row("SELECT COUNT(*) FROM personnel_custom_fields WHERE field_key='custom_unit_code' AND field_value='А0000'", [], |row| row.get(0)).unwrap();
         assert_eq!(count, 15);
     }
+
+    #[test]
+    fn custom_field_can_be_updated_and_deleted() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialise(&connection).unwrap();
+        create_custom_field(&connection, CustomFieldDefinition { field_key: "unit_name".into(), display_name: "Підрозділ".into(), description: "Назва".into(), initial_value: "А0000".into() }).unwrap();
+        let updated = update_custom_field(&connection, CustomFieldDefinition { field_key: "unit_name".into(), display_name: "Назва підрозділу".into(), description: "Оновлено".into(), initial_value: "Б0000".into() }).unwrap();
+        assert_eq!(updated.display_name, "Назва підрозділу");
+        delete_custom_field(&connection, "unit_name").unwrap();
+        assert_eq!(list_custom_fields(&connection).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn custom_field_key_does_not_require_a_prefix() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialise(&connection).unwrap();
+        assert!(create_custom_field(&connection, CustomFieldDefinition { field_key: "unit_name".into(), display_name: "Підрозділ".into(), description: "".into(), initial_value: "".into() }).is_ok());
+    }
 }
