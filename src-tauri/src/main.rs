@@ -94,6 +94,7 @@ pub const BACKUPS_DIRECTORY_NAME: &str = "Резервні копії";
 pub const CONFIG_DIRECTORY_NAME: &str = "Налаштування";
 pub const CUSTOM_VARIABLES_FILE_NAME: &str = "custom_variables.json";
 
+#[cfg(target_os = "windows")]
 fn application_root(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let executable = std::env::current_exe()
         .map_err(|_| "Не вдалося визначити розташування програми.".to_string())?;
@@ -103,6 +104,29 @@ fn application_root(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .to_path_buf();
     fs::create_dir_all(&directory)
         .map_err(|_| "Не вдалося створити робочу папку програми.".to_string())?;
+    Ok(directory)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn application_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "Не вдалося визначити папку даних програми.".to_string())?;
+    fs::create_dir_all(&directory)
+        .map_err(|_| "Не вдалося створити папку даних програми.".to_string())?;
+    Ok(directory)
+}
+
+fn executable_root() -> Result<PathBuf, String> {
+    let executable = std::env::current_exe()
+        .map_err(|_| "Не вдалося визначити розташування програми.".to_string())?;
+    let directory = executable
+        .parent()
+        .ok_or_else(|| "Не вдалося визначити папку програми.".to_string())?
+        .to_path_buf();
+    fs::create_dir_all(&directory)
+        .map_err(|_| "Не вдалося створити папку програми.".to_string())?;
     Ok(directory)
 }
 
@@ -210,7 +234,8 @@ fn open_database(app: &tauri::AppHandle) -> Result<(DatabaseState, bool), String
     let root = ensure_application_structure(app)?;
     let (database_path, database_was_missing) = prepare_database_path(&root)?;
     let database = connect_database(database_path, database_was_missing)?;
-    database::sync_custom_fields_file(&database.connection, &root, CUSTOM_VARIABLES_FILE_NAME)?;
+    let executable_root = executable_root()?;
+    database::sync_custom_fields_file(&database.connection, &executable_root, CUSTOM_VARIABLES_FILE_NAME)?;
     Ok((database, database_was_missing))
 }
 
@@ -342,14 +367,14 @@ fn delete_personnel(state: tauri::State<AppState>, personnel_id: i64) -> Result<
 
 #[tauri::command]
 fn list_custom_fields(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     state: tauri::State<AppState>,
 ) -> Result<Vec<database::CustomFieldDefinition>, String> {
     let database = state
         .0
         .lock()
         .map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
-    let root = ensure_application_structure(&app)?;
+    let root = executable_root()?;
     if root.join(CUSTOM_VARIABLES_FILE_NAME).exists() {
         database::load_custom_fields_file(&root, CUSTOM_VARIABLES_FILE_NAME)
     } else {
@@ -359,7 +384,7 @@ fn list_custom_fields(
 
 #[tauri::command]
 fn create_custom_field(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     state: tauri::State<AppState>,
     field: database::CustomFieldDefinition,
 ) -> Result<database::CustomFieldDefinition, String> {
@@ -368,7 +393,7 @@ fn create_custom_field(
         .lock()
         .map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
     ensure_persistent_database(&mut database)?;
-    let root = ensure_application_structure(&app)?;
+    let root = executable_root()?;
     let seed_existing = if root.join(CUSTOM_VARIABLES_FILE_NAME).exists() {
         Vec::new()
     } else {
