@@ -34,9 +34,10 @@ export type Person = {
   assignedVehicleName: string;
   assignedVehicleRegistration: string;
   gender?: "чоловіча" | "жіноча" | "";
+  customFields?: Record<string, string>;
 };
 
-export type PersonnelDraft = Omit<Person, "id" | "fullName">;
+export type PersonnelDraft = Omit<Person, "id" | "fullName" | "customFields">;
 
 export type GeneratedReportSummary = {
   name: string;

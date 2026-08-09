@@ -1,5 +1,6 @@
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +23,7 @@ pub struct Personnel {
     pub assigned_vehicle_name: String,
     pub assigned_vehicle_registration: String,
     pub gender: String,
+    pub custom_fields: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -75,7 +77,17 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Personnel> {
         assigned_vehicle_name: row.get(14)?,
         assigned_vehicle_registration: row.get(15)?,
         gender: row.get(16)?,
+        custom_fields: HashMap::new(),
     })
+}
+
+fn enrich_custom_fields(connection: &Connection, people: &mut [Personnel]) -> Result<(), String> {
+    for person in people.iter_mut() {
+        let mut statement = connection.prepare("SELECT d.display_name, v.field_value FROM personnel_custom_fields v JOIN custom_field_definitions d ON d.field_key = v.field_key WHERE v.personnel_id = ?1 ORDER BY d.display_name COLLATE NOCASE").map_err(|_| "Не вдалося прочитати кастомні поля.".to_string())?;
+        let rows = statement.query_map([person.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(|_| "Не вдалося прочитати кастомні поля.".to_string())?;
+        for row in rows { let (name, value) = row.map_err(|_| "Не вдалося прочитати кастомне поле.".to_string())?; person.custom_fields.insert(name, value); }
+    }
+    Ok(())
 }
 
 pub fn list(connection: &Connection) -> Result<Vec<Personnel>, String> {
@@ -84,8 +96,9 @@ pub fn list(connection: &Connection) -> Result<Vec<Personnel>, String> {
     let rows = statement
         .query_map([], map_row)
         .map_err(|_| "Не вдалося прочитати особовий склад.".to_string())?;
-    rows.collect::<Result<Vec<_>, _>>()
-        .map_err(|_| "Не вдалося прочитати один із записів особового складу.".to_string())
+    let mut people = rows.collect::<Result<Vec<_>, _>>().map_err(|_| "Не вдалося прочитати один із записів особового складу.".to_string())?;
+    enrich_custom_fields(connection, &mut people)?;
+    Ok(people)
 }
 
 pub fn list_page(
@@ -107,6 +120,8 @@ pub fn list_page(
         .map_err(|_| "Не вдалося прочитати особовий склад.".to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| "Не вдалося прочитати один із записів особового складу.".to_string())?;
+    let mut items = items;
+    enrich_custom_fields(connection, &mut items)?;
     Ok(PersonnelPage { items, total_count })
 }
 
