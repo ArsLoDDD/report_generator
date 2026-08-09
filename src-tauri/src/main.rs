@@ -94,20 +94,6 @@ pub const BACKUPS_DIRECTORY_NAME: &str = "Резервні копії";
 pub const CONFIG_DIRECTORY_NAME: &str = "Налаштування";
 pub const CUSTOM_VARIABLES_FILE_NAME: &str = "custom_variables.json";
 
-#[cfg(target_os = "windows")]
-fn application_root(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let executable = std::env::current_exe()
-        .map_err(|_| "Не вдалося визначити розташування програми.".to_string())?;
-    let directory = executable
-        .parent()
-        .ok_or_else(|| "Не вдалося визначити папку програми.".to_string())?
-        .to_path_buf();
-    fs::create_dir_all(&directory)
-        .map_err(|_| "Не вдалося створити робочу папку програми.".to_string())?;
-    Ok(directory)
-}
-
-#[cfg(not(target_os = "windows"))]
 fn application_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let directory = app
         .path()
@@ -116,6 +102,25 @@ fn application_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     fs::create_dir_all(&directory)
         .map_err(|_| "Не вдалося створити папку даних програми.".to_string())?;
     Ok(directory)
+}
+
+fn migrate_executable_database(root: &Path) -> Result<(), String> {
+    let executable_root = executable_root()?;
+    let destination = root.join(DATABASE_FILE_NAME);
+    if destination.exists() {
+        return Ok(());
+    }
+    let candidates = [
+        executable_root.join(DATABASE_FILE_NAME),
+        executable_root
+            .join(LEGACY_DATABASE_DIRECTORY_NAME)
+            .join(DATABASE_FILE_NAME),
+    ];
+    if let Some(source) = candidates.iter().find(|path| path.exists()) {
+        fs::copy(source, &destination)
+            .map_err(|_| "Не вдалося перенести базу даних у системну папку даних програми.".to_string())?;
+    }
+    Ok(())
 }
 
 fn executable_root() -> Result<PathBuf, String> {
@@ -232,6 +237,7 @@ fn prepare_database_path(root: &Path) -> Result<(PathBuf, bool), String> {
 
 fn open_database(app: &tauri::AppHandle) -> Result<(DatabaseState, bool), String> {
     let root = ensure_application_structure(app)?;
+    migrate_executable_database(&root)?;
     let (database_path, database_was_missing) = prepare_database_path(&root)?;
     let database = connect_database(database_path, database_was_missing)?;
     let executable_root = executable_root()?;
