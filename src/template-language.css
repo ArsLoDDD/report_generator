@@ -66,3 +66,9 @@
   .constructor-steps { position: sticky; top: 0; z-index: 2; }
   .guide-language__rows { grid-template-columns: 1fr; gap: 5px; }
 }
+.custom-field-list { display: grid; gap: 8px; border-top: 1px solid #263d48; padding-top: 14px; }
+.custom-field-list h3 { margin: 0; font-size: 14px; }
+.custom-field-list > div { display: flex; align-items: center; gap: 7px; border: 1px solid #233b47; border-radius: 8px; padding: 8px; }
+.custom-field-list > div span { flex: 1; color: #d7e1e6; }
+.custom-field-list code { color: #82d979; font-size: 11px; margin-left: 5px; }
+.custom-field-list .button { min-height: 32px; padding: 0 9px; font-size: 12px; }

@@ -414,6 +414,26 @@ fn create_custom_field(
 }
 
 #[tauri::command]
+fn update_custom_field(
+    state: tauri::State<AppState>,
+    field: database::CustomFieldDefinition,
+) -> Result<database::CustomFieldDefinition, String> {
+    let database = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    let saved = database::update_custom_field(&database.connection, field)?;
+    let root = executable_root()?;
+    database::save_custom_field_file(&root, CUSTOM_VARIABLES_FILE_NAME, &saved)?;
+    Ok(saved)
+}
+
+#[tauri::command]
+fn delete_custom_field(state: tauri::State<AppState>, field_key: String) -> Result<(), String> {
+    let database = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    database::delete_custom_field(&database.connection, &field_key)?;
+    let root = executable_root()?;
+    database::remove_custom_field_file(&root, CUSTOM_VARIABLES_FILE_NAME, &field_key)
+}
+
+#[tauri::command]
 fn get_startup_warnings(state: tauri::State<AppState>) -> Vec<StartupWarning> {
     state.1.clone()
 }
@@ -801,6 +821,8 @@ fn main() {
             delete_personnel,
             list_custom_fields,
             create_custom_field,
+            update_custom_field,
+            delete_custom_field,
             get_startup_warnings,
             get_app_settings,
             update_signer_settings,

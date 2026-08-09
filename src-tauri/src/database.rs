@@ -36,6 +36,15 @@ pub fn save_custom_field_file(root: &Path, file_name: &str, field: &CustomFieldD
     fs::rename(temp, path).map_err(|_| "Не вдалося завершити запис кастомних змінних.".to_string())
 }
 
+pub fn remove_custom_field_file(root: &Path, file_name: &str, field_key: &str) -> Result<(), String> {
+    let path = root.join(file_name);
+    if !path.exists() { return Ok(()); }
+    let mut fields = load_custom_fields_file(root, file_name)?;
+    fields.retain(|field| field.field_key != field_key);
+    let text = serde_json::to_string_pretty(&CustomFieldsFile { version: 1, fields }).map_err(|_| "Не вдалося сформувати JSON кастомних змінних.".to_string())?;
+    fs::write(&path, format!("{text}\n")).map_err(|_| "Не вдалося оновити файл кастомних змінних.".to_string())
+}
+
 pub fn sync_custom_fields_file(connection: &Connection, root: &Path, file_name: &str) -> Result<(), String> {
     let fields = match load_custom_fields_file(root, file_name) { Ok(fields) => fields, Err(_) => return Ok(()) };
     for field in fields {
@@ -127,6 +136,23 @@ pub fn create_custom_field(
         description: field.description.trim().into(),
         initial_value: field.initial_value,
     })
+}
+
+pub fn update_custom_field(connection: &Connection, field: CustomFieldDefinition) -> Result<CustomFieldDefinition, String> {
+    let key = field.field_key.trim();
+    if key.is_empty() || !key.starts_with("custom_") || !key.chars().all(|c| c == '_' || c.is_ascii_lowercase() || c.is_ascii_digit()) { return Err("Ключ поля має починатися з custom_ і містити лише малі латинські літери, цифри та підкреслення.".into()); }
+    if field.display_name.trim().is_empty() { return Err("Вкажіть українську назву поля.".into()); }
+    let changed = connection.execute("UPDATE custom_field_definitions SET display_name = ?1, description = ?2, initial_value = ?3 WHERE field_key = ?4", params![field.display_name.trim(), field.description.trim(), field.initial_value, key]).map_err(|_| "Не вдалося оновити поле БД.".to_string())?;
+    if changed == 0 { return Err("Поле БД не знайдено.".into()); }
+    Ok(CustomFieldDefinition { field_key: key.into(), display_name: field.display_name.trim().into(), description: field.description.trim().into(), initial_value: field.initial_value })
+}
+
+pub fn delete_custom_field(connection: &Connection, field_key: &str) -> Result<(), String> {
+    let tx = connection.unchecked_transaction().map_err(|_| "Не вдалося змінити поле БД.".to_string())?;
+    tx.execute("DELETE FROM personnel_custom_fields WHERE field_key = ?1", [field_key]).map_err(|_| "Не вдалося видалити значення поля.".to_string())?;
+    let changed = tx.execute("DELETE FROM custom_field_definitions WHERE field_key = ?1", [field_key]).map_err(|_| "Не вдалося видалити поле БД.".to_string())?;
+    if changed == 0 { return Err("Поле БД не знайдено.".into()); }
+    tx.commit().map_err(|_| "Не вдалося завершити видалення поля БД.".to_string())
 }
 
 #[cfg(test)]
