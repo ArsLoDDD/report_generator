@@ -72,3 +72,6 @@
 .custom-field-list > div span { flex: 1; color: #d7e1e6; }
 .custom-field-list code { color: #82d979; font-size: 11px; margin-left: 5px; }
 .custom-field-list .button { min-height: 32px; padding: 0 9px; font-size: 12px; }
+.documentation__intro { position: relative; }
+.constructor-custom-action { margin-left: auto; align-self: flex-start; }
+@media (max-width: 720px) { .constructor-custom-action { position: static; margin-top: 12px; } }
