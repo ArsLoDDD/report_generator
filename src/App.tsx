@@ -47,6 +47,15 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    const closeOnBackdrop = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (target.classList.contains("modal-backdrop")) target.querySelector<HTMLButtonElement>(".modal-actions .button")?.click();
+    };
+    document.addEventListener("click", closeOnBackdrop);
+    return () => document.removeEventListener("click", closeOnBackdrop);
+  }, []);
+
   return <NotificationProvider><div className="product-shell">
     <aside className="sidebar">
       <div className="product-logo"><FileCheck2 /><div><b>Генератор рапортів</b><span>по шаблону</span></div></div>
