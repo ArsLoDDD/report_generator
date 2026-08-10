@@ -8,6 +8,7 @@ export const personnelService = {
   update: (personnelId: number, draft: PersonnelDraft) => invoke<Person>("update_personnel", { personnelId, draft }),
   delete: (personnelId: number) => invoke<void>("delete_personnel", { personnelId }),
   listCustomFields: () => invoke<CustomFieldDefinition[]>("list_custom_fields"),
+  listPersonnelFields: () => invoke<CustomFieldDefinition[]>("list_personnel_fields"),
   createCustomField: (field: CustomFieldDefinition) => invoke<CustomFieldDefinition>("create_custom_field", { field }),
   updateCustomField: (field: CustomFieldDefinition) => invoke<CustomFieldDefinition>("update_custom_field", { field }),
   deleteCustomField: (fieldKey: string) => invoke<void>("delete_custom_field", { fieldKey })

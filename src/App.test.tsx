@@ -7,7 +7,7 @@ vi.mock("./shared/services/personnelService", () => ({
   personnelService: { list: vi.fn().mockResolvedValue({ items: [
     { id: 1, fullName: "ВАСИЛЬОК Іван Аркадійович", rank: "Солдат", surname: "ВАСИЛЬОК", givenName: "Іван", patronymic: "Аркадійович", position: "Стрілець, військова частина А0000", taxId: "7462389812", birthDate: "02.03.1999 року", educationLevel: "вища", educationDetails: "Академія", armedForcesServiceStartDate: "2022", positionAssignedDate: "2026", positionAssignmentOrder: "№1", militaryId: "АВ №077672", assignedVehicleName: "Great Wall", assignedVehicleRegistration: "АВ 7265" },
     { id: 2, fullName: "ПЕТРЕНКО Петро Петрович", rank: "Старший солдат", surname: "ПЕТРЕНКО", givenName: "Петро", patronymic: "Петрович", position: "Оператор БпЛА, військова частина А0000", taxId: "7462389813", birthDate: "14.05.1998 року", educationLevel: "середня спеціальна", educationDetails: "Коледж", armedForcesServiceStartDate: "2022", positionAssignedDate: "2023", positionAssignmentOrder: "№2", militaryId: "АВ №077673", assignedVehicleName: "Mitsubishi L200", assignedVehicleRegistration: "АВ 7266" }
-  ], totalCount: 2 }), create: vi.fn(), update: vi.fn(), delete: vi.fn(), listCustomFields: vi.fn().mockResolvedValue([]), createCustomField: vi.fn() }
+  ], totalCount: 2 }), create: vi.fn(), update: vi.fn(), delete: vi.fn(), listCustomFields: vi.fn().mockResolvedValue([]), listPersonnelFields: vi.fn().mockResolvedValue([]), createCustomField: vi.fn() }
 }));
 
 vi.mock("./app/services/applicationService", () => ({

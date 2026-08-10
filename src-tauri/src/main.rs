@@ -391,6 +391,12 @@ fn list_custom_fields(
 }
 
 #[tauri::command]
+fn list_personnel_fields(state: tauri::State<AppState>) -> Result<Vec<database::CustomFieldDefinition>, String> {
+    let _database = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    Ok(database::STANDARD_EXTRA_FIELDS.iter().map(|(field_key, display_name)| database::CustomFieldDefinition { field_key: (*field_key).into(), display_name: (*display_name).into(), description: "Основне поле особового складу".into(), initial_value: String::new() }).collect())
+}
+
+#[tauri::command]
 fn create_custom_field(
     _app: tauri::AppHandle,
     state: tauri::State<AppState>,
@@ -822,6 +828,7 @@ fn main() {
             update_personnel,
             delete_personnel,
             list_custom_fields,
+            list_personnel_fields,
             create_custom_field,
             update_custom_field,
             delete_custom_field,
