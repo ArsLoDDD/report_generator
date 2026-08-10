@@ -392,7 +392,8 @@ fn export_personnel_xlsx(state: tauri::State<AppState>, app: tauri::AppHandle) -
     let Some(path) = path.and_then(|p| p.into_path().ok()) else { return Ok(None); };
     let db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
     let people = personnel::list(&db.connection)?;
-    xlsx::export(&path, &people)?;
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| xlsx::export(&path, &people)))
+        .map_err(|_| "Не вдалося сформувати Excel-файл: внутрішня помилка архіву.".to_string())??;
     Ok(Some(path.to_string_lossy().to_string()))
 }
 
