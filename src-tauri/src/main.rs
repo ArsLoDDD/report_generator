@@ -2,6 +2,7 @@ mod database;
 mod personnel;
 mod report_generation;
 mod settings;
+mod xlsx;
 
 use chrono::{DateTime, Local};
 use rusqlite::Connection;
@@ -368,6 +369,31 @@ fn delete_personnel(state: tauri::State<AppState>, personnel_id: i64) -> Result<
         .lock()
         .map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
     personnel::delete(&database.connection, personnel_id)
+}
+
+#[tauri::command]
+fn select_excel_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    Ok(app.dialog().file().add_filter("Таблиці Excel", &["xlsx"]).blocking_pick_file().map(|p| p.into_path().ok()).flatten().map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+fn import_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<u32, String> {
+    let drafts = xlsx::import(std::path::Path::new(&path))?;
+    let mut db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
+    ensure_persistent_database(&mut db)?;
+    let mut count = 0;
+    for draft in drafts { personnel::create(&db.connection, draft)?; count += 1; }
+    Ok(count)
+}
+
+#[tauri::command]
+fn export_personnel_xlsx(state: tauri::State<AppState>, app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let path = app.dialog().file().add_filter("Таблиці Excel", &["xlsx"]).blocking_save_file();
+    let Some(path) = path.and_then(|p| p.into_path().ok()) else { return Ok(None); };
+    let db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
+    let people = personnel::list(&db.connection)?;
+    xlsx::export(&path, &people)?;
+    Ok(Some(path.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
@@ -832,6 +858,9 @@ fn main() {
             create_personnel,
             update_personnel,
             delete_personnel,
+            select_excel_file,
+            import_personnel_xlsx,
+            export_personnel_xlsx,
             list_custom_fields,
             list_personnel_fields,
             create_custom_field,
