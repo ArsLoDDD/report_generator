@@ -125,6 +125,17 @@ body { overflow: hidden; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 20px; border-bottom: 1px solid #263945; }
 .modal-header h2 { margin: 0; font-size: 18px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 20px; border-top: 1px solid #263945; background: #0a151d; }
+.personnel-filter-modal { width: min(900px, 100%); }
+.personnel-filter-modal__body { overflow: auto; padding: 22px; display: grid; gap: 24px; }
+.personnel-filter-modal h3 { margin: 0; font-size: 16px; }
+.personnel-filter-modal p { margin: 7px 0 14px; color: #9eafb9; }
+.personnel-filter-modal__controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.personnel-filter-modal__section-title { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.personnel-filter-modal__section-title .button { min-height: 34px; font-size: 12px; }
+.personnel-filter-modal__columns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.personnel-filter-modal__columns label { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 9px 11px; border: 1px solid #29414d; border-radius: 7px; background: #0a151d; color: #dbe4e9; cursor: pointer; }
+.personnel-filter-modal__columns label:hover { border-color: #43a64d; background: #10231a; }
+.personnel-filter-modal__columns input { accent-color: #42b84c; width: 16px; height: 16px; }
 .personnel-editor { width: min(960px, 100%); }
 .personnel-form { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
 .personnel-form__scroll { overflow: auto; padding: 20px; }
