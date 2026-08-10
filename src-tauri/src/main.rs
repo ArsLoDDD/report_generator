@@ -375,7 +375,7 @@ fn delete_personnel(state: tauri::State<AppState>, personnel_id: i64) -> Result<
 fn import_personnel_xlsx(state: tauri::State<AppState>, path: String, mode: String) -> Result<u32, String> {
     let drafts = xlsx::import(std::path::Path::new(&path))?;
     if !["append", "replace"].contains(&mode.as_str()) { return Err("Невідомий режим імпорту.".into()); }
-    if drafts.is_empty() { return Err("Excel-файл не містить записів для імпорту.".into()); }
+    if drafts.is_empty() { return Ok(0); }
     for draft in &drafts { personnel::validate(draft)?; }
     let mut ids = std::collections::HashSet::new();
     if drafts.iter().any(|draft| !ids.insert(draft.tax_id.clone())) { return Err("У файлі є дублікати ІПН. Виправте їх перед імпортом.".into()); }
