@@ -23,6 +23,8 @@ pub struct AppSettings {
     pub deputy_rear: SignerSettings,
     #[serde(default = "default_fuel_chief")]
     pub fuel_chief: SignerSettings,
+    #[serde(default)]
+    pub visible_personnel_columns: Vec<String>,
 }
 
 fn empty_signer(position: &str) -> SignerSettings {
@@ -54,7 +56,15 @@ pub fn defaults() -> AppSettings {
         deputy_armament: default_deputy_armament(),
         deputy_rear: default_deputy_rear(),
         fuel_chief: default_fuel_chief(),
+        visible_personnel_columns: Vec::new(),
     }
+}
+
+pub fn update_visible_personnel_columns(root: &Path, columns: Vec<String>) -> Result<AppSettings, String> {
+    let mut settings = load(root)?;
+    settings.visible_personnel_columns = columns;
+    save(root, &settings)?;
+    Ok(settings)
 }
 
 pub fn path(root: &Path) -> std::path::PathBuf {
@@ -124,6 +134,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(saved.fuel_chief.position, "Начальник ПММ");
+        assert!(saved.visible_personnel_columns.is_empty());
         let _ = fs::remove_dir_all(root);
     }
 }

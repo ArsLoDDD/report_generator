@@ -460,6 +460,11 @@ fn update_signer_settings(
     settings::update_signer(&executable_root()?, &role, signer)
 }
 
+#[tauri::command]
+fn update_visible_personnel_columns(_app: tauri::AppHandle, columns: Vec<String>) -> Result<settings::AppSettings, String> {
+    settings::update_visible_personnel_columns(&executable_root()?, columns)
+}
+
 fn list_all_templates(app: tauri::AppHandle) -> Result<Vec<TemplateFile>, String> {
     let directory = templates_directory(&app)?;
     let mut templates = fs::read_dir(directory)
@@ -835,6 +840,7 @@ fn main() {
             get_startup_warnings,
             get_app_settings,
             update_signer_settings,
+            update_visible_personnel_columns,
             list_templates,
             select_template_file,
             inspect_template,

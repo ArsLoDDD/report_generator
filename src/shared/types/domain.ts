@@ -70,6 +70,7 @@ export type AppSettings = {
   deputyArmament: SignerSettings;
   deputyRear: SignerSettings;
   fuelChief: SignerSettings;
+  visiblePersonnelColumns?: string[];
 };
 
 export type StartupWarning = {
