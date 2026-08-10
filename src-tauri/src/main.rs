@@ -438,13 +438,13 @@ fn get_startup_warnings(state: tauri::State<AppState>) -> Vec<StartupWarning> {
 }
 
 #[tauri::command]
-fn get_app_settings(app: tauri::AppHandle) -> Result<settings::AppSettings, String> {
+fn get_app_settings(_app: tauri::AppHandle) -> Result<settings::AppSettings, String> {
     settings::load(&executable_root()?)
 }
 
 #[tauri::command]
 fn update_signer_settings(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     role: String,
     signer: settings::SignerSettings,
 ) -> Result<settings::AppSettings, String> {
