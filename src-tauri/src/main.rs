@@ -375,7 +375,14 @@ fn delete_personnel(state: tauri::State<AppState>, personnel_id: i64) -> Result<
 fn import_personnel_xlsx(state: tauri::State<AppState>, path: String, mode: String) -> Result<u32, String> {
     let drafts = xlsx::import(std::path::Path::new(&path))?;
     if !["append", "replace"].contains(&mode.as_str()) { return Err("Невідомий режим імпорту.".into()); }
-    if drafts.is_empty() { return Ok(0); }
+    if drafts.is_empty() {
+        if mode == "replace" {
+            let mut db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
+            ensure_persistent_database(&mut db)?;
+            db.connection.execute("DELETE FROM personnel", []).map_err(|_| "Не вдалося очистити особовий склад.".to_string())?;
+        }
+        return Ok(0);
+    }
     for draft in &drafts { personnel::validate(draft)?; }
     let mut ids = std::collections::HashSet::new();
     if drafts.iter().any(|draft| !ids.insert(draft.tax_id.clone())) { return Err("У файлі є дублікати ІПН. Виправте їх перед імпортом.".into()); }
