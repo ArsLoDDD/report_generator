@@ -34,6 +34,7 @@ export type Person = {
   assignedVehicleName: string;
   assignedVehicleRegistration: string;
   gender?: "чоловіча" | "жіноча" | "";
+  coreFields?: Record<string, string>;
   customFields?: Record<string, string>;
 };
 

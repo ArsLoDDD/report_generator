@@ -23,6 +23,9 @@ pub struct Personnel {
     pub assigned_vehicle_name: String,
     pub assigned_vehicle_registration: String,
     pub gender: String,
+    #[serde(default)]
+    pub core_fields: HashMap<String, String>,
+    #[serde(default)]
     pub custom_fields: HashMap<String, String>,
 }
 
@@ -52,6 +55,8 @@ pub struct PersonnelDraft {
     pub assigned_vehicle_name: String,
     pub assigned_vehicle_registration: String,
     pub gender: String,
+    #[serde(default)]
+    pub core_fields: HashMap<String, String>,
 }
 
 fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Personnel> {
@@ -77,15 +82,17 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Personnel> {
         assigned_vehicle_name: row.get(14)?,
         assigned_vehicle_registration: row.get(15)?,
         gender: row.get(16)?,
+        core_fields: HashMap::new(),
         custom_fields: HashMap::new(),
     })
 }
 
-fn enrich_custom_fields(connection: &Connection, people: &mut [Personnel]) -> Result<(), String> {
+fn enrich_extra_fields(connection: &Connection, people: &mut [Personnel]) -> Result<(), String> {
     for person in people.iter_mut() {
-        for (key, display_name) in crate::database::STANDARD_EXTRA_FIELDS {
+        for (key, _) in crate::database::STANDARD_EXTRA_FIELDS {
             let value = connection.query_row(&format!("SELECT {key} FROM personnel WHERE id = ?1"), [person.id], |row| row.get::<_, String>(0)).unwrap_or_default();
-            person.custom_fields.insert((*display_name).into(), if *key == "full_name" { person.full_name.clone() } else { value });
+            let value = if *key == "full_name" { person.full_name.clone() } else { value };
+            person.core_fields.insert((*key).into(), value);
         }
         let mut statement = connection.prepare("SELECT d.display_name, v.field_value FROM personnel_custom_fields v JOIN custom_field_definitions d ON d.field_key = v.field_key WHERE v.personnel_id = ?1 ORDER BY d.display_name COLLATE NOCASE").map_err(|_| "Не вдалося прочитати кастомні поля.".to_string())?;
         let rows = statement.query_map([person.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(|_| "Не вдалося прочитати кастомні поля.".to_string())?;
@@ -101,7 +108,7 @@ pub fn list(connection: &Connection) -> Result<Vec<Personnel>, String> {
         .query_map([], map_row)
         .map_err(|_| "Не вдалося прочитати особовий склад.".to_string())?;
     let mut people = rows.collect::<Result<Vec<_>, _>>().map_err(|_| "Не вдалося прочитати один із записів особового складу.".to_string())?;
-    enrich_custom_fields(connection, &mut people)?;
+    enrich_extra_fields(connection, &mut people)?;
     Ok(people)
 }
 
@@ -125,7 +132,7 @@ pub fn list_page(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| "Не вдалося прочитати один із записів особового складу.".to_string())?;
     let mut items = items;
-    enrich_custom_fields(connection, &mut items)?;
+    enrich_extra_fields(connection, &mut items)?;
     Ok(PersonnelPage { items, total_count })
 }
 
@@ -134,6 +141,7 @@ pub fn create(connection: &Connection, draft: PersonnelDraft) -> Result<Personne
     connection.execute("INSERT INTO personnel (rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, assigned_vehicle_name, assigned_vehicle_registration, gender) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)", params![draft.rank, draft.surname, draft.given_name, draft.patronymic, draft.position, draft.tax_id, draft.birth_date, draft.education_level, draft.education_details, draft.armed_forces_service_start_date, draft.position_assigned_date, draft.position_assignment_order, draft.military_id, draft.assigned_vehicle_name, draft.assigned_vehicle_registration, draft.gender])
         .map_err(|_| "Не вдалося зберегти військовослужбовця. Перевірте унікальність ІПН.".to_string())?;
     let id = connection.last_insert_rowid();
+    save_core_fields(connection, id, &draft.core_fields)?;
     let definitions = connection
         .prepare("SELECT field_key, initial_value FROM custom_field_definitions")
         .and_then(|mut statement| statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).and_then(|rows| rows.collect::<Result<Vec<_>, _>>()));
@@ -142,7 +150,9 @@ pub fn create(connection: &Connection, draft: PersonnelDraft) -> Result<Personne
             connection.execute("INSERT INTO personnel_custom_fields (personnel_id, field_key, field_value) VALUES (?1, ?2, ?3)", params![id, key, value]).map_err(|_| "Не вдалося встановити початкові значення додаткових полів.".to_string())?;
         }
     }
-    find(connection, id)
+    let mut person = find(connection, id)?;
+    enrich_extra_fields(connection, std::slice::from_mut(&mut person))?;
+    Ok(person)
 }
 
 pub fn update(
@@ -158,7 +168,10 @@ pub fn update(
             "Військовослужбовця не знайдено. Оновіть список і спробуйте знову.".to_string(),
         );
     }
-    find(connection, id)
+    save_core_fields(connection, id, &draft.core_fields)?;
+    let mut person = find(connection, id)?;
+    enrich_extra_fields(connection, std::slice::from_mut(&mut person))?;
+    Ok(person)
 }
 
 pub fn delete(connection: &Connection, id: i64) -> Result<(), String> {
@@ -176,6 +189,17 @@ pub fn delete(connection: &Connection, id: i64) -> Result<(), String> {
 fn find(connection: &Connection, id: i64) -> Result<Personnel, String> {
     connection.query_row("SELECT id, rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, assigned_vehicle_name, assigned_vehicle_registration, gender FROM personnel WHERE id=?1", [id], map_row)
         .map_err(|_| "Не вдалося знайти збережений запис.".to_string())
+}
+
+/// Writes only the fixed, migrated personnel columns. Arbitrary client keys are never interpolated.
+fn save_core_fields(connection: &Connection, id: i64, values: &HashMap<String, String>) -> Result<(), String> {
+    for (key, _) in crate::database::STANDARD_EXTRA_FIELDS {
+        if *key == "full_name" { continue; }
+        let value = values.get(*key).cloned().unwrap_or_default();
+        connection.execute(&format!("UPDATE personnel SET {key} = ?1, updated_at=CURRENT_TIMESTAMP WHERE id = ?2"), params![value, id])
+            .map_err(|_| format!("Не вдалося зберегти основне поле «{key}»."))?;
+    }
+    Ok(())
 }
 
 pub(crate) fn validate(draft: &PersonnelDraft) -> Result<(), String> {
@@ -227,6 +251,7 @@ mod tests {
             assigned_vehicle_name: "Great Wall".into(),
             assigned_vehicle_registration: "АВ 0001".into(),
             gender: "чоловіча".into(),
+            core_fields: HashMap::new(),
         }
     }
 
@@ -238,10 +263,13 @@ mod tests {
         assert_eq!(saved.full_name, "ТЕСТ Іван Іванович");
         let mut changed = valid_draft();
         changed.position = "Командир відділення, в/ч А0000".into();
+        changed.core_fields.insert("passport_series".into(), "МС".into());
+        let updated = update(&connection, saved.id, changed).unwrap();
         assert_eq!(
-            update(&connection, saved.id, changed).unwrap().position,
+            updated.position,
             "Командир відділення, в/ч А0000"
         );
+        assert_eq!(updated.core_fields["passport_series"], "МС");
         delete(&connection, saved.id).unwrap();
         assert!(list(&connection).unwrap().is_empty());
     }

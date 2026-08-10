@@ -90,6 +90,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     let columns = connection.prepare("PRAGMA table_info(personnel)").and_then(|mut statement| statement.query_map([], |row| row.get::<_, String>(1)).and_then(|rows| rows.collect::<Result<Vec<_>, _>>())).map_err(|_| "Не вдалося прочитати структуру особового складу.".to_string())?;
     for (field_key, _) in STANDARD_EXTRA_FIELDS {
         connection.execute("DELETE FROM custom_field_definitions WHERE field_key = ?1", params![field_key]).map_err(|_| "Не вдалося очистити стандартні поля з реєстру кастомних полів.".to_string())?;
+        connection.execute("DELETE FROM personnel_custom_fields WHERE field_key = ?1", params![field_key]).map_err(|_| "Не вдалося очистити застарілі значення стандартних полів.".to_string())?;
         if !columns.iter().any(|column| column == field_key) {
             connection.execute(&format!("ALTER TABLE personnel ADD COLUMN {field_key} TEXT NOT NULL DEFAULT ''"), []).map_err(|_| format!("Не вдалося додати основне поле «{field_key}»."))?;
         }
