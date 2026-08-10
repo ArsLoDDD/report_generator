@@ -83,9 +83,13 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Personnel> {
 
 fn enrich_custom_fields(connection: &Connection, people: &mut [Personnel]) -> Result<(), String> {
     for person in people.iter_mut() {
+        for (key, display_name) in crate::database::STANDARD_EXTRA_FIELDS {
+            let value = connection.query_row(&format!("SELECT {key} FROM personnel WHERE id = ?1"), [person.id], |row| row.get::<_, String>(0)).unwrap_or_default();
+            person.custom_fields.insert((*display_name).into(), if *key == "full_name" { person.full_name.clone() } else { value });
+        }
         let mut statement = connection.prepare("SELECT d.display_name, v.field_value FROM personnel_custom_fields v JOIN custom_field_definitions d ON d.field_key = v.field_key WHERE v.personnel_id = ?1 ORDER BY d.display_name COLLATE NOCASE").map_err(|_| "Не вдалося прочитати кастомні поля.".to_string())?;
         let rows = statement.query_map([person.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(|_| "Не вдалося прочитати кастомні поля.".to_string())?;
-        for row in rows { let (name, mut value) = row.map_err(|_| "Не вдалося прочитати кастомне поле.".to_string())?; if name == "ПІБ (повністю)" { value = person.full_name.clone(); } person.custom_fields.insert(name, value); }
+        for row in rows { let (name, value) = row.map_err(|_| "Не вдалося прочитати кастомне поле.".to_string())?; person.custom_fields.insert(name, value); }
     }
     Ok(())
 }
