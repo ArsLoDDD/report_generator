@@ -136,6 +136,13 @@ body { overflow: hidden; }
 .personnel-filter-modal__columns label { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 9px 11px; border: 1px solid #29414d; border-radius: 7px; background: #0a151d; color: #dbe4e9; cursor: pointer; }
 .personnel-filter-modal__columns label:hover { border-color: #43a64d; background: #10231a; }
 .personnel-filter-modal__columns input { accent-color: #42b84c; width: 16px; height: 16px; }
+.personnel-import-modal { width: min(650px, 100%); }
+.personnel-import-options { display: grid; gap: 12px; }
+.personnel-import-option { display: grid; gap: 7px; padding: 18px; border: 1px solid #29414d; border-radius: 9px; background: #0a151d; color: #e7eef2; text-align: left; cursor: pointer; }
+.personnel-import-option:hover { border-color: #49b956; background: #10231a; }
+.personnel-import-option b { font-size: 15px; }
+.personnel-import-option span { color: #aebcc5; line-height: 1.4; }
+.personnel-import-option--danger:hover { border-color: #d77763; background: #291715; }
 .personnel-editor { width: min(960px, 100%); }
 .personnel-form { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
 .personnel-form__scroll { overflow: auto; padding: 20px; }

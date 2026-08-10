@@ -372,13 +372,23 @@ fn delete_personnel(state: tauri::State<AppState>, personnel_id: i64) -> Result<
 }
 
 #[tauri::command]
-fn import_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<u32, String> {
+fn import_personnel_xlsx(state: tauri::State<AppState>, path: String, mode: String) -> Result<u32, String> {
     let drafts = xlsx::import(std::path::Path::new(&path))?;
+    if !["append", "replace"].contains(&mode.as_str()) { return Err("Невідомий режим імпорту.".into()); }
+    if drafts.is_empty() { return Err("Excel-файл не містить записів для імпорту.".into()); }
+    for draft in &drafts { personnel::validate(draft)?; }
+    let mut ids = std::collections::HashSet::new();
+    if drafts.iter().any(|draft| !ids.insert(draft.tax_id.clone())) { return Err("У файлі є дублікати ІПН. Виправте їх перед імпортом.".into()); }
     let mut db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
     ensure_persistent_database(&mut db)?;
-    let mut count = 0;
-    for draft in drafts { personnel::create(&db.connection, draft)?; count += 1; }
-    Ok(count)
+    db.connection.execute_batch("BEGIN IMMEDIATE").map_err(|_| "Не вдалося почати імпорт.".to_string())?;
+    let result = (|| -> Result<u32, String> {
+        if mode == "replace" { db.connection.execute("DELETE FROM personnel", []).map_err(|_| "Не вдалося очистити особовий склад.".to_string())?; }
+        let mut count = 0;
+        for draft in drafts { personnel::create(&db.connection, draft)?; count += 1; }
+        Ok(count)
+    })();
+    match result { Ok(count) => { db.connection.execute_batch("COMMIT").map_err(|_| "Не вдалося завершити імпорт.".to_string())?; Ok(count) }, Err(error) => { let _ = db.connection.execute_batch("ROLLBACK"); Err(error) } }
 }
 
 #[tauri::command]
