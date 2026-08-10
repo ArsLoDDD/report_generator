@@ -380,11 +380,14 @@ fn list_custom_fields(
         .lock()
         .map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
     let root = executable_root()?;
+    let mut fields = database::list_custom_fields(&database.connection)?;
     if root.join(CUSTOM_VARIABLES_FILE_NAME).exists() {
-        database::load_custom_fields_file(&root, CUSTOM_VARIABLES_FILE_NAME)
-    } else {
-        database::list_custom_fields(&database.connection)
+        for file_field in database::load_custom_fields_file(&root, CUSTOM_VARIABLES_FILE_NAME)? {
+            if let Some(existing) = fields.iter_mut().find(|field| field.field_key == file_field.field_key) { *existing = file_field; } else { fields.push(file_field); }
+        }
     }
+    fields.sort_by(|left, right| left.display_name.to_lowercase().cmp(&right.display_name.to_lowercase()));
+    Ok(fields)
 }
 
 #[tauri::command]

@@ -90,6 +90,8 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     for (field_key, display_name) in STANDARD_EXTRA_FIELDS {
         connection.execute("INSERT OR IGNORE INTO custom_field_definitions (field_key, display_name, description, initial_value) VALUES (?1, ?2, ?3, '')", params![field_key, display_name, "Стандартне поле особового складу"])
             .map_err(|_| "Не вдалося додати стандартні поля особового складу.".to_string())?;
+        connection.execute("INSERT OR IGNORE INTO personnel_custom_fields (personnel_id, field_key, field_value) SELECT id, ?1, '' FROM personnel", params![field_key])
+            .map_err(|_| "Не вдалося додати стандартні поля військовослужбовцям.".to_string())?;
     }
     Ok(())
 }
