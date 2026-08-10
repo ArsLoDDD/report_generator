@@ -141,12 +141,11 @@ fn ensure_application_structure(app: &tauri::AppHandle) -> Result<PathBuf, Strin
         TEMPLATES_DIRECTORY_NAME,
         REPORTS_DIRECTORY_NAME,
         BACKUPS_DIRECTORY_NAME,
-        CONFIG_DIRECTORY_NAME,
     ] {
         fs::create_dir_all(root.join(directory))
             .map_err(|_| format!("Не вдалося створити папку «{directory}»."))?;
     }
-    settings::load(&root)?;
+    settings::load(&executable_root()?)?;
     Ok(root)
 }
 
@@ -440,7 +439,7 @@ fn get_startup_warnings(state: tauri::State<AppState>) -> Vec<StartupWarning> {
 
 #[tauri::command]
 fn get_app_settings(app: tauri::AppHandle) -> Result<settings::AppSettings, String> {
-    settings::load(&ensure_application_structure(&app)?)
+    settings::load(&executable_root()?)
 }
 
 #[tauri::command]
@@ -449,7 +448,7 @@ fn update_signer_settings(
     role: String,
     signer: settings::SignerSettings,
 ) -> Result<settings::AppSettings, String> {
-    settings::update_signer(&ensure_application_structure(&app)?, &role, signer)
+    settings::update_signer(&executable_root()?, &role, signer)
 }
 
 fn list_all_templates(app: tauri::AppHandle) -> Result<Vec<TemplateFile>, String> {

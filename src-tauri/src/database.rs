@@ -11,6 +11,14 @@ pub struct CustomFieldDefinition {
     pub initial_value: String,
 }
 
+pub const STANDARD_EXTRA_FIELDS: &[(&str, &str)] = &[
+    ("full_name", "ПІБ (повністю)"), ("passport_series", "Серія паспорту"), ("passport_number", "Номер паспорту"), ("passport_issued_by", "Ким виданий"), ("passport_issue_date", "Дата видачі"),
+    ("foreign_passport", "Закордонний паспорт"), ("foreign_passport_issued_by", "Закордонний паспорт: Ким виданий"), ("foreign_passport_issue_date", "Закордонний паспорт: Дата видачі"), ("foreign_passport_series", "Закордонний паспорт: Серія"), ("foreign_passport_number", "Закордонний паспорт: Номер"),
+    ("military_document_issued_by", "Військовий документ: Ким виданий"), ("military_document_issue_date", "Військовий документ: Дата видачі"), ("combatant_certificate", "Посвідчення УБД"), ("combatant_certificate_issued_by", "Посвідчення УБД: Ким видане"), ("combatant_certificate_issue_date", "Посвідчення УБД: Дата видачі"), ("combatant_certificate_series", "Посвідчення УБД: Серія"), ("combatant_certificate_number", "Посвідчення УБД: Номер"),
+    ("driver_license", "Посвідчення водія"), ("driver_license_issued_by", "Посвідчення водія: Орган що видав"), ("driver_license_categories", "Посвідчення водія: Категорії"), ("driver_license_valid_until", "Посвідчення водія: Дійсне до"), ("driver_license_issue_date", "Посвідчення водія: Дата видачі"), ("driver_license_series", "Посвідчення водія: Серія"), ("driver_license_number", "Посвідчення водія: Номер"),
+    ("basic_military_training", "БЗВП"), ("basic_training_start_date", "БЗВП: Дата початку"), ("basic_training_end_date", "БЗВП: Дата закінчення"), ("basic_training_location", "БЗВП: Місце проходження"), ("phone", "Номер телефону"), ("email", "Email"), ("marital_status", "Сімейний стан"), ("blood_type", "Група крові"), ("military_fitness", "Придатність до військової служби"), ("oath_date", "Дата прийняття присяги"), ("service_type", "Вид служби"), ("service_start_date", "Дата призову / Укладання контракту"), ("conscription_institution", "Установа призову"),
+];
+
 #[derive(Debug, Serialize, Deserialize)]
 struct CustomFieldsFile {
     version: u8,
@@ -79,6 +87,10 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     connection
         .pragma_update(None, "user_version", 2)
         .map_err(|_| "Не вдалося завершити міграцію бази даних.".to_string())?;
+    for (field_key, display_name) in STANDARD_EXTRA_FIELDS {
+        connection.execute("INSERT OR IGNORE INTO custom_field_definitions (field_key, display_name, description, initial_value) VALUES (?1, ?2, ?3, '')", params![field_key, display_name, "Стандартне поле особового складу"])
+            .map_err(|_| "Не вдалося додати стандартні поля особового складу.".to_string())?;
+    }
     Ok(())
 }
 
@@ -478,7 +490,7 @@ mod tests {
         let updated = update_custom_field(&connection, CustomFieldDefinition { field_key: "unit_name".into(), display_name: "Назва підрозділу".into(), description: "Оновлено".into(), initial_value: "Б0000".into() }).unwrap();
         assert_eq!(updated.display_name, "Назва підрозділу");
         delete_custom_field(&connection, "unit_name").unwrap();
-        assert_eq!(list_custom_fields(&connection).unwrap().len(), 0);
+        assert!(!list_custom_fields(&connection).unwrap().iter().any(|field| field.field_key == "unit_name"));
     }
 
     #[test]

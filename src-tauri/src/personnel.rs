@@ -85,7 +85,7 @@ fn enrich_custom_fields(connection: &Connection, people: &mut [Personnel]) -> Re
     for person in people.iter_mut() {
         let mut statement = connection.prepare("SELECT d.display_name, v.field_value FROM personnel_custom_fields v JOIN custom_field_definitions d ON d.field_key = v.field_key WHERE v.personnel_id = ?1 ORDER BY d.display_name COLLATE NOCASE").map_err(|_| "Не вдалося прочитати кастомні поля.".to_string())?;
         let rows = statement.query_map([person.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(|_| "Не вдалося прочитати кастомні поля.".to_string())?;
-        for row in rows { let (name, value) = row.map_err(|_| "Не вдалося прочитати кастомне поле.".to_string())?; person.custom_fields.insert(name, value); }
+        for row in rows { let (name, mut value) = row.map_err(|_| "Не вдалося прочитати кастомне поле.".to_string())?; if name == "ПІБ (повністю)" { value = person.full_name.clone(); } person.custom_fields.insert(name, value); }
     }
     Ok(())
 }

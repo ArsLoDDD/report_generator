@@ -58,7 +58,7 @@ pub fn defaults() -> AppSettings {
 }
 
 pub fn path(root: &Path) -> std::path::PathBuf {
-    root.join("Налаштування").join("налаштування.json")
+    root.join("settings.json")
 }
 
 pub fn load(root: &Path) -> Result<AppSettings, String> {
@@ -76,8 +76,6 @@ pub fn load(root: &Path) -> Result<AppSettings, String> {
 pub fn save(root: &Path, settings: &AppSettings) -> Result<(), String> {
     let content = serde_json::to_string_pretty(settings)
         .map_err(|_| "Не вдалося підготувати налаштування підписантів.".to_string())?;
-    fs::create_dir_all(root.join("Налаштування"))
-        .map_err(|_| "Не вдалося створити папку налаштувань.".to_string())?;
     fs::write(path(root), content)
         .map_err(|_| "Не вдалося зберегти налаштування підписантів.".to_string())
 }
