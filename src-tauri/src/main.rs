@@ -372,11 +372,6 @@ fn delete_personnel(state: tauri::State<AppState>, personnel_id: i64) -> Result<
 }
 
 #[tauri::command]
-fn select_excel_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    Ok(app.dialog().file().add_filter("Таблиці Excel", &["xlsx"]).blocking_pick_file().map(|p| p.into_path().ok()).flatten().map(|p| p.to_string_lossy().to_string()))
-}
-
-#[tauri::command]
 fn import_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<u32, String> {
     let drafts = xlsx::import(std::path::Path::new(&path))?;
     let mut db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
@@ -387,14 +382,13 @@ fn import_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<
 }
 
 #[tauri::command]
-fn export_personnel_xlsx(state: tauri::State<AppState>, app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let path = app.dialog().file().add_filter("Таблиці Excel", &["xlsx"]).blocking_save_file();
-    let Some(path) = path.and_then(|p| p.into_path().ok()) else { return Ok(None); };
+fn export_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<(), String> {
+    let path = PathBuf::from(path);
     let db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
     let people = personnel::list(&db.connection)?;
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| xlsx::export(&path, &people)))
         .map_err(|_| "Не вдалося сформувати Excel-файл: внутрішня помилка архіву.".to_string())??;
-    Ok(Some(path.to_string_lossy().to_string()))
+    Ok(())
 }
 
 #[tauri::command]
@@ -859,7 +853,6 @@ fn main() {
             create_personnel,
             update_personnel,
             delete_personnel,
-            select_excel_file,
             import_personnel_xlsx,
             export_personnel_xlsx,
             list_custom_fields,
