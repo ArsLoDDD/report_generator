@@ -56,6 +56,11 @@
     {"id":"дата_призову_контракту","sourceKey":"service_start_date","name":"Дата призову / укладання контракту","kind":"date","example":"02.03.2020","cases":false},
     {"id":"установа_призову","sourceKey":"conscription_institution","name":"Установа призову","kind":"text","example":"ТЦК та СП","cases":false}
   ],
+  "vehicleFields": [
+    {"id":"назва","sourceKey":"name","name":"Назва автомобіля","kind":"text","example":"Toyota Hilux","cases":false,"description":"Назва автомобіля, закріпленого за першим обраним військовослужбовцем."},
+    {"id":"номер","sourceKey":"registration_number","name":"Державний номер","kind":"text","example":"АА 1234 АА","cases":false,"description":"Державний номер автомобіля."},
+    {"id":"статус","sourceKey":"status","name":"Статус автомобіля","kind":"text","example":"Справний","cases":false,"description":"Поточний статус автомобіля."}
+  ],
   "signerRoles": [
     {"id":"основний_підписант","name":"Основний підписант","settingsKey":"mainSigner"},
     {"id":"командир","name":"Командир","settingsKey":"commander"},

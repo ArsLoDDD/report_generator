@@ -14,4 +14,8 @@ export const personnelService = {
   createCustomField: (field: CustomFieldDefinition) => invoke<CustomFieldDefinition>("create_custom_field", { field }),
   updateCustomField: (field: CustomFieldDefinition) => invoke<CustomFieldDefinition>("update_custom_field", { field }),
   deleteCustomField: (fieldKey: string) => invoke<void>("delete_custom_field", { fieldKey })
+  ,listVehicleCustomFields: () => invoke<CustomFieldDefinition[]>("list_vehicle_custom_fields"),
+  createVehicleCustomField: (field: CustomFieldDefinition) => invoke<CustomFieldDefinition>("create_vehicle_custom_field", { field }),
+  updateVehicleCustomField: (field: CustomFieldDefinition) => invoke<CustomFieldDefinition>("update_vehicle_custom_field", { field }),
+  deleteVehicleCustomField: (fieldKey: string) => invoke<void>("delete_vehicle_custom_field", { fieldKey })
 };

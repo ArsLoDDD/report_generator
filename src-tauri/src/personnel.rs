@@ -20,7 +20,9 @@ pub struct Personnel {
     pub position_assigned_date: String,
     pub position_assignment_order: String,
     pub military_id: String,
+    /// Calculated from `vehicles`; it is not persisted in the personnel record.
     pub assigned_vehicle_name: String,
+    /// Calculated from `vehicles`; it is not persisted in the personnel record.
     pub assigned_vehicle_registration: String,
     pub gender: String,
     #[serde(default)]
@@ -52,8 +54,6 @@ pub struct PersonnelDraft {
     pub position_assigned_date: String,
     pub position_assignment_order: String,
     pub military_id: String,
-    pub assigned_vehicle_name: String,
-    pub assigned_vehicle_registration: String,
     pub gender: String,
     #[serde(default)]
     pub core_fields: HashMap<String, String>,
@@ -79,9 +79,9 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Personnel> {
         position_assigned_date: row.get(11)?,
         position_assignment_order: row.get(12)?,
         military_id: row.get(13)?,
-        assigned_vehicle_name: row.get(14)?,
-        assigned_vehicle_registration: row.get(15)?,
-        gender: row.get(16)?,
+        assigned_vehicle_name: String::new(),
+        assigned_vehicle_registration: String::new(),
+        gender: row.get(14)?,
         core_fields: HashMap::new(),
         custom_fields: HashMap::new(),
     })
@@ -89,25 +89,67 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Personnel> {
 
 fn enrich_extra_fields(connection: &Connection, people: &mut [Personnel]) -> Result<(), String> {
     for person in people.iter_mut() {
+        let mut statement = connection
+            .prepare(
+                "SELECT name, registration_number FROM vehicles WHERE personnel_id=?1 ORDER BY id",
+            )
+            .map_err(|_| "Не вдалося прочитати прив’язані автомобілі.".to_string())?;
+        let linked = statement
+            .query_map([person.id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|_| "Не вдалося прочитати прив’язані автомобілі.".to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "Не вдалося прочитати прив’язані автомобілі.".to_string())?;
+        person.assigned_vehicle_name = linked
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        person.assigned_vehicle_registration = linked
+            .iter()
+            .map(|(_, number)| number.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
         for (key, _) in crate::database::STANDARD_EXTRA_FIELDS {
-            let value = connection.query_row(&format!("SELECT {key} FROM personnel WHERE id = ?1"), [person.id], |row| row.get::<_, String>(0)).unwrap_or_default();
-            let value = if *key == "full_name" { person.full_name.clone() } else { value };
+            let value = connection
+                .query_row(
+                    &format!("SELECT {key} FROM personnel WHERE id = ?1"),
+                    [person.id],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap_or_default();
+            let value = if *key == "full_name" {
+                person.full_name.clone()
+            } else {
+                value
+            };
             person.core_fields.insert((*key).into(), value);
         }
         let mut statement = connection.prepare("SELECT d.display_name, v.field_value FROM personnel_custom_fields v JOIN custom_field_definitions d ON d.field_key = v.field_key WHERE v.personnel_id = ?1 ORDER BY d.display_name COLLATE NOCASE").map_err(|_| "Не вдалося прочитати кастомні поля.".to_string())?;
-        let rows = statement.query_map([person.id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).map_err(|_| "Не вдалося прочитати кастомні поля.".to_string())?;
-        for row in rows { let (name, value) = row.map_err(|_| "Не вдалося прочитати кастомне поле.".to_string())?; person.custom_fields.insert(name, value); }
+        let rows = statement
+            .query_map([person.id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|_| "Не вдалося прочитати кастомні поля.".to_string())?;
+        for row in rows {
+            let (name, value) =
+                row.map_err(|_| "Не вдалося прочитати кастомне поле.".to_string())?;
+            person.custom_fields.insert(name, value);
+        }
     }
     Ok(())
 }
 
 pub fn list(connection: &Connection) -> Result<Vec<Personnel>, String> {
-    let mut statement = connection.prepare("SELECT id, rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, assigned_vehicle_name, assigned_vehicle_registration, gender FROM personnel ORDER BY id ASC")
+    let mut statement = connection.prepare("SELECT id, rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, gender FROM personnel ORDER BY id ASC")
         .map_err(|_| "Не вдалося відкрити особовий склад. Спробуйте перезапустити програму.".to_string())?;
     let rows = statement
         .query_map([], map_row)
         .map_err(|_| "Не вдалося прочитати особовий склад.".to_string())?;
-    let mut people = rows.collect::<Result<Vec<_>, _>>().map_err(|_| "Не вдалося прочитати один із записів особового складу.".to_string())?;
+    let mut people = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Не вдалося прочитати один із записів особового складу.".to_string())?;
     enrich_extra_fields(connection, &mut people)?;
     Ok(people)
 }
@@ -124,7 +166,7 @@ pub fn list_page(
         .map_err(|_| "Не вдалося визначити кількість записів особового складу.".to_string())?;
     let safe_limit = i64::from(limit.clamp(1, 100));
     let safe_offset = i64::from(offset);
-    let mut statement = connection.prepare("SELECT id, rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, assigned_vehicle_name, assigned_vehicle_registration, gender FROM personnel ORDER BY id ASC LIMIT ?1 OFFSET ?2")
+    let mut statement = connection.prepare("SELECT id, rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, gender FROM personnel ORDER BY id ASC LIMIT ?1 OFFSET ?2")
         .map_err(|_| "Не вдалося відкрити особовий склад. Спробуйте перезапустити програму.".to_string())?;
     let items = statement
         .query_map(params![safe_limit, safe_offset], map_row)
@@ -138,13 +180,20 @@ pub fn list_page(
 
 pub fn create(connection: &Connection, draft: PersonnelDraft) -> Result<Personnel, String> {
     validate(&draft)?;
-    connection.execute("INSERT INTO personnel (rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, assigned_vehicle_name, assigned_vehicle_registration, gender) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)", params![draft.rank, draft.surname, draft.given_name, draft.patronymic, draft.position, draft.tax_id, draft.birth_date, draft.education_level, draft.education_details, draft.armed_forces_service_start_date, draft.position_assigned_date, draft.position_assignment_order, draft.military_id, draft.assigned_vehicle_name, draft.assigned_vehicle_registration, draft.gender])
+    connection.execute("INSERT INTO personnel (rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, gender) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)", params![draft.rank, draft.surname, draft.given_name, draft.patronymic, draft.position, draft.tax_id, draft.birth_date, draft.education_level, draft.education_details, draft.armed_forces_service_start_date, draft.position_assigned_date, draft.position_assignment_order, draft.military_id, draft.gender])
         .map_err(|_| "Не вдалося зберегти військовослужбовця. Перевірте унікальність ІПН.".to_string())?;
     let id = connection.last_insert_rowid();
+    sync_vehicle(connection, id, &draft)?;
     save_core_fields(connection, id, &draft.core_fields)?;
     let definitions = connection
         .prepare("SELECT field_key, initial_value FROM custom_field_definitions")
-        .and_then(|mut statement| statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).and_then(|rows| rows.collect::<Result<Vec<_>, _>>()));
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        });
     if let Ok(definitions) = definitions {
         for (key, value) in definitions {
             connection.execute("INSERT INTO personnel_custom_fields (personnel_id, field_key, field_value) VALUES (?1, ?2, ?3)", params![id, key, value]).map_err(|_| "Не вдалося встановити початкові значення додаткових полів.".to_string())?;
@@ -161,17 +210,35 @@ pub fn update(
     draft: PersonnelDraft,
 ) -> Result<Personnel, String> {
     validate(&draft)?;
-    let updated = connection.execute("UPDATE personnel SET rank=?1, surname=?2, given_name=?3, patronymic=?4, position=?5, tax_id=?6, birth_date=?7, education_level=?8, education_details=?9, armed_forces_service_start_date=?10, position_assigned_date=?11, position_assignment_order=?12, military_id=?13, assigned_vehicle_name=?14, assigned_vehicle_registration=?15, gender=?16, updated_at=CURRENT_TIMESTAMP WHERE id=?17", params![draft.rank, draft.surname, draft.given_name, draft.patronymic, draft.position, draft.tax_id, draft.birth_date, draft.education_level, draft.education_details, draft.armed_forces_service_start_date, draft.position_assigned_date, draft.position_assignment_order, draft.military_id, draft.assigned_vehicle_name, draft.assigned_vehicle_registration, draft.gender, id])
+    let updated = connection.execute("UPDATE personnel SET rank=?1, surname=?2, given_name=?3, patronymic=?4, position=?5, tax_id=?6, birth_date=?7, education_level=?8, education_details=?9, armed_forces_service_start_date=?10, position_assigned_date=?11, position_assignment_order=?12, military_id=?13, gender=?14, updated_at=CURRENT_TIMESTAMP WHERE id=?15", params![draft.rank, draft.surname, draft.given_name, draft.patronymic, draft.position, draft.tax_id, draft.birth_date, draft.education_level, draft.education_details, draft.armed_forces_service_start_date, draft.position_assigned_date, draft.position_assignment_order, draft.military_id, draft.gender, id])
         .map_err(|_| "Не вдалося оновити військовослужбовця.".to_string())?;
     if updated == 0 {
         return Err(
             "Військовослужбовця не знайдено. Оновіть список і спробуйте знову.".to_string(),
         );
     }
+    sync_vehicle(connection, id, &draft)?;
     save_core_fields(connection, id, &draft.core_fields)?;
     let mut person = find(connection, id)?;
     enrich_extra_fields(connection, std::slice::from_mut(&mut person))?;
     Ok(person)
+}
+
+fn sync_vehicle(
+    connection: &Connection,
+    personnel_id: i64,
+    draft: &PersonnelDraft,
+) -> Result<(), String> {
+    if !draft.position.to_lowercase().contains("водій") {
+        connection
+            .execute(
+                "UPDATE vehicles SET personnel_id=NULL WHERE personnel_id=?1",
+                [personnel_id],
+            )
+            .map_err(|_| "Не вдалося відкріпити автомобіль.".to_string())?;
+        return Ok(());
+    }
+    Ok(())
 }
 
 pub fn delete(connection: &Connection, id: i64) -> Result<(), String> {
@@ -187,16 +254,28 @@ pub fn delete(connection: &Connection, id: i64) -> Result<(), String> {
 }
 
 fn find(connection: &Connection, id: i64) -> Result<Personnel, String> {
-    connection.query_row("SELECT id, rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, assigned_vehicle_name, assigned_vehicle_registration, gender FROM personnel WHERE id=?1", [id], map_row)
+    connection.query_row("SELECT id, rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, gender FROM personnel WHERE id=?1", [id], map_row)
         .map_err(|_| "Не вдалося знайти збережений запис.".to_string())
 }
 
 /// Writes only the fixed, migrated personnel columns. Arbitrary client keys are never interpolated.
-fn save_core_fields(connection: &Connection, id: i64, values: &HashMap<String, String>) -> Result<(), String> {
+fn save_core_fields(
+    connection: &Connection,
+    id: i64,
+    values: &HashMap<String, String>,
+) -> Result<(), String> {
     for (key, _) in crate::database::STANDARD_EXTRA_FIELDS {
-        if *key == "full_name" { continue; }
+        if *key == "full_name" {
+            continue;
+        }
         let value = values.get(*key).cloned().unwrap_or_default();
-        connection.execute(&format!("UPDATE personnel SET {key} = ?1, updated_at=CURRENT_TIMESTAMP WHERE id = ?2"), params![value, id])
+        connection
+            .execute(
+                &format!(
+                    "UPDATE personnel SET {key} = ?1, updated_at=CURRENT_TIMESTAMP WHERE id = ?2"
+                ),
+                params![value, id],
+            )
             .map_err(|_| format!("Не вдалося зберегти основне поле «{key}»."))?;
     }
     Ok(())
@@ -248,8 +327,7 @@ mod tests {
             position_assigned_date: "01.01.2023 року".into(),
             position_assignment_order: "№1".into(),
             military_id: "АВ №000001".into(),
-            assigned_vehicle_name: "Great Wall".into(),
-            assigned_vehicle_registration: "АВ 0001".into(),
+
             gender: "чоловіча".into(),
             core_fields: HashMap::new(),
         }
@@ -263,12 +341,11 @@ mod tests {
         assert_eq!(saved.full_name, "ТЕСТ Іван Іванович");
         let mut changed = valid_draft();
         changed.position = "Командир відділення, в/ч А0000".into();
-        changed.core_fields.insert("passport_series".into(), "МС".into());
+        changed
+            .core_fields
+            .insert("passport_series".into(), "МС".into());
         let updated = update(&connection, saved.id, changed).unwrap();
-        assert_eq!(
-            updated.position,
-            "Командир відділення, в/ч А0000"
-        );
+        assert_eq!(updated.position, "Командир відділення, в/ч А0000");
         assert_eq!(updated.core_fields["passport_series"], "МС");
         delete(&connection, saved.id).unwrap();
         assert!(list(&connection).unwrap().is_empty());
@@ -303,6 +380,55 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![1, 2]
         );
+    }
+
+    #[test]
+    fn keeps_multiple_vehicles_as_a_database_relation_and_unassigns_them_when_driver_role_changes()
+    {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let mut draft = valid_draft();
+        draft.position = "Водій".into();
+        let driver = create(&connection, draft).unwrap();
+        connection.execute("INSERT INTO vehicles(name, registration_number, status, personnel_id) VALUES ('Toyota Hilux', 'АА 1111 АА', 'Справний', ?1), ('Ford Ranger', 'АА 2222 АА', 'Справний', ?1)", [driver.id]).unwrap();
+
+        let listed = list(&connection).unwrap();
+        assert_eq!(listed[0].assigned_vehicle_name, "Toyota Hilux, Ford Ranger");
+        assert_eq!(
+            listed[0].assigned_vehicle_registration,
+            "АА 1111 АА, АА 2222 АА"
+        );
+
+        let mut changed = valid_draft();
+        changed.position = "Стрілець".into();
+        update(&connection, driver.id, changed).unwrap();
+        let linked: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM vehicles WHERE personnel_id IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(linked, 0);
+    }
+
+    #[test]
+    fn deleting_a_driver_unassigns_vehicles_via_foreign_key() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let mut draft = valid_draft();
+        draft.position = "Водій".into();
+        let driver = create(&connection, draft).unwrap();
+        connection.execute("INSERT INTO vehicles(name, registration_number, status, personnel_id) VALUES ('Toyota Hilux', 'АА 1111 АА', 'Справний', ?1)", [driver.id]).unwrap();
+        delete(&connection, driver.id).unwrap();
+        let assigned: Option<i64> = connection
+            .query_row(
+                "SELECT personnel_id FROM vehicles WHERE registration_number='АА 1111 АА'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(assigned, None);
     }
 
     #[test]

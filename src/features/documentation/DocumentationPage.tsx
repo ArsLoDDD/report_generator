@@ -3,7 +3,7 @@ import { BookOpen, Copy } from "lucide-react";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { SearchInput } from "../../shared/ui/SearchInput";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
-import { modifierRegistry, tokenFor, variableRegistry, type VariableDefinition } from "../../shared/template-language/registry";
+import { modifierRegistry, tokenFor, variableRegistry, vehicleFields, type VariableDefinition } from "../../shared/template-language/registry";
 import { morphologyService, type UkrainianCase } from "../../shared/services/morphologyService";
 import { personnelService } from "../../shared/services/personnelService";
 import type { CustomFieldDefinition } from "../../shared/types/domain";
@@ -15,7 +15,7 @@ const signerObjects = [
   ["заступник_ппп", "Заступник командира з ППП"], ["заступник_озброєння", "Заступник командира з озброєння"],
   ["заступник_тилу", "Заступник командира з тилу"], ["начальник_пмм", "Начальник ПММ"]
 ] as const;
-const objects = [{ id: "person", label: "Військовослужбовець" }, ...signerObjects.map(([id, label]) => ({ id, label })), { id: "date", label: "Дата рапорту" }];
+const objects = [{ id: "person", label: "Військовослужбовець" }, { id: "vehicle", label: "Автомобіль" }, ...signerObjects.map(([id, label]) => ({ id, label })), { id: "date", label: "Дата рапорту" }];
 
 function Preview({ variable, modifiers }: { variable: VariableDefinition; modifiers: string[] }) {
   const [result, setResult] = useState(variable.example);
@@ -41,6 +41,12 @@ function Preview({ variable, modifiers }: { variable: VariableDefinition; modifi
 const toPersonnelValue = (item: CustomFieldDefinition): VariableDefinition => ({
   id: `військовий_1_${templateFieldId(item.displayName)}`, name: item.displayName, category: "Військовослужбовець", description: item.description, example: item.initialValue, kind: "text", supportsCases: false
 });
+const toVehicleValue = (item: CustomFieldDefinition): VariableDefinition => ({
+  id: `автомобіль_${templateFieldId(item.displayName)}`, name: item.displayName, category: "Автомобіль", description: item.description, example: item.initialValue, kind: "text", supportsCases: false
+});
+const toPersonnelVehicleValue = (item: CustomFieldDefinition): VariableDefinition => ({
+  id: `військовий_1_автомобіль_1_${templateFieldId(item.displayName)}`, name: item.displayName, category: "Автомобіль військовослужбовця", description: item.description, example: item.initialValue, kind: "text", supportsCases: false
+});
 const templateFieldId = (name: string) => name.toLocaleLowerCase("uk")
   .replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "");
 
@@ -53,26 +59,30 @@ export function VariableConstructorPage() {
   const [modifiers, setModifiers] = useState<string[]>([]);
   const [step, setStep] = useState(0);
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
+  const [vehicleCustomFields, setVehicleCustomFields] = useState<CustomFieldDefinition[]>([]);
   const { notify } = useNotifications();
 
   useEffect(() => {
     void personnelService.listCustomFields().then(setCustomFields).catch(() => undefined);
+    void personnelService.listVehicleCustomFields?.().then(setVehicleCustomFields).catch(() => undefined);
   }, []);
 
   const isPerson = objectId === "person";
   const categoryItems = useMemo(() => {
     const matches = (item: VariableDefinition) => `${item.name} ${item.description} ${item.id}`.toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"));
     const personnelValueFields = customFields.map(toPersonnelValue);
-    if (viewMode === "all") return [...variableRegistry, ...personnelValueFields].filter(matches);
-    if (isPerson) return [...variableRegistry.filter((item) => item.id.startsWith("військовий_1_")), ...personnelValueFields].filter(matches);
+    const vehicleValueFields = vehicleCustomFields.map(toVehicleValue);
+    if (viewMode === "all") return [...variableRegistry, ...personnelValueFields, ...vehicleValueFields].filter(matches);
+    if (isPerson) return [...variableRegistry.filter((item) => item.id.startsWith("військовий_1_")), ...personnelValueFields, ...vehicleCustomFields.map(toPersonnelVehicleValue)].filter(matches);
+    if (objectId === "vehicle") return [...vehicleFields.map((item) => ({ id: `автомобіль_${item.id}`, name: item.name, category: "Автомобіль", description: item.description ?? item.name, example: item.example, kind: item.kind as VariableDefinition["kind"], supportsCases: item.cases })), ...vehicleValueFields].filter(matches);
     if (objectId === "date") return variableRegistry.filter((item) => item.category === "Дати та службові дані" && matches(item));
     return variableRegistry.filter((item) => item.id.startsWith(`${objectId}_`) && matches(item));
-  }, [viewMode, isPerson, objectId, query, customFields]);
+  }, [viewMode, isPerson, objectId, query, customFields, vehicleCustomFields]);
 
   const field = categoryItems.find((item) => item.id === fieldId) ?? categoryItems[0] ?? variableRegistry[0];
   const variableId = viewMode === "all" ? field.id : isPerson ? field.id.replace(/^військовий_1_/, `військовий_${Math.max(1, Number(personNumber) || 1)}_`) : field.id;
   const token = tokenFor(variableId, modifiers);
-  const selectObject = (id: string) => { setObjectId(id); setFieldId(id === "person" ? "військовий_1_піб" : id === "date" ? "дата_рапорту" : `${id}_піб`); setStep(1); setModifiers([]); };
+  const selectObject = (id: string) => { setObjectId(id); setFieldId(id === "person" ? "військовий_1_піб" : id === "vehicle" ? "автомобіль_назва" : id === "date" ? "дата_рапорту" : `${id}_піб`); setStep(1); setModifiers([]); };
   const selectField = (id: string) => { setFieldId(id); setStep(2); };
   const toggleModifier = (id: string) => setModifiers((current) => {
     const group = modifierRegistry.find((item) => item.id === id)?.group;

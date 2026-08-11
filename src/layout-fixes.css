@@ -80,12 +80,12 @@ body { overflow: hidden; }
 .templates-page .template-empty-page p { margin: 0; }
 
 /* Personnel and generated reports: table and details pan independently. */
-.personnel-page .people-layout, .generated-page .generated-layout { height: 100%; min-height: 0; }
-.personnel-page .data-table, .generated-page .data-table { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }
-.personnel-page .data-table__scroll, .personnel-page .person-details, .generated-page .data-table__scroll, .generated-page .report-details { min-height: 0; overflow: auto; }
-.personnel-page .data-table__scroll table, .generated-page .data-table__scroll table { display: table; min-height: auto; overflow: visible; }
-.personnel-page .data-table__scroll thead, .generated-page .data-table__scroll thead { position: sticky; top: 0; z-index: 1; background: #0d1922; }
-.personnel-page .data-table__scroll { overflow: auto; }
+.personnel-page .people-layout, .vehicles-page .people-layout, .generated-page .generated-layout { height: 100%; min-height: 0; }
+.personnel-page .data-table, .vehicles-page .data-table, .generated-page .data-table { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }
+.personnel-page .data-table__scroll, .personnel-page .person-details, .vehicles-page .data-table__scroll, .vehicles-page .person-details, .generated-page .data-table__scroll, .generated-page .report-details { min-height: 0; overflow: auto; }
+.personnel-page .data-table__scroll table, .vehicles-page .data-table__scroll table, .generated-page .data-table__scroll table { display: table; min-height: auto; overflow: visible; }
+.personnel-page .data-table__scroll thead, .vehicles-page .data-table__scroll thead, .generated-page .data-table__scroll thead { position: sticky; top: 0; z-index: 1; background: #0d1922; }
+.personnel-page .data-table__scroll, .vehicles-page .data-table__scroll { overflow: auto; }
 .personnel-page .personnel-table { display: table !important; min-width: 2860px; }
 .personnel-page .personnel-table th { position: sticky; top: 0; z-index: 3; background: #0d1922; }
 .personnel-page .personnel-table tbody tr { cursor: pointer; }
@@ -146,6 +146,22 @@ body { overflow: hidden; }
 .personnel-import-option span { color: #aebcc5; line-height: 1.4; }
 .personnel-import-option--danger:hover { border-color: #d77763; background: #291715; }
 .personnel-editor { width: min(960px, 100%); }
+.vehicle-editor { width: min(760px, 100%); grid-template-rows: auto minmax(0, 1fr) auto; }
+.vehicle-editor__scroll { overflow: auto; padding: 22px; }
+.vehicle-editor__intro { display: grid; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 13px; padding: 14px; border: 1px solid #254553; border-radius: 9px; background: linear-gradient(125deg, #10232d, #0c1b24); }
+.vehicle-editor__intro b { font-size: 14px; color: #e9f0f3; }
+.vehicle-editor__intro p { margin: 4px 0 0; color: #a6b6bf; font-size: 12px; line-height: 1.45; }
+.vehicle-editor__icon { display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid #358a42; border-radius: 9px; background: #10351c; color: #65dc68; }
+.vehicle-editor__icon svg { width: 24px; height: 24px; }
+.vehicle-editor__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 18px; margin-top: 20px; }
+.vehicle-editor .shared-select { display: block; width: 100%; }
+.vehicle-assignment-modal { width: min(610px, 100%); grid-template-rows: auto minmax(0, 1fr) auto; }
+.vehicle-assignment-modal__body { display: grid; gap: 18px; padding: 22px; }
+.vehicle-assignment-modal__body > p { margin: 0; color: #a9b8c0; line-height: 1.45; }
+.vehicle-delete-modal { width: min(500px, 100%); grid-template-rows: auto minmax(0, 1fr) auto; }
+.vehicle-delete-modal__body { display: flex; align-items: flex-start; gap: 13px; padding: 22px; color: #c7d1d6; line-height: 1.5; }
+.vehicle-delete-modal__body svg { flex: 0 0 auto; color: #f26e71; }
+.vehicle-delete-modal__body p { margin: 0; }
 .personnel-form { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
 .personnel-form__scroll { overflow: auto; padding: 20px; }
 .personnel-form__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 18px; }
@@ -385,6 +401,7 @@ body { overflow: hidden; }
 .screen-body:has(.people-layout) .filter-bar .reset svg { width: 19px; height: 19px; }
 
 .screen-body:has(.people-layout) .people-layout {
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }

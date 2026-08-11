@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import type { PersonnelDraft } from "../../../shared/types/domain";
 import { personnelCoreFields } from "../../../shared/constants/personnelCoreFields";
+import { Select } from "../../../shared/ui/Select";
 
 export const emptyPersonnelDraft: PersonnelDraft = {
   rank: "", surname: "", givenName: "", patronymic: "", position: "", taxId: "", birthDate: "",
@@ -22,9 +23,7 @@ const fields: Array<{ key: DraftKey; label: string; placeholder: string; wide?: 
   { key: "armedForcesServiceStartDate", label: "З якого часу в ЗСУ", placeholder: "у ЗС — із 27.02.2022 року", wide: true },
   { key: "positionAssignedDate", label: "Дата призначення на посаду", placeholder: "02.08.2026 року" },
   { key: "positionAssignmentOrder", label: "Наказ призначення на посаду", placeholder: "КВ ОК «Пуп» №000-ПС", wide: true },
-  { key: "militaryId", label: "Військовий квиток", placeholder: "АВ №077672" },
-  { key: "assignedVehicleName", label: "Закріплений автомобіль", placeholder: "Great Wall" },
-  { key: "assignedVehicleRegistration", label: "Номер автомобіля", placeholder: "АВ 7265" }
+  { key: "militaryId", label: "Військовий квиток", placeholder: "АВ №077672" }
 ];
 
 type PersonnelFormProps = {
@@ -47,7 +46,7 @@ export function PersonnelForm({ initialValue, submitLabel, onSubmit, onCancel }:
     try { await onSubmit(draft); } finally { setIsSaving(false); }
   };
   return <form className="personnel-form" onSubmit={(event) => void submit(event)}>
-    <div className="personnel-form__scroll"><div className="personnel-form__grid"><label className="form-field"><span>Стать</span><select value={draft.gender} onChange={(event) => change("gender", event.target.value)}><option value="">Визначати автоматично</option><option value="чоловіча">Чоловіча</option><option value="жіноча">Жіноча</option></select></label>{fields.map((field) => <label key={field.key} className={field.wide ? "form-field form-field--wide" : "form-field"}><span>{field.label}{field.required && <b> *</b>}</span><input value={draft[field.key]} placeholder={field.placeholder} required={field.required} onChange={(event) => change(field.key, event.target.value)} /></label>)}</div><h3 className="personnel-form__section-title">Додаткові основні дані</h3><div className="personnel-form__grid">{personnelCoreFields.filter(([key]) => key !== "full_name").map(([key, label]) => <label key={key} className="form-field"><span>{label}</span><input value={draft.coreFields?.[key] ?? ""} onChange={(event) => changeCore(key, event.target.value)} /></label>)}</div>{!draft.gender && <p className="form-warning">Стать не вказана. Під час відмінювання програма спробує визначити її за ПІБ і попередить, якщо це неможливо.</p>}{validationMessage && <p className="form-error" role="alert">{validationMessage}</p>}</div>
+    <div className="personnel-form__scroll"><div className="personnel-form__grid"><div className="form-field"><span>Стать</span><Select ariaLabel="Стать" value={draft.gender} onChange={(value) => change("gender", value)} options={[{ value: "", label: "Визначати автоматично" }, { value: "чоловіча", label: "Чоловіча" }, { value: "жіноча", label: "Жіноча" }]} /></div>{fields.map((field) => <label key={field.key} className={field.wide ? "form-field form-field--wide" : "form-field"}><span>{field.label}{field.required && <b> *</b>}</span><input value={draft[field.key]} placeholder={field.placeholder} required={field.required} onChange={(event) => change(field.key, event.target.value)} /></label>)}</div><h3 className="personnel-form__section-title">Додаткові основні дані</h3><div className="personnel-form__grid">{personnelCoreFields.filter(([key]) => key !== "full_name").map(([key, label]) => <label key={key} className="form-field"><span>{label}</span><input value={draft.coreFields?.[key] ?? ""} onChange={(event) => changeCore(key, event.target.value)} /></label>)}</div>{!draft.gender && <p className="form-warning">Стать не вказана. Під час відмінювання програма спробує визначити її за ПІБ і попередить, якщо це неможливо.</p>}{validationMessage && <p className="form-error" role="alert">{validationMessage}</p>}</div>
     <footer className="modal-actions"><button className="button" type="button" onClick={onCancel} disabled={isSaving}>Скасувати</button><button className="button primary" type="submit" disabled={isSaving}>{isSaving ? "Збереження…" : submitLabel}</button></footer>
   </form>;
 }

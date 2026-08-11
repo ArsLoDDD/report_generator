@@ -24,6 +24,8 @@ pub struct GenerateReportRequest {
     pub template_path: String,
     pub personnel_ids: Vec<i64>,
     pub report_date: Option<String>,
+    #[serde(default)]
+    pub vehicle_ids: Vec<i64>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +45,7 @@ pub struct GeneratedReport {
 #[serde(rename_all = "camelCase")]
 struct Registry {
     person_fields: Vec<Field>,
+    vehicle_fields: Vec<Field>,
     signer_roles: Vec<Role>,
     signer_fields: Vec<Field>,
     document_fields: Vec<Field>,
@@ -86,11 +89,31 @@ struct Value {
 impl Value {
     fn new(text: String, kind: &str, gender: Option<&str>) -> Self {
         Self {
-            text,
+            text: normalize_unit_codes(&text),
             kind: kind.into(),
             gender: gender.filter(|v| !v.is_empty()).map(str::to_string),
         }
     }
+}
+fn normalize_unit_codes(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut result = String::with_capacity(text.len());
+    for (index, character) in chars.iter().enumerate() {
+        let is_unit_letter = (*character == 'а' || *character == 'a')
+            && chars
+                .get(index + 1..index + 5)
+                .is_some_and(|tail| tail.iter().all(|value| value.is_ascii_digit()));
+        result.push(if is_unit_letter {
+            if *character == 'a' {
+                'A'
+            } else {
+                'А'
+            }
+        } else {
+            *character
+        });
+    }
+    result
 }
 
 pub fn inspect(template_path: &str) -> TemplateValidationResult {
@@ -115,13 +138,14 @@ pub fn validate(
     connection: &Connection,
     template_path: &str,
     ids: &[i64],
+    vehicle_ids: &[i64],
     date: Option<&str>,
 ) -> TemplateValidationResult {
     let mut result = inspect(template_path);
-    if ids.is_empty() {
+    if ids.is_empty() && vehicle_ids.is_empty() {
         result
             .errors
-            .push("Оберіть щонайменше одного військовослужбовця.".into())
+            .push("Оберіть щонайменше одного військовослужбовця або автомобіль.".into())
     }
     for token in &result.variables {
         if let Some(n) = person_number(token) {
@@ -143,6 +167,15 @@ pub fn validate(
             .errors
             .push("Один або кілька обраних військовослужбовців більше не існують.".into())
     }
+    if vehicle_ids.iter().any(|id| {
+        connection
+            .query_row("SELECT 1 FROM vehicles WHERE id=?1", [id], |_| Ok(()))
+            .is_err()
+    }) {
+        result
+            .errors
+            .push("Один або кілька обраних автомобілів більше не існують.".into());
+    }
     result.is_valid = result.errors.is_empty();
     result
 }
@@ -155,6 +188,7 @@ pub fn generate(
         connection,
         &request.template_path,
         &request.personnel_ids,
+        &request.vehicle_ids,
         request.report_date.as_deref(),
     );
     if !check.is_valid {
@@ -162,9 +196,11 @@ pub fn generate(
     }
     let people = selected_personnel(connection, &request.personnel_ids)?;
     let mut values = values_for(
+        connection,
         &people,
         &settings::load(root)?,
         request.report_date.as_deref(),
+        request.vehicle_ids.first().copied(),
     )?;
     add_custom_values(connection, &people, &mut values)?;
     let now = Local::now();
@@ -230,7 +266,11 @@ fn validate_token(token: &str) -> Vec<String> {
         if m.group != "style" && !groups.insert(&m.group) {
             errors.push(format!(
                 "Конфлікт модифікаторів групи «{}» у «{{{{{token}}}}}».",
-                if m.group == "case" { "відмінок" } else { "регістр" }
+                if m.group == "case" {
+                    "відмінок"
+                } else {
+                    "регістр"
+                }
             ))
         }
         if m.group == "case" && !field.map(|value| value.cases).unwrap_or(false) {
@@ -245,6 +285,13 @@ fn validate_token(token: &str) -> Vec<String> {
     errors
 }
 fn custom_field_token(base: &str) -> bool {
+    if let Some(key) = base.strip_prefix("автомобіль_") {
+        return !key.is_empty()
+            && key.chars().next().is_some_and(char::is_alphabetic)
+            && key
+                .chars()
+                .all(|value| value == '_' || value.is_alphanumeric());
+    }
     let Some(rest) = base.strip_prefix("військовий_") else {
         return false;
     };
@@ -255,13 +302,28 @@ fn custom_field_token(base: &str) -> bool {
         && number != "0"
         && !key.is_empty()
         && key.chars().next().is_some_and(char::is_alphabetic)
-        && key.chars().all(|value| value == '_' || value.is_alphanumeric())
+        && key
+            .chars()
+            .all(|value| value == '_' || value.is_alphanumeric())
 }
 fn field_for(base: &str) -> Option<&'static Field> {
+    if let Some(id) = base.strip_prefix("автомобіль_") {
+        return registry().vehicle_fields.iter().find(|f| f.id == id);
+    }
     if let Some(c) = base.strip_prefix("військовий_") {
-        let (_, id) = c.split_once('_')?;
-        if c.split_once('_')?.0.parse::<usize>().ok()? == 0 {
+        let (number, id) = c.split_once('_')?;
+        if number.parse::<usize>().ok()? == 0 {
             return None;
+        }
+        if let Some(vehicle) = id.strip_prefix("автомобіль_") {
+            let (vehicle_number, field_id) = vehicle.split_once('_')?;
+            if vehicle_number.parse::<usize>().ok()? == 0 {
+                return None;
+            }
+            return registry()
+                .vehicle_fields
+                .iter()
+                .find(|field| field.id == field_id);
         }
         return registry().person_fields.iter().find(|f| f.id == id);
     }
@@ -323,9 +385,11 @@ fn selected_personnel(c: &Connection, ids: &[i64]) -> Result<Vec<Personnel>, Str
         .collect()
 }
 fn values_for(
+    connection: &Connection,
     people: &[Personnel],
     s: &settings::AppSettings,
     date: Option<&str>,
+    selected_vehicle_id: Option<i64>,
 ) -> Result<HashMap<String, Value>, String> {
     let mut map = HashMap::new();
     for (i, p) in people.iter().enumerate() {
@@ -333,7 +397,62 @@ fn values_for(
         let gender = detect_gender(&p.gender, &p.patronymic);
         for field in &registry().person_fields {
             let text = person_value(p, field.source_key.as_deref().unwrap_or_default());
-            map.insert(format!("{prefix}_{}", field.id), Value::new(text, &field.kind, gender));
+            map.insert(
+                format!("{prefix}_{}", field.id),
+                Value::new(text, &field.kind, gender),
+            );
+        }
+        add_person_vehicles(connection, p.id, i + 1, &mut map)?;
+    }
+    let vehicle_id = selected_vehicle_id.or_else(|| {
+        people.first().and_then(|person| {
+            connection
+                .query_row(
+                    "SELECT id FROM vehicles WHERE personnel_id=?1 LIMIT 1",
+                    [person.id],
+                    |row| row.get(0),
+                )
+                .ok()
+        })
+    });
+    if let Some(vehicle_id) = vehicle_id {
+        if let Ok((name, number, status)) = connection.query_row(
+            "SELECT name, registration_number, status FROM vehicles WHERE id=?1",
+            [vehicle_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        ) {
+            for field in &registry().vehicle_fields {
+                let text = match field.source_key.as_deref() {
+                    Some("name") => name.clone(),
+                    Some("registration_number") => number.clone(),
+                    Some("status") => status.clone(),
+                    _ => String::new(),
+                };
+                map.insert(
+                    format!("автомобіль_{}", field.id),
+                    Value::new(text, &field.kind, None),
+                );
+            }
+            let mut statement = connection.prepare("SELECT d.display_name, v.field_value FROM vehicle_custom_fields v JOIN vehicle_custom_field_definitions d ON d.field_key=v.field_key WHERE v.vehicle_id=?1").map_err(|_| "Не вдалося прочитати додаткові поля автомобіля.".to_string())?;
+            let rows = statement
+                .query_map([vehicle_id], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|_| "Не вдалося прочитати додаткові поля автомобіля.".to_string())?;
+            for row in rows {
+                let (display_name, value) =
+                    row.map_err(|_| "Не вдалося прочитати додаткове поле автомобіля.".to_string())?;
+                map.insert(
+                    format!("автомобіль_{}", custom_template_id(&display_name)),
+                    Value::new(value, "text", None),
+                );
+            }
         }
     }
     for role in &registry().signer_roles {
@@ -360,12 +479,75 @@ fn values_for(
     Ok(map)
 }
 
+fn add_person_vehicles(
+    connection: &Connection,
+    personnel_id: i64,
+    person_number: usize,
+    map: &mut HashMap<String, Value>,
+) -> Result<(), String> {
+    let mut statement = connection.prepare("SELECT id, name, registration_number, status FROM vehicles WHERE personnel_id=?1 ORDER BY id")
+        .map_err(|_| "Не вдалося прочитати автомобілі військовослужбовця.".to_string())?;
+    let vehicles = statement
+        .query_map([personnel_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|_| "Не вдалося прочитати автомобілі військовослужбовця.".to_string())?;
+    for (vehicle_number, vehicle) in vehicles.enumerate() {
+        let (id, name, registration, status) = vehicle
+            .map_err(|_| "Не вдалося прочитати автомобіль військовослужбовця.".to_string())?;
+        let prefix = format!(
+            "військовий_{person_number}_автомобіль_{}",
+            vehicle_number + 1
+        );
+        for field in &registry().vehicle_fields {
+            let text = match field.source_key.as_deref() {
+                Some("name") => name.clone(),
+                Some("registration_number") => registration.clone(),
+                Some("status") => status.clone(),
+                _ => String::new(),
+            };
+            map.insert(
+                format!("{prefix}_{}", field.id),
+                Value::new(text, &field.kind, None),
+            );
+        }
+        let mut fields = connection.prepare("SELECT d.display_name, v.field_value FROM vehicle_custom_fields v JOIN vehicle_custom_field_definitions d ON d.field_key=v.field_key WHERE v.vehicle_id=?1")
+            .map_err(|_| "Не вдалося прочитати додаткові поля автомобіля.".to_string())?;
+        let rows = fields
+            .query_map([id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|_| "Не вдалося прочитати додаткові поля автомобіля.".to_string())?;
+        for row in rows {
+            let (display_name, value) =
+                row.map_err(|_| "Не вдалося прочитати додаткове поле автомобіля.".to_string())?;
+            map.insert(
+                format!("{prefix}_{}", custom_template_id(&display_name)),
+                Value::new(value, "text", None),
+            );
+        }
+    }
+    Ok(())
+}
+
 fn person_value(person: &Personnel, source_key: &str) -> String {
     match source_key {
         "surname" => person.surname.to_uppercase(),
         "given_name" => name_case(&person.given_name),
         "patronymic" => name_case(&person.patronymic),
-        "full_name" => format!("{} {} {}", person.surname.to_uppercase(), name_case(&person.given_name), name_case(&person.patronymic)).trim().to_string(),
+        "full_name" => format!(
+            "{} {} {}",
+            person.surname.to_uppercase(),
+            name_case(&person.given_name),
+            name_case(&person.patronymic)
+        )
+        .trim()
+        .to_string(),
         "rank" => sentence_case(&person.rank),
         "position" => sentence_case(&person.position),
         "tax_id" => person.tax_id.clone(),
@@ -391,14 +573,22 @@ fn add_custom_values(
         let mut statement = connection.prepare("SELECT definition.field_key, definition.display_name, value.field_value FROM personnel_custom_fields value JOIN custom_field_definitions definition ON definition.field_key = value.field_key WHERE value.personnel_id = ?1").map_err(|_| "Не вдалося прочитати додаткові поля.".to_string())?;
         let fields = statement
             .query_map([person.id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
             })
             .map_err(|_| "Не вдалося прочитати додаткові поля.".to_string())?;
         for field in fields {
             let (_key, display_name, value) =
                 field.map_err(|_| "Не вдалося прочитати додаткове поле.".to_string())?;
             values.insert(
-                format!("військовий_{}_{}", index + 1, custom_template_id(&display_name)),
+                format!(
+                    "військовий_{}_{}",
+                    index + 1,
+                    custom_template_id(&display_name)
+                ),
                 Value::new(value, "text", None),
             );
         }
@@ -406,10 +596,23 @@ fn add_custom_values(
     Ok(())
 }
 fn custom_template_id(name: &str) -> String {
-    let normalized = name.to_lowercase().chars().map(|character| {
-        if character.is_alphanumeric() { character } else { '_' }
-    }).collect::<String>();
-    normalized.trim_matches('_').split('_').filter(|part| !part.is_empty()).collect::<Vec<_>>().join("_")
+    let normalized = name
+        .to_lowercase()
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    normalized
+        .trim_matches('_')
+        .split('_')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("_")
 }
 fn add_signer(map: &mut HashMap<String, Value>, prefix: &str, s: &settings::SignerSettings) {
     let parts = s.full_name.split_whitespace().collect::<Vec<_>>();
@@ -543,12 +746,78 @@ fn decline_rank(value: &str, case: &str, gender: &str) -> String {
                 "серджанте",
             ],
         ),
-        ("лейтенант", ["лейтенант", "лейтенанта", "лейтенанту", "лейтенанта", "лейтенантом", "лейтенанті", "лейтенанте"]),
-        ("старший лейтенант", ["старший лейтенант", "старшого лейтенанта", "старшому лейтенанту", "старшого лейтенанта", "старшим лейтенантом", "старшому лейтенанті", "старший лейтенанте"]),
-        ("молодший сержант", ["молодший сержант", "молодшого сержанта", "молодшому сержанту", "молодшого сержанта", "молодшим сержантом", "молодшому сержанті", "молодший сержанте"]),
-        ("старший сержант", ["старший сержант", "старшого сержанта", "старшому сержанту", "старшого сержанта", "старшим сержантом", "старшому сержанті", "старший сержанте"]),
-        ("підполковник", ["підполковник", "підполковника", "підполковнику", "підполковника", "підполковником", "підполковнику", "підполковнику"]),
-        ("полковник", ["полковник", "полковника", "полковнику", "полковника", "полковником", "полковнику", "полковнику"]),
+        (
+            "лейтенант",
+            [
+                "лейтенант",
+                "лейтенанта",
+                "лейтенанту",
+                "лейтенанта",
+                "лейтенантом",
+                "лейтенанті",
+                "лейтенанте",
+            ],
+        ),
+        (
+            "старший лейтенант",
+            [
+                "старший лейтенант",
+                "старшого лейтенанта",
+                "старшому лейтенанту",
+                "старшого лейтенанта",
+                "старшим лейтенантом",
+                "старшому лейтенанті",
+                "старший лейтенанте",
+            ],
+        ),
+        (
+            "молодший сержант",
+            [
+                "молодший сержант",
+                "молодшого сержанта",
+                "молодшому сержанту",
+                "молодшого сержанта",
+                "молодшим сержантом",
+                "молодшому сержанті",
+                "молодший сержанте",
+            ],
+        ),
+        (
+            "старший сержант",
+            [
+                "старший сержант",
+                "старшого сержанта",
+                "старшому сержанту",
+                "старшого сержанта",
+                "старшим сержантом",
+                "старшому сержанті",
+                "старший сержанте",
+            ],
+        ),
+        (
+            "підполковник",
+            [
+                "підполковник",
+                "підполковника",
+                "підполковнику",
+                "підполковника",
+                "підполковником",
+                "підполковнику",
+                "підполковнику",
+            ],
+        ),
+        (
+            "полковник",
+            [
+                "полковник",
+                "полковника",
+                "полковнику",
+                "полковника",
+                "полковником",
+                "полковнику",
+                "полковнику",
+            ],
+        ),
     ]
     .into_iter()
     .collect();
@@ -581,11 +850,26 @@ fn decline_position_head(value: &str, case: &str) -> String {
     let mut parts = value.splitn(2, char::is_whitespace);
     let head = parts.next().unwrap_or_default();
     let rest = parts.next().unwrap_or_default();
-    let punctuation: String = head.chars().rev().take_while(|c| !c.is_alphanumeric()).collect::<String>().chars().rev().collect();
+    let punctuation: String = head
+        .chars()
+        .rev()
+        .take_while(|c| !c.is_alphanumeric())
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
     let lexical_head = head.strip_suffix(&punctuation).unwrap_or(head);
     let lower = lexical_head.to_lowercase();
     let changed = if let Some(forms) = position_forms(&lower) {
-        let cases = ["називний", "родовий", "давальний", "знахідний", "орудний", "місцевий", "кличний"];
+        let cases = [
+            "називний",
+            "родовий",
+            "давальний",
+            "знахідний",
+            "орудний",
+            "місцевий",
+            "кличний",
+        ];
         forms[cases.iter().position(|item| *item == case).unwrap_or(0)].to_string()
     } else if lower.ends_with("ець") {
         format!(
@@ -619,14 +903,78 @@ fn decline_position_head(value: &str, case: &str) -> String {
 
 fn position_forms(value: &str) -> Option<[&'static str; 7]> {
     match value {
-        "оператор" => Some(["оператор", "оператора", "оператору", "оператора", "оператором", "операторі", "операторе"]),
-        "командир" => Some(["командир", "командира", "командиру", "командира", "командиром", "командирі", "командире"]),
-        "начальник" => Some(["начальник", "начальника", "начальнику", "начальника", "начальником", "начальнику", "начальнику"]),
-        "заступник" => Some(["заступник", "заступника", "заступнику", "заступника", "заступником", "заступнику", "заступнику"]),
-        "стрілець" => Some(["стрілець", "стрільця", "стрільцю", "стрільця", "стрільцем", "стрільці", "стрільцю"]),
-        "помічник" => Some(["помічник", "помічника", "помічнику", "помічника", "помічником", "помічнику", "помічнику"]),
-        "водій" => Some(["водій", "водія", "водієві", "водія", "водієм", "водієві", "водію"]),
-        "механік" => Some(["механік", "механіка", "механіку", "механіка", "механіком", "механіку", "механіку"]),
+        "оператор" => Some([
+            "оператор",
+            "оператора",
+            "оператору",
+            "оператора",
+            "оператором",
+            "операторі",
+            "операторе",
+        ]),
+        "командир" => Some([
+            "командир",
+            "командира",
+            "командиру",
+            "командира",
+            "командиром",
+            "командирі",
+            "командире",
+        ]),
+        "начальник" => Some([
+            "начальник",
+            "начальника",
+            "начальнику",
+            "начальника",
+            "начальником",
+            "начальнику",
+            "начальнику",
+        ]),
+        "заступник" => Some([
+            "заступник",
+            "заступника",
+            "заступнику",
+            "заступника",
+            "заступником",
+            "заступнику",
+            "заступнику",
+        ]),
+        "стрілець" => Some([
+            "стрілець",
+            "стрільця",
+            "стрільцю",
+            "стрільця",
+            "стрільцем",
+            "стрільці",
+            "стрільцю",
+        ]),
+        "помічник" => Some([
+            "помічник",
+            "помічника",
+            "помічнику",
+            "помічника",
+            "помічником",
+            "помічнику",
+            "помічнику",
+        ]),
+        "водій" => Some([
+            "водій",
+            "водія",
+            "водієві",
+            "водія",
+            "водієм",
+            "водієві",
+            "водію",
+        ]),
+        "механік" => Some([
+            "механік",
+            "механіка",
+            "механіку",
+            "механіка",
+            "механіком",
+            "механіку",
+            "механіку",
+        ]),
         _ => None,
     }
 }
@@ -802,16 +1150,37 @@ fn replace_variables(xml: &str, values: &HashMap<String, Value>) -> Result<Strin
 
 fn style_replacement(xml: &str, replacement: &str, modifiers: &[&str]) -> String {
     let mut properties = String::new();
-    if modifiers.iter().any(|item| *item == "жирним") { properties.push_str("<w:b/>"); }
-    if modifiers.iter().any(|item| *item == "підкреслити") { properties.push_str("<w:u w:val=\"single\"/>"); }
-    if properties.is_empty() { return xml.to_string(); }
-    let Some(text_start) = xml.find(replacement) else { return xml.to_string(); };
-    let run_start = xml[..text_start].rfind("<w:r>").or_else(|| xml[..text_start].rfind("<w:r "));
-    let Some(run_start) = run_start else { return xml.to_string(); };
-    let Some(tag_end_rel) = xml[run_start..].find('>') else { return xml.to_string(); };
+    if modifiers.iter().any(|item| *item == "жирним") {
+        properties.push_str("<w:b/>");
+    }
+    if modifiers.iter().any(|item| *item == "підкреслити") {
+        properties.push_str("<w:u w:val=\"single\"/>");
+    }
+    if properties.is_empty() {
+        return xml.to_string();
+    }
+    let Some(text_start) = xml.find(replacement) else {
+        return xml.to_string();
+    };
+    let run_start = xml[..text_start]
+        .rfind("<w:r>")
+        .or_else(|| xml[..text_start].rfind("<w:r "));
+    let Some(run_start) = run_start else {
+        return xml.to_string();
+    };
+    let Some(tag_end_rel) = xml[run_start..].find('>') else {
+        return xml.to_string();
+    };
     let tag_end = run_start + tag_end_rel + 1;
-    if xml[run_start..tag_end].contains("<w:rPr") { return xml.to_string(); }
-    format!("{}<w:rPr>{}</w:rPr>{}", &xml[..tag_end], properties, &xml[tag_end..])
+    if xml[run_start..tag_end].contains("<w:rPr") {
+        return xml.to_string();
+    }
+    format!(
+        "{}<w:rPr>{}</w:rPr>{}",
+        &xml[..tag_end],
+        properties,
+        &xml[tag_end..]
+    )
 }
 fn replace_word_token(xml: &str, token: &str, replacement: &str) -> String {
     let mut result = xml.to_string();
@@ -967,7 +1336,10 @@ mod tests {
     fn applies_docx_style_modifiers_without_conflict() {
         let xml = "<w:r><w:t>{{військовий_1_піб:жирним:підкреслити}}</w:t></w:r>";
         let mut m = HashMap::new();
-        m.insert("військовий_1_піб".into(), Value::new("Іван".into(), "person-name", Some("чоловіча")));
+        m.insert(
+            "військовий_1_піб".into(),
+            Value::new("Іван".into(), "person-name", Some("чоловіча")),
+        );
         let replaced = replace_variables(xml, &m).unwrap();
         assert!(replaced.contains("<w:b/>") && replaced.contains("<w:u w:val=\"single\"/>"));
     }
@@ -992,9 +1364,33 @@ mod tests {
             rank: "майор".into(),
             position: "командир роти".into(),
         };
-        let values = values_for(&[], &settings, Some("2026-08-11")).unwrap();
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        let values = values_for(&connection, &[], &settings, Some("2026-08-11"), None).unwrap();
         let xml = "<w:t>{{ о с н о в н и й _ п і д п и с а н т _ з в а н н я }}</w:t>";
         assert_eq!(replace_variables(xml, &values).unwrap(), "<w:t>майор</w:t>");
+    }
+    #[test]
+    fn resolves_numbered_vehicles_of_the_selected_driver() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        crate::database::seed_test_personnel(&connection).unwrap();
+        let person = personnel::list(&connection).unwrap().remove(0);
+        connection
+            .execute(
+                "UPDATE personnel SET position='Водій' WHERE id=?1",
+                [person.id],
+            )
+            .unwrap();
+        connection.execute("INSERT INTO vehicles(name, registration_number, status, personnel_id) VALUES ('Toyota Hilux', 'АА 1111 АА', 'Справний', ?1), ('Ford Ranger', 'АА 2222 АА', 'Ремонтується', ?1)", [person.id]).unwrap();
+        let person = personnel::list(&connection).unwrap().remove(0);
+        let values = values_for(&connection, &[person], &settings::defaults(), None, None).unwrap();
+        assert_eq!(values["військовий_1_автомобіль_1_номер"].text, "АА 1111 АА");
+        assert_eq!(
+            values["військовий_1_автомобіль_2_статус"].text,
+            "Ремонтується"
+        );
+        assert!(validate_token("військовий_1_автомобіль_1_номер").is_empty());
     }
     #[test]
     fn rank_and_female_declensions() {
@@ -1007,7 +1403,10 @@ mod tests {
             ),
             "оператора безпілотних літальних апаратів 1 відділення"
         );
-        assert_eq!(decline_position_head("стрілець, військова частина А0000", "родовий"), "стрільця, військова частина А0000");
+        assert_eq!(
+            decline_position_head("стрілець, військова частина А0000", "родовий"),
+            "стрільця, військова частина А0000"
+        );
         assert_eq!(
             capitalize_first("оператор безпілотних літальних апаратів"),
             "Оператор безпілотних літальних апаратів"
@@ -1038,6 +1437,7 @@ mod tests {
                 template_path: template.to_string_lossy().into(),
                 personnel_ids: vec![1],
                 report_date: None,
+                vehicle_ids: Vec::new(),
             },
         )
         .unwrap();

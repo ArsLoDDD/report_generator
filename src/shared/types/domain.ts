@@ -52,7 +52,7 @@ export type PaginatedResult<T> = {
   items: T[];
   totalCount: number;
 };
-export type CustomFieldDefinition = { fieldKey: string; displayName: string; description: string; initialValue: string };
+export type CustomFieldDefinition = { fieldKey: string; displayName: string; description: string; initialValue: string; scope?: "personnel" | "vehicle" };
 
 export type SignerRole = "main" | "commander" | "chief" | "deputyPpp" | "deputyArmament" | "deputyRear" | "fuelChief";
 
@@ -71,6 +71,7 @@ export type AppSettings = {
   deputyRear: SignerSettings;
   fuelChief: SignerSettings;
   visiblePersonnelColumns?: string[];
+  visibleVehicleColumns?: string[];
 };
 
 export type StartupWarning = {
@@ -79,4 +80,4 @@ export type StartupWarning = {
   message: string;
 };
 
-export type Screen = "generator" | "templates" | "people" | "generated" | "settings" | "documentation" | "variable-constructor";
+export type Screen = "generator" | "templates" | "people" | "vehicles" | "generated" | "settings" | "documentation" | "variable-constructor";

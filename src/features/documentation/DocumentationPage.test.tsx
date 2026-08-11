@@ -3,12 +3,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { VariableConstructorPage } from "./DocumentationPage";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
 
-const { personnelService } = vi.hoisted(() => ({ personnelService: { listCustomFields: vi.fn(), listPersonnelFields: vi.fn() } }));
+const { personnelService } = vi.hoisted(() => ({ personnelService: { listCustomFields: vi.fn(), listPersonnelFields: vi.fn(), listVehicleCustomFields: vi.fn() } }));
 vi.mock("../../shared/services/personnelService", () => ({ personnelService }));
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("Конструктор змінних", () => {
+  it("offers a vehicle as a separate subject and includes its standard fields", async () => {
+    personnelService.listCustomFields.mockResolvedValue([]); personnelService.listVehicleCustomFields.mockResolvedValue([]);
+    render(<NotificationProvider><VariableConstructorPage /></NotificationProvider>);
+    fireEvent.click(screen.getByRole("button", { name: /Автомобіль/ }));
+    expect(await screen.findByRole("button", { name: /\{\{автомобіль_назва\}\}/ })).toBeInTheDocument();
+  });
   it("keeps the signer field the user selected instead of returning to surname", async () => {
     personnelService.listCustomFields.mockResolvedValue([]);
     personnelService.listPersonnelFields.mockResolvedValue([]);

@@ -25,6 +25,8 @@ pub struct AppSettings {
     pub fuel_chief: SignerSettings,
     #[serde(default)]
     pub visible_personnel_columns: Vec<String>,
+    #[serde(default)]
+    pub visible_vehicle_columns: Vec<String>,
 }
 
 fn empty_signer(position: &str) -> SignerSettings {
@@ -57,12 +59,26 @@ pub fn defaults() -> AppSettings {
         deputy_rear: default_deputy_rear(),
         fuel_chief: default_fuel_chief(),
         visible_personnel_columns: Vec::new(),
+        visible_vehicle_columns: Vec::new(),
     }
 }
 
-pub fn update_visible_personnel_columns(root: &Path, columns: Vec<String>) -> Result<AppSettings, String> {
+pub fn update_visible_personnel_columns(
+    root: &Path,
+    columns: Vec<String>,
+) -> Result<AppSettings, String> {
     let mut settings = load(root)?;
     settings.visible_personnel_columns = columns;
+    save(root, &settings)?;
+    Ok(settings)
+}
+
+pub fn update_visible_vehicle_columns(
+    root: &Path,
+    columns: Vec<String>,
+) -> Result<AppSettings, String> {
+    let mut settings = load(root)?;
+    settings.visible_vehicle_columns = columns;
     save(root, &settings)?;
     Ok(settings)
 }

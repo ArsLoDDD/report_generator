@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, BookOpen, FileCheck2, FileText, Folder, Home, Settings, Users, WandSparkles } from "lucide-react";
+import { AlertTriangle, BookOpen, Car, FileCheck2, FileText, Folder, Home, Settings, Users, WandSparkles } from "lucide-react";
 import { useStartupWarnings } from "./app/hooks/useStartupWarnings";
 import { ProgramGuidePage } from "./features/documentation/ProgramGuidePage";
 import { VariableConstructorPage } from "./features/documentation/DocumentationPage";
 import { GeneratedReportsPage } from "./features/generated-reports/GeneratedReportsPage";
 import { prefetchGeneratedReports } from "./features/generated-reports/hooks/useGeneratedReports";
 import { PersonnelPage } from "./features/personnel/PersonnelPage";
+import { VehiclesPage } from "./features/vehicles/VehiclesPage";
 import { usePersonnel } from "./features/personnel/hooks/usePersonnel";
 import { ReportGenerationPage } from "./features/report-generation/ReportGenerationPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
@@ -15,7 +16,7 @@ import type { Screen, Template } from "./shared/types/domain";
 import { NotificationProvider } from "./shared/ui/NotificationProvider";
 
 const navigation = [
-  ["generator", "Генерація рапортів", Home], ["templates", "Шаблони", FileText], ["people", "Особовий склад", Users],
+  ["generator", "Генерація рапортів", Home], ["templates", "Шаблони", FileText], ["people", "Особовий склад", Users], ["vehicles", "Автомобілі", Car],
   ["generated", "Згенеровані рапорти", Folder], ["variable-constructor", "Конструктор змінних", WandSparkles]
 ] as const;
 
@@ -67,6 +68,7 @@ export default function App() {
       {screen === "generator" && <ReportGenerationPage template={selectedTemplate} templates={templates} hasMoreTemplates={templatesHasMore} isLoadingMoreTemplates={templatesLoadingMore} onLoadMoreTemplates={loadMoreTemplates} people={people} hasMorePeople={personnelHasMore} isLoadingMorePeople={personnelLoadingMore} onLoadMorePeople={loadMorePersonnel} selected={selectedPeople} onToggle={togglePerson} onAll={toggleAllPeople} onClear={clearSelectedPeople} onChoose={toggleTemplate} />}
       {screen === "templates" && <TemplatesPage templates={templates} totalCount={templatesTotalCount} hasMore={templatesHasMore} isRefreshing={templatesRefreshing} isLoadingMore={templatesLoadingMore} onLoadMore={loadMoreTemplates} selected={templateInfo ?? templates[0] ?? null} onSelect={setTemplateInfo} onRefresh={refreshTemplates} />}
       {screen === "people" && <PersonnelPage people={people} totalCount={personnelTotalCount} hasMore={personnelHasMore} isLoading={personnelLoading} isLoadingMore={personnelLoadingMore} errorMessage={personnelError} onCreate={createPersonnel} onUpdate={updatePersonnel} onDelete={deletePersonnel} onRefresh={refreshPersonnel} onLoadMore={loadMorePersonnel} />}
+      {screen === "vehicles" && <VehiclesPage people={people} />}
       {screen === "generated" && <GeneratedReportsPage />}
       {screen === "settings" && <SettingsPage />}
       {screen === "documentation" && <ProgramGuidePage />}

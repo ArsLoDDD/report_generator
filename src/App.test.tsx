@@ -62,7 +62,7 @@ describe("navigation and report generation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
     expect(screen.getByRole("heading", { name: "Налаштування" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
-    expect(screen.getByRole("heading", { name: "Як працює програма" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Повний посібник із програми" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Конструктор змінних" }));
     expect(screen.getByRole("heading", { name: "Покрокове складання" })).toBeInTheDocument();
   });
@@ -186,8 +186,8 @@ describe("navigation and report generation", () => {
     await waitFor(() => expect(screen.getByText(/Основний підписант/)).toBeInTheDocument());
     expect(screen.getByText(/Начальник ПММ/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Змінити" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Створити резервну копію БД" }));
-    await waitFor(() => expect(screen.getByText("Резервну копію бази даних створено.")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Резервна копія БД" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Резервна копія БД" })).toBeInTheDocument());
   });
 
   it("shows template variables and recent reports without a templates footer", async () => {

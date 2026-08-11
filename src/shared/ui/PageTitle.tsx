@@ -8,7 +8,7 @@ import { useNotifications } from "./NotificationProvider";
 const emptyField = (): CustomFieldDefinition => ({ fieldKey: "", displayName: "", description: "", initialValue: "" });
 const fieldError = (error: unknown) => error instanceof Error ? error.message : typeof error === "string" ? error : "Не вдалося зберегти поле БД.";
 
-export function PageTitle({ title, subtitle, actions }: { title: string; subtitle: string; actions?: ReactNode }) {
+export function PageTitle({ title, subtitle, actions, customFieldsScope }: { title: string; subtitle: string; actions?: ReactNode; customFieldsScope?: "personnel" | "vehicle" }) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [field, setField] = useState<CustomFieldDefinition>(emptyField());
@@ -16,8 +16,8 @@ export function PageTitle({ title, subtitle, actions }: { title: string; subtitl
   const [fields, setFields] = useState<CustomFieldDefinition[]>([]);
   const { notify } = useNotifications();
 
-  const loadFields = async () => setFields(await personnelService.listCustomFields());
-  useEffect(() => { if (title === "Особовий склад") void loadFields().catch(() => undefined); }, [title]);
+  const loadFields = async () => setFields(customFieldsScope === "vehicle" ? await personnelService.listVehicleCustomFields() : await personnelService.listCustomFields());
+  useEffect(() => { if (customFieldsScope || title === "Особовий склад") void loadFields().catch(() => undefined); }, [customFieldsScope, title]);
 
   const closeEditor = () => { setEditorOpen(false); setFormOpen(false); setEditingFieldKey(null); setField(emptyField()); };
   const startCreate = () => { setEditingFieldKey(null); setField(emptyField()); setFormOpen(true); };
@@ -34,15 +34,15 @@ export function PageTitle({ title, subtitle, actions }: { title: string; subtitl
     }
     try {
       const saved = editingFieldKey
-        ? await personnelService.updateCustomField({ ...field, fieldKey: editingFieldKey })
-        : await personnelService.createCustomField({ ...field, fieldKey: key });
+        ? customFieldsScope === "vehicle" ? await personnelService.updateVehicleCustomField({ ...field, fieldKey: editingFieldKey, scope: "vehicle" }) : await personnelService.updateCustomField({ ...field, fieldKey: editingFieldKey })
+        : customFieldsScope === "vehicle" ? await personnelService.createVehicleCustomField({ ...field, fieldKey: key, scope: "vehicle" }) : await personnelService.createCustomField({ ...field, fieldKey: key });
       setFields((current) => current.some((item) => item.fieldKey === saved.fieldKey)
         ? current.map((item) => item.fieldKey === saved.fieldKey ? saved : item)
         : [...current, saved]);
       setFormOpen(false);
       setEditingFieldKey(null);
       setField(emptyField());
-      window.dispatchEvent(new Event("personnel-refresh"));
+      window.dispatchEvent(new Event(customFieldsScope === "vehicle" ? "vehicles-refresh" : "personnel-refresh"));
       notify("Поле БД збережено.", "success");
     } catch (error) {
       notify(fieldError(error), "error");
@@ -50,9 +50,9 @@ export function PageTitle({ title, subtitle, actions }: { title: string; subtitl
   };
   const removeField = async (fieldKey: string) => {
     try {
-      await personnelService.deleteCustomField(fieldKey);
+      if (customFieldsScope === "vehicle") await personnelService.deleteVehicleCustomField(fieldKey); else await personnelService.deleteCustomField(fieldKey);
       setFields((current) => current.filter((item) => item.fieldKey !== fieldKey));
-      window.dispatchEvent(new Event("personnel-refresh"));
+      window.dispatchEvent(new Event(customFieldsScope === "vehicle" ? "vehicles-refresh" : "personnel-refresh"));
       notify("Поле БД видалено.", "success");
     } catch (error) {
       notify(fieldError(error), "error");
@@ -63,7 +63,7 @@ export function PageTitle({ title, subtitle, actions }: { title: string; subtitl
     <div className="page-title">
       <div><h1>{title}</h1><p>{subtitle}</p></div>
       {actions && <div className="header-actions">
-        {title === "Особовий склад" && <button className="button" onClick={() => { void loadFields(); setEditorOpen(true); }}><Plus />Редактор кастомних полів</button>}
+        {(customFieldsScope || title === "Особовий склад") && <button className="button" onClick={() => { void loadFields(); setEditorOpen(true); }}><Plus />Редактор кастомних полів</button>}
         {actions}
       </div>}
     </div>
@@ -78,7 +78,7 @@ export function PageTitle({ title, subtitle, actions }: { title: string; subtitl
           <label>Початкове значення<input value={field.initialValue} onChange={(event) => setField({ ...field, initialValue: event.target.value })} /></label>
           <div className="modal-actions"><button className="button" onClick={() => { setFormOpen(false); setEditingFieldKey(null); setField(emptyField()); }}>Назад до списку</button><button className="button primary" onClick={() => void saveField()}>Зберегти поле</button></div>
         </> : <>
-          <header className="custom-field-editor__header"><div><h2>Редактор кастомних полів</h2><p>Створюйте додаткові поля для особового складу, конструктора та шаблонів.</p></div><button className="button primary" onClick={startCreate}><Plus />Створити поле</button></header>
+          <header className="custom-field-editor__header"><div><h2>Редактор кастомних полів</h2><p>Створюйте додаткові поля для {customFieldsScope === "vehicle" ? "автомобілів" : "особового складу"}, конструктора та шаблонів.</p></div><button className="button primary" onClick={startCreate}><Plus />Створити поле</button></header>
           {fields.length === 0 ? <p className="custom-field-editor__empty">Кастомних полів ще немає.</p> : <div className="custom-field-list"><h3>Створені поля</h3>{fields.map((item) => <div key={item.fieldKey}><span>{item.displayName} <code>{item.fieldKey}</code></span><button className="button" onClick={() => startEdit(item)}>Редагувати</button><button className="button danger" onClick={() => void removeField(item.fieldKey)}>Видалити</button></div>)}</div>}
           <div className="modal-actions"><button className="button" onClick={closeEditor}>Закрити</button></div>
         </>}

@@ -1,0 +1,38 @@
+		{
+	"mainSigner": {
+		"fullName": "ІВАНЕНКО Іван Іванович",
+		"rank": "майор",
+		"position": "Заступник командира з ППП"
+	},
+	"commander": {
+		"fullName": "Петренко Петро Петрович",
+		"rank": "капітан",
+		"position": "Командир"
+	},
+	"chief": {
+		"fullName": "Сидоренко Сергій Сергійович",
+		"rank": "капітан",
+		"position": "Начальник штабу"
+	},
+	"deputyPpp": {
+		"fullName": "",
+		"rank": "",
+		"position": "Заступник командира з ППП"
+	},
+	"deputyArmament": {
+		"fullName": "",
+		"rank": "",
+		"position": "Заступник командира з Озброєння"
+	},
+	"deputyRear": {
+		"fullName": "",
+		"rank": "",
+		"position": "Заступник командира з Тилу"
+	},
+	"fuelChief": {
+		"fullName": "",
+		"rank": "",
+		"position": "Начальник ПММ"
+	},
+	"visiblePersonnelColumns": []
+}

@@ -31,6 +31,23 @@
 .modifier-grid input { accent-color: #46c653; width: 17px; height: 17px; }
 .constructor-custom-fields { padding: 11px 13px; border: 1px dashed #315566; border-radius: 8px; font-size: 12px; }
 .program-guide { max-width: none; }
+.guide-navigation { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 16px; padding: 12px; border: 1px solid #284552; border-radius: 12px; background: #0a171f; }
+.guide-navigation a { border: 1px solid #284552; border-radius: 999px; padding: 7px 11px; color: #b7c8d0; font-size: 12px; text-decoration: none; transition: .16s ease; }
+.guide-navigation a:hover { border-color: #4ac657; background: #12351e; color: #effff0; }
+.guide-start { margin: 0 0 16px; padding: 18px 20px; border: 1px solid #275641; border-radius: 13px; background: linear-gradient(125deg,#102b20,#0c1b22); }
+.guide-start h2 { margin: 0 0 10px; font-size: 17px; color: #9de6a2; }
+.guide-start ol { display: grid; gap: 8px; margin: 0; padding-left: 22px; color: #c7d4da; font-size: 13px; line-height: 1.45; }
+.guide-sections { display: grid; gap: 14px; }
+.guide-section { scroll-margin-top: 14px; padding: 20px; border: 1px solid #263f4b; border-radius: 13px; background: linear-gradient(145deg,#10212a,#0b1820); }
+.guide-section > header { display: flex; gap: 13px; align-items: flex-start; }
+.guide-section > header svg { flex: 0 0 auto; width: 27px; height: 27px; color: #57d65c; }
+.guide-section h2 { margin: 0; font-size: 18px; }
+.guide-section header p { margin: 5px 0 0; color: #9fb2bb; font-size: 13px; line-height: 1.45; }
+.guide-section h3 { margin: 17px 0 8px; color: #8edb96; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; }
+.guide-section ol { display: grid; gap: 8px; margin: 0; padding-left: 22px; color: #d1dde2; font-size: 13px; line-height: 1.45; }
+.guide-section aside { display: grid; gap: 7px; margin-top: 15px; padding: 12px 14px; border-left: 3px solid #4ecb5a; border-radius: 0 8px 8px 0; background: #10261d; color: #bad0c1; font-size: 12px; line-height: 1.45; }
+.guide-section aside b { color: #87e38f; }
+.guide-section aside ul { display: grid; gap: 5px; margin: 0; padding-left: 18px; }
 .guide-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap: 12px; }
 .guide-card { min-height: 170px; border: 1px solid #243d49; border-radius: 12px; background: linear-gradient(145deg,#11232c,#0d1921); padding: 18px; }
 .guide-card svg { width: 25px; height: 25px; color: #55d555; margin-bottom: 13px; }
@@ -42,6 +59,12 @@
 .guide-language__rows { display: grid; grid-template-columns: minmax(220px,.7fr) 1fr; gap: 9px 16px; align-items: center; }
 .guide-language__rows code { color: #64d866; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .guide-language__rows span { color: #a9bac3; font-size: 12px; }
+.guide-modifier-rules { display: grid; gap: 5px; margin-top: 16px; padding: 12px 14px; border: 1px solid #315a48; border-radius: 9px; background: #10251d; color: #b9d7c0; font-size: 12px; line-height: 1.45; }
+.guide-modifier-rules b { color: #7ce386; }
+.guide-error-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap: 10px; }
+.guide-error-list article { display: grid; gap: 5px; min-height: 90px; padding: 13px; border: 1px solid #314957; border-radius: 9px; background: #0d1a22; }
+.guide-error-list b { color: #f0c36d; font-size: 13px; }
+.guide-error-list span { color: #afc0c9; font-size: 12px; line-height: 1.45; }
 .guide-note { display: grid; gap: 6px; margin-top: 16px; padding: 15px 17px; border: 1px solid #25516b; border-radius: 10px; background: #102333; color: #bfd5e1; line-height: 1.45; }
 .guide-note b { color: #5ac7f5; }
 .variable-preview { position: sticky; top: 0; }
@@ -86,6 +109,17 @@
 .custom-field-list code { color: #82d979; font-size: 11px; margin-left: 5px; }
 .custom-field-list .button { min-height: 32px; padding: 0 9px; font-size: 12px; }
 .constructor-custom-fields { display: none; }
+.vehicles-page { display: grid; gap: 18px; padding: 22px; }
+.vehicles-workspace{display:grid;gap:18px}.vehicle-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.vehicle-stats article{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:17px;border:1px solid #284854;border-radius:14px;background:linear-gradient(135deg,#112934,#0c1921)}.vehicle-stats svg{color:#61d56b}.vehicle-stats span{font-size:12px;color:#a9bbc3}.vehicle-stats b{font-size:24px}.vehicle-stats .warning svg,.vehicle-stats .warning b{color:#f4bf5c}.vehicle-board{padding:0;overflow:hidden}.vehicle-board>header{display:flex;justify-content:space-between;align-items:center;padding:20px 22px;border-bottom:1px solid #274550}.vehicle-board h2{margin:0;font-size:18px}.vehicle-board p{margin:5px 0 0;color:#9cb0ba;font-size:12px}.vehicle-board>header>span{color:#86d98e;font-size:12px}.vehicle-board__head,.vehicle-row{display:grid;grid-template-columns:1.3fr .9fr 1.2fr auto;gap:14px;align-items:center;padding:13px 22px}.vehicle-board__head{background:#0a161e;color:#8ca2ad;font-size:11px;text-transform:uppercase;letter-spacing:.05em}.vehicle-row{border-top:1px solid #203a45}.vehicle-row:hover{background:#10232c}.vehicle-row__name{display:flex;gap:11px;align-items:center}.vehicle-row__name svg{padding:9px;border-radius:10px;background:#153d28;color:#65d970;width:38px;height:38px}.vehicle-row__name b,.vehicle-row__name span{display:block}.vehicle-row__name span{margin-top:3px;color:#9db1bb;font-size:12px}.vehicle-row select{min-height:38px;border:1px solid #31505d;border-radius:8px;background:#0b1921;color:#e5eef1;padding:0 9px}.vehicle-empty{display:grid;justify-items:center;gap:8px;padding:60px;color:#9fb2bb}.vehicle-empty svg{width:42px;height:42px;color:#5ed469}.vehicle-empty b{color:#e4edf0}.vehicle-empty span{font-size:12px}@media(max-width:800px){.vehicle-stats{grid-template-columns:repeat(2,1fr)}.vehicle-board__head{display:none}.vehicle-row{grid-template-columns:1fr;padding:16px}.vehicle-row .button{width:100%}}
+.vehicle-create { display: grid; grid-template-columns: 1.2fr 1fr 1fr auto; gap: 10px; padding: 14px; border: 1px solid #31505d; border-radius: 12px; background: linear-gradient(135deg,#102833,#102119); }
+.vehicle-create input,.vehicle-create select,.vehicle-card select { min-height: 42px; border: 1px solid #31505d; border-radius: 8px; background: #09151d; color: #e7f0f3; padding: 0 11px; }
+.vehicle-list { display: grid; gap: 10px; }
+.vehicle-card { display: grid; grid-template-columns: auto minmax(160px,1fr) 180px 220px auto; align-items: center; gap: 13px; padding: 15px; border: 1px solid #274551; border-radius: 12px; background: linear-gradient(145deg,#10232d,#0b1820); }
+.vehicle-card > svg { color: #61d56b; width: 28px; height: 28px; }
+.vehicle-card h3,.vehicle-card span,.vehicle-card b { display: block; margin: 0; }
+.vehicle-badge{display:inline-flex;padding:5px 8px;border-radius:999px;background:#173424;color:#8ee698;font-size:11px;font-weight:700}.status-Потребує-ремонту,.status-Ремонтується{background:#3b3017;color:#f2c75d}.status-Несправний{background:#431d25;color:#ff9ca8}.vehicle-details .shared-select{display:block;width:100%;margin-top:2px}.vehicle-details .shared-select select{min-height:40px;border-color:#31505d;border-radius:8px;background:linear-gradient(145deg,#122832,#0b1921);font-weight:650}.vehicle-details .shared-select select:hover,.vehicle-details .shared-select select:focus{border-color:#4ac655;box-shadow:0 0 0 3px #3bb64a22}.vehicle-table tr{cursor:pointer}.vehicle-table tr.selected{background:#143024}.vehicle-table .button{min-height:32px;font-size:12px;padding:0 9px}
+.vehicle-card h3 { font-size: 15px; }.vehicle-card span { color:#9bb0ba; font-size:12px; margin-top:3px; }.vehicle-card b { color:#dce8ed; font-size:12px; margin-top:7px; }
+@media(max-width:900px){.vehicle-create,.vehicle-card{grid-template-columns:1fr;}.vehicle-card .button{width:100%;}}
 .documentation__intro { position: relative; }
 .constructor-custom-action { margin-left: auto; align-self: flex-start; }
 .constructor-view-switch { display: flex; gap: 8px; margin: 0 0 14px; padding: 5px; border: 1px solid #27434f; border-radius: 10px; background: #0a161f; }
