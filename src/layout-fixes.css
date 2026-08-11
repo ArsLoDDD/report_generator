@@ -35,6 +35,8 @@ body { overflow: hidden; }
 .generation-page .empty-template h2 { margin: 16px 0 0; align-self: end; }
 .generation-page .empty-template p { margin: 8px 0 0; align-self: start; }
 .generation-page .people-select { grid-template-rows: auto auto minmax(0, 1fr) auto; }
+/* Vehicle choice has no search toolbar, so its list must occupy that free row. */
+.generation-page .people-select:has(> h2 + .people-select__scroll) { grid-template-rows: auto minmax(0, 1fr) auto; }
 .generation-page .people-select table { margin-top: 0; max-height: none; }
 .generation-page .people-select__scroll { overscroll-behavior: contain; }
 .generation-page .people-select__scroll thead { position: sticky; top: 0; z-index: 2; background: #0d1922; }
