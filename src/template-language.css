@@ -49,7 +49,7 @@
 .preview-bold { font-weight: 800; }
 .preview-underline { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px; background: #0009; }
-.modal { width: min(560px,100%); display: grid; gap: 14px; padding: 24px; border: 1px solid #315261; border-radius: 14px; background: #0b1821; box-shadow: 0 24px 80px #0008; }
+.modal { width: min(560px,100%); max-height: calc(100vh - 40px); display: grid; gap: 14px; padding: 24px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid #315261; border-radius: 14px; background: #0b1821; box-shadow: 0 24px 80px #0008; }
 .modal h2 { margin: 0; }
 .modal label { display: grid; gap: 6px; color: #afbdc5; font-size: 12px; }
 .modal input,.modal textarea { width: 100%; border: 1px solid #2c4754; border-radius: 7px; background: #08131b; color: #e6edf1; padding: 10px; outline: 0; }
@@ -58,6 +58,16 @@
 .modal select option { background: #0d1d26; color: #edf4f6; padding: 10px; }
 .modal textarea { min-height: 75px; resize: vertical; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+.custom-field-editor { width: min(720px, 100%); padding: 28px; border-color: #365c6b; background: radial-gradient(circle at top right, #123029 0, #0b1821 42%); }
+.custom-field-editor__header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 4px 0 18px; border-bottom: 1px solid #294653; }
+.custom-field-editor__header h2 { margin: 0; font-size: 24px; }
+.custom-field-editor__header p { max-width: 430px; margin: 7px 0 0; color: #afbdc5; line-height: 1.45; }
+.custom-field-editor__empty { margin: 4px 0; padding: 24px; border: 1px dashed #38606c; border-radius: 10px; color: #afbdc5; text-align: center; }
+.custom-field-editor .custom-field-list { max-height: min(45vh, 420px); overflow-y: auto; padding-right: 4px; }
+.custom-field-editor .custom-field-list > div { min-height: 58px; padding: 11px 12px; background: #0a161eaa; }
+.custom-field-editor .custom-field-list > div:hover { border-color: #3a6270; background: #0d1d26; }
+.custom-field-editor .custom-field-list code { display: inline-block; margin-top: 3px; padding: 2px 6px; border-radius: 5px; background: #173126; }
+@media (max-width: 620px) { .custom-field-editor__header { align-items: stretch; flex-direction: column; } .custom-field-editor__header .button { width: 100%; } }
 @media (max-width: 1080px) {
   .sidebar-bottom { margin-top: 0; padding: 0; border-top: 0; }
   .sidebar-bottom button { width: auto; padding: 9px; font-size: 0; }

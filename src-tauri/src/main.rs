@@ -72,21 +72,6 @@ struct TemplatesPage {
     total_count: u64,
 }
 
-const STARTER_TEMPLATES: [(&str, &[u8]); 3] = [
-    (
-        "Рапорт на відпустку.docx",
-        include_bytes!("../templates/Рапорт на відпустку.docx"),
-    ),
-    (
-        "Рапорт на відпустку з датою.docx",
-        include_bytes!("../templates/Рапорт на відпустку з датою.docx"),
-    ),
-    (
-        "Рапорт на матеріальну допомогу.docx",
-        include_bytes!("../templates/Рапорт на матеріальну допомогу.docx"),
-    ),
-];
-
 pub const DATABASE_FILE_NAME: &str = "особовий_склад.db";
 pub const LEGACY_DATABASE_DIRECTORY_NAME: &str = "База даних";
 pub const TEMPLATES_DIRECTORY_NAME: &str = "Шаблони";
@@ -96,13 +81,20 @@ pub const CONFIG_DIRECTORY_NAME: &str = "Налаштування";
 pub const CUSTOM_VARIABLES_FILE_NAME: &str = "custom_variables.json";
 
 fn application_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|_| "Не вдалося визначити папку даних програми.".to_string())?;
-    fs::create_dir_all(&directory)
-        .map_err(|_| "Не вдалося створити папку даних програми.".to_string())?;
-    Ok(directory)
+    let _ = app;
+    #[cfg(debug_assertions)]
+    {
+        let project_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .ok_or_else(|| "Не вдалося визначити кореневу папку проєкту.".to_string())?
+            .to_path_buf();
+        fs::create_dir_all(&project_root)
+            .map_err(|_| "Не вдалося створити папку даних програми.".to_string())?;
+        return Ok(project_root);
+    }
+
+    #[cfg(not(debug_assertions))]
+    executable_root()
 }
 
 fn migrate_executable_database(root: &Path) -> Result<(), String> {
@@ -146,24 +138,12 @@ fn ensure_application_structure(app: &tauri::AppHandle) -> Result<PathBuf, Strin
         fs::create_dir_all(root.join(directory))
             .map_err(|_| format!("Не вдалося створити папку «{directory}»."))?;
     }
-    settings::load(&executable_root()?)?;
+    settings::load(&root)?;
     Ok(root)
 }
 
 fn templates_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(ensure_application_structure(app)?.join(TEMPLATES_DIRECTORY_NAME))
-}
-
-fn seed_starter_templates(app: &tauri::AppHandle) -> Result<(), String> {
-    let directory = templates_directory(app)?;
-    for (name, content) in STARTER_TEMPLATES {
-        let path = directory.join(name);
-        if !path.exists() {
-            fs::write(path, content)
-                .map_err(|_| "Не вдалося створити стартовий DOCX-шаблон.".to_string())?;
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -186,7 +166,7 @@ fn create_validation_example_template(path: &Path) -> Result<(), String> {
         ),
         (
             "word/document.xml",
-            r#"<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Тест повної перевірки шаблону</w:t></w:r></w:p><w:p><w:r><w:t>{{військовий_1_невідоме}}</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>"#,
+            r#"<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Тест повної перевірки шаблону</w:t></w:r></w:p><w:p><w:r><w:t>{{soldier.name}}</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>"#,
         ),
     ];
     for (name, contents) in entries {
@@ -240,8 +220,7 @@ fn open_database(app: &tauri::AppHandle) -> Result<(DatabaseState, bool), String
     migrate_executable_database(&root)?;
     let (database_path, database_was_missing) = prepare_database_path(&root)?;
     let database = connect_database(database_path, database_was_missing)?;
-    let executable_root = executable_root()?;
-    database::sync_custom_fields_file(&database.connection, &executable_root, CUSTOM_VARIABLES_FILE_NAME)?;
+    database::sync_custom_fields_file(&database.connection, &root, CUSTOM_VARIABLES_FILE_NAME)?;
     Ok((database, database_was_missing))
 }
 
@@ -303,7 +282,7 @@ fn startup_warnings(
         warnings.push(StartupWarning {
             code: "templates-missing".into(),
             title: "Шаблони були відсутні".into(),
-            message: "Папка не містила DOCX-файлів. Стартові шаблони відновлено автоматично."
+            message: "Папка не містить DOCX-файлів. Додайте власний шаблон у папку «Шаблони»."
                 .into(),
         });
     }
@@ -410,14 +389,14 @@ fn export_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<
 
 #[tauri::command]
 fn list_custom_fields(
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
     state: tauri::State<AppState>,
 ) -> Result<Vec<database::CustomFieldDefinition>, String> {
     let database = state
         .0
         .lock()
         .map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
-    let root = executable_root()?;
+    let root = application_root(&app)?;
     let mut fields = database::list_custom_fields(&database.connection)?;
     if root.join(CUSTOM_VARIABLES_FILE_NAME).exists() {
         for file_field in database::load_custom_fields_file(&root, CUSTOM_VARIABLES_FILE_NAME)? {
@@ -436,7 +415,7 @@ fn list_personnel_fields(state: tauri::State<AppState>) -> Result<Vec<database::
 
 #[tauri::command]
 fn create_custom_field(
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
     state: tauri::State<AppState>,
     field: database::CustomFieldDefinition,
 ) -> Result<database::CustomFieldDefinition, String> {
@@ -445,7 +424,7 @@ fn create_custom_field(
         .lock()
         .map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
     ensure_persistent_database(&mut database)?;
-    let root = executable_root()?;
+    let root = application_root(&app)?;
     let seed_existing = if root.join(CUSTOM_VARIABLES_FILE_NAME).exists() {
         Vec::new()
     } else {
@@ -461,21 +440,22 @@ fn create_custom_field(
 
 #[tauri::command]
 fn update_custom_field(
+    app: tauri::AppHandle,
     state: tauri::State<AppState>,
     field: database::CustomFieldDefinition,
 ) -> Result<database::CustomFieldDefinition, String> {
     let database = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
     let saved = database::update_custom_field(&database.connection, field)?;
-    let root = executable_root()?;
+    let root = application_root(&app)?;
     database::save_custom_field_file(&root, CUSTOM_VARIABLES_FILE_NAME, &saved)?;
     Ok(saved)
 }
 
 #[tauri::command]
-fn delete_custom_field(state: tauri::State<AppState>, field_key: String) -> Result<(), String> {
+fn delete_custom_field(app: tauri::AppHandle, state: tauri::State<AppState>, field_key: String) -> Result<(), String> {
     let database = state.0.lock().map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
     database::delete_custom_field(&database.connection, &field_key)?;
-    let root = executable_root()?;
+    let root = application_root(&app)?;
     database::remove_custom_field_file(&root, CUSTOM_VARIABLES_FILE_NAME, &field_key)
 }
 
@@ -485,22 +465,22 @@ fn get_startup_warnings(state: tauri::State<AppState>) -> Vec<StartupWarning> {
 }
 
 #[tauri::command]
-fn get_app_settings(_app: tauri::AppHandle) -> Result<settings::AppSettings, String> {
-    settings::load(&executable_root()?)
+fn get_app_settings(app: tauri::AppHandle) -> Result<settings::AppSettings, String> {
+    settings::load(&application_root(&app)?)
 }
 
 #[tauri::command]
 fn update_signer_settings(
-    _app: tauri::AppHandle,
+    app: tauri::AppHandle,
     role: String,
     signer: settings::SignerSettings,
 ) -> Result<settings::AppSettings, String> {
-    settings::update_signer(&executable_root()?, &role, signer)
+    settings::update_signer(&application_root(&app)?, &role, signer)
 }
 
 #[tauri::command]
-fn update_visible_personnel_columns(_app: tauri::AppHandle, columns: Vec<String>) -> Result<settings::AppSettings, String> {
-    settings::update_visible_personnel_columns(&executable_root()?, columns)
+fn update_visible_personnel_columns(app: tauri::AppHandle, columns: Vec<String>) -> Result<settings::AppSettings, String> {
+    settings::update_visible_personnel_columns(&application_root(&app)?, columns)
 }
 
 fn list_all_templates(app: tauri::AppHandle) -> Result<Vec<TemplateFile>, String> {
@@ -861,7 +841,6 @@ fn main() {
                 database_was_missing,
                 templates_were_missing,
             );
-            seed_starter_templates(app.handle()).map_err(io::Error::other)?;
             app.manage(AppState(Mutex::new(database), warnings));
             Ok(())
         })
@@ -918,7 +897,7 @@ mod tests {
         assert!(inspection
             .errors
             .iter()
-            .any(|error| error.contains("військовий_1_невідоме")));
+            .any(|error| error.contains("soldier.name")));
         fs::remove_dir_all(directory).unwrap();
     }
 

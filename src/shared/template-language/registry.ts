@@ -26,6 +26,6 @@ export function getVariable(id: string) {
   if (!match) return undefined;
   const field = personFields.find((item) => item.id === match[2]);
   if (field) return fieldToVariable(field, id, "Військовослужбовець");
-  if (/^[a-z][a-z0-9_]*$/.test(match[2])) return { id, name: "Кастомне поле", category: "Військовослужбовець", description: "Додаткове поле з бази даних.", example: "Приклад значення", kind: "text", supportsCases: false } satisfies VariableDefinition;
+  if (/^\p{L}[\p{L}\p{N}_]*$/u.test(match[2])) return { id, name: "Кастомне поле", category: "Військовослужбовець", description: "Додаткове поле з бази даних.", example: "Приклад значення", kind: "text", supportsCases: false } satisfies VariableDefinition;
   return undefined;
 }

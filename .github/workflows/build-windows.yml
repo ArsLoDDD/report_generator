@@ -1,6 +1,8 @@
 name: Збірка для Windows
 
 on:
+  push:
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -27,7 +29,7 @@ jobs:
         run: npm ci
 
       - name: Перевірити застосунок
-        run: npm run test -- --run
+        run: npm run test:full
 
       - name: Зібрати Windows-інсталятор
         uses: tauri-apps/tauri-action@v0

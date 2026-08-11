@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Copy, Plus } from "lucide-react";
+import { BookOpen, Copy } from "lucide-react";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { SearchInput } from "../../shared/ui/SearchInput";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
@@ -8,18 +8,90 @@ import { morphologyService, type UkrainianCase } from "../../shared/services/mor
 import { personnelService } from "../../shared/services/personnelService";
 import type { CustomFieldDefinition } from "../../shared/types/domain";
 
-const textModifiers = new Set(["великими", "маленькими", "з_великої"]); const styleModifiers = new Set(["жирним", "підкреслити"]);
-const objects = [{ id: "person", label: "Військовослужбовець" }, ...[...new Set(variableRegistry.filter((item) => !item.id.startsWith("військовий_") && item.category !== "Дати та службові дані").map((item) => item.category))].map((label) => ({ id: label, label })), { id: "date", label: "Дата рапорту" }];
-function Preview({ variable, modifiers }: { variable: VariableDefinition; modifiers: string[] }) { const [result, setResult] = useState(variable.example); useEffect(() => { let active = true; void (async () => { let value = variable.example; const grammaticalCase = modifiers.find((item) => !textModifiers.has(item) && !styleModifiers.has(item)) as UkrainianCase | undefined; if (grammaticalCase && variable.kind === "person-name") { const [surname, givenName, patronymic] = value.split(/\s+/); value = (await morphologyService.declineName({ surname, givenName, patronymic, gender: "чоловіча" }, grammaticalCase)).value; } else if (grammaticalCase && variable.kind === "rank") value = morphologyService.declineRank(value, grammaticalCase); else if (grammaticalCase && variable.kind === "position") value = morphologyService.declinePosition(value, grammaticalCase); for (const modifier of modifiers.filter((item) => textModifiers.has(item))) value = morphologyService.transformText(value, modifier as "великими" | "маленькими" | "з_великої"); if (active) setResult(value); })(); return () => { active = false; }; }, [variable, modifiers]); const className = `${modifiers.includes("жирним") ? "preview-bold " : ""}${modifiers.includes("підкреслити") ? "preview-underline" : ""}`; return <><b className={className}>{result}</b><p className="constructor-sentence">Речення-приклад: «Прошу врахувати: <span className={className}>{result}</span>.»</p></>; }
+const textModifiers = new Set(["великими", "маленькими", "з_великої"]);
+const styleModifiers = new Set(["жирним", "підкреслити"]);
+const signerObjects = [
+  ["основний_підписант", "Основний підписант"], ["командир", "Командир"], ["начальник_штабу", "Начальник штабу"],
+  ["заступник_ппп", "Заступник командира з ППП"], ["заступник_озброєння", "Заступник командира з озброєння"],
+  ["заступник_тилу", "Заступник командира з тилу"], ["начальник_пмм", "Начальник ПММ"]
+] as const;
+const objects = [{ id: "person", label: "Військовослужбовець" }, ...signerObjects.map(([id, label]) => ({ id, label })), { id: "date", label: "Дата рапорту" }];
+
+function Preview({ variable, modifiers }: { variable: VariableDefinition; modifiers: string[] }) {
+  const [result, setResult] = useState(variable.example);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      let value = variable.example;
+      const grammaticalCase = modifiers.find((item) => !textModifiers.has(item) && !styleModifiers.has(item)) as UkrainianCase | undefined;
+      if (grammaticalCase && variable.kind === "person-name") {
+        const [surname, givenName, patronymic] = value.split(/\s+/);
+        value = (await morphologyService.declineName({ surname, givenName, patronymic, gender: "чоловіча" }, grammaticalCase)).value;
+      } else if (grammaticalCase && variable.kind === "rank") value = morphologyService.declineRank(value, grammaticalCase);
+      else if (grammaticalCase && variable.kind === "position") value = morphologyService.declinePosition(value, grammaticalCase);
+      for (const modifier of modifiers.filter((item) => textModifiers.has(item))) value = morphologyService.transformText(value, modifier as "великими" | "маленькими" | "з_великої");
+      if (active) setResult(value);
+    })();
+    return () => { active = false; };
+  }, [variable, modifiers]);
+  const className = `${modifiers.includes("жирним") ? "preview-bold " : ""}${modifiers.includes("підкреслити") ? "preview-underline" : ""}`;
+  return <><b className={className}>{result}</b><p className="constructor-sentence">Речення-приклад: «Прошу врахувати: <span className={className}>{result}</span>.»</p></>;
+}
+
+const toPersonnelValue = (item: CustomFieldDefinition): VariableDefinition => ({
+  id: `військовий_1_${templateFieldId(item.displayName)}`, name: item.displayName, category: "Військовослужбовець", description: item.description, example: item.initialValue, kind: "text", supportsCases: false
+});
+const templateFieldId = (name: string) => name.toLocaleLowerCase("uk")
+  .replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "");
 
 export function VariableConstructorPage() {
-  const [query, setQuery] = useState(""); const [viewMode, setViewMode] = useState<"constructor" | "all">("constructor"); const [objectId, setObjectId] = useState("person"); const [fieldId, setFieldId] = useState("піб"); const [personNumber, setPersonNumber] = useState("1"); const [modifiers, setModifiers] = useState<string[]>([]); const [step, setStep] = useState(0); const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]); const [personnelFields, setPersonnelFields] = useState<CustomFieldDefinition[]>([]); const [showCustom, setShowCustom] = useState(false); const [customObjectId, setCustomObjectId] = useState("person"); const [customVariableFieldKey, setCustomVariableFieldKey] = useState(""); const { notify } = useNotifications();
-  useEffect(() => { void personnelService.listCustomFields().then(setCustomFields).catch(() => undefined); void personnelService.listPersonnelFields().then(setPersonnelFields).catch(() => undefined); }, []);
-  useEffect(() => { if (!showCustom) return; const select = document.querySelector<HTMLSelectElement>(".modal select"); if (!select) return; const subjects = [["person", "Військовослужбовець"], ["main", "Основний підписант"], ["commander", "Командир"], ["chief", "Начальник штабу"], ["deputyPpp", "Заступник командира з ППП"], ["deputyArmament", "Заступник командира з озброєння"], ["deputyRear", "Заступник командира з тилу"], ["fuelChief", "Начальник ПММ"], ["date", "Дата рапорту"]]; select.replaceChildren(...subjects.map(([value, label]) => { const option = document.createElement("option"); option.value = value; option.textContent = label; return option; })); select.value = customObjectId; }, [showCustom, customObjectId]);
-  const isPerson = objectId === "person"; const isCustom = objectId.startsWith("custom:"); const selectedCustom = customFields.find((item) => `custom:${item.fieldKey}` === objectId); const objectOptions = [...objects, ...customFields.map((item) => ({ id: `custom:${item.fieldKey}`, label: `Кастомне поле: ${item.displayName}` }))];
-  const categoryItems = useMemo(() => { const matches = (item: VariableDefinition) => `${item.name} ${item.description} ${item.id}`.toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk")); const coreFields = personnelFields.map((item) => ({ id: `військовий_1_${item.fieldKey}`, name: item.displayName, category: "Військовослужбовець", description: item.description, example: item.initialValue, kind: "text", supportsCases: false } as VariableDefinition)); if (viewMode === "all") return [...variableRegistry, ...coreFields].filter(matches); if (isCustom && selectedCustom) return [{ id: `військовий_1_${selectedCustom.fieldKey}`, name: selectedCustom.displayName, category: "Військовослужбовець", description: selectedCustom.description, example: selectedCustom.initialValue, kind: "text", supportsCases: false } as VariableDefinition]; if (isPerson) return [...variableRegistry.filter((item) => item.id.startsWith("військовий_1_")), ...coreFields].filter(matches); return variableRegistry.filter((item) => item.category === objectId && matches(item)); }, [viewMode, isPerson, isCustom, objectId, query, selectedCustom, personnelFields]);
-  const field = categoryItems.find((item) => item.id.endsWith(`_${fieldId}`)) ?? categoryItems[0] ?? variableRegistry[0]; const variableId = viewMode === "all" ? field.id : isPerson ? field.id.replace(/^військовий_1_/, `військовий_${Math.max(1, Number(personNumber) || 1)}_`) : field.id; const token = tokenFor(variableId, modifiers);
-  const toggleModifier = (id: string) => setModifiers((current) => { const group = modifierRegistry.find((item) => item.id === id)?.group; if (current.includes(id)) return current.filter((item) => item !== id); if (group === "case") return [...current.filter((item) => modifierRegistry.find((candidate) => candidate.id === item)?.group !== "case"), id]; return [...current, id]; });
-  const selectObject = (id: string) => { setObjectId(id); setFieldId("піб"); setStep(1); setModifiers([]); }; const selectField = (id: string) => { setFieldId(id.replace(/^військовий_\d+_/, "")); setStep(2); }; const createVariable = () => { const selected = customFields.find((item) => item.fieldKey === customVariableFieldKey); if (!selected || customObjectId !== "person") { notify("Для цього суб’єкта немає доступних кастомних полів.", "error"); return; } setObjectId(`custom:${selected.fieldKey}`); setFieldId(selected.fieldKey); setStep(2); setShowCustom(false); notify("Кастомну змінну підготовлено.", "success"); }; const openCustomVariable = () => { setCustomObjectId("person"); setCustomVariableFieldKey(customFields[0]?.fieldKey ?? ""); setShowCustom(true); };
-  return <PageFrame className="documentation-page"><section className="documentation-layout"><main className="panel documentation"><header className="documentation__intro"><BookOpen /><div><h1>Конструктор змінних</h1><h2>Покрокове складання</h2><p>Оберіть частину змінної, а потім поверніться до будь-якого кроку, щоб змінити її.</p></div><button className="button primary constructor-custom-action" onClick={openCustomVariable}><Plus />Кастомна змінна</button></header><div className="constructor-view-switch"><button className={viewMode === "constructor" ? "active" : ""} onClick={() => { setViewMode("constructor"); setStep(0); }}>Конструктор змінних</button><button className={viewMode === "all" ? "active" : ""} onClick={() => { setViewMode("all"); setStep(1); }}>Всі змінні</button></div>{viewMode === "constructor" && <div className="constructor-steps">{["Об’єкт", "Поле", "Модифікатори"].map((label, index) => <button className={step === index ? "active" : ""} key={label} onClick={() => setStep(index)}>{index + 1}. {label}</button>)}</div>}{(step === 0 && viewMode === "constructor") && <div className="constructor-object-grid">{objectOptions.map((item) => <button key={item.id} onClick={() => selectObject(item.id)}><b>{item.label}</b><span>Поля та доступні форми</span></button>)}</div>}{(step === 1 || viewMode === "all") && <section className="constructor-fields"><SearchInput placeholder="Пошук поля або змінної…" value={query} onChange={setQuery} /><div className="variable-grid">{categoryItems.map((item) => <button className={field.id === item.id ? "variable-token variable-token--selected" : "variable-token"} key={item.id} onClick={() => selectField(item.id)}><code>{`{{${item.id}}}`}</code><b>{item.name}</b><span>{item.description}</span></button>)}</div>{isPerson && viewMode === "constructor" && <label className="field">Номер військовослужбовця<input type="number" min="1" value={personNumber} onChange={(event) => setPersonNumber(event.target.value)} /></label>}</section>}{step === 2 && viewMode === "constructor" && <section className="constructor-modifiers"><h3>Модифікатори можна комбінувати</h3><div className="modifier-groups">{[["Відмінок", "case"], ["Регістр", "text"], ["Форматування DOCX", "style"]].map(([title, group]) => <section key={group}><h4>{title}</h4><div className="modifier-grid">{modifierRegistry.filter((item) => item.group === group).map((item) => <label key={item.id}><input type={group === "case" ? "radio" : "checkbox"} name={group === "case" ? "grammatical-case" : undefined} checked={modifiers.includes(item.id)} onChange={() => toggleModifier(item.id)} />{item.name}</label>)}</div></section>)}</div><p>Відмінок можна вибрати лише один. Регістр і форматування комбінуються окремо.</p></section>}</main><aside className="panel variable-preview"><header className="variable-preview__header">Поточна змінна</header><h2>{field.name}</h2><p>{field.description}</p><div className="word-example"><span>Токен для Word</span><code>{token}</code></div><div className="variable-result"><span>Перекладене значення</span><Preview variable={field} modifiers={modifiers} /></div><button className="button primary" onClick={() => void navigator.clipboard.writeText(token).then(() => notify("Змінну скопійовано.", "success"))}><Copy />Скопіювати змінну</button></aside></section>{showCustom && <div className="modal-backdrop"><section className="modal"><h2>Створення кастомної змінної</h2><p>Спочатку оберіть суб’єкт, потім доступне для нього поле.</p><label>Суб’єкт<select value={customObjectId} onChange={(event) => setCustomObjectId(event.target.value)}><option value="person">Військовослужбовець</option><option value="signer" disabled>Підписант (кастомні поля недоступні)</option><option value="date" disabled>Дата (кастомні поля недоступні)</option></select></label>{customObjectId === "person" && (customFields.length === 0 ? <p>Кастомних полів ще немає. Створіть поле у вкладці «Особовий склад».</p> : <label>Кастомне поле<select value={customVariableFieldKey} onChange={(event) => setCustomVariableFieldKey(event.target.value)}>{customFields.map((item) => <option key={item.fieldKey} value={item.fieldKey}>{item.displayName} ({item.fieldKey})</option>)}</select></label>)}<div className="modal-actions"><button className="button" onClick={() => setShowCustom(false)}>Скасувати</button><button className="button primary" disabled={customFields.length === 0 || customObjectId !== "person"} onClick={createVariable}>Створити змінну</button></div></section></div>}</PageFrame>;
+  const [query, setQuery] = useState("");
+  const [viewMode, setViewMode] = useState<"constructor" | "all">("constructor");
+  const [objectId, setObjectId] = useState("person");
+  const [fieldId, setFieldId] = useState("військовий_1_піб");
+  const [personNumber, setPersonNumber] = useState("1");
+  const [modifiers, setModifiers] = useState<string[]>([]);
+  const [step, setStep] = useState(0);
+  const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
+  const { notify } = useNotifications();
+
+  useEffect(() => {
+    void personnelService.listCustomFields().then(setCustomFields).catch(() => undefined);
+  }, []);
+
+  const isPerson = objectId === "person";
+  const categoryItems = useMemo(() => {
+    const matches = (item: VariableDefinition) => `${item.name} ${item.description} ${item.id}`.toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"));
+    const personnelValueFields = customFields.map(toPersonnelValue);
+    if (viewMode === "all") return [...variableRegistry, ...personnelValueFields].filter(matches);
+    if (isPerson) return [...variableRegistry.filter((item) => item.id.startsWith("військовий_1_")), ...personnelValueFields].filter(matches);
+    if (objectId === "date") return variableRegistry.filter((item) => item.category === "Дати та службові дані" && matches(item));
+    return variableRegistry.filter((item) => item.id.startsWith(`${objectId}_`) && matches(item));
+  }, [viewMode, isPerson, objectId, query, customFields]);
+
+  const field = categoryItems.find((item) => item.id === fieldId) ?? categoryItems[0] ?? variableRegistry[0];
+  const variableId = viewMode === "all" ? field.id : isPerson ? field.id.replace(/^військовий_1_/, `військовий_${Math.max(1, Number(personNumber) || 1)}_`) : field.id;
+  const token = tokenFor(variableId, modifiers);
+  const selectObject = (id: string) => { setObjectId(id); setFieldId(id === "person" ? "військовий_1_піб" : id === "date" ? "дата_рапорту" : `${id}_піб`); setStep(1); setModifiers([]); };
+  const selectField = (id: string) => { setFieldId(id); setStep(2); };
+  const toggleModifier = (id: string) => setModifiers((current) => {
+    const group = modifierRegistry.find((item) => item.id === id)?.group;
+    if (current.includes(id)) return current.filter((item) => item !== id);
+    if (group === "case" || group === "text") return [...current.filter((item) => modifierRegistry.find((candidate) => candidate.id === item)?.group !== group), id];
+    return [...current, id];
+  });
+
+  return <PageFrame className="documentation-page">
+    <section className="documentation-layout">
+      <main className="panel documentation">
+        <header className="documentation__intro"><BookOpen /><div><h1>Конструктор змінних</h1><h2>Покрокове складання</h2><p>Оберіть частину змінної, а потім поверніться до будь-якого кроку, щоб змінити її.</p></div></header>
+        <div className="constructor-view-switch"><button className={viewMode === "constructor" ? "active" : ""} onClick={() => { setViewMode("constructor"); setStep(0); }}>Конструктор змінних</button><button className={viewMode === "all" ? "active" : ""} onClick={() => { setViewMode("all"); setStep(1); }}>Всі змінні</button></div>
+        {viewMode === "constructor" && <div className="constructor-steps">{["Об’єкт", "Поле", "Модифікатори"].map((label, index) => <button className={step === index ? "active" : ""} key={label} onClick={() => setStep(index)}>{index + 1}. {label}</button>)}</div>}
+        {step === 0 && viewMode === "constructor" && <div className="constructor-object-grid">{objects.map((item) => <button key={item.id} onClick={() => selectObject(item.id)}><b>{item.label}</b><span>Поля та доступні форми</span></button>)}</div>}
+        {(step === 1 || viewMode === "all") && <section className="constructor-fields"><SearchInput placeholder="Пошук поля або змінної…" value={query} onChange={setQuery} /><div className="variable-grid">{categoryItems.map((item) => <button className={field.id === item.id ? "variable-token variable-token--selected" : "variable-token"} key={item.id} onClick={() => selectField(item.id)}><code>{`{{${item.id}}}`}</code><b>{item.name}</b><span>{item.description}</span></button>)}</div>{isPerson && viewMode === "constructor" && <label className="field">Номер військовослужбовця<input type="number" min="1" value={personNumber} onChange={(event) => setPersonNumber(event.target.value)} /></label>}</section>}
+        {step === 2 && viewMode === "constructor" && <section className="constructor-modifiers"><h3>Модифікатори можна комбінувати</h3><div className="modifier-groups">{[["Відмінок", "case"], ["Регістр", "text"], ["Форматування DOCX", "style"]].map(([title, group]) => <section key={group}><h4>{title}</h4><div className="modifier-grid">{modifierRegistry.filter((item) => item.group === group).map((item) => <label key={item.id}><input type={group === "case" || group === "text" ? "radio" : "checkbox"} name={group === "case" ? "grammatical-case" : group === "text" ? "text-case" : undefined} checked={modifiers.includes(item.id)} onChange={() => toggleModifier(item.id)} />{item.name}</label>)}</div></section>)}</div><p>Відмінок і регістр можна вибрати лише по одному. Форматування DOCX комбінується окремо.</p></section>}
+      </main>
+      <aside className="panel variable-preview"><header className="variable-preview__header">Поточна змінна</header><h2>{field.name}</h2><p>{field.description}</p><div className="word-example"><span>Токен для Word</span><code>{token}</code></div><div className="variable-result"><span>Перекладене значення</span><Preview variable={field} modifiers={modifiers} /></div><button className="button primary" onClick={() => void navigator.clipboard.writeText(token).then(() => notify("Змінну скопійовано.", "success"))}><Copy />Скопіювати змінну</button></aside>
+    </section>
+  </PageFrame>;
 }

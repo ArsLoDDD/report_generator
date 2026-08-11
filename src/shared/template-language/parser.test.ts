@@ -13,7 +13,7 @@ describe("Template Language v2 registry and validator", () => {
   });
   it("supports arbitrary ordered pipelines", () => expect(parseTemplateTokens("{{військовий_21_піб:родовий:великими}}")[0].modifiers).toEqual(["родовий", "великими"]));
   it("allows independent DOCX styles and custom fields", () => {
-    expect(validateToken(parseTemplateTokens("{{військовий_1_custom_badge:жирним:підкреслити}}")[0])).toEqual([]);
+    expect(validateToken(parseTemplateTokens("{{військовий_1_код_нагороди:жирним:підкреслити}}")[0])).toEqual([]);
   });
   it("rejects duplicates, conflicting case and register modifiers", () => {
     expect(validateToken(parseTemplateTokens("{{військовий_1_піб:родовий:родовий}}")[0]).length).toBeGreaterThan(0);

@@ -51,6 +51,8 @@ struct Registry {
 #[derive(Deserialize)]
 struct Field {
     id: String,
+    #[serde(rename = "sourceKey")]
+    source_key: Option<String>,
     kind: String,
     cases: bool,
 }
@@ -200,7 +202,8 @@ pub fn generate(
 }
 
 fn validate_token(token: &str) -> Vec<String> {
-    let parts = token.split(':').collect::<Vec<_>>();
+    let canonical = normalize_token(token);
+    let parts = canonical.split(':').collect::<Vec<_>>();
     let base = parts[0].trim();
     let field = field_for(base);
     let is_custom = field.is_none() && custom_field_token(base);
@@ -251,11 +254,8 @@ fn custom_field_token(base: &str) -> bool {
     number.parse::<usize>().is_ok()
         && number != "0"
         && !key.is_empty()
-        && key.chars().all(|value| value == '_' || value.is_ascii_lowercase() || value.is_ascii_digit())
-        && key.chars().next().is_some_and(|value| value.is_ascii_lowercase())
-        && key
-            .chars()
-            .all(|c| c == '_' || c.is_ascii_lowercase() || c.is_ascii_digit())
+        && key.chars().next().is_some_and(char::is_alphabetic)
+        && key.chars().all(|value| value == '_' || value.is_alphanumeric())
 }
 fn field_for(base: &str) -> Option<&'static Field> {
     if let Some(c) = base.strip_prefix("військовий_") {
@@ -331,49 +331,9 @@ fn values_for(
     for (i, p) in people.iter().enumerate() {
         let prefix = format!("військовий_{}", i + 1);
         let gender = detect_gender(&p.gender, &p.patronymic);
-        let data = [
-            ("прізвище", p.surname.to_uppercase(), "person-name"),
-            ("імя", name_case(&p.given_name), "person-name"),
-            ("по_батькові", name_case(&p.patronymic), "person-name"),
-            (
-                "піб",
-                format!(
-                    "{} {} {}",
-                    p.surname.to_uppercase(),
-                    name_case(&p.given_name),
-                    name_case(&p.patronymic)
-                )
-                .trim()
-                .into(),
-                "person-name",
-            ),
-            ("звання", sentence_case(&p.rank), "rank"),
-            ("посада", sentence_case(&p.position), "position"),
-            ("іпн", p.tax_id.clone(), "number"),
-            ("дата_народження", p.birth_date.clone(), "date"),
-            ("освіта", p.education_level.clone(), "text"),
-            ("де_отримана_освіта", p.education_details.clone(), "text"),
-            (
-                "служба_в_зсу",
-                p.armed_forces_service_start_date.clone(),
-                "text",
-            ),
-            ("дата_призначення", p.position_assigned_date.clone(), "date"),
-            (
-                "наказ_призначення",
-                p.position_assignment_order.clone(),
-                "text",
-            ),
-            ("військовий_квиток", p.military_id.clone(), "text"),
-            ("автомобіль", p.assigned_vehicle_name.clone(), "text"),
-            (
-                "номер_автомобіля",
-                p.assigned_vehicle_registration.clone(),
-                "text",
-            ),
-        ];
-        for (id, text, kind) in data {
-            map.insert(format!("{prefix}_{id}"), Value::new(text, kind, gender));
+        for field in &registry().person_fields {
+            let text = person_value(p, field.source_key.as_deref().unwrap_or_default());
+            map.insert(format!("{prefix}_{}", field.id), Value::new(text, &field.kind, gender));
         }
     }
     for role in &registry().signer_roles {
@@ -400,28 +360,56 @@ fn values_for(
     Ok(map)
 }
 
+fn person_value(person: &Personnel, source_key: &str) -> String {
+    match source_key {
+        "surname" => person.surname.to_uppercase(),
+        "given_name" => name_case(&person.given_name),
+        "patronymic" => name_case(&person.patronymic),
+        "full_name" => format!("{} {} {}", person.surname.to_uppercase(), name_case(&person.given_name), name_case(&person.patronymic)).trim().to_string(),
+        "rank" => sentence_case(&person.rank),
+        "position" => sentence_case(&person.position),
+        "tax_id" => person.tax_id.clone(),
+        "birth_date" => person.birth_date.clone(),
+        "education_level" => person.education_level.clone(),
+        "education_details" => person.education_details.clone(),
+        "armed_forces_service_start_date" => person.armed_forces_service_start_date.clone(),
+        "position_assigned_date" => person.position_assigned_date.clone(),
+        "position_assignment_order" => person.position_assignment_order.clone(),
+        "military_id" => person.military_id.clone(),
+        "assigned_vehicle_name" => person.assigned_vehicle_name.clone(),
+        "assigned_vehicle_registration" => person.assigned_vehicle_registration.clone(),
+        key => person.core_fields.get(key).cloned().unwrap_or_default(),
+    }
+}
+
 fn add_custom_values(
     connection: &Connection,
     people: &[Personnel],
     values: &mut HashMap<String, Value>,
 ) -> Result<(), String> {
     for (index, person) in people.iter().enumerate() {
-        let mut statement = connection.prepare("SELECT field_key, field_value FROM personnel_custom_fields WHERE personnel_id = ?1").map_err(|_| "Не вдалося прочитати додаткові поля.".to_string())?;
+        let mut statement = connection.prepare("SELECT definition.field_key, definition.display_name, value.field_value FROM personnel_custom_fields value JOIN custom_field_definitions definition ON definition.field_key = value.field_key WHERE value.personnel_id = ?1").map_err(|_| "Не вдалося прочитати додаткові поля.".to_string())?;
         let fields = statement
             .query_map([person.id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
             })
             .map_err(|_| "Не вдалося прочитати додаткові поля.".to_string())?;
         for field in fields {
-            let (key, value) =
+            let (_key, display_name, value) =
                 field.map_err(|_| "Не вдалося прочитати додаткове поле.".to_string())?;
             values.insert(
-                format!("військовий_{}_{}", index + 1, key),
+                format!("військовий_{}_{}", index + 1, custom_template_id(&display_name)),
                 Value::new(value, "text", None),
             );
         }
     }
     Ok(())
+}
+fn custom_template_id(name: &str) -> String {
+    let normalized = name.to_lowercase().chars().map(|character| {
+        if character.is_alphanumeric() { character } else { '_' }
+    }).collect::<String>();
+    normalized.trim_matches('_').split('_').filter(|part| !part.is_empty()).collect::<Vec<_>>().join("_")
 }
 fn add_signer(map: &mut HashMap<String, Value>, prefix: &str, s: &settings::SignerSettings) {
     let parts = s.full_name.split_whitespace().collect::<Vec<_>>();
@@ -727,13 +715,19 @@ fn extract_variables(xml: &str) -> Vec<String> {
     while let Some(start) = rest.find("{{") {
         let after = &rest[start + 2..];
         if let Some(end) = after.find("}}") {
-            out.push(after[..end].trim().into());
+            out.push(after[..end].into());
             rest = &after[end + 2..]
         } else {
             break;
         }
     }
     out
+}
+fn normalize_token(token: &str) -> String {
+    token
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
 }
 fn xml_visible_text(xml: &str) -> String {
     let mut out = String::new();
@@ -794,7 +788,8 @@ fn replace_variables(xml: &str, values: &HashMap<String, Value>) -> Result<Strin
     let tokens = extract_variables(xml);
     let mut result = xml.to_string();
     for token in tokens {
-        let parts = token.split(':').collect::<Vec<_>>();
+        let canonical = normalize_token(&token);
+        let parts = canonical.split(':').collect::<Vec<_>>();
         let value = values
             .get(parts[0])
             .ok_or_else(|| format!("Немає значення для «{{{{{token}}}}}»."))?;
@@ -957,7 +952,7 @@ mod tests {
         assert_eq!(validate_token("військовий_1_піб:родовий:родовий").len(), 2);
         assert!(!validate_token("військовий_1_піб:великими:маленькими").is_empty());
         assert!(!validate_token("військовий_1_іпн:родовий").is_empty());
-        assert!(!validate_token("військовий_1_custom_badge:родовий").is_empty())
+        assert!(!validate_token("військовий_1_код_нагороди:родовий").is_empty())
     }
     #[test]
     fn applies_unlimited_pipeline() {
@@ -988,6 +983,18 @@ mod tests {
             replace_variables(xml, &m).unwrap(),
             "<w:t>ІВАН</w:t><w:t></w:t>"
         )
+    }
+    #[test]
+    fn resolves_signer_token_split_by_word_spacing() {
+        let mut settings = settings::defaults();
+        settings.main_signer = settings::SignerSettings {
+            full_name: "ІВАНЕНКО Іван Іванович".into(),
+            rank: "майор".into(),
+            position: "командир роти".into(),
+        };
+        let values = values_for(&[], &settings, Some("2026-08-11")).unwrap();
+        let xml = "<w:t>{{ о с н о в н и й _ п і д п и с а н т _ з в а н н я }}</w:t>";
+        assert_eq!(replace_variables(xml, &values).unwrap(), "<w:t>майор</w:t>");
     }
     #[test]
     fn rank_and_female_declensions() {
