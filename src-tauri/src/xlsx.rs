@@ -78,6 +78,12 @@ pub struct ImportData {
     pub vehicle_custom_field_maps: Vec<CustomFieldMapRow>,
 }
 
+#[derive(Debug, Clone)]
+struct RowWithNumber {
+    number: usize,
+    values: HashMap<String, String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomValueRow {
     pub owner_key: String,
@@ -421,7 +427,47 @@ fn workbook_rows(
         .map_err(|_| "Не вдалося прочитати Excel-файл.".to_string())?;
     Ok(rows_from_xml(&xml, shared))
 }
-fn records(rows: Vec<Vec<String>>, sheet: &str) -> Result<Vec<HashMap<String, String>>, String> {
+
+/// Resolves an XLSX worksheet by its visible name instead of relying on a
+/// sheet number. Excel is free to reorder worksheets, so `sheet4.xml` is not
+/// necessarily the same logical sheet in every workbook.
+fn worksheet_path_by_name(
+    archive: &mut ZipArchive<File>,
+    expected_name: &str,
+) -> Result<Option<String>, String> {
+    let mut workbook = String::new();
+    archive
+        .by_name("xl/workbook.xml")
+        .map_err(|_| "Excel-файл не містить опису аркушів.".to_string())?
+        .read_to_string(&mut workbook)
+        .map_err(|_| "Не вдалося прочитати структуру Excel-файлу.".to_string())?;
+    let relationship_id = workbook
+        .replace("<x:", "<")
+        .replace("</x:", "</")
+        .split("<sheet ")
+        .skip(1)
+        .filter_map(|sheet| sheet.split('>').next())
+        .find(|sheet| attribute(sheet, "name").as_deref() == Some(expected_name))
+        .and_then(|sheet| attribute(sheet, "r:id"));
+    let Some(relationship_id) = relationship_id else {
+        return Ok(None);
+    };
+    let mut relationships = String::new();
+    archive
+        .by_name("xl/_rels/workbook.xml.rels")
+        .map_err(|_| "Excel-файл не містить зв’язків аркушів.".to_string())?
+        .read_to_string(&mut relationships)
+        .map_err(|_| "Не вдалося прочитати структуру Excel-файлу.".to_string())?;
+    let target = relationships
+        .split("<Relationship ")
+        .skip(1)
+        .filter_map(|relationship| relationship.split('>').next())
+        .find(|relationship| attribute(relationship, "Id").as_deref() == Some(&relationship_id))
+        .and_then(|relationship| attribute(relationship, "Target"))
+        .ok_or_else(|| format!("Не вдалося знайти аркуш «{expected_name}»."))?;
+    Ok(Some(format!("xl/{target}")))
+}
+fn records(rows: Vec<Vec<String>>, sheet: &str) -> Result<Vec<RowWithNumber>, String> {
     if rows.len() < 2 {
         return Err(format!(
             "Аркуш «{sheet}» має містити два рядки заголовків: назви та ключі."
@@ -431,7 +477,8 @@ fn records(rows: Vec<Vec<String>>, sheet: &str) -> Result<Vec<HashMap<String, St
     Ok(rows
         .into_iter()
         .skip(2)
-        .filter_map(|row| {
+        .enumerate()
+        .filter_map(|(index, row)| {
             let map = keys
                 .iter()
                 .enumerate()
@@ -440,7 +487,10 @@ fn records(rows: Vec<Vec<String>>, sheet: &str) -> Result<Vec<HashMap<String, St
                         .then(|| (key.clone(), row.get(index).cloned().unwrap_or_default()))
                 })
                 .collect::<HashMap<_, _>>();
-            (!map.values().all(|value| value.trim().is_empty())).then_some(map)
+            (!map.values().all(|value| value.trim().is_empty())).then_some(RowWithNumber {
+                number: index + 3,
+                values: map,
+            })
         })
         .collect())
 }
@@ -449,35 +499,50 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
     let mut archive =
         ZipArchive::new(file).map_err(|_| "Файл має пошкоджений формат XLSX.".to_string())?;
     let shared = shared_strings(&mut archive);
+    let personnel_path = worksheet_path_by_name(&mut archive, "Особовий склад")?
+        .ok_or_else(|| "Відсутній аркуш «Особовий склад».".to_string())?;
     let personnel_rows = records(
-        workbook_rows(&mut archive, "xl/worksheets/sheet1.xml", &shared)?,
+        workbook_rows(&mut archive, &personnel_path, &shared)?,
         "Особовий склад",
     )?;
-    let vehicle_rows = if archive.by_name("xl/worksheets/sheet5.xml").is_ok() {
-        records(
-            workbook_rows(&mut archive, "xl/worksheets/sheet5.xml", &shared)?,
-            "Автомобілі",
-        )?
-    } else {
-        Vec::new()
+    let vehicle_rows = match worksheet_path_by_name(&mut archive, "Автомобілі")? {
+        Some(path) => records(workbook_rows(&mut archive, &path, &shared)?, "Автомобілі")?,
+        None => Vec::new(),
     };
     let personnel = personnel_rows
         .into_iter()
-        .map(|mut values| {
+        .map(|row| {
+            let mut values = row.values;
             let full_name = values.remove("full_name").unwrap_or_default();
-            let parts = full_name.split_whitespace().collect::<Vec<_>>();
-            let surname = values
-                .remove("surname")
-                .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| parts.first().unwrap_or(&"").to_string());
+            let source_surname = values.remove("surname").unwrap_or_default();
+            // Older workbooks often contain the whole name in the first name column.
+            // Keep accepting that format while storing the name in three proper fields.
+            let split_source = if !full_name.trim().is_empty() {
+                full_name
+            } else if source_surname.split_whitespace().count() > 1 {
+                source_surname.clone()
+            } else {
+                String::new()
+            };
+            let parts = split_source
+                .split_whitespace()
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            let surname = if source_surname.split_whitespace().count() > 1 {
+                parts.first().cloned().unwrap_or_default()
+            } else if !source_surname.trim().is_empty() {
+                source_surname
+            } else {
+                parts.first().cloned().unwrap_or_default()
+            };
             let given_name = values
                 .remove("given_name")
                 .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| parts.get(1).unwrap_or(&"").to_string());
+                .unwrap_or_else(|| parts.get(1).cloned().unwrap_or_default());
             let patronymic = values
                 .remove("patronymic")
                 .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| parts.get(2).unwrap_or(&"").to_string());
+                .unwrap_or_else(|| parts.get(2).cloned().unwrap_or_default());
             let rank = values.get("rank").cloned().unwrap_or_default();
             let position = values.get("position").cloned().unwrap_or_default();
             let tax_id = values.get("tax_id").cloned().unwrap_or_default();
@@ -518,17 +583,18 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
                 core_fields: values,
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
     let vehicles = vehicle_rows
         .into_iter()
-        .map(|values| VehicleRow {
-            name: values.get("name").cloned().unwrap_or_default(),
-            registration_number: values
+        .map(|row| VehicleRow {
+            name: row.values.get("name").cloned().unwrap_or_default(),
+            registration_number: row
+                .values
                 .get("registration_number")
                 .cloned()
                 .unwrap_or_default(),
-            status: values.get("status").cloned().unwrap_or_default(),
-            driver_tax_id: values.get("driver_tax_id").cloned().unwrap_or_default(),
+            status: row.values.get("status").cloned().unwrap_or_default(),
+            driver_tax_id: row.values.get("driver_tax_id").cloned().unwrap_or_default(),
         })
         .collect();
     Ok(ImportData {
@@ -604,6 +670,112 @@ mod tests {
             "+380501234567"
         );
         assert_eq!(imported.vehicles[0].registration_number, "АА 1111 АА");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn imports_a_workbook_when_the_vehicle_sheet_is_not_the_fifth_sheet() {
+        let path = std::env::temp_dir().join(format!(
+            "shablonizator-reordered-{}.xlsx",
+            std::process::id()
+        ));
+        export(
+            &path,
+            &[person()],
+            &[VehicleRow {
+                name: "Toyota Hilux".into(),
+                registration_number: "АА 1111 АА".into(),
+                status: "Справний".into(),
+                driver_tax_id: "1234567890".into(),
+            }],
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap();
+        let source = File::open(&path).unwrap();
+        let mut source = ZipArchive::new(source).unwrap();
+        let reordered = path.with_file_name(format!(
+            "shablonizator-reordered-copy-{}.xlsx",
+            std::process::id()
+        ));
+        let destination = File::create(&reordered).unwrap();
+        let mut destination = ZipWriter::new(destination);
+        let options = SimpleFileOptions::default();
+        for index in 0..source.len() {
+            let mut entry = source.by_index(index).unwrap();
+            let name = entry.name().to_string();
+            let mut content = String::new();
+            entry.read_to_string(&mut content).unwrap();
+            if name == "xl/workbook.xml" {
+                content = content.replace("r:id=\"rId5\"", "r:id=\"rId4\"");
+            }
+            if name == "xl/_rels/workbook.xml.rels" {
+                content = content.replace("Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet4.xml\"", "Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet5.xml\"");
+                content = content.replace("Id=\"rId5\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet5.xml\"", "Id=\"rId5\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet4.xml\"");
+            }
+            destination.start_file(name, options).unwrap();
+            destination.write_all(content.as_bytes()).unwrap();
+        }
+        destination.finish().unwrap();
+        let imported = import(&reordered).unwrap();
+        assert_eq!(imported.personnel.len(), 1);
+        assert_eq!(imported.vehicles[0].name, "Toyota Hilux");
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(reordered);
+    }
+
+    #[test]
+    fn imports_incomplete_personnel_row_and_splits_a_full_name_from_surname_cell() {
+        let path = std::env::temp_dir().join(format!(
+            "shablonizator-incomplete-{}.xlsx",
+            std::process::id()
+        ));
+        let headers = vec![
+            "Звання".into(),
+            "Прізвище".into(),
+            "Посада".into(),
+            "ІПН".into(),
+        ];
+        let keys = vec![
+            "rank".into(),
+            "surname".into(),
+            "position".into(),
+            "tax_id".into(),
+        ];
+        let personnel_xml = worksheet_xml(
+            &headers,
+            &keys,
+            &[vec![
+                "штаб-сержант".into(),
+                "БАРДАЧУК АНАТОЛІЙ АНАТОЛІЙОВИЧ".into(),
+                String::new(),
+                String::new(),
+            ]],
+        );
+        let file = File::create(&path).unwrap();
+        let mut archive = ZipWriter::new(file);
+        let options = SimpleFileOptions::default();
+        archive.start_file("xl/workbook.xml", options).unwrap();
+        archive
+            .write_all("<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Особовий склад\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>".as_bytes())
+            .unwrap();
+        archive
+            .start_file("xl/_rels/workbook.xml.rels", options)
+            .unwrap();
+        archive.write_all(b"<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>").unwrap();
+        archive
+            .start_file("xl/worksheets/sheet1.xml", options)
+            .unwrap();
+        archive.write_all(personnel_xml.as_bytes()).unwrap();
+        archive.finish().unwrap();
+        let imported = import(&path).unwrap();
+        assert_eq!(imported.personnel.len(), 1);
+        assert_eq!(imported.personnel[0].surname, "БАРДАЧУК");
+        assert_eq!(imported.personnel[0].given_name, "АНАТОЛІЙ");
+        assert_eq!(imported.personnel[0].patronymic, "АНАТОЛІЙОВИЧ");
+        assert!(imported.personnel[0].tax_id.is_empty());
         let _ = std::fs::remove_file(path);
     }
 }

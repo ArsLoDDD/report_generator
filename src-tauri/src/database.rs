@@ -178,8 +178,15 @@ pub fn sync_custom_fields_file(
 
 pub fn initialise(connection: &Connection) -> Result<(), String> {
     connection.execute_batch("CREATE TABLE IF NOT EXISTS vehicles (id INTEGER PRIMARY KEY, name TEXT NOT NULL, registration_number TEXT NOT NULL UNIQUE, notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").map_err(|_| "Не вдалося створити таблицю автомобілів.".to_string())?;
-    connection.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS personnel (id INTEGER PRIMARY KEY, rank TEXT NOT NULL, surname TEXT NOT NULL, given_name TEXT NOT NULL, patronymic TEXT NOT NULL DEFAULT '', position TEXT NOT NULL, tax_id TEXT NOT NULL UNIQUE CHECK(length(tax_id) = 10), birth_date TEXT NOT NULL, education_level TEXT NOT NULL, education_details TEXT NOT NULL, armed_forces_service_start_date TEXT NOT NULL, position_assigned_date TEXT NOT NULL, position_assignment_order TEXT NOT NULL, military_id TEXT NOT NULL, gender TEXT NOT NULL DEFAULT '' CHECK(gender IN ('', 'чоловіча', 'жіноча')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS personnel_custom_fields (personnel_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(personnel_id, field_key), FOREIGN KEY(personnel_id) REFERENCES personnel(id) ON DELETE CASCADE); CREATE TABLE IF NOT EXISTS custom_field_definitions (field_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, description TEXT NOT NULL, initial_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS vehicle_custom_field_definitions (field_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, description TEXT NOT NULL, initial_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS vehicle_custom_fields (vehicle_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(vehicle_id, field_key), FOREIGN KEY(vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE);")
+    connection.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS personnel (id INTEGER PRIMARY KEY, rank TEXT NOT NULL, surname TEXT NOT NULL, given_name TEXT NOT NULL, patronymic TEXT NOT NULL DEFAULT '', position TEXT NOT NULL, tax_id TEXT NOT NULL DEFAULT '', birth_date TEXT NOT NULL, education_level TEXT NOT NULL, education_details TEXT NOT NULL, armed_forces_service_start_date TEXT NOT NULL, position_assigned_date TEXT NOT NULL, position_assignment_order TEXT NOT NULL, military_id TEXT NOT NULL, gender TEXT NOT NULL DEFAULT '' CHECK(gender IN ('', 'чоловіча', 'жіноча')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS personnel_custom_fields (personnel_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(personnel_id, field_key), FOREIGN KEY(personnel_id) REFERENCES personnel(id) ON DELETE CASCADE); CREATE TABLE IF NOT EXISTS custom_field_definitions (field_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, description TEXT NOT NULL, initial_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS vehicle_custom_field_definitions (field_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, description TEXT NOT NULL, initial_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS vehicle_custom_fields (vehicle_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(vehicle_id, field_key), FOREIGN KEY(vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE);")
         .map_err(|_| "Не вдалося підготувати базу даних.".to_string())?;
+    migrate_personnel_tax_id_for_import(connection)?;
+    connection
+        .execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS personnel_tax_id_nonempty_unique ON personnel(tax_id) WHERE tax_id <> ''",
+            [],
+        )
+        .map_err(|_| "Не вдалося налаштувати унікальність ІПН.".to_string())?;
     connection.execute("ALTER TABLE vehicles ADD COLUMN personnel_id INTEGER REFERENCES personnel(id) ON DELETE SET NULL", []).ok();
     connection
         .execute(
@@ -271,6 +278,75 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
                 .map_err(|_| format!("Не вдалося додати основне поле «{field_key}»."))?;
         }
     }
+    Ok(())
+}
+
+/// Old databases required every record to have a unique ten-digit tax ID. Excel
+/// bases intentionally allow incomplete rows, therefore only non-empty IDs are
+/// unique from now on. SQLite needs a table rebuild to remove the old constraint.
+fn migrate_personnel_tax_id_for_import(connection: &Connection) -> Result<(), String> {
+    let sql = connection
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='personnel'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|_| "Не вдалося прочитати структуру особового складу.".to_string())?;
+    if !sql.contains("tax_id TEXT NOT NULL UNIQUE") && !sql.contains("CHECK(length(tax_id)") {
+        return Ok(());
+    }
+    let columns = connection
+        .prepare("PRAGMA table_info(personnel)")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, i64>(5)?,
+                    ))
+                })
+                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        })
+        .map_err(|_| "Не вдалося прочитати поля особового складу.".to_string())?;
+    let definitions = columns
+        .iter()
+        .map(|(name, kind, required, default, primary)| {
+            if name == "tax_id" {
+                "tax_id TEXT NOT NULL DEFAULT ''".to_string()
+            } else if *primary > 0 {
+                format!("{name} {kind} PRIMARY KEY")
+            } else {
+                format!(
+                    "{name} {kind}{}{}",
+                    if *required != 0 { " NOT NULL" } else { "" },
+                    default
+                        .as_ref()
+                        .map(|value| format!(" DEFAULT {value}"))
+                        .unwrap_or_default()
+                )
+            }
+        })
+        .collect::<Vec<_>>();
+    let names = columns
+        .iter()
+        .map(|(name, _, _, _, _)| name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    connection
+        .execute_batch("PRAGMA foreign_keys = OFF;")
+        .map_err(|_| "Не вдалося підготувати міграцію ІПН.".to_string())?;
+    let result = connection.execute_batch(&format!(
+        "CREATE TABLE personnel_import_ready ({}); \
+         INSERT INTO personnel_import_ready ({names}) SELECT {names} FROM personnel; \
+         DROP TABLE personnel; \
+         ALTER TABLE personnel_import_ready RENAME TO personnel;",
+        definitions.join(", ")
+    ));
+    let _ = connection.execute_batch("PRAGMA foreign_keys = ON;");
+    result.map_err(|_| "Не вдалося оновити базу для імпорту неповних Excel-даних.".to_string())?;
     Ok(())
 }
 
@@ -777,6 +853,20 @@ mod tests {
             .unwrap();
         assert!(!columns.contains(&"assigned_vehicle_name".to_string()));
         assert!(!columns.contains(&"assigned_vehicle_registration".to_string()));
+    }
+
+    #[test]
+    fn migrates_legacy_tax_id_constraint_to_allow_empty_import_values() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch("CREATE TABLE personnel (id INTEGER PRIMARY KEY, rank TEXT NOT NULL, surname TEXT NOT NULL, given_name TEXT NOT NULL, patronymic TEXT NOT NULL DEFAULT '', position TEXT NOT NULL, tax_id TEXT NOT NULL UNIQUE CHECK(length(tax_id) = 10), birth_date TEXT NOT NULL, education_level TEXT NOT NULL, education_details TEXT NOT NULL, armed_forces_service_start_date TEXT NOT NULL, position_assigned_date TEXT NOT NULL, position_assignment_order TEXT NOT NULL, military_id TEXT NOT NULL, gender TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
+        initialise(&connection).unwrap();
+        for surname in ["ПЕРШИЙ", "ДРУГИЙ"] {
+            connection.execute("INSERT INTO personnel (rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, gender) VALUES ('', ?1, '', '', '', '', '', '', '', '', '', '', '', '')", [surname]).unwrap();
+        }
+        let count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM personnel WHERE tax_id = ''", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 2);
     }
 
     #[test]

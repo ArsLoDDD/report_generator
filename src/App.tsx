@@ -25,7 +25,9 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>("generator");
   const { personnel: people, totalCount: personnelTotalCount, hasMore: personnelHasMore, isLoading: personnelLoading, isLoadingMore: personnelLoadingMore, errorMessage: personnelError, refresh: refreshPersonnel, loadMore: loadMorePersonnel, createPersonnel, updatePersonnel, deletePersonnel } = usePersonnel();
   const { templates, totalCount: templatesTotalCount, hasMore: templatesHasMore, isRefreshing: templatesRefreshing, isLoadingMore: templatesLoadingMore, loadMore: loadMoreTemplates, refresh: refreshTemplates } = useTemplates();
-  const startupWarnings = useStartupWarnings().filter((warning) => !["personnel-empty", "database-missing"].includes(warning.code) || people.length === 0);
+  const startupWarnings = useStartupWarnings().filter((warning) =>
+    !["personnel-empty", "database-missing"].includes(warning.code) || people.length === 0,
+  );
   const [selectedPeople, setSelectedPeople] = useState<number[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
   const [templateInfo, setTemplateInfo] = useState<Template | null>(null);
@@ -68,9 +70,9 @@ export default function App() {
   return <NotificationProvider><div className={`product-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <aside className="sidebar">
       <div className="sidebar-top"><div className="product-logo"><img src={appIcon} alt="" /><div><b>Шаблонізатор</b><span>службові документи</span></div></div></div>
-      <nav>{navigation.map(([id, label, Icon]) => <button key={id} title={label} onClick={() => setScreen(id)} className={screen === id ? "nav-active" : ""}><Icon size={23} /><span>{label}</span></button>)}</nav>
-      <div className="sidebar-bottom"><button title="Довідник" onClick={() => setScreen("documentation")} className={screen === "documentation" ? "nav-active" : ""}><BookOpen size={23} /><span>Довідник</span></button><button title="Налаштування" onClick={() => setScreen("settings")} className={screen === "settings" ? "nav-active" : ""}><Settings size={23} /><span>Налаштування</span></button></div>
-      {startupWarnings.length > 0 && <section className="sidebar-warnings" aria-label="Попередження програми">{startupWarnings.map((warning) => <article key={warning.code} title={warning.message}><AlertTriangle /><div><b>{warning.title}</b><span>{warning.message}</span></div></article>)}</section>}
+      <section className="sidebar-menu"><nav>{navigation.map(([id, label, Icon]) => <button key={id} title={label} onClick={() => setScreen(id)} className={screen === id ? "nav-active" : ""}><Icon size={23} /><span>{label}</span></button>)}</nav></section>
+      <section className="sidebar-middle">{startupWarnings.length > 0 && <section className="sidebar-warnings" aria-label="Попередження програми">{startupWarnings.map((warning) => <article key={warning.code} title={warning.message}><AlertTriangle /><div><b>{warning.title}</b><span>{warning.message}</span></div></article>)}</section>}</section>
+      <footer className="sidebar-bottom"><button title="Довідник" onClick={() => setScreen("documentation")} className={screen === "documentation" ? "nav-active" : ""}><BookOpen size={23} /><span>Довідник</span></button><button title="Налаштування" onClick={() => setScreen("settings")} className={screen === "settings" ? "nav-active" : ""}><Settings size={23} /><span>Налаштування</span></button></footer>
       <button className="sidebar-toggle sidebar-toggle--rail" aria-label={sidebarCollapsed ? "Розгорнути сайдбар" : "Згорнути сайдбар"} title={sidebarCollapsed ? "Розгорнути сайдбар" : "Згорнути сайдбар"} onClick={toggleSidebar}>{sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</button>
     </aside>
     <main className="workspace">

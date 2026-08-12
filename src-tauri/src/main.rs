@@ -538,13 +538,11 @@ fn import_personnel_xlsx(
         }
         return Ok(0);
     }
-    for draft in &data.personnel {
-        personnel::validate(draft)?;
-    }
     let mut ids = std::collections::HashSet::new();
     if data
         .personnel
         .iter()
+        .filter(|draft| !draft.tax_id.trim().is_empty())
         .any(|draft| !ids.insert(draft.tax_id.clone()))
     {
         return Err("У файлі є дублікати ІПН. Виправте їх перед імпортом.".into());
@@ -586,7 +584,7 @@ fn import_personnel_xlsx(
         }
         let mut count = 0;
         for draft in data.personnel {
-            personnel::create(&db.connection, draft)?;
+            personnel::create_import(&db.connection, draft)?;
             count += 1;
         }
         for vehicle in data.vehicles {

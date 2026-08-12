@@ -180,6 +180,17 @@ pub fn list_page(
 
 pub fn create(connection: &Connection, draft: PersonnelDraft) -> Result<Personnel, String> {
     validate(&draft)?;
+    create_unchecked(connection, draft)
+}
+
+/// Imports preserve intentionally empty cells from the Excel base. Manual form
+/// validation remains strict, while a non-empty tax ID is still validated.
+pub fn create_import(connection: &Connection, draft: PersonnelDraft) -> Result<Personnel, String> {
+    validate_import(&draft)?;
+    create_unchecked(connection, draft)
+}
+
+fn create_unchecked(connection: &Connection, draft: PersonnelDraft) -> Result<Personnel, String> {
     connection.execute("INSERT INTO personnel (rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, gender) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)", params![draft.rank, draft.surname, draft.given_name, draft.patronymic, draft.position, draft.tax_id, draft.birth_date, draft.education_level, draft.education_details, draft.armed_forces_service_start_date, draft.position_assigned_date, draft.position_assignment_order, draft.military_id, draft.gender])
         .map_err(|_| "Не вдалося зберегти військовослужбовця. Перевірте унікальність ІПН.".to_string())?;
     let id = connection.last_insert_rowid();
@@ -307,6 +318,22 @@ pub(crate) fn validate(draft: &PersonnelDraft) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn validate_import(draft: &PersonnelDraft) -> Result<(), String> {
+    if !draft.tax_id.trim().is_empty()
+        && (draft.tax_id.len() != 10
+            || !draft
+                .tax_id
+                .chars()
+                .all(|character| character.is_ascii_digit()))
+    {
+        return Err("ІПН має містити рівно 10 цифр або бути порожнім.".to_string());
+    }
+    if !["", "чоловіча", "жіноча"].contains(&draft.gender.as_str()) {
+        return Err("Оберіть чоловічу або жіночу стать.".to_string());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,6 +386,30 @@ mod tests {
             validate(&draft).unwrap_err(),
             "ІПН має містити рівно 10 цифр."
         );
+    }
+
+    #[test]
+    fn imports_incomplete_rows_and_allows_more_than_one_empty_tax_id() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let mut first = valid_draft();
+        first.rank = "штаб-сержант".into();
+        first.surname = "БАРДАЧУК".into();
+        first.given_name = "АНАТОЛІЙ".into();
+        first.patronymic = "АНАТОЛІЙОВИЧ".into();
+        first.position.clear();
+        first.tax_id.clear();
+        first.birth_date.clear();
+        let saved = create_import(&connection, first).unwrap();
+        assert_eq!(saved.full_name, "БАРДАЧУК АНАТОЛІЙ АНАТОЛІЙОВИЧ");
+        let mut second = valid_draft();
+        second.tax_id.clear();
+        second.rank.clear();
+        second.surname = "ТЕСТ".into();
+        second.given_name.clear();
+        second.position.clear();
+        assert!(create_import(&connection, second).is_ok());
+        assert_eq!(list(&connection).unwrap().len(), 2);
     }
 
     #[test]
