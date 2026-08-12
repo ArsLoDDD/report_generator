@@ -72,6 +72,17 @@ describe("navigation and report generation", () => {
     await waitFor(() => expect(screen.getByText("Шаблони були відсутні")).toBeInTheDocument());
   });
 
+  it("collapses the sidebar to icons and restores it", () => {
+    window.localStorage.removeItem("shablonizator.sidebarCollapsed");
+    render(<App />);
+    const toggle = screen.getByRole("button", { name: "Згорнути сайдбар" });
+    fireEvent.click(toggle);
+    expect(document.querySelector(".product-shell")).toHaveClass("sidebar-collapsed");
+    expect(screen.getByRole("button", { name: "Розгорнути сайдбар" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Розгорнути сайдбар" }));
+    expect(document.querySelector(".product-shell")).not.toHaveClass("sidebar-collapsed");
+  });
+
   it("enables generation after selecting a DOCX template and a person", async () => {
     render(<App />);
     const generate = screen.getByRole("button", { name: "Згенерувати рапорт" });
@@ -88,9 +99,9 @@ describe("navigation and report generation", () => {
     const vacationTemplate = screen.getByRole("button", { name: /Рапорт на відпустку/ });
     fireEvent.click(vacationTemplate);
     expect(vacationTemplate).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(screen.getByText("Дата рапорту")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Параметри значень" })).toBeInTheDocument());
     fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
-    expect(screen.getByText("Дата рапорту")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Параметри значень" })).toBeInTheDocument();
     fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
     fireEvent.click(vacationTemplate);
     expect(vacationTemplate).toHaveAttribute("aria-pressed", "false");
@@ -184,7 +195,7 @@ describe("navigation and report generation", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
     await waitFor(() => expect(screen.getByText(/Основний підписант/)).toBeInTheDocument());
-    expect(screen.getByText(/Начальник ПММ/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Начальник ПММ/).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Змінити" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Резервна копія БД" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Резервна копія БД" })).toBeInTheDocument());
@@ -217,12 +228,14 @@ describe("navigation and report generation", () => {
     expect(screen.getAllByText("ІПН вибраного військовослужбовця.").length).toBeGreaterThan(0);
   });
 
-  it("shows a date picker only for a template that uses a date variable", async () => {
+  it("shows document parameters only for a template that uses them", async () => {
     render(<App />);
     const templateCard = await screen.findByRole("button", { name: /Рапорт на відпустку/ });
     fireEvent.click(templateCard);
-    await waitFor(() => expect(screen.getByText("Дата рапорту")).toBeInTheDocument());
-    expect(screen.getByDisplayValue(/^\d{4}-\d{2}-\d{2}$/)).toBeInTheDocument();
+    const parameters = await screen.findByRole("button", { name: "Параметри значень" });
+    fireEvent.click(parameters);
+    expect(screen.getByRole("dialog", { name: "Параметри значень" })).toBeInTheDocument();
+    expect(screen.getByText("{{дата_рапорту}}")).toBeInTheDocument();
   });
 
   it("notifies after copying a template variable", async () => {

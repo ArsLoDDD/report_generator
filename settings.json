@@ -1,38 +1,86 @@
-		{
-	"mainSigner": {
-		"fullName": "ІВАНЕНКО Іван Іванович",
-		"rank": "майор",
-		"position": "Заступник командира з ППП"
-	},
-	"commander": {
-		"fullName": "Петренко Петро Петрович",
-		"rank": "капітан",
-		"position": "Командир"
-	},
-	"chief": {
-		"fullName": "Сидоренко Сергій Сергійович",
-		"rank": "капітан",
-		"position": "Начальник штабу"
-	},
-	"deputyPpp": {
-		"fullName": "",
-		"rank": "",
-		"position": "Заступник командира з ППП"
-	},
-	"deputyArmament": {
-		"fullName": "",
-		"rank": "",
-		"position": "Заступник командира з Озброєння"
-	},
-	"deputyRear": {
-		"fullName": "",
-		"rank": "",
-		"position": "Заступник командира з Тилу"
-	},
-	"fuelChief": {
-		"fullName": "",
-		"rank": "",
-		"position": "Начальник ПММ"
-	},
-	"visiblePersonnelColumns": []
+{
+  "mainSigner": {
+    "fullName": "ІВАНЕНКО Петро Іванович",
+    "rank": "майор",
+    "position": "Заступник командира а5027"
+  },
+  "commander": {
+    "fullName": "Петренко Петро Петрович",
+    "rank": "капітан",
+    "position": "Командир"
+  },
+  "chief": {
+    "fullName": "Сидоренко Сергій Сергійович",
+    "rank": "капітан",
+    "position": "Начальник штабу"
+  },
+  "deputyPpp": {
+    "fullName": "",
+    "rank": "",
+    "position": "Заступник командира з ППП"
+  },
+  "deputyArmament": {
+    "fullName": "",
+    "rank": "",
+    "position": "Заступник командира з Озброєння"
+  },
+  "deputyRear": {
+    "fullName": "",
+    "rank": "",
+    "position": "Заступник командира з Тилу"
+  },
+  "fuelChief": {
+    "fullName": "",
+    "rank": "",
+    "position": "Начальник ПММ"
+  },
+  "signerRoles": [
+    {
+      "id": "основний_підписант",
+      "name": "Основний підписант",
+      "signer": {
+        "fullName": "ІВАНЕНКО Петро Іванович",
+        "rank": "майор",
+        "position": "Заступник командира а5027"
+      }
+    },
+    {
+      "id": "командир",
+      "name": "Командир",
+      "signer": {
+        "fullName": "Петренко Петро Петрович",
+        "rank": "капітан",
+        "position": "Командир"
+      }
+    },
+    {
+      "id": "начальник_штабу",
+      "name": "Начальник штабу",
+      "signer": {
+        "fullName": "Сидоренко Сергій Сергійович",
+        "rank": "капітан",
+        "position": "Начальник штабу"
+      }
+    },
+    {
+      "id": "заступник_ппп",
+      "name": "Заступник командира з ППП",
+      "signer": {
+        "fullName": "",
+        "rank": "",
+        "position": "Заступник командира з ППП"
+      }
+    },
+    {
+      "id": "заступник_озброєння",
+      "name": "Заступник командира з озброєння",
+      "signer": {
+        "fullName": "",
+        "rank": "",
+        "position": "Заступник командира з Озброєння"
+      }
+    }
+  ],
+  "visiblePersonnelColumns": [],
+  "visibleVehicleColumns": []
 }

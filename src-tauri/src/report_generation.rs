@@ -23,9 +23,13 @@ use zip::{
 pub struct GenerateReportRequest {
     pub template_path: String,
     pub personnel_ids: Vec<i64>,
+    /// Legacy single date field, kept only so already-created clients remain readable.
+    #[serde(default)]
     pub report_date: Option<String>,
     #[serde(default)]
     pub vehicle_ids: Vec<i64>,
+    #[serde(default)]
+    pub parameters: HashMap<String, String>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,12 +62,13 @@ struct Field {
     source_key: Option<String>,
     kind: String,
     cases: bool,
+    #[serde(rename = "inputType")]
+    input_type: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Role {
     id: String,
-    settings_key: String,
 }
 #[derive(Deserialize)]
 struct Modifier {
@@ -140,9 +145,14 @@ pub fn validate(
     ids: &[i64],
     vehicle_ids: &[i64],
     date: Option<&str>,
+    parameters: &HashMap<String, String>,
 ) -> TemplateValidationResult {
     let mut result = inspect(template_path);
-    if ids.is_empty() && vehicle_ids.is_empty() {
+    let needs_selection = result.variables.iter().any(|token| {
+        let base = token.split(':').next().unwrap_or_default();
+        base.starts_with("військовий_") || base.starts_with("автомобіль_")
+    });
+    if needs_selection && ids.is_empty() && vehicle_ids.is_empty() {
         result
             .errors
             .push("Оберіть щонайменше одного військовослужбовця або автомобіль.".into())
@@ -159,6 +169,26 @@ pub fn validate(
             result
                 .errors
                 .push("Дата рапорту має формат РРРР-ММ-ДД.".into())
+        }
+    }
+    for token in &result.variables {
+        let base = token.split(':').next().unwrap_or_default();
+        if document_field_for(base).is_some()
+            && parameters
+                .get(base)
+                .map(String::as_str)
+                .or_else(|| {
+                    if base == "дата_рапорту" {
+                        date
+                    } else {
+                        None
+                    }
+                })
+                .is_none_or(|value| value.trim().is_empty())
+        {
+            result.errors.push(format!(
+                "Заповніть параметр «{{{{{base}}}}}» перед генерацією."
+            ));
         }
     }
     let all = personnel::list(connection).unwrap_or_default();
@@ -190,6 +220,7 @@ pub fn generate(
         &request.personnel_ids,
         &request.vehicle_ids,
         request.report_date.as_deref(),
+        &request.parameters,
     );
     if !check.is_valid {
         return Err(check.errors.join(" "));
@@ -201,6 +232,11 @@ pub fn generate(
         &settings::load(root)?,
         request.report_date.as_deref(),
         request.vehicle_ids.first().copied(),
+    )?;
+    add_generation_parameters(
+        &mut values,
+        &request.parameters,
+        request.report_date.as_deref(),
     )?;
     add_custom_values(connection, &people, &mut values)?;
     let now = Local::now();
@@ -327,7 +363,7 @@ fn field_for(base: &str) -> Option<&'static Field> {
         }
         return registry().person_fields.iter().find(|f| f.id == id);
     }
-    if let Some(f) = registry().document_fields.iter().find(|f| f.id == base) {
+    if let Some(f) = document_field_for(base) {
         return Some(f);
     }
     for role in &registry().signer_roles {
@@ -337,7 +373,33 @@ fn field_for(base: &str) -> Option<&'static Field> {
             }
         }
     }
+    if registry()
+        .signer_fields
+        .iter()
+        .any(|field| base.ends_with(&format!("_{}", field.id)))
+    {
+        return registry()
+            .signer_fields
+            .iter()
+            .filter(|field| base.ends_with(&format!("_{}", field.id)))
+            .max_by_key(|field| field.id.len());
+    }
     None
+}
+
+fn document_field_for(base: &str) -> Option<&'static Field> {
+    registry()
+        .document_fields
+        .iter()
+        .find(|field| field.id == base)
+        .or_else(|| {
+            let (field_id, number) = base.rsplit_once('_')?;
+            (number.parse::<usize>().ok()? > 0).then_some(())?;
+            registry()
+                .document_fields
+                .iter()
+                .find(|field| field.id == field_id)
+        })
 }
 fn person_number(token: &str) -> Option<usize> {
     token
@@ -455,17 +517,29 @@ fn values_for(
             }
         }
     }
-    for role in &registry().signer_roles {
-        let signer = match role.settings_key.as_str() {
-            "mainSigner" => &s.main_signer,
-            "commander" => &s.commander,
-            "chief" => &s.chief,
-            "deputyPpp" => &s.deputy_ppp,
-            "deputyArmament" => &s.deputy_armament,
-            "deputyRear" => &s.deputy_rear,
-            _ => &s.fuel_chief,
-        };
-        add_signer(&mut map, &role.id, signer)
+    let mut roles = s.signer_roles.clone();
+    for (id, legacy) in [
+        ("основний_підписант", &s.main_signer),
+        ("командир", &s.commander),
+        ("начальник_штабу", &s.chief),
+        ("заступник_ппп", &s.deputy_ppp),
+        ("заступник_озброєння", &s.deputy_armament),
+        ("заступник_тилу", &s.deputy_rear),
+        ("начальник_пмм", &s.fuel_chief),
+    ] {
+        if !legacy.full_name.trim().is_empty() {
+            if let Some(role) = roles.iter_mut().find(|role| role.id == id) {
+                // A dynamic role is authoritative. Legacy fields are used
+                // only when opening an older settings object without values
+                // in the dynamic role yet.
+                if role.signer.full_name.trim().is_empty() {
+                    role.signer = legacy.clone();
+                }
+            }
+        }
+    }
+    for role in &roles {
+        add_signer(&mut map, &role.id, &role.signer)
     }
     let date = match date.filter(|v| !v.is_empty()) {
         Some(v) => NaiveDate::parse_from_str(v, "%Y-%m-%d")
@@ -477,6 +551,39 @@ fn values_for(
         Value::new(date.format("%d.%m.%Y року").to_string(), "date", None),
     );
     Ok(map)
+}
+
+fn add_generation_parameters(
+    values: &mut HashMap<String, Value>,
+    parameters: &HashMap<String, String>,
+    legacy_date: Option<&str>,
+) -> Result<(), String> {
+    for (token, raw) in parameters {
+        let Some(field) = document_field_for(token) else {
+            continue;
+        };
+        let text = match field.input_type.as_deref() {
+            Some("date") => NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+                .map(|date| date.format("%d.%m.%Y року").to_string())
+                .map_err(|_| format!("Параметр «{token}» має містити коректну дату."))?,
+            Some("datetime-local") => chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M")
+                .map(|value| value.format("%d.%m.%Y %H:%M").to_string())
+                .map_err(|_| format!("Параметр «{token}» має містити коректні дату й час."))?,
+            _ => raw.trim().to_string(),
+        };
+        values.insert(token.clone(), Value::new(text, &field.kind, None));
+    }
+    if !parameters.contains_key("дата_рапорту") {
+        if let Some(raw) = legacy_date.filter(|value| !value.is_empty()) {
+            let date = NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+                .map_err(|_| "Не вдалося прочитати дату рапорту.".to_string())?;
+            values.insert(
+                "дата_рапорту".into(),
+                Value::new(date.format("%d.%m.%Y року").to_string(), "date", None),
+            );
+        }
+    }
+    Ok(())
 }
 
 fn add_person_vehicles(
@@ -1311,6 +1418,28 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn resolves_variables_for_a_signer_added_in_settings() {
+        let connection = Connection::open_in_memory().unwrap();
+        let mut configured = settings::defaults();
+        configured.signer_roles.push(settings::SignerRole {
+            id: "черговий_частини".into(),
+            name: "Черговий частини".into(),
+            signer: settings::SignerSettings {
+                full_name: "ПЕТРЕНКО Петро Петрович".into(),
+                rank: "капітан".into(),
+                position: "Черговий частини".into(),
+            },
+        });
+        assert!(validate_token("черговий_частини_піб").is_empty());
+        let values = values_for(&connection, &[], &configured, None, None).unwrap();
+        assert_eq!(values["черговий_частини_звання"].text, "капітан");
+        assert_eq!(
+            values["черговий_частини_піб"].text,
+            "ПЕТРЕНКО Петро Петрович"
+        );
+    }
     #[test]
     fn rejects_v1_and_explains_typo() {
         assert!(!validate_token("невідома.змінна").is_empty());
@@ -1330,6 +1459,114 @@ mod tests {
             apply_modifiers(&v, &["родовий", "великими"]).unwrap(),
             "ІВАНА"
         )
+    }
+
+    #[test]
+    fn accepts_and_formats_numbered_generation_parameters() {
+        assert!(validate_token("дата_рапорту").is_empty());
+        assert!(validate_token("дата_рапорту_1").is_empty());
+        assert!(validate_token("дата_рапорту_2").is_empty());
+        assert!(validate_token("обставини_3").is_empty());
+        assert!(!validate_token("дата_рапорту_0").is_empty());
+
+        let mut values = HashMap::new();
+        let parameters = HashMap::from([
+            ("дата_рапорту_1".to_string(), "2026-08-12".to_string()),
+            ("дата_рапорту_2".to_string(), "2026-08-13".to_string()),
+            (
+                "обставини_3".to_string(),
+                "Виявлено несправність".to_string(),
+            ),
+        ]);
+        add_generation_parameters(&mut values, &parameters, None).unwrap();
+        assert_eq!(values["дата_рапорту_1"].text, "12.08.2026 року");
+        assert_eq!(values["дата_рапорту_2"].text, "13.08.2026 року");
+        assert_eq!(values["обставини_3"].text, "Виявлено несправність");
+    }
+
+    #[test]
+    fn supports_every_compatible_modifier_for_document_parameters() {
+        for field in &registry().document_fields {
+            let styles = format!("{}:жирним:підкреслити", field.id);
+            assert!(validate_token(&styles).is_empty(), "{styles}");
+
+            if field.kind == "number" {
+                assert!(
+                    !validate_token(&format!("{}:великими", field.id)).is_empty(),
+                    "numeric parameter {} must reject a case-changing modifier",
+                    field.id
+                );
+            } else {
+                for modifier in ["великими", "маленькими", "з_великої"] {
+                    let token = format!("{}:{modifier}", field.id);
+                    assert!(validate_token(&token).is_empty(), "{token}");
+                }
+            }
+
+            for modifier in ["родовий", "давальний", "орудний"] {
+                let token = format!("{}:{modifier}", field.id);
+                assert!(!validate_token(&token).is_empty(), "{token}");
+            }
+        }
+
+        let value = Value::new("тестове значення".into(), "text", None);
+        assert_eq!(
+            apply_modifiers(&value, &["великими"]).unwrap(),
+            "ТЕСТОВЕ ЗНАЧЕННЯ"
+        );
+        assert_eq!(
+            apply_modifiers(&value, &["маленькими"]).unwrap(),
+            "тестове значення"
+        );
+        assert_eq!(
+            apply_modifiers(&value, &["з_великої"]).unwrap(),
+            "Тестове значення"
+        );
+    }
+
+    #[test]
+    fn generates_docx_with_each_numbered_parameter_value() {
+        use crate::database;
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let root =
+            std::env::temp_dir().join(format!("shablonizator-parameters-{}", std::process::id()));
+        fs::create_dir_all(root.join("Налаштування")).unwrap();
+        let template = root.join("parameters.docx");
+        let mut writer = ZipWriter::new(File::create(&template).unwrap());
+        writer
+            .start_file("word/document.xml", SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all("<w:r><w:t>{{дата_рапорту_1}}; {{дата_рапорту_2}}; {{обставини:з_великої:жирним:підкреслити}}; {{тема_рапорту:великими}}; {{адресат:маленькими}}</w:t></w:r>".as_bytes()).unwrap();
+        writer.finish().unwrap();
+        let generated = generate(
+            &connection,
+            &root,
+            GenerateReportRequest {
+                template_path: template.to_string_lossy().into(),
+                personnel_ids: Vec::new(),
+                report_date: None,
+                vehicle_ids: Vec::new(),
+                parameters: HashMap::from([
+                    ("дата_рапорту_1".into(), "2026-08-12".into()),
+                    ("дата_рапорту_2".into(), "2026-08-13".into()),
+                    ("обставини".into(), "виявлено несправність".into()),
+                    ("тема_рапорту".into(), "контрольний рапорт".into()),
+                    ("адресат".into(), "КОМАНДИРУ ЧАСТИНИ".into()),
+                ]),
+            },
+        )
+        .unwrap();
+        let mut archive = ZipArchive::new(File::open(generated.docx_path).unwrap()).unwrap();
+        let mut xml = String::new();
+        archive
+            .by_name("word/document.xml")
+            .unwrap()
+            .read_to_string(&mut xml)
+            .unwrap();
+        assert!(xml.contains("12.08.2026 року; 13.08.2026 року; Виявлено несправність; КОНТРОЛЬНИЙ РАПОРТ; командиру частини"));
+        assert!(xml.contains("<w:b/>") && xml.contains("<w:u w:val=\"single\"/>"));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -1369,6 +1606,29 @@ mod tests {
         let values = values_for(&connection, &[], &settings, Some("2026-08-11"), None).unwrap();
         let xml = "<w:t>{{ о с н о в н и й _ п і д п и с а н т _ з в а н н я }}</w:t>";
         assert_eq!(replace_variables(xml, &values).unwrap(), "<w:t>майор</w:t>");
+    }
+    #[test]
+    fn uses_the_edited_dynamic_signer_instead_of_a_stale_legacy_value() {
+        let mut settings = settings::defaults();
+        settings.main_signer = settings::SignerSettings {
+            full_name: "СТАРИЙ Петро Петрович".into(),
+            rank: "майор".into(),
+            position: "стара посада".into(),
+        };
+        settings
+            .signer_roles
+            .iter_mut()
+            .find(|role| role.id == "основний_підписант")
+            .unwrap()
+            .signer = settings::SignerSettings {
+            full_name: "НОВИЙ Петро Петрович".into(),
+            rank: "капітан".into(),
+            position: "нова посада".into(),
+        };
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        let values = values_for(&connection, &[], &settings, None, None).unwrap();
+        assert_eq!(values["основний_підписант_посада"].text, "нова посада");
     }
     #[test]
     fn resolves_numbered_vehicles_of_the_selected_driver() {
@@ -1419,7 +1679,8 @@ mod tests {
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
         database::seed_test_personnel(&connection).unwrap();
-        let root = std::env::temp_dir().join(format!("raportgen-v2-e2e-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("shablonizator-v2-e2e-{}", std::process::id()));
         fs::create_dir_all(root.join("Налаштування")).unwrap();
         let template = root.join("control.docx");
         let file = File::create(&template).unwrap();
@@ -1438,6 +1699,7 @@ mod tests {
                 personnel_ids: vec![1],
                 report_date: None,
                 vehicle_ids: Vec::new(),
+                parameters: HashMap::new(),
             },
         )
         .unwrap();

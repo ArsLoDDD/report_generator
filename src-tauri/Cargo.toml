@@ -1,7 +1,7 @@
 [package]
-name = "report-generator"
+name = "shablonizator"
 version = "0.1.0"
-description = "Local report generator"
+description = "Шаблонізатор — локальна система формування службових документів"
 edition = "2021"
 
 [build-dependencies]

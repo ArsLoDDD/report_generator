@@ -1,9 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, SignerRole, SignerSettings } from "../../../shared/types/domain";
+import type { AppSettings, SignerSettings } from "../../../shared/types/domain";
 
 export const settingsService = {
   get: () => invoke<AppSettings>("get_app_settings"),
-  updateSigner: (role: SignerRole, signer: SignerSettings) => invoke<AppSettings>("update_signer_settings", { role, signer }),
+  updateSigner: (role: string, signer: SignerSettings) => invoke<AppSettings>("update_signer_settings", { role, signer }),
+  addSigner: (name: string, signer: SignerSettings) => invoke<AppSettings>("add_signer", { name, signer }),
+  deleteSigner: (id: string) => invoke<AppSettings>("delete_signer", { id }),
   updateVisiblePersonnelColumns: (columns: string[]) => invoke<AppSettings>("update_visible_personnel_columns", { columns }),
   updateVisibleVehicleColumns: (columns: string[]) => invoke<AppSettings>("update_visible_vehicle_columns", { columns }),
   openApplicationDirectory: () => invoke<void>("open_application_directory"),

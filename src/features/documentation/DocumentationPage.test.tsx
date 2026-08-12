@@ -25,6 +25,21 @@ describe("Конструктор змінних", () => {
     expect(screen.getByRole("heading", { name: "Посада" })).toBeInTheDocument();
   });
 
+  it("shows every document parameter under one subject and limits modifiers by compatibility", async () => {
+    personnelService.listCustomFields.mockResolvedValue([]); personnelService.listVehicleCustomFields.mockResolvedValue([]);
+    render(<NotificationProvider><VariableConstructorPage /></NotificationProvider>);
+    fireEvent.click(screen.getByRole("button", { name: /Параметри документа/ }));
+    expect(await screen.findByRole("button", { name: /\{\{дата_рапорту\}\}/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /\{\{обставини\}\}/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /\{\{потребує_розгляду\}\}/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /\{\{обставини\}\}/ }));
+    fireEvent.click(screen.getByLabelText("Великими літерами"));
+    fireEvent.click(screen.getByLabelText("Жирним"));
+    fireEvent.click(screen.getByLabelText("Підкреслити"));
+    expect(screen.getByText("Токен для Word").parentElement).toHaveTextContent("{{обставини:великими:жирним:підкреслити}}");
+    expect(screen.getByLabelText("Родовий")).toBeDisabled();
+  });
+
   it("treats a custom field as a value of a servicemember, never as a subject", async () => {
     personnelService.listCustomFields.mockResolvedValue([{ fieldKey: "unit_code", displayName: "Код підрозділу", description: "Код", initialValue: "А0000" }]);
     personnelService.listPersonnelFields.mockResolvedValue([]);

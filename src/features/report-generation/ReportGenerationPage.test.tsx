@@ -15,20 +15,22 @@ const person = { id: 1, fullName: "ІВАНЕНКО Іван Іванович", 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("Генерація рапорту", () => {
-  it("shows the date only when the template uses it and sends selected people", () => {
+  it("collects document parameters in a modal and sends their values with selected people", () => {
     const onToggle = vi.fn();
     render(<NotificationProvider><ReportGenerationPage template={template} templates={[template]} hasMoreTemplates={false} isLoadingMoreTemplates={false} onLoadMoreTemplates={vi.fn()} people={[person]} hasMorePeople={false} isLoadingMorePeople={false} onLoadMorePeople={vi.fn()} selected={[1]} onToggle={onToggle} onAll={vi.fn()} onClear={vi.fn()} onChoose={vi.fn()} /></NotificationProvider>);
-    expect(screen.getByLabelText("Дата рапорту")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Параметри значень" }));
+    expect(screen.getByRole("dialog", { name: "Параметри значень" })).toBeInTheDocument();
+    expect(screen.getByText("{{дата_рапорту}}")).toBeInTheDocument();
     fireEvent.click(screen.getByText(person.fullName));
     expect(onToggle).toHaveBeenCalledWith(1);
     fireEvent.click(screen.getByRole("button", { name: "Згенерувати рапорт" }));
-    expect(generation.generate).toHaveBeenCalledWith("/templates/report.docx", [1], expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+    expect(generation.generate).toHaveBeenCalledWith("/templates/report.docx", [1], { дата_рапорту: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }, []);
   });
 
-  it("does not show a date input when the token is absent", () => {
+  it("does not show parameter controls when the token is absent", () => {
     generation.inspection = { isValid: true, errors: [], variables: [] };
     render(<NotificationProvider><ReportGenerationPage template={template} templates={[template]} hasMoreTemplates={false} isLoadingMoreTemplates={false} onLoadMoreTemplates={vi.fn()} people={[person]} hasMorePeople={false} isLoadingMorePeople={false} onLoadMorePeople={vi.fn()} selected={[]} onToggle={vi.fn()} onAll={vi.fn()} onClear={vi.fn()} onChoose={vi.fn()} /></NotificationProvider>);
-    expect(screen.queryByLabelText("Дата рапорту")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Згенерувати рапорт" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Параметри значень" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Згенерувати рапорт" })).not.toBeDisabled();
   });
 });

@@ -54,13 +54,13 @@ export type PaginatedResult<T> = {
 };
 export type CustomFieldDefinition = { fieldKey: string; displayName: string; description: string; initialValue: string; scope?: "personnel" | "vehicle" };
 
-export type SignerRole = "main" | "commander" | "chief" | "deputyPpp" | "deputyArmament" | "deputyRear" | "fuelChief";
-
 export type SignerSettings = {
   fullName: string;
   rank: string;
   position: string;
 };
+
+export type SignerRole = { id: string; name: string; signer: SignerSettings };
 
 export type AppSettings = {
   mainSigner: SignerSettings;
@@ -70,6 +70,7 @@ export type AppSettings = {
   deputyArmament: SignerSettings;
   deputyRear: SignerSettings;
   fuelChief: SignerSettings;
+  signerRoles: SignerRole[];
   visiblePersonnelColumns?: string[];
   visibleVehicleColumns?: string[];
 };

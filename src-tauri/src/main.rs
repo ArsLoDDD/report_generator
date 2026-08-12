@@ -878,6 +878,20 @@ fn update_signer_settings(
 }
 
 #[tauri::command]
+fn add_signer(
+    app: tauri::AppHandle,
+    name: String,
+    signer: settings::SignerSettings,
+) -> Result<settings::AppSettings, String> {
+    settings::add_signer(&application_root(&app)?, name, signer)
+}
+
+#[tauri::command]
+fn delete_signer(app: tauri::AppHandle, id: String) -> Result<settings::AppSettings, String> {
+    settings::delete_signer(&application_root(&app)?, &id)
+}
+
+#[tauri::command]
 fn update_visible_personnel_columns(
     app: tauri::AppHandle,
     columns: Vec<String>,
@@ -971,6 +985,7 @@ fn validate_template(
     personnel_ids: Vec<i64>,
     report_date: Option<String>,
     vehicle_ids: Vec<i64>,
+    parameters: Option<std::collections::HashMap<String, String>>,
 ) -> Result<report_generation::TemplateValidationResult, String> {
     let database = state
         .0
@@ -982,6 +997,7 @@ fn validate_template(
         &personnel_ids,
         &vehicle_ids,
         report_date.as_deref(),
+        &parameters.unwrap_or_default(),
     ))
 }
 
@@ -1442,6 +1458,8 @@ fn main() {
             get_startup_warnings,
             get_app_settings,
             update_signer_settings,
+            add_signer,
+            delete_signer,
             update_visible_personnel_columns,
             update_visible_vehicle_columns,
             list_templates,
@@ -1477,7 +1495,7 @@ mod tests {
     #[test]
     fn creates_a_template_with_an_intentional_validation_error() {
         let directory = std::env::temp_dir().join(format!(
-            "report-generator-invalid-template-{}",
+            "shablonizator-invalid-template-{}",
             Local::now().timestamp_nanos_opt().unwrap_or_default()
         ));
         fs::create_dir_all(&directory).unwrap();
@@ -1495,7 +1513,7 @@ mod tests {
     #[test]
     fn migrates_the_legacy_database_into_the_application_root() {
         let root = std::env::temp_dir().join(format!(
-            "report-generator-database-migration-{}",
+            "shablonizator-database-migration-{}",
             Local::now().timestamp_nanos_opt().unwrap_or_default()
         ));
         let legacy_directory = root.join(LEGACY_DATABASE_DIRECTORY_NAME);
@@ -1531,7 +1549,7 @@ mod tests {
     #[test]
     fn missing_database_stays_in_memory_until_the_first_write() {
         let root = std::env::temp_dir().join(format!(
-            "report-generator-delayed-database-{}",
+            "shablonizator-delayed-database-{}",
             Local::now().timestamp_nanos_opt().unwrap_or_default()
         ));
         fs::create_dir_all(&root).unwrap();
@@ -1549,7 +1567,7 @@ mod tests {
     #[test]
     fn only_docx_files_inside_the_templates_directory_can_be_opened() {
         let root = std::env::temp_dir().join(format!(
-            "report-generator-template-path-{}",
+            "shablonizator-template-path-{}",
             Local::now().timestamp_nanos_opt().unwrap_or_default()
         ));
         let templates = root.join(TEMPLATES_DIRECTORY_NAME);

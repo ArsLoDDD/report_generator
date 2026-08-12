@@ -570,8 +570,10 @@ mod tests {
     }
     #[test]
     fn exports_and_imports_personnel_and_vehicles_in_one_workbook() {
-        let path =
-            std::env::temp_dir().join(format!("raportgen-roundtrip-{}.xlsx", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "shablonizator-roundtrip-{}.xlsx",
+            std::process::id()
+        ));
         export(
             &path,
             &[person()],

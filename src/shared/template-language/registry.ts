@@ -4,6 +4,7 @@ export type VariableKind = "text" | "person-name" | "rank" | "position" | "date"
 export type VariableDefinition = { id: string; name: string; category: string; description: string; example: string; kind: VariableKind; supportsCases: boolean };
 export type ModifierDefinition = { id: string; name: string; description: string; group: "case" | "text" | "style" };
 type Field = { id: string; name: string; kind: string; example: string; cases: boolean; description?: string };
+export type GenerationParameterField = Field & { inputType: "date" | "time" | "datetime-local" | "text" | "textarea" | "number" | "boolean" };
 
 const fieldToVariable = (field: Field, id: string, category: string): VariableDefinition => ({
   id, name: field.name, category, description: field.description ?? `${field.name} у даних «${category}».`,
@@ -12,14 +13,24 @@ const fieldToVariable = (field: Field, id: string, category: string): VariableDe
 export const templateLanguageVersion = source.version;
 export const personFields = source.personFields as Field[];
 export const vehicleFields = source.vehicleFields as Field[];
+export const generationParameterFields = source.documentFields as GenerationParameterField[];
 export const signerRoles = source.signerRoles;
+export const signerFields = source.signerFields as Field[];
 export const variableRegistry: VariableDefinition[] = [
   ...personFields.map((field) => fieldToVariable(field, `військовий_1_${field.id}`, "Військовослужбовець")),
   ...vehicleFields.map((field) => fieldToVariable(field, `військовий_1_автомобіль_1_${field.id}`, "Автомобіль військовослужбовця")),
   ...vehicleFields.map((field) => fieldToVariable(field, `автомобіль_${field.id}`, "Автомобіль")),
-  ...source.signerRoles.flatMap((role) => (source.signerFields as Field[]).map((field) => fieldToVariable(field, `${role.id}_${field.id}`, role.name))),
-  ...(source.documentFields as Field[]).map((field) => fieldToVariable(field, field.id, "Дати та службові дані"))
+  ...source.signerRoles.flatMap((role) => signerFields.map((field) => fieldToVariable(field, `${role.id}_${field.id}`, role.name))),
+  ...generationParameterFields.map((field) => fieldToVariable(field, field.id, "Параметри документа"))
 ];
+export function getGenerationParameter(token: string) {
+  const direct = generationParameterFields.find((field) => field.id === token);
+  if (direct) return direct;
+  return generationParameterFields
+    .filter((field) => token.startsWith(`${field.id}_`))
+    .sort((left, right) => right.id.length - left.id.length)
+    .find((field) => /^[1-9]\d*$/.test(token.slice(field.id.length + 1)));
+}
 export const modifierRegistry: ModifierDefinition[] = source.modifiers.map((item) => ({ ...item, group: item.group as ModifierDefinition["group"], description: item.group === "case" ? `Відмінює значення: ${item.name.toLowerCase()} відмінок.` : `Змінює написання: ${item.name.toLowerCase()}.` }));
 export const tokenFor = (id: string, modifiers: string[] = []) => `{{${[id, ...modifiers].join(":")}}}`;
 export function getVariable(id: string) {
