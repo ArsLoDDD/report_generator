@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, BookOpen, Car, FileSearch, FileText, Folder, Home, PanelLeftClose, PanelLeftOpen, Settings, Users, WandSparkles } from "lucide-react";
+import { AlertTriangle, BatteryCharging, BookOpen, Car, ChevronDown, Crosshair, FileSearch, FileText, Folder, Home, PanelLeftClose, PanelLeftOpen, Radio, Settings, Shield, Users, UsersRound, WandSparkles } from "lucide-react";
 import appIcon from "./assets/shablonizator-header-mark.png";
 import { useStartupWarnings } from "./app/hooks/useStartupWarnings";
 import { ProgramGuidePage } from "./features/documentation/ProgramGuidePage";
@@ -8,6 +8,7 @@ import { GeneratedReportsPage } from "./features/generated-reports/GeneratedRepo
 import { prefetchGeneratedReports } from "./features/generated-reports/hooks/useGeneratedReports";
 import { PersonnelPage } from "./features/personnel/PersonnelPage";
 import { VehiclesPage } from "./features/vehicles/VehiclesPage";
+import { CrewsPage, EquipmentPage, IncidentsPage } from "./features/operations/OperationalPages";
 import { usePersonnel } from "./features/personnel/hooks/usePersonnel";
 import { ReportGenerationPage } from "./features/report-generation/ReportGenerationPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
@@ -17,9 +18,11 @@ import { useTemplates } from "./features/templates/hooks/useTemplates";
 import type { Screen, Template } from "./shared/types/domain";
 import { NotificationProvider } from "./shared/ui/NotificationProvider";
 
-const navigation = [
-  ["generator", "Генерація рапортів", Home], ["templates", "Шаблони", FileText], ["report-analyser", "Аналізатор рапортів", FileSearch], ["people", "Особовий склад", Users], ["vehicles", "Автомобілі", Car],
-  ["generated", "Згенеровані рапорти", Folder], ["variable-constructor", "Конструктор змінних", WandSparkles]
+const navigationGroups = [
+  { label: "Документи", items: [["generator", "Генерація рапортів", Home], ["templates", "Шаблони", FileText], ["report-analyser", "Аналізатор рапортів", FileSearch], ["generated", "Згенеровані рапорти", Folder], ["variable-constructor", "Конструктор змінних", WandSparkles]] },
+  { label: "Особовий склад", items: [["people", "Особовий склад", Users], ["crews", "Екіпажі", UsersRound]] },
+  { label: "Техніка та майно", items: [["vehicles", "Автомобілі", Car], ["generators", "Генератори", BatteryCharging], ["uavs", "БпЛА", Crosshair], ["communications", "Зв’язок", Radio], ["weapons", "Зброя та БК", Shield]] },
+  { label: "Події", items: [["incidents", "Інциденти", AlertTriangle]] },
 ] as const;
 
 export default function App() {
@@ -35,6 +38,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("shablonizator.sidebarCollapsed") === "true");
   const [analyserVisited, setAnalyserVisited] = useState(false);
   const [constructorOpen, setConstructorOpen] = useState(false);
+  const [openNavigationGroups, setOpenNavigationGroups] = useState<string[]>(navigationGroups.map((group) => group.label));
 
   const togglePerson = (id: number) => setSelectedPeople((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   const toggleAllPeople = () => setSelectedPeople((current) => current.length === people.length ? [] : people.map((person) => person.id));
@@ -73,7 +77,7 @@ export default function App() {
   return <NotificationProvider><div className={`product-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <aside className="sidebar">
       <div className="sidebar-top"><div className="product-logo"><img src={appIcon} alt="" /><div><b>Шаблонізатор</b><span>службові документи</span></div></div></div>
-      <section className="sidebar-menu"><nav>{navigation.map(([id, label, Icon]) => <button key={id} title={label} onClick={() => { if (id === "report-analyser") setAnalyserVisited(true); setScreen(id); }} className={screen === id ? "nav-active" : ""}><Icon size={23} /><span>{label}</span></button>)}</nav></section>
+      <section className="sidebar-menu"><nav>{navigationGroups.map((group) => <section className="nav-group" key={group.label}><button className="nav-group__title" aria-label={`${openNavigationGroups.includes(group.label) ? "Згорнути" : "Розгорнути"} групу ${group.label}`} title={group.label} onClick={() => setOpenNavigationGroups((current) => current.includes(group.label) ? current.filter((label) => label !== group.label) : [...current, group.label])}><span>{group.label}</span><ChevronDown className={openNavigationGroups.includes(group.label) ? "" : "nav-group__chevron--closed"} /></button>{openNavigationGroups.includes(group.label) && <div className="nav-group__items">{group.items.map(([id, label, Icon]) => <button key={id} title={label} onClick={() => { if (id === "report-analyser") setAnalyserVisited(true); setScreen(id); }} className={screen === id ? "nav-active" : ""}><Icon size={23} /><span>{label}</span></button>)}</div>}</section>)}</nav></section>
       <section className="sidebar-middle">{startupWarnings.length > 0 && <section className="sidebar-warnings" aria-label="Попередження програми">{startupWarnings.map((warning) => <article key={warning.code} title={warning.message}><AlertTriangle /><div><b>{warning.title}</b><span>{warning.message}</span></div></article>)}</section>}</section>
       <footer className="sidebar-bottom"><button title="Довідник" onClick={() => setScreen("documentation")} className={screen === "documentation" ? "nav-active" : ""}><BookOpen size={23} /><span>Довідник</span></button><button title="Налаштування" onClick={() => setScreen("settings")} className={screen === "settings" ? "nav-active" : ""}><Settings size={23} /><span>Налаштування</span></button></footer>
       <button className="sidebar-toggle sidebar-toggle--rail" aria-label={sidebarCollapsed ? "Розгорнути сайдбар" : "Згорнути сайдбар"} title={sidebarCollapsed ? "Розгорнути сайдбар" : "Згорнути сайдбар"} onClick={toggleSidebar}>{sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</button>
@@ -84,6 +88,12 @@ export default function App() {
       {(screen === "report-analyser" || analyserVisited) && <div className="persistent-screen" hidden={screen !== "report-analyser"}><ReportAnalyserPage onOpenConstructor={() => setConstructorOpen(true)} onCreated={(createdPath) => { void refreshTemplates().then((items) => { setTemplateInfo(items.find((template) => template.sourcePath === createdPath) ?? null); setScreen("templates"); }); }} /></div>}
       {screen === "people" && <PersonnelPage people={people} totalCount={personnelTotalCount} hasMore={personnelHasMore} isLoading={personnelLoading} isLoadingMore={personnelLoadingMore} errorMessage={personnelError} onCreate={createPersonnel} onUpdate={updatePersonnel} onDelete={deletePersonnel} onRefresh={refreshPersonnel} onLoadMore={loadMorePersonnel} />}
       {screen === "vehicles" && <VehiclesPage people={people} />}
+      {screen === "generators" && <EquipmentPage category="generator" people={people} />}
+      {screen === "uavs" && <EquipmentPage category="uav" people={people} />}
+      {screen === "communications" && <EquipmentPage category="communications" people={people} />}
+      {screen === "weapons" && <EquipmentPage category="weapon_ammo" people={people} />}
+      {screen === "crews" && <CrewsPage people={people} />}
+      {screen === "incidents" && <IncidentsPage />}
       {screen === "generated" && <GeneratedReportsPage />}
       {screen === "settings" && <SettingsPage />}
       {screen === "documentation" && <ProgramGuidePage />}

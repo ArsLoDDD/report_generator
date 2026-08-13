@@ -19,7 +19,10 @@ type Vehicle = {
   status: string;
   personnelId: number | null;
   driverName: string | null;
+  crewId: number | null;
+  crewName: string | null;
 };
+type Crew = { id: number; name: string };
 
 const statuses = ["Справний", "Потребує ремонту", "Ремонтується", "Несправний"];
 const statusOptions = statuses.map((value) => ({ value, label: value }));
@@ -43,6 +46,8 @@ export function VehiclesPage({ people }: { people: Person[] }) {
   const [registrationNumber, setRegistrationNumber] = useState("");
   const [status, setStatus] = useState(statuses[0]);
   const [driverId, setDriverId] = useState("");
+  const [crewId, setCrewId] = useState("");
+  const [crews, setCrews] = useState<Crew[]>([]);
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
   const { notify } = useNotifications();
 
@@ -54,6 +59,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
     .catch(() => notify("Не вдалося завантажити автомобілі.", "error"));
 
   useEffect(reload, []);
+  useEffect(() => { void invoke<Crew[]>("list_crews").then((items) => setCrews(Array.isArray(items) ? items : [])).catch(() => setCrews([])); }, []);
   useEffect(() => {
     void settingsService.get()
       .then((settings) => setVisibleColumns(settings.visibleVehicleColumns ?? []))
@@ -138,7 +144,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
   const reassign = async () => {
     if (!selected) return;
     try {
-      await invoke("assign_vehicle", { vehicleId: selected.id, personnelId: driverId ? Number(driverId) : null });
+      await invoke("assign_vehicle", { vehicleId: selected.id, personnelId: driverId ? Number(driverId) : null, crewId: crewId ? Number(crewId) : null });
       setAssignmentOpen(false);
       reload();
       notify("Закріплення автомобіля оновлено.", "success");
@@ -183,7 +189,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
               <td><div className="personnel-id">{vehicle.id}</div></td>
               {isVisible("name") && <td><b>{vehicle.name}</b></td>}{isVisible("registrationNumber") && <td>{vehicle.registrationNumber}</td>}
               {isVisible("status") && <td><span className={`vehicle-badge ${statusClass(vehicle.status)}`}>{vehicle.status}</span></td>}
-              {isVisible("driverName") && <td>{vehicle.driverName ?? "Не закріплено"}</td>}
+              {isVisible("driverName") && <td>{vehicle.driverName ?? vehicle.crewName ?? "Не закріплено"}</td>}
               {customFields.filter((field) => isVisible(`custom:${field.fieldKey}`)).map((field) => <td key={field.fieldKey}>{field.initialValue || "—"}</td>)}
             </tr>)}</tbody>
           </table>
@@ -197,9 +203,9 @@ export function VehiclesPage({ people }: { people: Person[] }) {
         <div className="identity"><div className="avatar"><Car /></div><div><b>{selected.name}</b><p>{selected.registrationNumber}</p></div></div>
         <div className="person-details__fields">
           <div className="person-detail"><span>Статус автомобіля</span><Select ariaLabel="Статус автомобіля" value={selected.status} options={statusOptions} onChange={(value) => void updateStatus(value)} /></div>
-          <div className="person-detail"><span>Закріплений водій</span><b>{selected.driverName ?? "Не закріплено"}</b></div>
+          <div className="person-detail"><span>Закріплений водій</span><b>{selected.driverName ?? "Не закріплено"}</b></div><div className="person-detail"><span>Екіпаж</span><b>{selected.crewName ?? "Не закріплено"}</b></div>
         </div>
-        <div className="detail-buttons"><button className="button" onClick={() => { setDriverId(selected.personnelId?.toString() ?? ""); setAssignmentOpen(true); }}><Pencil />Перезакріпити</button><button className="button danger" onClick={() => setRemoving(true)}><Trash2 />Видалити</button></div>
+        <div className="detail-buttons"><button className="button" onClick={() => { setDriverId(selected.personnelId?.toString() ?? ""); setCrewId(selected.crewId?.toString() ?? ""); setAssignmentOpen(true); }}><Pencil />Перезакріпити</button><button className="button danger" onClick={() => setRemoving(true)}><Trash2 />Видалити</button></div>
       </aside>}
     </div>
     {filtersOpen && <Modal title="Фільтр і видимість колонок" onClose={() => setFiltersOpen(false)} className="personnel-filter-modal">
@@ -221,7 +227,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
       <footer className="modal-actions"><button className="button" onClick={closeEditor}>Скасувати</button><button className="button primary" onClick={() => void save()}><Car />Додати автомобіль</button></footer>
     </Modal>}
     {assignmentOpen && <Modal title="Перезакріпити автомобіль" onClose={() => setAssignmentOpen(false)} className="vehicle-assignment-modal">
-      <div className="vehicle-assignment-modal__body"><div className="vehicle-editor__intro"><span className="vehicle-editor__icon"><Car /></span><div><b>{selected?.name}</b><p>{selected?.registrationNumber}</p></div></div><p>Оберіть водія. Якщо вибрати «Не закріплювати», автомобіль залишиться без водія.</p><label className="form-field"><span>Водій</span><Select ariaLabel="Водій автомобіля" value={driverId} onChange={setDriverId} options={[{ value: "", label: "Не закріплювати" }, ...drivers.map((person) => ({ value: String(person.id), label: person.fullName }))]} /></label></div>
+      <div className="vehicle-assignment-modal__body"><div className="vehicle-editor__intro"><span className="vehicle-editor__icon"><Car /></span><div><b>{selected?.name}</b><p>{selected?.registrationNumber}</p></div></div><p>Автомобіль може бути закріплений окремо за водієм і за екіпажем.</p><label className="form-field"><span>Водій</span><Select ariaLabel="Водій автомобіля" value={driverId} onChange={setDriverId} options={[{ value: "", label: "Не закріплювати" }, ...drivers.map((person) => ({ value: String(person.id), label: person.fullName }))]} /></label><label className="form-field"><span>Екіпаж</span><Select ariaLabel="Екіпаж автомобіля" value={crewId} onChange={setCrewId} options={[{ value: "", label: "Не закріплювати" }, ...crews.map((crew) => ({ value: String(crew.id), label: crew.name }))]} /></label></div>
       <footer className="modal-actions"><button className="button" onClick={() => setAssignmentOpen(false)}>Скасувати</button><button className="button primary" onClick={() => void reassign()}>Зберегти закріплення</button></footer>
     </Modal>}
     {removing && <Modal title="Видалити автомобіль?" onClose={() => setRemoving(false)} className="vehicle-delete-modal"><div className="vehicle-delete-modal__body"><Trash2 /><p>Автомобіль буде видалений, а закріплений водій — автоматично відкріплений.</p></div><footer className="modal-actions"><button className="button" onClick={() => setRemoving(false)}>Скасувати</button><button className="button danger" onClick={() => void remove()}>Видалити</button></footer></Modal>}

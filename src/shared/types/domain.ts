@@ -100,4 +100,4 @@ export type StartupWarning = {
   message: string;
 };
 
-export type Screen = "generator" | "templates" | "report-analyser" | "people" | "vehicles" | "generated" | "settings" | "documentation" | "variable-constructor";
+export type Screen = "generator" | "templates" | "report-analyser" | "people" | "vehicles" | "generators" | "uavs" | "communications" | "weapons" | "crews" | "incidents" | "generated" | "settings" | "documentation" | "variable-constructor";

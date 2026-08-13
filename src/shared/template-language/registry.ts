@@ -13,6 +13,8 @@ const fieldToVariable = (field: Field, id: string, category: string): VariableDe
 export const templateLanguageVersion = source.version;
 export const personFields = source.personFields as Field[];
 export const vehicleFields = source.vehicleFields as Field[];
+export const crewFields = source.crewFields as Field[];
+export const equipmentFields = source.equipmentFields as Field[];
 export const generationParameterFields = source.documentFields as GenerationParameterField[];
 export const signerRoles = source.signerRoles;
 export const signerFields = source.signerFields as Field[];
@@ -20,6 +22,8 @@ export const variableRegistry: VariableDefinition[] = [
   ...personFields.map((field) => fieldToVariable(field, `військовий_1_${field.id}`, "Військовослужбовець")),
   ...vehicleFields.map((field) => fieldToVariable(field, `військовий_1_автомобіль_1_${field.id}`, "Автомобіль військовослужбовця")),
   ...vehicleFields.map((field) => fieldToVariable(field, `автомобіль_${field.id}`, "Автомобіль")),
+  ...crewFields.map((field) => fieldToVariable(field, `екіпаж_${field.id}`, "Екіпаж")),
+  ...["генератор", "бпла", "звʼязок", "зброя_та_бк"].flatMap((subject) => equipmentFields.map((field) => fieldToVariable(field, `${subject}_${field.id}`, subject === "бпла" ? "БпЛА" : subject === "звʼязок" ? "Зв’язок" : subject === "генератор" ? "Генератор" : "Зброя та БК"))),
   ...source.signerRoles.flatMap((role) => signerFields.map((field) => fieldToVariable(field, `${role.id}_${field.id}`, role.name))),
   ...generationParameterFields.map((field) => fieldToVariable(field, field.id, "Параметри документа"))
 ];
@@ -38,6 +42,16 @@ export function getVariable(id: string) {
   if (direct) return direct;
   const match = /^військовий_([1-9]\d*)_(.+)$/.exec(id);
   if (!match) {
+    const crew = /^екіпаж_(.+)$/.exec(id);
+    if (crew) {
+      const field = crewFields.find((item) => item.id === crew[1]);
+      if (field) return fieldToVariable(field, id, "Екіпаж");
+    }
+    const equipment = /^(генератор|бпла|звʼязок|зброя_та_бк)_(.+)$/.exec(id);
+    if (equipment) {
+      const field = equipmentFields.find((item) => item.id === equipment[2]);
+      if (field) return fieldToVariable(field, id, equipment[1]);
+    }
     const vehicle = /^автомобіль_(.+)$/.exec(id);
     if (!vehicle) return undefined;
     const field = vehicleFields.find((item) => item.id === vehicle[1]);

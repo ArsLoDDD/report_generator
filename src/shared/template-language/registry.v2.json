@@ -61,6 +61,20 @@
     {"id":"номер","sourceKey":"registration_number","name":"Державний номер","kind":"text","example":"АА 1234 АА","cases":false,"description":"Державний номер автомобіля."},
     {"id":"статус","sourceKey":"status","name":"Статус автомобіля","kind":"text","example":"Справний","cases":false,"description":"Поточний статус автомобіля."}
   ],
+  "crewFields": [
+    {"id":"назва","sourceKey":"name","name":"Назва екіпажу","kind":"text","example":"Екіпаж «Сокіл»","cases":false,"description":"Назва вибраного екіпажу."},
+    {"id":"взвод","sourceKey":"platoon","name":"Взвод","kind":"text","example":"1 взвод","cases":false,"description":"Взвод, до якого належить екіпаж."},
+    {"id":"позиція","sourceKey":"position_name","name":"Позиція","kind":"text","example":"СП «Північ»","cases":false,"description":"Поточна позиція екіпажу."},
+    {"id":"район_розвідки","sourceKey":"reconnaissance_area","name":"Район розвідки","kind":"text","example":"район н.п. Прикладне","cases":false,"description":"Район роботи екіпажу."},
+    {"id":"склад","sourceKey":"members","name":"Склад екіпажу","kind":"text","example":"Іваненко Іван Іванович, …","cases":false,"description":"Поточний склад екіпажу."},
+    {"id":"автомобілі","sourceKey":"vehicles","name":"Автомобілі екіпажу","kind":"text","example":"Toyota Hilux АА 1234 АА","cases":false,"description":"Автомобілі, закріплені за екіпажем."}
+  ],
+  "equipmentFields": [
+    {"id":"назва","sourceKey":"name","name":"Назва","kind":"text","example":"DJI Matrice 30T","cases":false,"description":"Назва вибраного запису майна."},
+    {"id":"інвентарний_номер","sourceKey":"inventory_number","name":"Інвентарний номер","kind":"text","example":"БПЛА-001","cases":false,"description":"Інвентарний номер майна."},
+    {"id":"статус","sourceKey":"status","name":"Статус","kind":"text","example":"Справний","cases":false,"description":"Поточний стан майна."},
+    {"id":"примітка","sourceKey":"notes","name":"Примітка","kind":"text","example":"Комплект із трьома АКБ","cases":false,"description":"Додаткова примітка до майна."}
+  ],
   "signerRoles": [
     {"id":"основний_підписант","name":"Основний підписант","settingsKey":"mainSigner"},
     {"id":"командир","name":"Командир","settingsKey":"commander"},

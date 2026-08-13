@@ -188,12 +188,57 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         )
         .map_err(|_| "Не вдалося налаштувати унікальність ІПН.".to_string())?;
     connection.execute("ALTER TABLE vehicles ADD COLUMN personnel_id INTEGER REFERENCES personnel(id) ON DELETE SET NULL", []).ok();
+    connection.execute("ALTER TABLE vehicles ADD COLUMN crew_id INTEGER REFERENCES crews(id) ON DELETE SET NULL", []).ok();
     connection
         .execute(
             "ALTER TABLE vehicles ADD COLUMN status TEXT NOT NULL DEFAULT 'Справний'",
             [],
         )
         .ok();
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS crews (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            platoon TEXT NOT NULL DEFAULT '',
+            position_name TEXT NOT NULL DEFAULT '',
+            reconnaissance_area TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS crew_members (
+            id INTEGER PRIMARY KEY,
+            crew_id INTEGER NOT NULL REFERENCES crews(id) ON DELETE CASCADE,
+            personnel_id INTEGER NOT NULL REFERENCES personnel(id) ON DELETE CASCADE,
+            joined_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            left_at TEXT,
+            UNIQUE(crew_id, personnel_id, joined_at)
+        );
+        CREATE INDEX IF NOT EXISTS crew_members_active_idx ON crew_members(crew_id, left_at);
+        CREATE TABLE IF NOT EXISTS equipment (
+            id INTEGER PRIMARY KEY,
+            category TEXT NOT NULL CHECK(category IN ('generator','uav','communications','weapon_ammo')),
+            name TEXT NOT NULL,
+            inventory_number TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'Справний',
+            crew_id INTEGER REFERENCES crews(id) ON DELETE SET NULL,
+            personnel_id INTEGER REFERENCES personnel(id) ON DELETE SET NULL,
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS equipment_category_idx ON equipment(category);
+        CREATE TABLE IF NOT EXISTS incidents (
+            id INTEGER PRIMARY KEY,
+            incident_type TEXT NOT NULL,
+            occurred_at TEXT NOT NULL DEFAULT '',
+            crew_id INTEGER REFERENCES crews(id) ON DELETE SET NULL,
+            equipment_id INTEGER REFERENCES equipment(id) ON DELETE SET NULL,
+            position_name TEXT NOT NULL DEFAULT '',
+            reconnaissance_area TEXT NOT NULL DEFAULT '',
+            crew_snapshot TEXT NOT NULL DEFAULT '',
+            description TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS incidents_created_idx ON incidents(created_at DESC);",
+    ).map_err(|_| "Не вдалося підготувати таблиці підрозділів і майна.".to_string())?;
     let existing_columns = connection
         .prepare("PRAGMA table_info(personnel)")
         .and_then(|mut statement| {
@@ -942,5 +987,19 @@ mod tests {
             }
         )
         .is_ok());
+    }
+
+    #[test]
+    fn creates_operational_registers_and_keeps_vehicle_crew_relation() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialise(&connection).unwrap();
+        connection.execute("INSERT INTO crews(name) VALUES('Екіпаж 1')", []).unwrap();
+        connection.execute("INSERT INTO vehicles(name, registration_number, crew_id) VALUES('Тестове авто', 'АА0001АА', 1)", []).unwrap();
+        connection.execute("INSERT INTO equipment(category, name, crew_id) VALUES('uav', 'Тестовий БпЛА', 1)", []).unwrap();
+        connection.execute("INSERT INTO incidents(incident_type, crew_id, equipment_id) VALUES('Втрата БпЛА', 1, 1)", []).unwrap();
+        let linked: i64 = connection.query_row("SELECT COUNT(*) FROM vehicles WHERE crew_id=1", [], |row| row.get(0)).unwrap();
+        assert_eq!(linked, 1);
+        let incident: String = connection.query_row("SELECT incident_type FROM incidents", [], |row| row.get(0)).unwrap();
+        assert_eq!(incident, "Втрата БпЛА");
     }
 }

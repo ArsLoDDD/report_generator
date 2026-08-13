@@ -57,6 +57,14 @@ describe("navigation and report generation", () => {
     await waitFor(() => expect(screen.getByText("Використовувані змінні")).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Особовий склад" }));
     expect(screen.getByRole("heading", { name: "Особовий склад" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Екіпажі" }));
+    expect(screen.getByRole("heading", { name: "Екіпажі" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Генератори" }));
+    expect(screen.getByRole("heading", { name: "Генератори" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "БпЛА" }));
+    expect(screen.getByRole("heading", { name: "БпЛА" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Інциденти" }));
+    expect(screen.getByRole("heading", { name: "Інциденти" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Згенеровані рапорти" }));
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Період рапортів" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
