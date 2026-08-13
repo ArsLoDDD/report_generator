@@ -99,9 +99,9 @@ describe("navigation and report generation", () => {
     const vacationTemplate = screen.getByRole("button", { name: /Рапорт на відпустку/ });
     fireEvent.click(vacationTemplate);
     expect(vacationTemplate).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(screen.getByLabelText("Дата рапорту")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Параметри значень" })).toBeInTheDocument());
     fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
-    expect(screen.getByLabelText("Дата рапорту")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Параметри значень" })).toBeInTheDocument();
     fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
     fireEvent.click(vacationTemplate);
     expect(vacationTemplate).toHaveAttribute("aria-pressed", "false");
@@ -235,7 +235,9 @@ describe("navigation and report generation", () => {
     render(<App />);
     const templateCard = await screen.findByRole("button", { name: /Рапорт на відпустку/ });
     fireEvent.click(templateCard);
-    expect(await screen.findByLabelText("Дата рапорту")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Параметри значень" }));
+    expect(screen.getByRole("dialog", { name: "Параметри значень" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Дата рапорту")).toBeInTheDocument();
     expect(screen.getByText("{{дата_рапорту}}")).toBeInTheDocument();
   });
 

@@ -32,7 +32,7 @@ body { overflow: hidden; }
 .generation-page .template-grid { align-content: start; grid-auto-rows: 137px; }
 .generation-page .template-card { min-height: 0; height: 137px; }
 .generation-page .empty-template { height: 230px; padding: 25px 35px; display: grid; justify-items: center; align-content: center; grid-template-rows: 75px 54px 44px; }
-.generation-page .empty-template h2 { margin: 16px 0 0; align-self: end; }
+.generation-page .empty-template h2 { width: min(100%, 560px); margin: 16px 0 0; align-self: end; display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-wrap: balance; }
 .generation-page .empty-template p { margin: 8px 0 0; align-self: start; }
 .generation-page .people-select { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 /* Vehicle choice has no search toolbar, so its list must occupy that free row. */
@@ -54,20 +54,27 @@ body { overflow: hidden; }
 .selection-column:has(.report-date-picker) .people-select { flex: 1 1 0; }
 
 /* Parameters are visible directly next to the selected template. */
-.generation-parameters-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+.generation-parameters-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 4px 2px 0; }
+.generation-parameters-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
 .generation-parameter { display: grid; gap: 8px; min-width: 0; }
 .generation-parameter--textarea { grid-column: 1 / -1; }
 .generation-parameter > span { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
 .generation-parameter b { color: #dbe5e9; font-size: 13px; }
 .generation-parameter code { color: #62d768; font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.generation-parameter input, .generation-parameter textarea, .generation-parameter select { width: 100%; min-height: 42px; border: 1px solid #2d4c5a; border-radius: 8px; background: #09151d; color: #e7eff2; padding: 0 11px; outline: none; }
-.generation-parameter textarea { min-height: 94px; padding-block: 10px; resize: vertical; }
+.generation-parameter input, .generation-parameter textarea, .generation-parameter .shared-select { width: 100%; min-height: 40px; border: 1px solid #2d4c5a; border-radius: 8px; background: #09151d; color: #e7eff2; padding: 0 11px; outline: none; }
+.generation-parameter .shared-select { padding: 0; border: 0; background: transparent; }
+.generation-parameter .shared-select select { min-height: 40px; border: 1px solid #2d4c5a; border-radius: 8px; background: #09151d; color: #e7eff2; }
+.generation-parameter textarea { min-height: 72px; padding-block: 10px; resize: vertical; }
 .generation-parameter input:focus, .generation-parameter textarea:focus, .generation-parameter select:focus { border-color: #4dca58; box-shadow: 0 0 0 3px #43bc4d20; }
-.generation-empty-state { min-height: 320px; align-content: center; justify-items: center; text-align: center; }
+.generation-empty-state { min-height: 220px; max-height: 280px; align-content: center; justify-items: center; text-align: center; }
 .generation-empty-state svg { width: 44px; height: 44px; color: #677987; stroke-width: 1.35; }
 .generation-empty-state h2 { margin: 15px 0 8px; }
 .generation-empty-state p, .generation-parameters-only > p { max-width: 640px; margin: 0; color: #aebcc4; line-height: 1.45; }
-.generation-parameters-only { align-content: start; }
+.generation-parameters-only { grid-template-rows: auto auto minmax(0, 1fr); align-content: stretch; }
+.generation-parameters-modal { width: min(760px, 100%); grid-template-rows: auto minmax(0, 1fr) auto; }
+.generation-parameters-modal .modal-header p { margin: 5px 0 0; color: #aebcc4; font-size: 13px; }
+.generation-parameters-modal__body { min-height: 0; overflow: auto; padding: 4px 20px 20px; overscroll-behavior: contain; }
+.generation-parameters-modal__body .generation-parameters-fields { margin-top: 16px; }
 
 @media (max-width: 760px) { .generation-parameters-fields { grid-template-columns: 1fr; } }
 
