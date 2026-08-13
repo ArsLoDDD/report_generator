@@ -2942,6 +2942,7 @@ name = "shablonizator"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "quick-xml",
  "rusqlite",
  "serde",
  "serde_json",

@@ -25,7 +25,7 @@ vi.mock("./features/settings/services/settingsService", () => ({
 vi.mock("./features/report-generation/services/reportGenerationService", () => ({
   reportGenerationService: {
     selectTemplateFile: vi.fn().mockResolvedValue("/templates/Нагородний рапорт.docx"),
-    inspectTemplate: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: ["дата_рапорту"] }),
+    inspectTemplate: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: ["військовий_1_піб", "дата_рапорту"] }),
     validateTemplate: vi.fn().mockResolvedValue({ isValid: true, errors: [], variables: [] }),
     generateReport: vi.fn().mockResolvedValue({ docxPath: "/Reports/2026-08-03/Рапорт на відпустку/Рапорт на відпустку.docx", folderPath: "/Reports/2026-08-03/Рапорт на відпустку" }),
     openGeneratedReport: vi.fn(),
@@ -99,12 +99,14 @@ describe("navigation and report generation", () => {
     const vacationTemplate = screen.getByRole("button", { name: /Рапорт на відпустку/ });
     fireEvent.click(vacationTemplate);
     expect(vacationTemplate).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Параметри значень" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("Дата рапорту")).toBeInTheDocument());
     fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
-    expect(screen.getByRole("button", { name: "Параметри значень" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Дата рапорту")).toBeInTheDocument();
     fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
     fireEvent.click(vacationTemplate);
     expect(vacationTemplate).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("heading", { name: "Оберіть шаблон" })).toBeInTheDocument();
+    fireEvent.click(vacationTemplate);
     fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
     expect(screen.getByText("Вибрано:").parentElement).toHaveTextContent("Вибрано: 1");
     expect(screen.getByRole("button", { name: "Очистити вибір" })).toBeEnabled();
@@ -117,6 +119,7 @@ describe("navigation and report generation", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByRole("button", { name: /Рапорт на відпустку/ })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /Рапорт на відпустку/ }));
+    await waitFor(() => expect(screen.getByText("ВАСИЛЬОК Іван Аркадійович")).toBeInTheDocument());
     fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
     fireEvent.click(screen.getByRole("button", { name: "Згенерувати рапорт" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Відкрити DOCX" })).toBeInTheDocument());
@@ -232,9 +235,7 @@ describe("navigation and report generation", () => {
     render(<App />);
     const templateCard = await screen.findByRole("button", { name: /Рапорт на відпустку/ });
     fireEvent.click(templateCard);
-    const parameters = await screen.findByRole("button", { name: "Параметри значень" });
-    fireEvent.click(parameters);
-    expect(screen.getByRole("dialog", { name: "Параметри значень" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("Дата рапорту")).toBeInTheDocument();
     expect(screen.getByText("{{дата_рапорту}}")).toBeInTheDocument();
   });
 

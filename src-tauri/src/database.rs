@@ -864,7 +864,11 @@ mod tests {
             connection.execute("INSERT INTO personnel (rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, gender) VALUES ('', ?1, '', '', '', '', '', '', '', '', '', '', '', '')", [surname]).unwrap();
         }
         let count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM personnel WHERE tax_id = ''", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM personnel WHERE tax_id = ''",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(count, 2);
     }

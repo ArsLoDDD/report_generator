@@ -6,7 +6,7 @@ mod xlsx;
 
 use chrono::{DateTime, Local};
 use rusqlite::Connection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fs,
     io::{self, Read, Write},
@@ -90,6 +90,31 @@ struct Vehicle {
     status: String,
     personnel_id: Option<i64>,
     driver_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TemplateAnalysisProposal {
+    value: String,
+    token: String,
+    label: String,
+    category: String,
+    occurrences: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TemplateAnalysis {
+    source_name: String,
+    text_preview: String,
+    proposals: Vec<TemplateAnalysisProposal>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TemplateAnalysisReplacement {
+    value: String,
+    token: String,
 }
 
 pub const DATABASE_FILE_NAME: &str = "особовий_склад.db";
@@ -203,6 +228,642 @@ fn create_vehicle_report_template(path: &Path) -> Result<(), String> {
 
 fn templates_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(ensure_application_structure(app)?.join(TEMPLATES_DIRECTORY_NAME))
+}
+
+fn template_analysis_value(
+    proposals: &mut Vec<TemplateAnalysisProposal>,
+    text: &str,
+    value: &str,
+    token: &str,
+    label: &str,
+    category: &str,
+) {
+    let value = value.trim();
+    let occurrences = whole_text_match_count(text, value);
+    if value.is_empty() || occurrences == 0 || proposals.iter().any(|item| item.value == value && item.token == token) {
+        return;
+    }
+    proposals.push(TemplateAnalysisProposal {
+        value: value.into(),
+        token: token.into(),
+        label: label.into(),
+        category: category.into(),
+        occurrences: occurrences as u32,
+    });
+}
+
+/// Counts only complete values. It deliberately does not treat `Арсен` as a
+/// match inside `Арсеній`, nor any other shorter value inside a longer word.
+fn whole_text_match_count(text: &str, value: &str) -> usize {
+    let value = value.trim();
+    if value.is_empty() {
+        return 0;
+    }
+    let haystack = text.to_lowercase();
+    let needle = value.to_lowercase();
+    let mut count = 0;
+    let mut from = 0;
+    while let Some(relative) = haystack[from..].find(&needle) {
+        let start = from + relative;
+        let end = start + needle.len();
+        let left = haystack[..start].chars().next_back();
+        let right = haystack[end..].chars().next();
+        let starts_with_word = needle.chars().next().is_some_and(char::is_alphanumeric);
+        let ends_with_word = needle.chars().next_back().is_some_and(char::is_alphanumeric);
+        if (!starts_with_word || !left.is_some_and(char::is_alphanumeric))
+            && (!ends_with_word || !right.is_some_and(char::is_alphanumeric))
+        {
+            count += 1;
+        }
+        from = end;
+    }
+    count
+}
+
+fn detected_document_proposals(proposals: &mut Vec<TemplateAnalysisProposal>, text: &str) {
+    let words = text.split_whitespace().collect::<Vec<_>>();
+    let mut date_index = 0;
+    let mut order_index = 0;
+    let mut unit_index = 0;
+    let mut detected_units = Vec::new();
+    for (index, raw) in words.iter().enumerate() {
+        let value = raw.trim_matches(|character: char| {
+            matches!(character, ',' | ';' | ':' | '.' | '(' | ')' | '«' | '»')
+        });
+        let digits = value
+            .chars()
+            .filter(|character| character.is_ascii_digit())
+            .count();
+        let separators = value
+            .chars()
+            .filter(|character| matches!(character, '.' | '/'))
+            .count();
+        if digits == 8 && separators == 2 {
+            date_index += 1;
+            let token = format!("дата_рапорту_{date_index}");
+            template_analysis_value(
+                proposals,
+                text,
+                value,
+                &token,
+                &format!("Дата в документі {date_index}"),
+                "Параметри документа",
+            );
+        }
+        if value.starts_with('№') && value.len() > 1 {
+            order_index += 1;
+            let token = format!("номер_наказу_{order_index}");
+            template_analysis_value(
+                proposals,
+                text,
+                value,
+                &token,
+                &format!("Номер документа {order_index}"),
+                "Параметри документа",
+            );
+        }
+        let normalized = value.trim_matches(|character: char| !character.is_alphanumeric());
+        let compact_unit = if normalized.chars().count() == 5
+            && matches!(normalized.chars().next(), Some('А' | 'а' | 'A' | 'a'))
+            && normalized.chars().skip(1).all(|character| character.is_ascii_digit())
+        {
+            Some((normalized.to_string(), normalized.chars().skip(1).collect::<String>()))
+        } else if matches!(normalized, "А" | "а" | "A" | "a") {
+            words.get(index + 1).and_then(|next| {
+                let digits = next.trim_matches(|character: char| !character.is_ascii_digit());
+                (digits.len() == 4 && digits.chars().all(|character| character.is_ascii_digit()))
+                    .then(|| (format!("{normalized} {digits}"), digits.to_string()))
+            })
+        } else {
+            None
+        };
+        if let Some((unit, digits)) = compact_unit {
+            let key = format!("А{digits}");
+            if detected_units.iter().any(|existing: &String| existing == &key) {
+                continue;
+            }
+            detected_units.push(key);
+            unit_index += 1;
+            let token = format!("військова_частина_{unit_index}");
+            template_analysis_value(
+                proposals,
+                text,
+                &unit,
+                &token,
+                &format!("Військова частина {unit_index}"),
+                "Параметри документа",
+            );
+        }
+    }
+    for (marker, token, label) in [
+        ("екіпаж ", "екіпаж_1", "Екіпаж у документі"),
+        ("позиція ", "назва_позиції_1", "Назва позиції"),
+        ("позиції ", "назва_позиції_1", "Назва позиції"),
+    ] {
+        if let Some(value) = document_phrase_after(text, marker) {
+            template_analysis_value(proposals, text, &value, token, label, "Параметри документа");
+        }
+    }
+    for marker in ["н.п.", "н. п.", "м.", "с.", "смт."] {
+        if let Some(value) = document_settlement_after(text, marker) {
+            template_analysis_value(
+                proposals,
+                text,
+                &value,
+                "населений_пункт_1",
+                "Населений пункт",
+                "Параметри документа",
+            );
+        }
+    }
+    detected_document_person_proposals(proposals, text);
+}
+
+fn document_settlement_after(text: &str, marker: &str) -> Option<String> {
+    let lower = text.to_lowercase();
+    let start = lower.find(marker)? + marker.len();
+    let words = text[start..]
+        .trim_start_matches(|character: char| character.is_whitespace() || character == '.')
+        .split_whitespace()
+        .map(|word| word.trim_matches(|character: char| !character.is_alphabetic() && character != '-' && character != '\''))
+        .take_while(|word| !matches!(word.to_lowercase().as_str(), "в" | "у" | "на" | "смузі" | "районі" | "та" | "з"))
+        .take(4)
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    (!words.is_empty()).then(|| words.join(" "))
+}
+
+/// Finds a name written in the report itself. This is intentionally separate
+/// from the personnel database: a historical report may contain a person who
+/// was renamed, removed, or has not yet been entered into the application.
+fn detected_document_person_proposals(proposals: &mut Vec<TemplateAnalysisProposal>, text: &str) {
+    let words = text
+        .split_whitespace()
+        .filter_map(|word| {
+            let value = word.trim_matches(|character: char| !character.is_alphabetic() && character != '\'');
+            (value.chars().count() >= 2).then(|| value.to_string())
+        })
+        .collect::<Vec<_>>();
+    let ranks = [
+        "солдат", "матрос", "сержант", "старший сержант", "головний сержант",
+        "молодший лейтенант", "лейтенант", "старший лейтенант", "капітан", "майор",
+        "підполковник", "полковник", "генерал",
+    ];
+    for (index, triple) in words.windows(3).enumerate() {
+        let first = &triple[0];
+        let second = &triple[1];
+        let third = &triple[2];
+        let first_title = first.chars().next().is_some_and(char::is_uppercase)
+            && !first.chars().skip(1).any(char::is_uppercase);
+        let second_title = second.chars().next().is_some_and(char::is_uppercase)
+            && !second.chars().skip(1).any(char::is_uppercase);
+        let third_title = third.chars().next().is_some_and(char::is_uppercase)
+            && !third.chars().skip(1).any(char::is_uppercase);
+        let first_upper = first.chars().any(char::is_alphabetic)
+            && first.chars().filter(|character| character.is_alphabetic()).all(char::is_uppercase);
+        let third_upper = third.chars().any(char::is_alphabetic)
+            && third.chars().filter(|character| character.is_alphabetic()).all(char::is_uppercase);
+        let before = words[index.saturating_sub(3)..index].join(" ").to_lowercase();
+        let has_rank_context = ranks.iter().any(|rank| before.ends_with(rank));
+        if !has_rank_context {
+            continue;
+        }
+        let (given_name, patronymic, surname, full_name) = if first_title && second_title && third_upper {
+            (first.as_str(), second.as_str(), third.as_str(), format!("{first} {second} {third}"))
+        } else if first_upper && second_title && third_title {
+            (second.as_str(), third.as_str(), first.as_str(), format!("{first} {second} {third}"))
+        } else {
+            continue;
+        };
+        template_analysis_value(
+            proposals,
+            text,
+            &full_name,
+            "військовий_1_піб",
+            "ПІБ, знайдений у документі",
+            "Військовослужбовець",
+        );
+        template_analysis_value(
+            proposals,
+            text,
+            surname,
+            "військовий_1_прізвище",
+            "Прізвище, знайдене у документі",
+            "Військовослужбовець",
+        );
+        template_analysis_value(
+            proposals,
+            text,
+            given_name,
+            "військовий_1_імя",
+            "Ім’я, знайдене у документі",
+            "Військовослужбовець",
+        );
+        template_analysis_value(
+            proposals,
+            text,
+            patronymic,
+            "військовий_1_по_батькові",
+            "По батькові, знайдене у документі",
+            "Військовослужбовець",
+        );
+    }
+}
+
+fn document_signature_position(text: &str, name_in_document: &str, rank: &str) -> Option<String> {
+    let name_offset = text.to_lowercase().find(&name_in_document.to_lowercase())?;
+    let before_name = &text[..name_offset];
+    let mut lines = before_name.lines().rev().map(str::trim).filter(|line| !line.is_empty());
+    let last_line = lines.next()?;
+    // A DOCX signature block is often a single paragraph: "Посада звання ПІБ".
+    // In that case take the text before the rank, rather than the whole paragraph.
+    let position = if !rank.trim().is_empty() && last_line.eq_ignore_ascii_case(rank.trim()) {
+        lines.next()?
+    } else if !rank.trim().is_empty() {
+        last_line
+            .to_lowercase()
+            .rfind(&rank.trim().to_lowercase())
+            .map(|rank_offset| last_line[..rank_offset].trim())
+            .unwrap_or(last_line)
+    } else {
+        last_line
+    };
+    let position = position.trim_matches(|character: char| character == ',' || character == ';');
+    (position.chars().count() >= 8).then(|| position.to_string())
+}
+
+#[derive(Clone)]
+struct SignerNameParts {
+    surname: String,
+    given_name: String,
+    patronymic: Option<String>,
+    full_name: String,
+}
+
+fn is_uppercase_word(value: &str) -> bool {
+    value.chars().any(char::is_alphabetic)
+        && value.chars().filter(|character| character.is_alphabetic()).all(char::is_uppercase)
+}
+
+fn signer_name_parts(full_name: &str) -> Option<SignerNameParts> {
+    let parts = full_name.split_whitespace().map(str::to_string).collect::<Vec<_>>();
+    if !(2..=3).contains(&parts.len()) {
+        return None;
+    }
+    let surname_index = parts.iter().position(|part| is_uppercase_word(part)).unwrap_or(0);
+    let (surname, given_name, patronymic) = match (parts.len(), surname_index) {
+        (3, 2) => (parts[2].clone(), parts[0].clone(), Some(parts[1].clone())),
+        (3, _) => (parts[0].clone(), parts[1].clone(), Some(parts[2].clone())),
+        (2, 0) => (parts[0].clone(), parts[1].clone(), None),
+        (2, _) => (parts[1].clone(), parts[0].clone(), None),
+        _ => return None,
+    };
+    Some(SignerNameParts { surname, given_name, patronymic, full_name: parts.join(" ") })
+}
+
+struct SignerNameInDocument {
+    full_name: String,
+    surname: String,
+    given_name: String,
+    patronymic: Option<String>,
+    has_full_name: bool,
+}
+
+fn normalized_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(|character| character.is_alphabetic())
+        .map(|character| match character.to_lowercase().next().unwrap_or(character) {
+            // Ukrainian documents sometimes use the orthographic variants і/и
+            // in a personal name. The original document spelling is retained
+            // in the replacement; this normalization is only for recognition.
+            'і' => 'и',
+            character => character,
+        })
+        .collect()
+}
+
+fn name_edit_distance(left: &str, right: &str) -> usize {
+    let left = left.chars().collect::<Vec<_>>();
+    let right = right.chars().collect::<Vec<_>>();
+    let mut row = (0..=right.len()).collect::<Vec<_>>();
+    for (left_index, left_character) in left.iter().enumerate() {
+        let mut next = vec![left_index + 1];
+        for (right_index, right_character) in right.iter().enumerate() {
+            next.push(std::cmp::min(
+                std::cmp::min(next[right_index] + 1, row[right_index + 1] + 1),
+                row[right_index] + usize::from(left_character != right_character),
+            ));
+        }
+        row = next;
+    }
+    row[right.len()]
+}
+
+fn similar_name(left: &str, right: &str) -> bool {
+    let left = normalized_name(left);
+    let right = normalized_name(right);
+    left == right || (left.chars().count() >= 4 && right.chars().count() >= 4 && name_edit_distance(&left, &right) <= 1)
+}
+
+fn signer_name_in_document(text: &str, name: &SignerNameParts) -> Option<SignerNameInDocument> {
+    if name.patronymic.is_some() && whole_text_match_count(text, &name.full_name) > 0 {
+        return Some(SignerNameInDocument {
+            full_name: name.full_name.clone(),
+            surname: name.surname.clone(),
+            given_name: name.given_name.clone(),
+            patronymic: name.patronymic.clone(),
+            has_full_name: true,
+        });
+    }
+    let words = text
+        .split_whitespace()
+        .map(|word| word.trim_matches(|character: char| !character.is_alphabetic() && character != '\''))
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>();
+    for pair in words.windows(2) {
+        if similar_name(pair[1], &name.surname) && similar_name(pair[0], &name.given_name) {
+            return Some(SignerNameInDocument {
+                full_name: format!("{} {}", pair[0], pair[1]),
+                surname: pair[1].to_string(),
+                given_name: pair[0].to_string(),
+                patronymic: None,
+                has_full_name: false,
+            });
+        }
+        if similar_name(pair[0], &name.surname) && similar_name(pair[1], &name.given_name) {
+            return Some(SignerNameInDocument {
+                full_name: format!("{} {}", pair[0], pair[1]),
+                surname: pair[0].to_string(),
+                given_name: pair[1].to_string(),
+                patronymic: None,
+                has_full_name: false,
+            });
+        }
+    }
+    None
+}
+
+fn detected_signer_block_proposals(
+    proposals: &mut Vec<TemplateAnalysisProposal>,
+    text: &str,
+    role: &settings::SignerRole,
+) {
+    let signer = &role.signer;
+    let Some(name_parts) = signer_name_parts(&signer.full_name) else { return; };
+    let Some(name_in_document) = signer_name_in_document(text, &name_parts) else { return; };
+    let category = format!("Підписант: {}", role.name);
+    if name_in_document.has_full_name {
+        template_analysis_value(proposals, text, &name_in_document.full_name, &format!("{}_піб", role.id), &format!("ПІБ: {}", role.name), &category);
+    }
+    template_analysis_value(proposals, text, &name_in_document.surname, &format!("{}_прізвище", role.id), &format!("Прізвище: {}", role.name), &category);
+    template_analysis_value(proposals, text, &name_in_document.given_name, &format!("{}_імя", role.id), &format!("Ім’я: {}", role.name), &category);
+    if name_in_document.has_full_name {
+        if let Some(patronymic) = &name_in_document.patronymic {
+            template_analysis_value(proposals, text, patronymic, &format!("{}_по_батькові", role.id), &format!("По батькові: {}", role.name), &category);
+        }
+    }
+    if signer.rank.chars().count() >= 4 {
+        template_analysis_value(
+            proposals,
+            text,
+            &signer.rank,
+            &format!("{}_звання", role.id),
+            &format!("Звання: {}", role.name),
+            &category,
+        );
+    }
+    if let Some(position) = document_signature_position(text, &name_in_document.full_name, &signer.rank) {
+        template_analysis_value(
+            proposals,
+            text,
+            &position,
+            &format!("{}_посада", role.id),
+            &format!("Посада у блоці підпису: {}", role.name),
+            &category,
+        );
+    }
+}
+
+fn document_phrase_after(text: &str, marker: &str) -> Option<String> {
+    let lower = text.to_lowercase();
+    let start = lower.find(marker)? + marker.len();
+    let remaining = text[start..].trim_start_matches(|character: char| {
+        character.is_whitespace() || character == ':'
+    });
+    let quoted = [("«", "»"), ("\"", "\""), ("“", "”")]
+        .iter()
+        .find_map(|(opening, closing)| {
+            remaining.strip_prefix(opening).and_then(|after_opening| {
+                after_opening
+                    .find(closing)
+                    .map(|end| after_opening[..end].trim().to_string())
+            })
+        });
+    let value = quoted.unwrap_or_else(|| remaining
+        .chars()
+        .take_while(|character| !matches!(character, ',' | ';' | '\n' | '\r'))
+        .take(90)
+        .collect::<String>());
+    let value = value.trim_matches(|character: char| {
+        character.is_whitespace() || matches!(character, ':' | '«' | '»' | '.')
+    });
+    (value.chars().count() >= 2).then(|| value.to_string())
+}
+
+#[tauri::command]
+fn analyse_report_for_template(
+    state: tauri::State<AppState>,
+    report_path: String,
+) -> Result<TemplateAnalysis, String> {
+    let path = PathBuf::from(&report_path);
+    if !path.is_file()
+        || !path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("docx"))
+    {
+        return Err("Оберіть DOCX-файл рапорту.".into());
+    }
+    let text = report_generation::read_docx_text(&path)?;
+    let database = state
+        .0
+        .lock()
+        .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
+    let mut proposals = Vec::new();
+    let signer_roles = settings::load(&application_root_from_path(&path)?)?.signer_roles;
+    for role in &signer_roles {
+        detected_signer_block_proposals(&mut proposals, &text, role);
+    }
+    for person in personnel::list(&database.connection)? {
+        // Do not turn a shared rank or position into a military-person token.
+        // A personnel record is relevant only when its complete name appears in
+        // the document. This also leaves a recognized signature block solely
+        // with the appropriate signer variables.
+        if whole_text_match_count(&text, &person.full_name) == 0 {
+            continue;
+        }
+        template_analysis_value(
+            &mut proposals,
+            &text,
+            &person.full_name,
+            "військовий_1_піб",
+            "ПІБ військовослужбовця",
+            "Військовослужбовець",
+        );
+        template_analysis_value(
+            &mut proposals,
+            &text,
+            &person.surname,
+            "військовий_1_прізвище",
+            "Прізвище військовослужбовця",
+            "Військовослужбовець",
+        );
+        template_analysis_value(
+            &mut proposals,
+            &text,
+            &person.given_name,
+            "військовий_1_імя",
+            "Ім’я військовослужбовця",
+            "Військовослужбовець",
+        );
+        template_analysis_value(
+            &mut proposals,
+            &text,
+            &person.patronymic,
+            "військовий_1_по_батькові",
+            "По батькові військовослужбовця",
+            "Військовослужбовець",
+        );
+        template_analysis_value(
+            &mut proposals,
+            &text,
+            &person.rank,
+            "військовий_1_звання",
+            "Звання військовослужбовця",
+            "Військовослужбовець",
+        );
+        template_analysis_value(
+            &mut proposals,
+            &text,
+            &person.position,
+            "військовий_1_посада",
+            "Посада військовослужбовця",
+            "Військовослужбовець",
+        );
+    }
+    let mut vehicle_statement = database
+        .connection
+        .prepare("SELECT name, registration_number, status FROM vehicles")
+        .map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?;
+    let vehicles = vehicle_statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?;
+    for (name, registration, status) in vehicles {
+        template_analysis_value(
+            &mut proposals,
+            &text,
+            &name,
+            "автомобіль_назва",
+            "Назва автомобіля",
+            "Автомобіль",
+        );
+        template_analysis_value(
+            &mut proposals,
+            &text,
+            &registration,
+            "автомобіль_номер",
+            "Номер автомобіля",
+            "Автомобіль",
+        );
+        template_analysis_value(
+            &mut proposals,
+            &text,
+            &status,
+            "автомобіль_статус",
+            "Статус автомобіля",
+            "Автомобіль",
+        );
+    }
+    detected_document_proposals(&mut proposals, &text);
+    proposals.sort_by(|left, right| {
+        right
+            .occurrences
+            .cmp(&left.occurrences)
+            .then(left.label.cmp(&right.label))
+    });
+    let source_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("Рапорт.docx")
+        .to_string();
+    Ok(TemplateAnalysis {
+        source_name,
+        text_preview: text.chars().take(700).collect(),
+        proposals,
+    })
+}
+
+fn application_root_from_path(_path: &Path) -> Result<PathBuf, String> {
+    #[cfg(debug_assertions)]
+    {
+        return Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(Path::to_path_buf)
+            .ok_or_else(|| "Не вдалося визначити папку програми.".to_string());
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        executable_root()
+    }
+}
+
+#[tauri::command]
+async fn create_template_from_report_analysis(
+    app: tauri::AppHandle,
+    report_path: String,
+    template_name: String,
+    replacements: Vec<TemplateAnalysisReplacement>,
+) -> Result<String, String> {
+    let source = PathBuf::from(report_path);
+    if !source.is_file() {
+        return Err("Вихідний рапорт не знайдено.".into());
+    }
+    let safe_name = template_name.trim().trim_end_matches(".docx");
+    if safe_name.is_empty() || safe_name.contains(['/', '\\']) {
+        return Err("Вкажіть коректну назву шаблону.".into());
+    }
+    let directory = templates_directory(&app)?;
+    let mut destination = directory.join(format!("{safe_name}.docx"));
+    let mut suffix = 2;
+    while destination.exists() {
+        destination = directory.join(format!("{safe_name} ({suffix}).docx"));
+        suffix += 1;
+    }
+    let replacements = replacements
+        .into_iter()
+        .map(|item| (item.value, item.token))
+        .collect::<Vec<_>>();
+    let source_for_task = source.clone();
+    let destination_for_task = destination.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        report_generation::create_template_from_replacements(
+            &source_for_task,
+            &destination_for_task,
+            &replacements,
+        )
+    })
+    .await
+    .map_err(|_| "Не вдалося завершити створення DOCX-шаблону.".to_string())??;
+    Ok(destination.to_string_lossy().into())
 }
 
 #[tauri::command]
@@ -1463,6 +2124,8 @@ fn main() {
             list_templates,
             select_template_file,
             inspect_template,
+            analyse_report_for_template,
+            create_template_from_report_analysis,
             validate_template,
             generate_report,
             open_template,
@@ -1489,6 +2152,212 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn analysis_counts_only_whole_values() {
+        assert_eq!(whole_text_match_count("Арсеній прибув. АРСЕНІЙ підтвердив.", "Арсен"), 0);
+        assert_eq!(whole_text_match_count("Арсен прибув; Арсеній залишився.", "Арсен"), 1);
+        assert_eq!(whole_text_match_count("АРСЕН прибув.", "Арсен"), 1);
+    }
+
+    #[test]
+    fn analysis_extracts_only_the_quoted_document_phrase() {
+        assert_eq!(
+            document_phrase_after("Екіпаж «ПЛЮШКА» завершив бойове чергування", "екіпаж "),
+            Some("ПЛЮШКА".into())
+        );
+        assert_eq!(
+            document_phrase_after("позиція «Сокіл»; продовжити виконання", "позиція "),
+            Some("Сокіл".into())
+        );
+    }
+
+    #[test]
+    fn analysis_finds_a_document_name_without_database_data() {
+        let text = "Командир підрозділу молодший лейтенант Максим Петрович ТЕСТОВИЙ";
+        let mut proposals = Vec::new();
+        detected_document_proposals(&mut proposals, text);
+        assert!(proposals.iter().any(|proposal| {
+            proposal.value == "Максим Петрович ТЕСТОВИЙ" && proposal.token == "військовий_1_піб"
+        }));
+        assert!(proposals.iter().any(|proposal| {
+            proposal.value == "Максим" && proposal.token == "військовий_1_імя"
+        }));
+        assert!(proposals.iter().any(|proposal| {
+            proposal.value == "ТЕСТОВИЙ" && proposal.token == "військовий_1_прізвище"
+        }));
+    }
+
+    #[test]
+    fn analysis_requires_three_name_parts_and_uses_the_matching_signer_role() {
+        let role = settings::SignerRole {
+            id: "основний_підписант".into(),
+            name: "Основний підписант".into(),
+            signer: settings::SignerSettings {
+                full_name: "Максим Петрович ТЕСТОВИЙ".into(),
+                rank: "майор".into(),
+                position: "Командир підрозділу".into(),
+            },
+        };
+        let text = "Командир підрозділу\nмайор Максим Петрович ТЕСТОВИЙ";
+        let mut proposals = Vec::new();
+        detected_signer_block_proposals(&mut proposals, text, &role);
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_піб"));
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_посада" && proposal.value == "Командир підрозділу"));
+        let mut short_name_proposals = Vec::new();
+        detected_document_person_proposals(&mut short_name_proposals, "майор Максим ТЕСТОВИЙ");
+        assert!(short_name_proposals.is_empty());
+    }
+
+    #[test]
+    fn analysis_uses_a_two_part_name_only_for_an_exact_signer_match() {
+        let role = settings::SignerRole {
+            id: "основний_підписант".into(),
+            name: "Основний підписант".into(),
+            signer: settings::SignerSettings {
+                full_name: "Максим ТЕСТОВИЙ".into(),
+                rank: "майор".into(),
+                position: "Командир підрозділу".into(),
+            },
+        };
+        let text = "Командир підрозділу\nмайор Максим ТЕСТОВИЙ";
+        let mut proposals = Vec::new();
+        detected_signer_block_proposals(&mut proposals, text, &role);
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_прізвище" && proposal.value == "ТЕСТОВИЙ"));
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_імя" && proposal.value == "Максим"));
+        assert!(!proposals.iter().any(|proposal| proposal.token == "основний_підписант_піб"));
+        let mut generic = Vec::new();
+        detected_document_person_proposals(&mut generic, text);
+        assert!(generic.is_empty());
+    }
+
+    #[test]
+    fn analysis_matches_a_two_part_signature_to_a_three_part_signer() {
+        let role = settings::SignerRole {
+            id: "основний_підписант".into(),
+            name: "Основний підписант".into(),
+            signer: settings::SignerSettings {
+                full_name: "Максим Петрович ТЕСТОВИЙ".into(),
+                rank: "майор".into(),
+                position: "Командир підрозділу".into(),
+            },
+        };
+        let text = "Командир підрозділу майор Максим ТЕСТОВИЙ";
+        let mut proposals = Vec::new();
+        detected_signer_block_proposals(&mut proposals, text, &role);
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_прізвище" && proposal.value == "ТЕСТОВИЙ"));
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_імя" && proposal.value == "Максим"));
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_звання" && proposal.value == "майор"));
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_посада" && proposal.value == "Командир підрозділу"));
+        assert!(!proposals.iter().any(|proposal| proposal.token == "основний_підписант_піб"));
+    }
+
+    #[test]
+    fn analysis_accepts_a_minor_spelling_difference_in_a_signer_name() {
+        let role = settings::SignerRole {
+            id: "основний_підписант".into(),
+            name: "Основний підписант".into(),
+            signer: settings::SignerSettings {
+                full_name: "ТАКТІКУЛЬЩІК Максим Едуардович".into(),
+                rank: "молодший лейтенант".into(),
+                position: "Командир роти".into(),
+            },
+        };
+        let text = "Командир роти молодший лейтенант Максім ТАКТІКУЛЬЩІК";
+        let mut proposals = Vec::new();
+        detected_signer_block_proposals(&mut proposals, text, &role);
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_прізвище" && proposal.value == "ТАКТІКУЛЬЩІК"));
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_імя" && proposal.value == "Максім"));
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_посада" && proposal.value == "Командир роти"));
+    }
+
+    #[test]
+    fn analysis_finds_the_signer_in_the_allowed_test_report_when_available() {
+        let path = Path::new("/Users/macbook/Downloads/Щодо завершення виконання завдань згідно БР№999 Екіпаж ТЕСТЮШКІ з 12.08.2026.docx");
+        if !path.is_file() {
+            return;
+        }
+        let role = settings::SignerRole {
+            id: "основний_підписант".into(),
+            name: "Основний підписант".into(),
+            signer: settings::SignerSettings {
+                full_name: "ТАКТІКУЛЬЩІК Максим Едуардович".into(),
+                rank: "молодший лейтенант".into(),
+                position: "Командир роти безпілотних авіаційних комплексів військової частини А2222".into(),
+            },
+        };
+        let text = report_generation::read_docx_text(path).unwrap();
+        let mut proposals = Vec::new();
+        detected_signer_block_proposals(&mut proposals, &text, &role);
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_прізвище" && proposal.value == "ТАКТІКУЛЬЩІК"));
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_імя" && proposal.value == "Максім"));
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_звання" && proposal.value == "молодший лейтенант"));
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_посада"));
+        assert!(!proposals.iter().any(|proposal| proposal.token == "військовий_1_звання"));
+    }
+
+    #[test]
+    fn analysis_finds_the_military_unit_in_the_allowed_test_report_when_available() {
+        let path = Path::new("/Users/macbook/Downloads/Щодо завершення виконання завдань згідно БР№999 Екіпаж ТЕСТЮШКІ з 12.08.2026.docx");
+        if !path.is_file() {
+            return;
+        }
+        let text = report_generation::read_docx_text(path).unwrap();
+        let mut proposals = Vec::new();
+        detected_document_proposals(&mut proposals, &text);
+        assert!(proposals.iter().any(|proposal| proposal.token == "військова_частина_1" && proposal.value == "А2222"));
+        assert!(proposals.iter().any(|proposal| proposal.token == "військова_частина_2" && proposal.value == "А1111"));
+    }
+
+    #[test]
+    fn signature_rank_is_not_proposed_as_a_personnel_variable() {
+        let role = settings::SignerRole {
+            id: "основний_підписант".into(),
+            name: "Основний підписант".into(),
+            signer: settings::SignerSettings {
+                full_name: "ТАКТІКУЛЬЩІК Максим Едуардович".into(),
+                rank: "молодший лейтенант".into(),
+                position: "Командир роти".into(),
+            },
+        };
+        let text = "Командир роти молодший лейтенант Максім ТАКТІКУЛЬЩІК";
+        let mut proposals = Vec::new();
+        detected_signer_block_proposals(&mut proposals, text, &role);
+        assert!(!proposals.iter().any(|proposal| proposal.token == "військовий_1_звання"));
+        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_звання"));
+    }
+
+    #[test]
+    fn document_proposals_do_not_create_a_personnel_rank_from_a_signature_block() {
+        let mut proposals = Vec::new();
+        detected_document_proposals(&mut proposals, "Командир роти молодший лейтенант Максім ТАКТІКУЛЬЩІК");
+        assert!(!proposals.iter().any(|proposal| proposal.token == "військовий_1_звання"));
+    }
+
+    #[test]
+    fn analysis_does_not_treat_arbitrary_title_words_as_a_name() {
+        let mut proposals = Vec::new();
+        detected_document_proposals(&mut proposals, "Рапорт Виконання ЗАВДАННЯ завершено");
+        assert!(!proposals.iter().any(|proposal| proposal.token == "військовий_1_піб"));
+    }
+
+    #[test]
+    fn analysis_finds_a_settlement_after_the_full_locality_marker() {
+        let mut proposals = Vec::new();
+        detected_document_proposals(&mut proposals, "в районі н.п. ПІСОСІВКА в смузі оборони");
+        assert!(proposals.iter().any(|proposal| {
+            proposal.value == "ПІСОСІВКА" && proposal.token == "населений_пункт_1"
+        }));
+    }
+
+    #[test]
+    fn analysis_finds_compact_and_spaced_military_unit_numbers_once_each() {
+        let mut proposals = Vec::new();
+        detected_document_proposals(&mut proposals, "військова частина А2222 та військова частина А 3333; повторно А2222");
+        assert!(proposals.iter().any(|proposal| proposal.token == "військова_частина_1" && proposal.value == "А2222"));
+        assert!(proposals.iter().any(|proposal| proposal.token == "військова_частина_2" && proposal.value == "А 3333"));
+        assert_eq!(proposals.iter().filter(|proposal| proposal.token.starts_with("військова_частина_")).count(), 2);
+    }
 
     #[test]
     fn creates_a_template_with_an_intentional_validation_error() {

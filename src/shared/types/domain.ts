@@ -15,6 +15,20 @@ export type TemplateInspection = {
   variables: string[];
 };
 
+export type TemplateAnalysisProposal = {
+  value: string;
+  token: string;
+  label: string;
+  category: string;
+  occurrences: number;
+};
+
+export type TemplateAnalysis = {
+  sourceName: string;
+  textPreview: string;
+  proposals: TemplateAnalysisProposal[];
+};
+
 export type Person = {
   id: number;
   fullName: string;
@@ -81,4 +95,4 @@ export type StartupWarning = {
   message: string;
 };
 
-export type Screen = "generator" | "templates" | "people" | "vehicles" | "generated" | "settings" | "documentation" | "variable-constructor";
+export type Screen = "generator" | "templates" | "report-analyser" | "people" | "vehicles" | "generated" | "settings" | "documentation" | "variable-constructor";

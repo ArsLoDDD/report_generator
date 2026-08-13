@@ -3,6 +3,7 @@ use crate::{
     settings, REPORTS_DIRECTORY_NAME,
 };
 use chrono::{Local, NaiveDate};
+use quick_xml::{events::Event, Reader};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -1163,6 +1164,148 @@ fn read_variables(path: &Path) -> Result<Vec<String>, String> {
     out.dedup();
     Ok(out)
 }
+
+/// Text used by the local template analyser. It reads only the XML stored in
+/// the selected DOCX file and never sends the document anywhere.
+pub fn read_docx_text(path: &Path) -> Result<String, String> {
+    let file = File::open(path)
+        .map_err(|_| "Не вдалося відкрити DOCX-файл. Перевірте шлях і доступ.".to_string())?;
+    let mut zip =
+        ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-документом.".to_string())?;
+    let mut text = String::new();
+    for index in 0..zip.len() {
+        let mut entry = zip
+            .by_index(index)
+            .map_err(|_| "Не вдалося прочитати DOCX-документ.".to_string())?;
+        if !entry.name().ends_with(".xml") {
+            continue;
+        }
+        let mut xml = String::new();
+        let _ = entry.read_to_string(&mut xml);
+        if entry.name().starts_with("word/") {
+            text.push_str(&word_xml_visible_text(&xml));
+            text.push('\n');
+        }
+    }
+    Ok(text)
+}
+
+/// Creates a copy of a DOCX and replaces only the confirmed literal values.
+/// The original document is not modified.
+pub fn create_template_from_replacements(
+    input: &Path,
+    output: &Path,
+    replacements: &[(String, String)],
+) -> Result<(), String> {
+    let temporary_output = output.with_file_name(format!(
+        ".{}.partial-{}",
+        output
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("template.docx"),
+        std::process::id()
+    ));
+    let result = create_template_archive(input, &temporary_output, replacements).and_then(|_| {
+        let mut verification = ZipArchive::new(
+            File::open(&temporary_output)
+                .map_err(|_| "Не вдалося перевірити створений DOCX-шаблон.".to_string())?,
+        )
+        .map_err(|_| "Створений DOCX-шаблон має пошкоджену структуру.".to_string())?;
+        for index in 0..verification.len() {
+            let mut entry = verification
+                .by_index(index)
+                .map_err(|_| "Не вдалося перевірити вміст DOCX-шаблону.".to_string())?;
+            let mut contents = Vec::new();
+            entry
+                .read_to_end(&mut contents)
+                .map_err(|_| "DOCX-шаблон записано не повністю.".to_string())?;
+            if entry.name().ends_with(".xml") {
+                let mut xml_reader = Reader::from_reader(contents.as_slice());
+                xml_reader.config_mut().trim_text(false);
+                let mut buffer = Vec::new();
+                loop {
+                    match xml_reader.read_event_into(&mut buffer) {
+                        Ok(Event::Eof) => break,
+                        Ok(_) => buffer.clear(),
+                        Err(_) => return Err("Створений DOCX-шаблон містить пошкоджений XML.".into()),
+                    }
+                }
+            }
+        }
+        File::options()
+            .write(true)
+            .open(&temporary_output)
+            .and_then(|file| file.sync_all())
+            .map_err(|_| "Не вдалося завершити запис DOCX-шаблону на диск.".to_string())?;
+        fs::rename(&temporary_output, output)
+            .map_err(|_| "Не вдалося зберегти створений DOCX-шаблон.".to_string())
+    });
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary_output);
+    }
+    result
+}
+
+fn create_template_archive(
+    input: &Path,
+    output: &Path,
+    replacements: &[(String, String)],
+) -> Result<(), String> {
+    let mut zip = ZipArchive::new(
+        File::open(input).map_err(|_| "Не вдалося відкрити вихідний DOCX-файл.".to_string())?,
+    )
+    .map_err(|_| "Файл не є коректним DOCX-документом.".to_string())?;
+    let mut writer = ZipWriter::new(
+        File::create(output).map_err(|_| "Не вдалося створити новий DOCX-шаблон.".to_string())?,
+    );
+    for index in 0..zip.len() {
+        let mut entry = zip
+            .by_index(index)
+            .map_err(|_| "Не вдалося прочитати DOCX-документ.".to_string())?;
+        let name = entry.name().to_owned();
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        if entry.is_dir() {
+            writer
+                .add_directory(name, options)
+                .map_err(|_| "Не вдалося сформувати DOCX-шаблон.".to_string())?;
+            continue;
+        }
+        let mut bytes = Vec::new();
+        entry
+            .read_to_end(&mut bytes)
+            .map_err(|_| "Не вдалося прочитати DOCX-документ.".to_string())?;
+        writer
+            .start_file(&name, options)
+            .map_err(|_| "Не вдалося сформувати DOCX-шаблон.".to_string())?;
+        if name.ends_with(".xml") {
+            let mut xml = String::from_utf8_lossy(&bytes).into_owned();
+            // A full name must be replaced before its surname; otherwise the
+            // shorter replacement destroys the longer source text first.
+            let mut ordered = replacements.to_vec();
+            ordered.sort_by(|left, right| right.0.chars().count().cmp(&left.0.chars().count()));
+            for (value, token) in &ordered {
+                if !value.trim().is_empty() {
+                    xml = replace_word_token_case_insensitive(
+                        &xml,
+                        value,
+                        &escape_xml(&format!("{{{{{token}}}}}")),
+                    );
+                }
+            }
+            writer
+                .write_all(xml.as_bytes())
+                .map_err(|_| "Не вдалося записати DOCX-шаблон.".to_string())?;
+        } else {
+            writer
+                .write_all(&bytes)
+                .map_err(|_| "Не вдалося записати DOCX-шаблон.".to_string())?;
+        }
+    }
+    writer
+        .finish()
+        .map_err(|_| "Не вдалося завершити створення DOCX-шаблону.".to_string())?;
+    Ok(())
+}
 fn extract_variables(xml: &str) -> Vec<String> {
     let text = xml_visible_text(xml);
     let mut out = Vec::new();
@@ -1196,6 +1339,37 @@ fn xml_visible_text(xml: &str) -> String {
         }
     }
     out
+}
+
+/// Extracts Word text while retaining paragraph and table-cell boundaries.
+/// Structured XML parsing prevents document markup from being confused with
+/// visible report text during local analysis.
+fn word_xml_visible_text(xml: &str) -> String {
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(false);
+    let mut output = String::new();
+    let mut buffer = Vec::new();
+    loop {
+        match reader.read_event_into(&mut buffer) {
+            Ok(Event::Text(text)) => {
+                if let Ok(value) = text.decode() {
+                    output.push_str(&value);
+                }
+            }
+            Ok(Event::CData(text)) => {
+                if let Ok(value) = text.decode() {
+                    output.push_str(&value);
+                }
+            }
+            Ok(Event::Empty(element)) if element.name().as_ref() == b"w:tab" => output.push('\t'),
+            Ok(Event::End(element)) if matches!(element.name().as_ref(), b"w:p" | b"w:tr") => output.push('\n'),
+            Ok(Event::Eof) => break,
+            Ok(_) => {}
+            Err(_) => return xml_visible_text(xml),
+        }
+        buffer.clear();
+    }
+    output
 }
 fn write_docx(input: &Path, output: &Path, values: &HashMap<String, Value>) -> Result<(), String> {
     let mut zip = ZipArchive::new(
@@ -1290,8 +1464,22 @@ fn style_replacement(xml: &str, replacement: &str, modifiers: &[&str]) -> String
     )
 }
 fn replace_word_token(xml: &str, token: &str, replacement: &str) -> String {
+    replace_word_token_with(xml, token, replacement, false)
+}
+fn replace_word_token_case_insensitive(xml: &str, token: &str, replacement: &str) -> String {
+    // Private-use characters never occur in a template token, therefore a
+    // short value such as `а` cannot match the temporary replacement.
+    let placeholder = "\u{E000}";
+    replace_word_token_with(xml, token, &placeholder, true).replace(&placeholder, replacement)
+}
+fn replace_word_token_with(
+    xml: &str,
+    token: &str,
+    replacement: &str,
+    case_insensitive: bool,
+) -> String {
     let mut result = xml.to_string();
-    while let Some((nodes, sn, so, en, eo)) = token_location(&result, token) {
+    while let Some((nodes, sn, so, en, eo)) = token_location(&result, token, case_insensitive) {
         let mut vals = nodes
             .iter()
             .map(|(s, e)| result[*s..*e].to_string())
@@ -1320,10 +1508,11 @@ fn replace_word_token(xml: &str, token: &str, replacement: &str) -> String {
 fn token_location(
     xml: &str,
     token: &str,
+    case_insensitive: bool,
 ) -> Option<(Vec<(usize, usize)>, usize, usize, usize, usize)> {
     let nodes = word_text_nodes(xml);
     let text = nodes.iter().map(|(s, e)| &xml[*s..*e]).collect::<String>();
-    let start = text.find(token)?;
+    let start = find_whole_text_token(&text, token, case_insensitive)?;
     let end = start + token.len();
     let (mut cursor, mut sl, mut el) = (0, None, None);
     for (i, (s, e)) in nodes.iter().enumerate() {
@@ -1340,6 +1529,35 @@ fn token_location(
     let (sn, so) = sl?;
     let (en, eo) = el?;
     Some((nodes, sn, so, en, eo))
+}
+
+fn find_whole_text_token(text: &str, token: &str, case_insensitive: bool) -> Option<usize> {
+    let haystack = if case_insensitive {
+        text.to_lowercase()
+    } else {
+        text.into()
+    };
+    let needle = if case_insensitive {
+        token.to_lowercase()
+    } else {
+        token.into()
+    };
+    let mut from = 0;
+    while let Some(relative) = haystack[from..].find(&needle) {
+        let start = from + relative;
+        let end = start + needle.len();
+        let left = text[..start].chars().next_back();
+        let right = text[end..].chars().next();
+        let starts_with_word = token.chars().next().is_some_and(char::is_alphanumeric);
+        let ends_with_word = token.chars().next_back().is_some_and(char::is_alphanumeric);
+        if (!starts_with_word || !left.is_some_and(char::is_alphanumeric))
+            && (!ends_with_word || !right.is_some_and(char::is_alphanumeric))
+        {
+            return Some(start);
+        }
+        from = end;
+    }
+    None
 }
 fn word_text_nodes(xml: &str) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
@@ -1407,6 +1625,130 @@ fn safe_name(v: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn creates_a_template_copy_from_confirmed_literal_replacements() {
+        let root =
+            std::env::temp_dir().join(format!("shablonizator-analyser-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let source = root.join("source.docx");
+        let destination = root.join("template.docx");
+        let mut writer = ZipWriter::new(File::create(&source).unwrap());
+        writer
+            .start_file("word/document.xml", SimpleFileOptions::default())
+            .unwrap();
+        writer
+            .write_all("<w:r><w:t>ІВАНЕНКО Іван </w:t></w:r><w:r><w:t>Іванович, Заступник командира</w:t></w:r>".as_bytes())
+            .unwrap();
+        writer.finish().unwrap();
+        create_template_from_replacements(
+            &source,
+            &destination,
+            &[
+                ("ІВАНЕНКО Іван Іванович".into(), "військовий_1_піб".into()),
+                ("заступник командира".into(), "військовий_1_посада".into()),
+            ],
+        )
+        .unwrap();
+        assert!(read_docx_text(&source)
+            .unwrap()
+            .contains("ІВАНЕНКО Іван Іванович"));
+        assert!(read_docx_text(&destination)
+            .unwrap()
+            .contains("{{військовий_1_піб}}"));
+        assert!(read_docx_text(&destination)
+            .unwrap()
+            .contains("{{військовий_1_посада}}"));
+        assert!(ZipArchive::new(File::open(&destination).unwrap()).is_ok());
+        assert!(!destination
+            .with_file_name(format!(".{}.partial-{}", destination.file_name().unwrap().to_string_lossy(), std::process::id()))
+            .exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn creates_a_readable_template_from_a_real_docx_when_available() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("Згенеровані рапорти/11.08.2026/Прибуття з ПТЗ Новостав в РВЗ Охтирка КОВАЛЕНКО 11.08.2026.docx");
+        if !source.is_file() {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!(
+            "shablonizator-real-analyser-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let destination = root.join("template.docx");
+        create_template_from_replacements(&source, &destination, &[]).unwrap();
+        let archive = ZipArchive::new(File::open(&destination).unwrap()).unwrap();
+        assert!(archive.file_names().any(|name| name == "word/document.xml"));
+        assert!(!read_docx_text(&destination).unwrap().trim().is_empty());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn creates_a_readable_template_from_the_analyser_report_when_available() {
+        let source = Path::new("/Users/macbook/Downloads/Щодо завершення виконання завдань згідно БР№307 Екіпаж ПОЮШКА з 12.08.2026.docx");
+        if !source.is_file() {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!(
+            "shablonizator-analyser-report-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let destination = root.join("template.docx");
+        create_template_from_replacements(
+            source,
+            &destination,
+            &[
+                ("ПЛЮШКА".into(), "екіпаж_1".into()),
+                ("СІЛЬПО".into(), "назва_позиції_1".into()),
+                ("ОСОЇВКА".into(), "населений_пункт_1".into()),
+                ("Арсеній ШКОЛЬНІКОВ".into(), "основний_підписант_піб".into()),
+            ],
+        )
+        .unwrap();
+        assert!(ZipArchive::new(File::open(&destination).unwrap()).is_ok());
+        let result = read_docx_text(&destination).unwrap();
+        assert!(result.contains("{{екіпаж_1}}"));
+        assert!(result.contains("{{назва_позиції_1}}"));
+        assert!(result.contains("{{населений_пункт_1}}"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn creates_a_readable_template_from_the_allowed_test_report() {
+        let source = Path::new("/Users/macbook/Downloads/Щодо завершення виконання завдань згідно БР№999 Екіпаж ТЕСТЮШКІ з 12.08.2026.docx");
+        if !source.is_file() {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!(
+            "shablonizator-allowed-analyser-report-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let destination = root.join("template.docx");
+        create_template_from_replacements(
+            source,
+            &destination,
+            &[
+                ("ТЕСТЮШКІ".into(), "екіпаж_1".into()),
+                ("Максім".into(), "військовий_1_імя".into()),
+                ("ТАКТІКУЛЬЩІК".into(), "військовий_1_прізвище".into()),
+                ("12.08.2026".into(), "дата_рапорту_1".into()),
+            ],
+        )
+        .unwrap();
+        assert!(ZipArchive::new(File::open(&destination).unwrap()).is_ok());
+        let result = read_docx_text(&destination).unwrap();
+        assert!(result.contains("{{екіпаж_1}}"));
+        assert!(result.contains("{{військовий_1_імя}}"));
+        let _ = fs::remove_dir_all(root);
+    }
+
     #[test]
     fn registry_accepts_every_v2_variable() {
         for f in &registry().person_fields {
