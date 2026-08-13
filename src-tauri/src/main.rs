@@ -13,6 +13,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::Mutex,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
@@ -107,6 +108,7 @@ struct TemplateAnalysisProposal {
 struct TemplateAnalysis {
     source_name: String,
     text_preview: String,
+    paragraphs: Vec<report_generation::DocxParagraphPreview>,
     proposals: Vec<TemplateAnalysisProposal>,
 }
 
@@ -115,6 +117,8 @@ struct TemplateAnalysis {
 struct TemplateAnalysisReplacement {
     value: String,
     token: String,
+    #[serde(default)]
+    replacement: Option<String>,
 }
 
 pub const DATABASE_FILE_NAME: &str = "особовий_склад.db";
@@ -686,6 +690,7 @@ fn analyse_report_for_template(
         return Err("Оберіть DOCX-файл рапорту.".into());
     }
     let text = report_generation::read_docx_text(&path)?;
+    let paragraphs = report_generation::read_docx_paragraphs(&path)?;
     let database = state
         .0
         .lock()
@@ -807,9 +812,37 @@ fn analyse_report_for_template(
         .to_string();
     Ok(TemplateAnalysis {
         source_name,
-        text_preview: text.chars().take(700).collect(),
+        text_preview: text,
+        paragraphs,
         proposals,
     })
+}
+
+#[tauri::command]
+fn render_report_analysis_preview(
+    report_path: String,
+    replacements: Vec<TemplateAnalysisReplacement>,
+) -> Result<Vec<u8>, String> {
+    let source = PathBuf::from(report_path);
+    if !source.is_file() {
+        return Err("Вихідний рапорт не знайдено.".into());
+    }
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temporary = std::env::temp_dir().join(format!(
+        "shablonizator-preview-{}-{nonce}.docx",
+        std::process::id()
+    ));
+    let replacement_values = replacements.into_iter().map(|item| {
+        let replacement = item.replacement.unwrap_or_else(|| format!("{{{{{}}}}}", item.token));
+        (item.value, replacement)
+    }).collect::<Vec<_>>();
+    report_generation::create_template_from_literal_replacements(&source, &temporary, &replacement_values)?;
+    let bytes = std::fs::read(&temporary).map_err(|_| "Не вдалося підготувати перегляд документа.".to_string());
+    let _ = std::fs::remove_file(temporary);
+    bytes
 }
 
 fn application_root_from_path(_path: &Path) -> Result<PathBuf, String> {
@@ -850,12 +883,17 @@ async fn create_template_from_report_analysis(
     }
     let replacements = replacements
         .into_iter()
-        .map(|item| (item.value, item.token))
+        .map(|item| {
+            let replacement = item
+                .replacement
+                .unwrap_or_else(|| format!("{{{{{}}}}}", item.token));
+            (item.value, replacement)
+        })
         .collect::<Vec<_>>();
     let source_for_task = source.clone();
     let destination_for_task = destination.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        report_generation::create_template_from_replacements(
+        report_generation::create_template_from_literal_replacements(
             &source_for_task,
             &destination_for_task,
             &replacements,
@@ -2125,6 +2163,7 @@ fn main() {
             select_template_file,
             inspect_template,
             analyse_report_for_template,
+            render_report_analysis_preview,
             create_template_from_report_analysis,
             validate_template,
             generate_report,

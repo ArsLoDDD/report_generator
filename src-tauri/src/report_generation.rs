@@ -46,6 +46,17 @@ pub struct GeneratedReport {
     pub folder_path: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DocxParagraphPreview {
+    pub text: String,
+    pub alignment: String,
+    pub left_indent: u32,
+    pub first_line_indent: i32,
+    pub space_before: u32,
+    pub space_after: u32,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Registry {
@@ -1190,9 +1201,57 @@ pub fn read_docx_text(path: &Path) -> Result<String, String> {
     Ok(text)
 }
 
+/// Reads the body paragraphs that are visible in Word together with the most
+/// important paragraph layout properties. This stays local and is solely for
+/// the analyser preview; DOCX generation still preserves the original XML.
+pub fn read_docx_paragraphs(path: &Path) -> Result<Vec<DocxParagraphPreview>, String> {
+    let file = File::open(path).map_err(|_| "Не вдалося відкрити DOCX-файл. Перевірте шлях і доступ.".to_string())?;
+    let mut zip = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-документом.".to_string())?;
+    let mut xml = String::new();
+    zip.by_name("word/document.xml")
+        .map_err(|_| "У DOCX не знайдено основний текст документа.".to_string())?
+        .read_to_string(&mut xml)
+        .map_err(|_| "Не вдалося прочитати текст DOCX-документа.".to_string())?;
+    let mut paragraphs = Vec::new();
+    for raw in xml.split("</w:p>") {
+        let Some(start) = raw.rfind("<w:p") else { continue; };
+        let paragraph = &raw[start..];
+        let text = word_xml_visible_text(&paragraph.replace("<w:tab/>", "\t").replace("<w:br/>", "\n"));
+        if text.trim().is_empty() { continue; }
+        let value = |name: &str| -> Option<String> {
+            let start = paragraph.find(name)? + name.len();
+            let tail = &paragraph[start..];
+            let end = tail.find('"')?;
+            Some(tail[..end].to_string())
+        };
+        let alignment = value("<w:jc w:val=\"").unwrap_or_else(|| "left".into());
+        let left_indent = value("<w:ind w:left=\"").and_then(|v| v.parse().ok()).unwrap_or(0);
+        let first_line_indent = value("w:firstLine=\"").and_then(|v| v.parse().ok()).unwrap_or(0);
+        let space_before = value("<w:spacing w:before=\"").and_then(|v| v.parse().ok()).unwrap_or(0);
+        let space_after = value("w:after=\"").and_then(|v| v.parse().ok()).unwrap_or(0);
+        paragraphs.push(DocxParagraphPreview { text, alignment, left_indent, first_line_indent, space_before, space_after });
+    }
+    Ok(paragraphs)
+}
+
 /// Creates a copy of a DOCX and replaces only the confirmed literal values.
 /// The original document is not modified.
 pub fn create_template_from_replacements(
+    input: &Path,
+    output: &Path,
+    replacements: &[(String, String)],
+) -> Result<(), String> {
+    let literal_replacements = replacements
+        .iter()
+        .map(|(value, token)| (value.clone(), format!("{{{{{token}}}}}")))
+        .collect::<Vec<_>>();
+    create_template_from_literal_replacements(input, output, &literal_replacements)
+}
+
+/// Creates a copy of a DOCX using already prepared visible replacement text.
+/// This is used by the report editor, where a user may enter either a template
+/// token or another literal text. The original document is never modified.
+pub fn create_template_from_literal_replacements(
     input: &Path,
     output: &Path,
     replacements: &[(String, String)],
@@ -1283,12 +1342,12 @@ fn create_template_archive(
             // shorter replacement destroys the longer source text first.
             let mut ordered = replacements.to_vec();
             ordered.sort_by(|left, right| right.0.chars().count().cmp(&left.0.chars().count()));
-            for (value, token) in &ordered {
+            for (value, replacement) in &ordered {
                 if !value.trim().is_empty() {
                     xml = replace_word_token_case_insensitive(
                         &xml,
                         value,
-                        &escape_xml(&format!("{{{{{token}}}}}")),
+                        &escape_xml(replacement),
                     );
                 }
             }

@@ -26,7 +26,12 @@ export type TemplateAnalysisProposal = {
 export type TemplateAnalysis = {
   sourceName: string;
   textPreview: string;
+  paragraphs: Array<{ text: string; alignment: string; leftIndent: number; firstLineIndent: number; spaceBefore: number; spaceAfter: number }>;
   proposals: TemplateAnalysisProposal[];
+};
+
+export type TemplateAnalysisReplacement = Pick<TemplateAnalysisProposal, "value" | "token"> & {
+  replacement?: string;
 };
 
 export type Person = {

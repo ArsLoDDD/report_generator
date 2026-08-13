@@ -9,6 +9,12 @@ vi.mock("../../shared/services/personnelService", () => ({ personnelService }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("Конструктор змінних", () => {
+  it("does not preselect a variable", async () => {
+    personnelService.listCustomFields.mockResolvedValue([]); personnelService.listVehicleCustomFields.mockResolvedValue([]);
+    render(<NotificationProvider><VariableConstructorPage /></NotificationProvider>);
+    expect(await screen.findByText("Змінну ще не обрано")).toBeInTheDocument();
+    expect(screen.queryByText("Токен для Word")).not.toBeInTheDocument();
+  });
   it("offers a vehicle as a separate subject and includes its standard fields", async () => {
     personnelService.listCustomFields.mockResolvedValue([]); personnelService.listVehicleCustomFields.mockResolvedValue([]);
     render(<NotificationProvider><VariableConstructorPage /></NotificationProvider>);
