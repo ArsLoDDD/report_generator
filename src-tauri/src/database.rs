@@ -133,6 +133,34 @@ pub fn save_custom_field_file(
     fs::rename(temp, path).map_err(|_| "Не вдалося завершити запис кастомних змінних.".to_string())
 }
 
+pub fn replace_custom_fields_file(
+    root: &Path,
+    file_name: &str,
+    mut fields: Vec<CustomFieldDefinition>,
+) -> Result<(), String> {
+    let path = root.join(file_name);
+    if fields.is_empty() {
+        if path.exists() {
+            fs::remove_file(path)
+                .map_err(|_| "Не вдалося оновити файл кастомних змінних.".to_string())?;
+        }
+        return Ok(());
+    }
+    fields.sort_by(|left, right| {
+        left.scope.cmp(&right.scope).then_with(|| {
+            left.display_name
+                .to_lowercase()
+                .cmp(&right.display_name.to_lowercase())
+        })
+    });
+    let text = serde_json::to_string_pretty(&CustomFieldsFile { version: 1, fields })
+        .map_err(|_| "Не вдалося сформувати JSON кастомних змінних.".to_string())?;
+    let temp = path.with_extension("json.tmp");
+    fs::write(&temp, format!("{text}\n"))
+        .map_err(|_| "Не вдалося записати файл кастомних змінних біля програми.".to_string())?;
+    fs::rename(temp, path).map_err(|_| "Не вдалося завершити запис кастомних змінних.".to_string())
+}
+
 pub fn remove_custom_field_file(
     root: &Path,
     file_name: &str,
@@ -993,13 +1021,26 @@ mod tests {
     fn creates_operational_registers_and_keeps_vehicle_crew_relation() {
         let connection = Connection::open_in_memory().unwrap();
         initialise(&connection).unwrap();
-        connection.execute("INSERT INTO crews(name) VALUES('Екіпаж 1')", []).unwrap();
+        connection
+            .execute("INSERT INTO crews(name) VALUES('Екіпаж 1')", [])
+            .unwrap();
         connection.execute("INSERT INTO vehicles(name, registration_number, crew_id) VALUES('Тестове авто', 'АА0001АА', 1)", []).unwrap();
-        connection.execute("INSERT INTO equipment(category, name, crew_id) VALUES('uav', 'Тестовий БпЛА', 1)", []).unwrap();
+        connection
+            .execute(
+                "INSERT INTO equipment(category, name, crew_id) VALUES('uav', 'Тестовий БпЛА', 1)",
+                [],
+            )
+            .unwrap();
         connection.execute("INSERT INTO incidents(incident_type, crew_id, equipment_id) VALUES('Втрата БпЛА', 1, 1)", []).unwrap();
-        let linked: i64 = connection.query_row("SELECT COUNT(*) FROM vehicles WHERE crew_id=1", [], |row| row.get(0)).unwrap();
+        let linked: i64 = connection
+            .query_row("SELECT COUNT(*) FROM vehicles WHERE crew_id=1", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
         assert_eq!(linked, 1);
-        let incident: String = connection.query_row("SELECT incident_type FROM incidents", [], |row| row.get(0)).unwrap();
+        let incident: String = connection
+            .query_row("SELECT incident_type FROM incidents", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(incident, "Втрата БпЛА");
     }
 }

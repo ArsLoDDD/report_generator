@@ -5,7 +5,7 @@ mod settings;
 mod xlsx;
 
 use chrono::{DateTime, Local};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -1456,29 +1456,35 @@ fn delete_personnel(state: tauri::State<AppState>, personnel_id: i64) -> Result<
 
 #[tauri::command]
 fn import_personnel_xlsx(
+    app: tauri::AppHandle,
     state: tauri::State<AppState>,
     path: String,
     mode: String,
 ) -> Result<u32, String> {
     let data = xlsx::import(std::path::Path::new(&path))?;
+    let imported_custom_fields = data
+        .personnel_custom_field_maps
+        .iter()
+        .cloned()
+        .map(|field| database::CustomFieldDefinition {
+            field_key: field.field_key,
+            display_name: field.display_name,
+            description: field.description,
+            initial_value: field.initial_value,
+            scope: "personnel".into(),
+        })
+        .chain(data.vehicle_custom_field_maps.iter().cloned().map(|field| {
+            database::CustomFieldDefinition {
+                field_key: field.field_key,
+                display_name: field.display_name,
+                description: field.description,
+                initial_value: field.initial_value,
+                scope: "vehicle".into(),
+            }
+        }))
+        .collect::<Vec<_>>();
     if !["append", "replace"].contains(&mode.as_str()) {
         return Err("Невідомий режим імпорту.".into());
-    }
-    if data.personnel.is_empty() && data.vehicles.is_empty() {
-        if mode == "replace" {
-            let mut db = state
-                .0
-                .lock()
-                .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-            ensure_persistent_database(&mut db)?;
-            db.connection
-                .execute("DELETE FROM vehicles", [])
-                .map_err(|_| "Не вдалося очистити автомобілі.".to_string())?;
-            db.connection
-                .execute("DELETE FROM personnel", [])
-                .map_err(|_| "Не вдалося очистити особовий склад.".to_string())?;
-        }
-        return Ok(0);
     }
     let mut ids = std::collections::HashSet::new();
     if data
@@ -1507,6 +1513,26 @@ fn import_personnel_xlsx(
             return Err("Вкажіть коректний статус автомобіля: Справний, Потребує ремонту, Ремонтується або Несправний.".into());
         }
     }
+    let mut crew_names = std::collections::HashSet::new();
+    for crew in &data.crews {
+        if crew.name.trim().is_empty() {
+            return Err("На аркуші «Екіпажі» вкажіть назву кожного екіпажу.".into());
+        }
+        if !crew_names.insert(crew.name.trim().to_lowercase()) {
+            return Err("На аркуші «Екіпажі» є дублікати назв.".into());
+        }
+    }
+    for equipment in &data.equipment {
+        if equipment.name.trim().is_empty() {
+            return Err("На аркушах майна вкажіть назву кожного запису.".into());
+        }
+        if equipment.category == "weapon_ammo"
+            && equipment.holder_tax_id.trim().is_empty()
+            && equipment.holder_full_name.trim().is_empty()
+        {
+            return Err("Для запису на аркуші «Зброя та БК» вкажіть відповідального військовослужбовця.".into());
+        }
+    }
     let mut db = state
         .0
         .lock()
@@ -1517,47 +1543,94 @@ fn import_personnel_xlsx(
         .map_err(|_| "Не вдалося почати імпорт.".to_string())?;
     let result = (|| -> Result<u32, String> {
         if mode == "replace" {
-            db.connection
-                .execute("DELETE FROM vehicles", [])
-                .map_err(|_| "Не вдалося очистити автомобілі.".to_string())?;
-            db.connection
-                .execute("DELETE FROM personnel", [])
-                .map_err(|_| "Не вдалося очистити особовий склад.".to_string())?;
+            db.connection.execute_batch(
+                "DELETE FROM incidents; DELETE FROM equipment; DELETE FROM vehicles; DELETE FROM crews; DELETE FROM personnel; DELETE FROM custom_field_definitions; DELETE FROM vehicle_custom_field_definitions;",
+            ).map_err(|_| "Не вдалося очистити дані перед імпортом.".to_string())?;
         }
+        let ensure_custom_fields = |scope: &str, fields: &[xlsx::CustomFieldMapRow]| -> Result<(), String> {
+            let (definitions, values) = if scope == "vehicle" { ("vehicle_custom_field_definitions", "vehicle_custom_fields") } else { ("custom_field_definitions", "personnel_custom_fields") };
+            for field in fields {
+                if field.field_key.trim().is_empty() { continue; }
+                db.connection.execute(
+                    &format!("INSERT OR IGNORE INTO {definitions}(field_key,display_name,description,initial_value) VALUES(?1,?2,'','')"),
+                    rusqlite::params![field.field_key.trim(), field.display_name.trim()],
+                ).map_err(|_| "Не вдалося створити кастомне поле з Excel.".to_string())?;
+                let owner = if scope == "vehicle" { "vehicle_id" } else { "personnel_id" };
+                let source = if scope == "vehicle" { "vehicles" } else { "personnel" };
+                db.connection.execute(
+                    &format!("INSERT OR IGNORE INTO {values}({owner},field_key,field_value) SELECT id,?1,'' FROM {source}"),
+                    [field.field_key.trim()],
+                ).map_err(|_| "Не вдалося підготувати значення кастомного поля.".to_string())?;
+            }
+            Ok(())
+        };
+        ensure_custom_fields("personnel", &data.personnel_custom_field_maps)?;
+        ensure_custom_fields("vehicle", &data.vehicle_custom_field_maps)?;
         let mut count = 0;
         for draft in data.personnel {
             personnel::create_import(&db.connection, draft)?;
             count += 1;
         }
+        let personnel_id = |tax_id: &str, full_name: &str| -> Result<Option<(i64, String)>, String> {
+            if !tax_id.trim().is_empty() {
+                return db.connection.query_row("SELECT id,position FROM personnel WHERE tax_id=?1", [tax_id.trim()], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|_| "Не вдалося знайти військовослужбовця за ІПН.".to_string());
+            }
+            if !full_name.trim().is_empty() {
+                return db.connection.query_row("SELECT id,position FROM personnel WHERE trim(surname || ' ' || given_name || ' ' || patronymic)=?1", [full_name.trim()], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|_| "Не вдалося знайти військовослужбовця за ПІБ.".to_string());
+            }
+            Ok(None)
+        };
+        for crew in data.crews {
+            db.connection.execute("INSERT OR IGNORE INTO crews(name,platoon,position_name,reconnaissance_area) VALUES(?1,?2,?3,?4)", rusqlite::params![crew.name.trim(),crew.platoon.trim(),crew.position_name.trim(),crew.reconnaissance_area.trim()]).map_err(|_| "Не вдалося імпортувати екіпаж.".to_string())?;
+            count += 1;
+        }
+        for member in data.crew_members {
+            let crew_id = db.connection.query_row("SELECT id FROM crews WHERE name=?1", [member.crew_name.trim()], |row| row.get::<_, i64>(0)).optional().map_err(|_| "Не вдалося знайти екіпаж для його складу.".to_string())?.ok_or_else(|| format!("Для складу екіпажу не знайдено «{}».", member.crew_name))?;
+            let person_id = personnel_id(&member.personnel_tax_id, &member.personnel_full_name)?.map(|value| value.0).ok_or_else(|| format!("Не знайдено військовослужбовця для екіпажу «{}».", member.crew_name))?;
+            db.connection.execute("INSERT OR IGNORE INTO crew_members(crew_id,personnel_id) VALUES(?1,?2)", rusqlite::params![crew_id,person_id]).map_err(|_| "Не вдалося імпортувати склад екіпажу.".to_string())?;
+            count += 1;
+        }
         for vehicle in data.vehicles {
-            let driver_id = if vehicle.driver_tax_id.trim().is_empty() {
-                None
-            } else {
-                let (id, position): (i64, String) = db
-                    .connection
-                    .query_row(
-                        "SELECT id, position FROM personnel WHERE tax_id=?1",
-                        [vehicle.driver_tax_id.trim()],
-                        |row| Ok((row.get(0)?, row.get(1)?)),
-                    )
-                    .map_err(|_| {
-                        format!(
-                            "Для автомобіля «{}» не знайдено водія з ІПН {}.",
-                            vehicle.registration_number, vehicle.driver_tax_id
-                        )
-                    })?;
+            let driver_id = if vehicle.driver_tax_id.trim().is_empty() && vehicle.driver_full_name.trim().is_empty() { None } else {
+                let (id, position) = personnel_id(&vehicle.driver_tax_id, &vehicle.driver_full_name)?.ok_or_else(|| format!("Для автомобіля «{}» не знайдено водія.", vehicle.registration_number))?;
                 if !position.to_lowercase().contains("водій") {
                     return Err(format!(
-                        "Військовослужбовець з ІПН {} не має посади водія.",
-                        vehicle.driver_tax_id
+                        "Закріплений за автомобілем «{}» військовослужбовець не має посади водія.", vehicle.registration_number
                     ));
                 }
                 Some(id)
             };
-            db.connection.execute("INSERT INTO vehicles(name, registration_number, status, personnel_id) VALUES(?1, ?2, ?3, ?4)", rusqlite::params![vehicle.name.trim(), vehicle.registration_number.trim(), if vehicle.status.trim().is_empty() { "Справний" } else { vehicle.status.trim() }, driver_id]).map_err(|_| format!("Не вдалося додати автомобіль з номером «{}». Перевірте, чи такого номера ще немає в базі.", vehicle.registration_number))?;
+            let crew_id = if vehicle.crew_name.trim().is_empty() { None } else { Some(db.connection.query_row("SELECT id FROM crews WHERE name=?1", [vehicle.crew_name.trim()], |row| row.get::<_,i64>(0)).optional().map_err(|_| "Не вдалося знайти екіпаж автомобіля.".to_string())?.ok_or_else(|| format!("Для автомобіля «{}» не знайдено екіпаж «{}».", vehicle.registration_number, vehicle.crew_name))?) };
+            db.connection.execute("INSERT INTO vehicles(name, registration_number, status, personnel_id, crew_id) VALUES(?1, ?2, ?3, ?4, ?5)", rusqlite::params![vehicle.name.trim(), vehicle.registration_number.trim(), if vehicle.status.trim().is_empty() { "Справний" } else { vehicle.status.trim() }, driver_id, crew_id]).map_err(|_| format!("Не вдалося додати автомобіль з номером «{}». Перевірте, чи такого номера ще немає в базі.", vehicle.registration_number))?;
             let vehicle_id = db.connection.last_insert_rowid();
             db.connection.execute("INSERT INTO vehicle_custom_fields(vehicle_id,field_key,field_value) SELECT ?1,field_key,initial_value FROM vehicle_custom_field_definitions", [vehicle_id]).map_err(|_| "Не вдалося встановити кастомні поля автомобіля.".to_string())?;
             count += 1;
+        }
+        for equipment in data.equipment {
+            let crew_id = if equipment.crew_name.trim().is_empty() { None } else { Some(db.connection.query_row("SELECT id FROM crews WHERE name=?1", [equipment.crew_name.trim()], |row| row.get::<_,i64>(0)).optional().map_err(|_| "Не вдалося знайти екіпаж майна.".to_string())?.ok_or_else(|| format!("Для майна «{}» не знайдено екіпаж «{}».", equipment.name, equipment.crew_name))?) };
+            let holder_id = personnel_id(&equipment.holder_tax_id, &equipment.holder_full_name)?.map(|value| value.0);
+            if equipment.category == "weapon_ammo" && holder_id.is_none() { return Err(format!("Для «{}» не знайдено відповідального військовослужбовця.", equipment.name)); }
+            db.connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,personnel_id,notes) VALUES(?1,?2,?3,?4,?5,?6,?7)", rusqlite::params![equipment.category,equipment.name.trim(),equipment.inventory_number.trim(),if equipment.status.trim().is_empty(){"Справний"}else{equipment.status.trim()},crew_id,holder_id,equipment.notes.trim()]).map_err(|_| "Не вдалося імпортувати майно.".to_string())?;
+            count += 1;
+        }
+        for incident in data.incidents {
+            if incident.incident_type.trim().is_empty() { return Err("На аркуші «Інциденти» вкажіть тип інциденту.".into()); }
+            let crew_id = if incident.crew_name.trim().is_empty() { None } else { Some(db.connection.query_row("SELECT id FROM crews WHERE name=?1", [incident.crew_name.trim()], |row| row.get::<_,i64>(0)).optional().map_err(|_| "Не вдалося знайти екіпаж інциденту.".to_string())?.ok_or_else(|| format!("Для інциденту не знайдено екіпаж «{}».", incident.crew_name))?) };
+            let equipment_id = if incident.equipment_category.trim().is_empty() && incident.equipment_inventory_number.trim().is_empty() && incident.equipment_name.trim().is_empty() { None } else { db.connection.query_row("SELECT id FROM equipment WHERE category=?1 AND ((?2 <> '' AND inventory_number=?2) OR (?2 = '' AND name=?3)) ORDER BY id LIMIT 1", rusqlite::params![incident.equipment_category.trim(),incident.equipment_inventory_number.trim(),incident.equipment_name.trim()], |row| row.get::<_,i64>(0)).optional().map_err(|_| "Не вдалося знайти майно інциденту.".to_string())? };
+            let snapshot = crew_id.map(|id| crew_members(&db.connection,id).unwrap_or_default().into_iter().map(|member| member.full_name).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+            db.connection.execute("INSERT INTO incidents(incident_type,occurred_at,crew_id,equipment_id,position_name,reconnaissance_area,crew_snapshot,description) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",rusqlite::params![incident.incident_type.trim(),incident.occurred_at.trim(),crew_id,equipment_id,incident.position_name.trim(),incident.reconnaissance_area.trim(),snapshot,incident.description.trim()]).map_err(|_| "Не вдалося імпортувати інцидент.".to_string())?;
+            count += 1;
+        }
+        for row in data.personnel_custom_fields {
+            let person_id = personnel_id(&row.owner_key, "")?
+                .or(personnel_id("", &row.owner_key)?)
+                .map(|value| value.0)
+                .ok_or_else(|| format!("Не знайдено військовослужбовця для кастомних полів «{}».", row.owner_key))?;
+            for (key, value) in row.values { db.connection.execute("INSERT INTO personnel_custom_fields(personnel_id,field_key,field_value) VALUES(?1,?2,?3) ON CONFLICT(personnel_id,field_key) DO UPDATE SET field_value=excluded.field_value", rusqlite::params![person_id,key,value]).map_err(|_| "Не вдалося зберегти кастомне поле військовослужбовця.".to_string())?; }
+        }
+        for row in data.vehicle_custom_fields {
+            let vehicle_id = db.connection.query_row("SELECT id FROM vehicles WHERE registration_number=?1", [row.owner_key.trim()], |row| row.get::<_,i64>(0)).optional().map_err(|_| "Не вдалося знайти автомобіль для кастомних полів.".to_string())?.ok_or_else(|| "Не знайдено автомобіль для кастомних полів.".to_string())?;
+            for (key, value) in row.values { db.connection.execute("INSERT INTO vehicle_custom_fields(vehicle_id,field_key,field_value) VALUES(?1,?2,?3) ON CONFLICT(vehicle_id,field_key) DO UPDATE SET field_value=excluded.field_value", rusqlite::params![vehicle_id,key,value]).map_err(|_| "Не вдалося зберегти кастомне поле автомобіля.".to_string())?; }
         }
         Ok(count)
     })();
@@ -1566,6 +1639,29 @@ fn import_personnel_xlsx(
             db.connection
                 .execute_batch("COMMIT")
                 .map_err(|_| "Не вдалося завершити імпорт.".to_string())?;
+            if mode == "replace" || !imported_custom_fields.is_empty() {
+                let root = application_root(&app)?;
+                let fields = if mode == "replace" {
+                    imported_custom_fields
+                } else {
+                    let mut fields = database::load_custom_fields_file(
+                        &root,
+                        CUSTOM_VARIABLES_FILE_NAME,
+                    )
+                    .unwrap_or_default();
+                    for imported in imported_custom_fields {
+                        if let Some(existing) = fields.iter_mut().find(|field| {
+                            field.field_key == imported.field_key && field.scope == imported.scope
+                        }) {
+                            *existing = imported;
+                        } else {
+                            fields.push(imported);
+                        }
+                    }
+                    fields
+                };
+                database::replace_custom_fields_file(&root, CUSTOM_VARIABLES_FILE_NAME, fields)?;
+            }
             Ok(count)
         }
         Err(error) => {
@@ -1583,7 +1679,7 @@ fn export_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<
         .lock()
         .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
     let people = personnel::list(&db.connection)?;
-    let mut statement = db.connection.prepare("SELECT v.name, v.registration_number, v.status, COALESCE(p.tax_id, '') FROM vehicles v LEFT JOIN personnel p ON p.id=v.personnel_id ORDER BY v.id").map_err(|_| "Не вдалося прочитати автомобілі для експорту.".to_string())?;
+    let mut statement = db.connection.prepare("SELECT v.name,v.registration_number,v.status,COALESCE(p.tax_id,''),COALESCE(trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic),''),COALESCE(c.name,'') FROM vehicles v LEFT JOIN personnel p ON p.id=v.personnel_id LEFT JOIN crews c ON c.id=v.crew_id ORDER BY v.id").map_err(|_| "Не вдалося прочитати автомобілі для експорту.".to_string())?;
     let vehicles = statement
         .query_map([], |row| {
             Ok(xlsx::VehicleRow {
@@ -1591,6 +1687,8 @@ fn export_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<
                 registration_number: row.get(1)?,
                 status: row.get(2)?,
                 driver_tax_id: row.get(3)?,
+                driver_full_name: row.get(4)?,
+                crew_name: row.get(5)?,
             })
         })
         .map_err(|_| "Не вдалося прочитати автомобілі для експорту.".to_string())?
@@ -1614,15 +1712,32 @@ fn export_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<
             initial_value: field.initial_value,
         })
         .collect::<Vec<_>>();
+    let custom_rows = |query: &str| -> Result<Vec<xlsx::CustomValueRow>, String> {
+        let mut statement = db.connection.prepare(query).map_err(|_| "Не вдалося прочитати кастомні поля для Excel.".to_string())?;
+        let entries = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))).map_err(|_| "Не вдалося прочитати кастомні поля для Excel.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати кастомні поля для Excel.".to_string())?;
+        let mut grouped = std::collections::BTreeMap::<String, std::collections::HashMap<String,String>>::new();
+        for (owner, key, value) in entries { grouped.entry(owner).or_default().insert(key, value); }
+        Ok(grouped.into_iter().map(|(owner_key, values)| xlsx::CustomValueRow { owner_key, values }).collect())
+    };
+    let personnel_custom_values = custom_rows("SELECT CASE WHEN p.tax_id<>'' THEN p.tax_id ELSE trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) END,v.field_key,v.field_value FROM personnel_custom_fields v JOIN personnel p ON p.id=v.personnel_id")?;
+    let vehicle_custom_values = custom_rows("SELECT v.registration_number,c.field_key,c.field_value FROM vehicle_custom_fields c JOIN vehicles v ON v.id=c.vehicle_id")?;
+    let crews = db.connection.prepare("SELECT name,platoon,position_name,reconnaissance_area FROM crews ORDER BY id").map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?.query_map([], |row| Ok(xlsx::CrewRow { name:row.get(0)?,platoon:row.get(1)?,position_name:row.get(2)?,reconnaissance_area:row.get(3)? })).map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?;
+    let crew_members = db.connection.prepare("SELECT c.name,COALESCE(p.tax_id,''),trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) FROM crew_members cm JOIN crews c ON c.id=cm.crew_id JOIN personnel p ON p.id=cm.personnel_id WHERE cm.left_at IS NULL ORDER BY cm.id").map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?.query_map([], |row| Ok(xlsx::CrewMemberRow { crew_name:row.get(0)?,personnel_tax_id:row.get(1)?,personnel_full_name:row.get(2)? })).map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?;
+    let equipment = db.connection.prepare("SELECT e.category,e.name,e.inventory_number,e.status,COALESCE(c.name,''),COALESCE(p.tax_id,''),COALESCE(trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic),''),e.notes FROM equipment e LEFT JOIN crews c ON c.id=e.crew_id LEFT JOIN personnel p ON p.id=e.personnel_id ORDER BY e.id").map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.query_map([], |row| Ok(xlsx::EquipmentRow { category:row.get(0)?,name:row.get(1)?,inventory_number:row.get(2)?,status:row.get(3)?,crew_name:row.get(4)?,holder_tax_id:row.get(5)?,holder_full_name:row.get(6)?,notes:row.get(7)? })).map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?;
+    let incidents = db.connection.prepare("SELECT i.incident_type,i.occurred_at,COALESCE(c.name,''),COALESCE(e.category,''),COALESCE(e.inventory_number,''),COALESCE(e.name,''),i.position_name,i.reconnaissance_area,i.description FROM incidents i LEFT JOIN crews c ON c.id=i.crew_id LEFT JOIN equipment e ON e.id=i.equipment_id ORDER BY i.id").map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.query_map([], |row| Ok(xlsx::IncidentRow { incident_type:row.get(0)?,occurred_at:row.get(1)?,crew_name:row.get(2)?,equipment_category:row.get(3)?,equipment_inventory_number:row.get(4)?,equipment_name:row.get(5)?,position_name:row.get(6)?,reconnaissance_area:row.get(7)?,description:row.get(8)? })).map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?;
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         xlsx::export(
             &path,
             &people,
             &vehicles,
             &personnel_custom_maps,
-            &[],
+            &personnel_custom_values,
             &vehicle_custom_maps,
-            &[],
+            &vehicle_custom_values,
+            &crews,
+            &crew_members,
+            &equipment,
+            &incidents,
         )
     }))
     .map_err(|_| "Не вдалося сформувати Excel-файл: внутрішня помилка архіву.".to_string())??;

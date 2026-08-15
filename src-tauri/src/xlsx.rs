@@ -21,6 +21,7 @@ pub const PERSONNEL_KEYS: &[&str] = &[
     "position_assigned_date",
     "position_assignment_order",
     "military_id",
+    "gender",
     "full_name",
     "passport_series",
     "passport_number",
@@ -59,7 +60,36 @@ pub const PERSONNEL_KEYS: &[&str] = &[
     "service_start_date",
     "conscription_institution",
 ];
-pub const VEHICLE_KEYS: &[&str] = &["name", "registration_number", "status", "driver_tax_id"];
+pub const VEHICLE_KEYS: &[&str] = &[
+    "name",
+    "registration_number",
+    "status",
+    "driver_tax_id",
+    "driver_full_name",
+    "crew_name",
+];
+pub const CREW_KEYS: &[&str] = &["name", "platoon", "position_name", "reconnaissance_area"];
+pub const CREW_MEMBER_KEYS: &[&str] = &["crew_name", "personnel_tax_id", "personnel_full_name"];
+pub const EQUIPMENT_KEYS: &[&str] = &[
+    "name",
+    "inventory_number",
+    "status",
+    "crew_name",
+    "holder_tax_id",
+    "holder_full_name",
+    "notes",
+];
+pub const INCIDENT_KEYS: &[&str] = &[
+    "incident_type",
+    "occurred_at",
+    "crew_name",
+    "equipment_category",
+    "equipment_inventory_number",
+    "equipment_name",
+    "position_name",
+    "reconnaissance_area",
+    "description",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VehicleRow {
@@ -67,11 +97,57 @@ pub struct VehicleRow {
     pub registration_number: String,
     pub status: String,
     pub driver_tax_id: String,
+    pub driver_full_name: String,
+    pub crew_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CrewRow {
+    pub name: String,
+    pub platoon: String,
+    pub position_name: String,
+    pub reconnaissance_area: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CrewMemberRow {
+    pub crew_name: String,
+    pub personnel_tax_id: String,
+    pub personnel_full_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EquipmentRow {
+    pub category: String,
+    pub name: String,
+    pub inventory_number: String,
+    pub status: String,
+    pub crew_name: String,
+    pub holder_tax_id: String,
+    pub holder_full_name: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncidentRow {
+    pub incident_type: String,
+    pub occurred_at: String,
+    pub crew_name: String,
+    pub equipment_category: String,
+    pub equipment_inventory_number: String,
+    pub equipment_name: String,
+    pub position_name: String,
+    pub reconnaissance_area: String,
+    pub description: String,
 }
 
 pub struct ImportData {
     pub personnel: Vec<PersonnelDraft>,
     pub vehicles: Vec<VehicleRow>,
+    pub crews: Vec<CrewRow>,
+    pub crew_members: Vec<CrewMemberRow>,
+    pub equipment: Vec<EquipmentRow>,
+    pub incidents: Vec<IncidentRow>,
     pub personnel_custom_fields: Vec<CustomValueRow>,
     pub vehicle_custom_fields: Vec<CustomValueRow>,
     pub personnel_custom_field_maps: Vec<CustomFieldMapRow>,
@@ -80,7 +156,6 @@ pub struct ImportData {
 
 #[derive(Debug, Clone)]
 struct RowWithNumber {
-    number: usize,
     values: HashMap<String, String>,
 }
 
@@ -146,6 +221,7 @@ fn personnel_value(person: &Personnel, key: &str) -> String {
         "position_assigned_date" => person.position_assigned_date.clone(),
         "position_assignment_order" => person.position_assignment_order.clone(),
         "military_id" => person.military_id.clone(),
+        "gender" => person.gender.clone(),
         "full_name" => person.full_name.clone(),
         _ => person.core_fields.get(key).cloned().unwrap_or_default(),
     }
@@ -165,6 +241,7 @@ fn personnel_label(key: &str) -> String {
         "position_assigned_date" => "Дата призначення",
         "position_assignment_order" => "Наказ про призначення",
         "military_id" => "Військовий квиток",
+        "gender" => "Стать",
         "full_name" => "ПІБ",
         _ => crate::database::STANDARD_EXTRA_FIELDS
             .iter()
@@ -180,8 +257,63 @@ fn vehicle_label(key: &str) -> &str {
         "registration_number" => "Державний номер",
         "status" => "Статус",
         "driver_tax_id" => "ІПН закріпленого водія",
+        "driver_full_name" => "ПІБ закріпленого водія",
+        "crew_name" => "Екіпаж",
         _ => key,
     }
+}
+fn crew_label(key: &str) -> &str {
+    match key {
+        "name" => "Назва екіпажу",
+        "platoon" => "Взвод",
+        "position_name" => "Позиція",
+        "reconnaissance_area" => "Район розвідки",
+        "crew_name" => "Назва екіпажу",
+        "personnel_tax_id" => "ІПН військовослужбовця",
+        "personnel_full_name" => "ПІБ військовослужбовця",
+        _ => key,
+    }
+}
+fn equipment_label(key: &str) -> &str {
+    match key {
+        "name" => "Назва",
+        "inventory_number" => "Інвентарний номер",
+        "status" => "Статус",
+        "crew_name" => "Екіпаж",
+        "holder_tax_id" => "ІПН відповідального",
+        "holder_full_name" => "ПІБ відповідального",
+        "notes" => "Примітка",
+        _ => key,
+    }
+}
+fn incident_label(key: &str) -> &str {
+    match key {
+        "incident_type" => "Тип інциденту",
+        "occurred_at" => "Дата та час",
+        "crew_name" => "Екіпаж",
+        "equipment_category" => "Категорія майна",
+        "equipment_inventory_number" => "Інвентарний номер майна",
+        "equipment_name" => "Назва майна",
+        "position_name" => "Позиція",
+        "reconnaissance_area" => "Район розвідки",
+        "description" => "Опис",
+        _ => key,
+    }
+}
+fn personnel_export_label(key: &str) -> String {
+    personnel_label(key)
+}
+fn vehicle_export_label(key: &str) -> String {
+    vehicle_label(key).into()
+}
+fn crew_export_label(key: &str) -> String {
+    crew_label(key).into()
+}
+fn equipment_export_label(key: &str) -> String {
+    equipment_label(key).into()
+}
+fn incident_export_label(key: &str) -> String {
+    incident_label(key).into()
 }
 fn cell(column: usize, row: usize, value: &str) -> String {
     format!(
@@ -221,6 +353,10 @@ pub fn export(
     personnel_custom_values: &[CustomValueRow],
     vehicle_custom_maps: &[CustomFieldMapRow],
     vehicle_custom_values: &[CustomValueRow],
+    crews: &[CrewRow],
+    crew_members: &[CrewMemberRow],
+    equipment: &[EquipmentRow],
+    incidents: &[IncidentRow],
 ) -> Result<(), String> {
     let file = File::create(path).map_err(|_| "Не вдалося створити Excel-файл.".to_string())?;
     let mut archive = ZipWriter::new(file);
@@ -258,21 +394,76 @@ pub fn export(
                 vehicle.registration_number.clone(),
                 vehicle.status.clone(),
                 vehicle.driver_tax_id.clone(),
+                vehicle.driver_full_name.clone(),
+                vehicle.crew_name.clone(),
             ]
         })
         .collect::<Vec<_>>();
-    let custom_headers = |owner: &str, maps: &[CustomFieldMapRow]| {
-        std::iter::once(owner.to_string())
+    let crew_rows = crews
+        .iter()
+        .map(|crew| {
+            vec![
+                crew.name.clone(),
+                crew.platoon.clone(),
+                crew.position_name.clone(),
+                crew.reconnaissance_area.clone(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let crew_member_rows = crew_members
+        .iter()
+        .map(|member| {
+            vec![
+                member.crew_name.clone(),
+                member.personnel_tax_id.clone(),
+                member.personnel_full_name.clone(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let equipment_rows = |category: &str| {
+        equipment
+            .iter()
+            .filter(|row| row.category == category)
+            .map(|row| {
+                vec![
+                    row.name.clone(),
+                    row.inventory_number.clone(),
+                    row.status.clone(),
+                    row.crew_name.clone(),
+                    row.holder_tax_id.clone(),
+                    row.holder_full_name.clone(),
+                    row.notes.clone(),
+                ]
+            })
+            .collect::<Vec<_>>()
+    };
+    let incident_rows = incidents
+        .iter()
+        .map(|row| {
+            vec![
+                row.incident_type.clone(),
+                row.occurred_at.clone(),
+                row.crew_name.clone(),
+                row.equipment_category.clone(),
+                row.equipment_inventory_number.clone(),
+                row.equipment_name.clone(),
+                row.position_name.clone(),
+                row.reconnaissance_area.clone(),
+                row.description.clone(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let custom_sheet = |owner_label: &str,
+                        owner_key: &str,
+                        maps: &[CustomFieldMapRow],
+                        values: &[CustomValueRow]| {
+        let headers = std::iter::once(owner_label.to_string())
             .chain(maps.iter().map(|field| field.display_name.clone()))
-            .collect::<Vec<_>>()
-    };
-    let custom_keys = |owner: &str, maps: &[CustomFieldMapRow]| {
-        std::iter::once(owner.to_string())
+            .collect::<Vec<_>>();
+        let keys = std::iter::once(owner_key.to_string())
             .chain(maps.iter().map(|field| field.field_key.clone()))
-            .collect::<Vec<_>>()
-    };
-    let custom_rows = |values: &[CustomValueRow], maps: &[CustomFieldMapRow]| {
-        values
+            .collect::<Vec<_>>();
+        let rows = values
             .iter()
             .map(|row| {
                 std::iter::once(row.owner_key.clone())
@@ -284,38 +475,195 @@ pub fn export(
                     }))
                     .collect::<Vec<_>>()
             })
-            .collect::<Vec<_>>()
+            .collect::<Vec<_>>();
+        worksheet_xml(&headers, &keys, &rows)
     };
-    let map_rows = |maps: &[CustomFieldMapRow]| {
-        maps.iter()
-            .map(|field| {
-                vec![
-                    field.display_name.clone(),
-                    field.field_key.clone(),
-                    field.description.clone(),
-                    field.initial_value.clone(),
-                ]
-            })
-            .collect::<Vec<_>>()
+    let map_sheet = |keys: &[&str], label: fn(&str) -> String| {
+        worksheet_xml(
+            &vec!["Назва в Excel".into(), "Назва змінної в БД".into()],
+            &vec!["excel_name".into(), "field_key".into()],
+            &keys
+                .iter()
+                .map(|key| vec![label(key), (*key).to_string()])
+                .collect::<Vec<_>>(),
+        )
     };
-    let personnel_custom_headers = custom_headers("ІПН", personnel_custom_maps);
-    let personnel_custom_keys = custom_keys("tax_id", personnel_custom_maps);
-    let vehicle_custom_headers = custom_headers("Державний номер", vehicle_custom_maps);
-    let vehicle_custom_keys = custom_keys("registration_number", vehicle_custom_maps);
-    let files = [
-        ("[Content_Types].xml", "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet2.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet3.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet4.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet5.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet6.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet7.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/><Override PartName=\"/xl/worksheets/sheet8.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/></Types>".to_string()),
-        ("_rels/.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>".to_string()),
-        ("xl/_rels/workbook.xml.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/><Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet2.xml\"/><Relationship Id=\"rId3\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet3.xml\"/><Relationship Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet4.xml\"/><Relationship Id=\"rId5\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet5.xml\"/><Relationship Id=\"rId6\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet6.xml\"/><Relationship Id=\"rId7\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet7.xml\"/><Relationship Id=\"rId8\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet8.xml\"/></Relationships>".to_string()),
-        ("xl/workbook.xml", "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"Особовий склад\" sheetId=\"1\" r:id=\"rId1\"/><sheet name=\"Мапа полів ОС\" sheetId=\"2\" r:id=\"rId2\"/><sheet name=\"Кастомні поля ОС\" sheetId=\"3\" r:id=\"rId3\"/><sheet name=\"Автомобілі\" sheetId=\"5\" r:id=\"rId5\"/><sheet name=\"Мапа полів автомобілів\" sheetId=\"6\" r:id=\"rId6\"/><sheet name=\"Кастомні поля автомобілів\" sheetId=\"7\" r:id=\"rId7\"/></sheets></workbook>".to_string()),
-        ("xl/worksheets/sheet1.xml", worksheet_xml(&personnel_headers, &personnel_keys, &personnel_rows)),
-        ("xl/worksheets/sheet2.xml", worksheet_xml(&vec!["Назва в Excel".into(), "Назва змінної в БД".into()], &vec!["excel_name".into(), "field_key".into()], &PERSONNEL_KEYS.iter().map(|key| vec![personnel_label(key), key.to_string()]).collect::<Vec<_>>())),
-        ("xl/worksheets/sheet3.xml", worksheet_xml(&vec!["Назва поля".into(), "Змінна в БД".into(), "Опис".into(), "Початкове значення".into()], &vec!["display_name".into(), "field_key".into(), "description".into(), "initial_value".into()], &map_rows(personnel_custom_maps))),
-        ("xl/worksheets/sheet4.xml", worksheet_xml(&vec!["Назва поля".into(), "Змінна в БД".into(), "Опис".into(), "Початкове значення".into()], &vec!["display_name".into(), "field_key".into(), "description".into(), "initial_value".into()], &map_rows(personnel_custom_maps))),
-        ("xl/worksheets/sheet5.xml", worksheet_xml(&vehicle_headers, &vehicle_keys, &vehicle_rows)),
-        ("xl/worksheets/sheet6.xml", worksheet_xml(&vec!["Назва в Excel".into(), "Назва змінної в БД".into()], &vec!["excel_name".into(), "field_key".into()], &VEHICLE_KEYS.iter().map(|key| vec![vehicle_label(key).into(), key.to_string()]).collect::<Vec<_>>())),
-        ("xl/worksheets/sheet7.xml", worksheet_xml(&vec!["Назва поля".into(), "Змінна в БД".into(), "Опис".into(), "Початкове значення".into()], &vec!["display_name".into(), "field_key".into(), "description".into(), "initial_value".into()], &map_rows(vehicle_custom_maps))),
-        ("xl/worksheets/sheet8.xml", worksheet_xml(&vec!["Назва поля".into(), "Змінна в БД".into(), "Опис".into(), "Початкове значення".into()], &vec!["display_name".into(), "field_key".into(), "description".into(), "initial_value".into()], &map_rows(vehicle_custom_maps))),
+    let mut sheets = vec![
+        (
+            "Особовий склад".to_string(),
+            worksheet_xml(&personnel_headers, &personnel_keys, &personnel_rows),
+        ),
+        (
+            "Мапа полів ОС".to_string(),
+            map_sheet(PERSONNEL_KEYS, personnel_export_label),
+        ),
+        (
+            "Кастомні поля ОС".to_string(),
+            custom_sheet(
+                "ІПН / ПІБ",
+                "personnel_reference",
+                personnel_custom_maps,
+                personnel_custom_values,
+            ),
+        ),
+        (
+            "Автомобілі".to_string(),
+            worksheet_xml(&vehicle_headers, &vehicle_keys, &vehicle_rows),
+        ),
+        (
+            "Мапа полів автомобілів".to_string(),
+            map_sheet(VEHICLE_KEYS, vehicle_export_label),
+        ),
+        (
+            "Кастомні поля автомобілів".to_string(),
+            custom_sheet(
+                "Державний номер",
+                "registration_number",
+                vehicle_custom_maps,
+                vehicle_custom_values,
+            ),
+        ),
+        (
+            "Екіпажі".to_string(),
+            worksheet_xml(
+                &CREW_KEYS
+                    .iter()
+                    .map(|key| crew_label(key).to_string())
+                    .collect::<Vec<_>>(),
+                &CREW_KEYS
+                    .iter()
+                    .map(|key| key.to_string())
+                    .collect::<Vec<_>>(),
+                &crew_rows,
+            ),
+        ),
+        (
+            "Мапа полів екіпажів".to_string(),
+            map_sheet(CREW_KEYS, crew_export_label),
+        ),
+        (
+            "Склад екіпажів".to_string(),
+            worksheet_xml(
+                &CREW_MEMBER_KEYS
+                    .iter()
+                    .map(|key| crew_label(key).to_string())
+                    .collect::<Vec<_>>(),
+                &CREW_MEMBER_KEYS
+                    .iter()
+                    .map(|key| key.to_string())
+                    .collect::<Vec<_>>(),
+                &crew_member_rows,
+            ),
+        ),
+        (
+            "Мапа складу екіпажів".to_string(),
+            map_sheet(CREW_MEMBER_KEYS, crew_export_label),
+        ),
+        (
+            "Генератори".to_string(),
+            worksheet_xml(
+                &EQUIPMENT_KEYS
+                    .iter()
+                    .map(|key| equipment_label(key).to_string())
+                    .collect::<Vec<_>>(),
+                &EQUIPMENT_KEYS
+                    .iter()
+                    .map(|key| key.to_string())
+                    .collect::<Vec<_>>(),
+                &equipment_rows("generator"),
+            ),
+        ),
+        (
+            "Мапа полів генераторів".to_string(),
+            map_sheet(EQUIPMENT_KEYS, equipment_export_label),
+        ),
+        (
+            "БпЛА".to_string(),
+            worksheet_xml(
+                &EQUIPMENT_KEYS
+                    .iter()
+                    .map(|key| equipment_label(key).to_string())
+                    .collect::<Vec<_>>(),
+                &EQUIPMENT_KEYS
+                    .iter()
+                    .map(|key| key.to_string())
+                    .collect::<Vec<_>>(),
+                &equipment_rows("uav"),
+            ),
+        ),
+        (
+            "Мапа полів БпЛА".to_string(),
+            map_sheet(EQUIPMENT_KEYS, equipment_export_label),
+        ),
+        (
+            "Зв’язок".to_string(),
+            worksheet_xml(
+                &EQUIPMENT_KEYS
+                    .iter()
+                    .map(|key| equipment_label(key).to_string())
+                    .collect::<Vec<_>>(),
+                &EQUIPMENT_KEYS
+                    .iter()
+                    .map(|key| key.to_string())
+                    .collect::<Vec<_>>(),
+                &equipment_rows("communications"),
+            ),
+        ),
+        (
+            "Мапа полів зв’язку".to_string(),
+            map_sheet(EQUIPMENT_KEYS, equipment_export_label),
+        ),
+        (
+            "Зброя та БК".to_string(),
+            worksheet_xml(
+                &EQUIPMENT_KEYS
+                    .iter()
+                    .map(|key| equipment_label(key).to_string())
+                    .collect::<Vec<_>>(),
+                &EQUIPMENT_KEYS
+                    .iter()
+                    .map(|key| key.to_string())
+                    .collect::<Vec<_>>(),
+                &equipment_rows("weapon_ammo"),
+            ),
+        ),
+        (
+            "Мапа полів зброї та БК".to_string(),
+            map_sheet(EQUIPMENT_KEYS, equipment_export_label),
+        ),
+        (
+            "Інциденти".to_string(),
+            worksheet_xml(
+                &INCIDENT_KEYS
+                    .iter()
+                    .map(|key| incident_label(key).to_string())
+                    .collect::<Vec<_>>(),
+                &INCIDENT_KEYS
+                    .iter()
+                    .map(|key| key.to_string())
+                    .collect::<Vec<_>>(),
+                &incident_rows,
+            ),
+        ),
+        (
+            "Мапа полів інцидентів".to_string(),
+            map_sheet(INCIDENT_KEYS, incident_export_label),
+        ),
     ];
+    let content_types = format!("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>{}</Types>", sheets.iter().enumerate().map(|(index, _)| format!("<Override PartName=\"/xl/worksheets/sheet{}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>", index + 1)).collect::<String>());
+    let relationships = format!("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">{}</Relationships>", sheets.iter().enumerate().map(|(index, _)| format!("<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet{}.xml\"/>", index + 1, index + 1)).collect::<String>());
+    let workbook = format!("<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>{}</sheets></workbook>", sheets.iter().enumerate().map(|(index, (name, _))| format!("<sheet name=\"{}\" sheetId=\"{}\" r:id=\"rId{}\"/>", esc(name), index + 1, index + 1)).collect::<String>());
+    let mut files = vec![
+        ("[Content_Types].xml".to_string(), content_types),
+        ("_rels/.rels".to_string(), "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>".to_string()),
+        ("xl/_rels/workbook.xml.rels".to_string(), relationships),
+        ("xl/workbook.xml".to_string(), workbook),
+    ];
+    files.extend(
+        sheets.drain(..).enumerate().map(|(index, (_, content))| {
+            (format!("xl/worksheets/sheet{}.xml", index + 1), content)
+        }),
+    );
     for (name, content) in files {
         archive
             .start_file(name, options)
@@ -465,7 +813,16 @@ fn worksheet_path_by_name(
         .find(|relationship| attribute(relationship, "Id").as_deref() == Some(&relationship_id))
         .and_then(|relationship| attribute(relationship, "Target"))
         .ok_or_else(|| format!("Не вдалося знайти аркуш «{expected_name}»."))?;
-    Ok(Some(format!("xl/{target}")))
+    // Most XLSX writers store targets relative to `xl/` (for example,
+    // `worksheets/sheet1.xml`). Some valid writers store the complete archive
+    // path (`xl/worksheets/sheet1.xml`). Support both so that a workbook made
+    // in Excel, LibreOffice or the exported control template imports equally.
+    let target = target.trim_start_matches('/');
+    Ok(Some(if target.starts_with("xl/") {
+        target.to_string()
+    } else {
+        format!("xl/{target}")
+    }))
 }
 fn records(rows: Vec<Vec<String>>, sheet: &str) -> Result<Vec<RowWithNumber>, String> {
     if rows.len() < 2 {
@@ -477,8 +834,7 @@ fn records(rows: Vec<Vec<String>>, sheet: &str) -> Result<Vec<RowWithNumber>, St
     Ok(rows
         .into_iter()
         .skip(2)
-        .enumerate()
-        .filter_map(|(index, row)| {
+        .filter_map(|row| {
             let map = keys
                 .iter()
                 .enumerate()
@@ -487,12 +843,82 @@ fn records(rows: Vec<Vec<String>>, sheet: &str) -> Result<Vec<RowWithNumber>, St
                         .then(|| (key.clone(), row.get(index).cloned().unwrap_or_default()))
                 })
                 .collect::<HashMap<_, _>>();
-            (!map.values().all(|value| value.trim().is_empty())).then_some(RowWithNumber {
-                number: index + 3,
-                values: map,
-            })
+            (!map.values().all(|value| value.trim().is_empty()))
+                .then_some(RowWithNumber { values: map })
         })
         .collect())
+}
+fn optional_records(
+    archive: &mut ZipArchive<File>,
+    expected_name: &str,
+    shared: &[String],
+) -> Result<Vec<RowWithNumber>, String> {
+    match worksheet_path_by_name(archive, expected_name)? {
+        Some(path) => records(workbook_rows(archive, &path, shared)?, expected_name),
+        None => Ok(Vec::new()),
+    }
+}
+fn optional_custom_values(
+    archive: &mut ZipArchive<File>,
+    expected_name: &str,
+    owner_key: &str,
+    shared: &[String],
+) -> Result<(Vec<CustomValueRow>, Vec<CustomFieldMapRow>), String> {
+    let Some(path) = worksheet_path_by_name(archive, expected_name)? else {
+        return Ok((Vec::new(), Vec::new()));
+    };
+    let rows = workbook_rows(archive, &path, shared)?;
+    if rows.len() < 2 {
+        return Err(format!(
+            "Аркуш «{expected_name}» має містити два рядки заголовків: назви та ключі."
+        ));
+    }
+    let labels = rows[0].clone();
+    let keys = rows[1].clone();
+    let maps = keys
+        .iter()
+        .enumerate()
+        .filter_map(|(index, key)| {
+            let key = key.trim();
+            (!key.is_empty() && key != owner_key).then(|| CustomFieldMapRow {
+                display_name: labels
+                    .get(index)
+                    .cloned()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| key.to_string()),
+                field_key: key.to_string(),
+                description: String::new(),
+                initial_value: String::new(),
+            })
+        })
+        .collect::<Vec<_>>();
+    let values = rows
+        .into_iter()
+        .skip(2)
+        .filter_map(|row| {
+            let fields = keys
+                .iter()
+                .enumerate()
+                .filter_map(|(index, key)| {
+                    (!key.trim().is_empty()).then(|| {
+                        (
+                            key.trim().to_string(),
+                            row.get(index).cloned().unwrap_or_default(),
+                        )
+                    })
+                })
+                .collect::<HashMap<_, _>>();
+            let owner = fields.get(owner_key).cloned().unwrap_or_default();
+            (!owner.trim().is_empty()).then(|| CustomValueRow {
+                owner_key: owner,
+                values: fields
+                    .into_iter()
+                    .filter(|(key, _)| key != owner_key)
+                    .collect(),
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok((values, maps))
 }
 pub fn import(path: &Path) -> Result<ImportData, String> {
     let file = File::open(path).map_err(|_| "Не вдалося відкрити Excel-файл.".to_string())?;
@@ -505,10 +931,7 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
         workbook_rows(&mut archive, &personnel_path, &shared)?,
         "Особовий склад",
     )?;
-    let vehicle_rows = match worksheet_path_by_name(&mut archive, "Автомобілі")? {
-        Some(path) => records(workbook_rows(&mut archive, &path, &shared)?, "Автомобілі")?,
-        None => Vec::new(),
-    };
+    let vehicle_rows = optional_records(&mut archive, "Автомобілі", &shared)?;
     let personnel = personnel_rows
         .into_iter()
         .map(|row| {
@@ -562,9 +985,11 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
                 .cloned()
                 .unwrap_or_default();
             let military_id = values.get("military_id").cloned().unwrap_or_default();
+            let gender = values.get("gender").cloned().unwrap_or_default();
             values.remove("rank");
             values.remove("position");
             values.remove("tax_id");
+            values.remove("gender");
             PersonnelDraft {
                 rank,
                 surname,
@@ -579,7 +1004,7 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
                 position_assigned_date,
                 position_assignment_order,
                 military_id,
-                gender: String::new(),
+                gender,
                 core_fields: values,
             }
         })
@@ -595,15 +1020,126 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
                 .unwrap_or_default(),
             status: row.values.get("status").cloned().unwrap_or_default(),
             driver_tax_id: row.values.get("driver_tax_id").cloned().unwrap_or_default(),
+            driver_full_name: row
+                .values
+                .get("driver_full_name")
+                .cloned()
+                .unwrap_or_default(),
+            crew_name: row.values.get("crew_name").cloned().unwrap_or_default(),
         })
         .collect();
+    let crews = optional_records(&mut archive, "Екіпажі", &shared)?
+        .into_iter()
+        .map(|row| CrewRow {
+            name: row.values.get("name").cloned().unwrap_or_default(),
+            platoon: row.values.get("platoon").cloned().unwrap_or_default(),
+            position_name: row.values.get("position_name").cloned().unwrap_or_default(),
+            reconnaissance_area: row
+                .values
+                .get("reconnaissance_area")
+                .cloned()
+                .unwrap_or_default(),
+        })
+        .collect();
+    let crew_members = optional_records(&mut archive, "Склад екіпажів", &shared)?
+        .into_iter()
+        .map(|row| CrewMemberRow {
+            crew_name: row.values.get("crew_name").cloned().unwrap_or_default(),
+            personnel_tax_id: row
+                .values
+                .get("personnel_tax_id")
+                .cloned()
+                .unwrap_or_default(),
+            personnel_full_name: row
+                .values
+                .get("personnel_full_name")
+                .cloned()
+                .unwrap_or_default(),
+        })
+        .collect();
+    let mut equipment = Vec::new();
+    for (sheet, category) in [
+        ("Генератори", "generator"),
+        ("БпЛА", "uav"),
+        ("Зв’язок", "communications"),
+        ("Зброя та БК", "weapon_ammo"),
+    ] {
+        equipment.extend(
+            optional_records(&mut archive, sheet, &shared)?
+                .into_iter()
+                .map(|row| EquipmentRow {
+                    category: category.into(),
+                    name: row.values.get("name").cloned().unwrap_or_default(),
+                    inventory_number: row
+                        .values
+                        .get("inventory_number")
+                        .cloned()
+                        .unwrap_or_default(),
+                    status: row.values.get("status").cloned().unwrap_or_default(),
+                    crew_name: row.values.get("crew_name").cloned().unwrap_or_default(),
+                    holder_tax_id: row.values.get("holder_tax_id").cloned().unwrap_or_default(),
+                    holder_full_name: row
+                        .values
+                        .get("holder_full_name")
+                        .cloned()
+                        .unwrap_or_default(),
+                    notes: row.values.get("notes").cloned().unwrap_or_default(),
+                }),
+        );
+    }
+    let incidents = optional_records(&mut archive, "Інциденти", &shared)?
+        .into_iter()
+        .map(|row| IncidentRow {
+            incident_type: row.values.get("incident_type").cloned().unwrap_or_default(),
+            occurred_at: row.values.get("occurred_at").cloned().unwrap_or_default(),
+            crew_name: row.values.get("crew_name").cloned().unwrap_or_default(),
+            equipment_category: row
+                .values
+                .get("equipment_category")
+                .cloned()
+                .unwrap_or_default(),
+            equipment_inventory_number: row
+                .values
+                .get("equipment_inventory_number")
+                .cloned()
+                .unwrap_or_default(),
+            equipment_name: row
+                .values
+                .get("equipment_name")
+                .cloned()
+                .unwrap_or_default(),
+            position_name: row.values.get("position_name").cloned().unwrap_or_default(),
+            reconnaissance_area: row
+                .values
+                .get("reconnaissance_area")
+                .cloned()
+                .unwrap_or_default(),
+            description: row.values.get("description").cloned().unwrap_or_default(),
+        })
+        .collect();
+    let (personnel_custom_fields, personnel_custom_field_maps) = optional_custom_values(
+        &mut archive,
+        "Кастомні поля ОС",
+        "personnel_reference",
+        &shared,
+    )?;
+    let (vehicle_custom_fields, vehicle_custom_field_maps) = optional_custom_values(
+        &mut archive,
+        "Кастомні поля автомобілів",
+        "registration_number",
+        &shared,
+    )?;
     Ok(ImportData {
         personnel,
         vehicles,
-        personnel_custom_fields: Vec::new(),
-        vehicle_custom_fields: Vec::new(),
-        personnel_custom_field_maps: Vec::new(),
-        vehicle_custom_field_maps: Vec::new(),
+        crews,
+        crew_members,
+        equipment,
+        incidents,
+        personnel_custom_fields,
+        vehicle_custom_fields,
+        personnel_custom_field_maps,
+        vehicle_custom_field_maps,
     })
 }
 
@@ -648,7 +1184,13 @@ mod tests {
                 registration_number: "АА 1111 АА".into(),
                 status: "Справний".into(),
                 driver_tax_id: "1234567890".into(),
+                driver_full_name: "Тест Іван Іванович".into(),
+                crew_name: String::new(),
             }],
+            &[],
+            &[],
+            &[],
+            &[],
             &[],
             &[],
             &[],
@@ -674,6 +1216,159 @@ mod tests {
     }
 
     #[test]
+    fn round_trips_crews_equipment_incidents_and_custom_values() {
+        let path = std::env::temp_dir().join(format!(
+            "shablonizator-operational-roundtrip-{}.xlsx",
+            std::process::id()
+        ));
+        export(
+            &path,
+            &[person()],
+            &[VehicleRow {
+                name: "Toyota Hilux".into(),
+                registration_number: "АА 1111 АА".into(),
+                status: "Справний".into(),
+                driver_tax_id: "1234567890".into(),
+                driver_full_name: "Тест Іван Іванович".into(),
+                crew_name: "Екіпаж Сокіл".into(),
+            }],
+            &[CustomFieldMapRow {
+                display_name: "Позивний".into(),
+                field_key: "callsign".into(),
+                description: "Тест".into(),
+                initial_value: String::new(),
+            }],
+            &[CustomValueRow {
+                owner_key: "1234567890".into(),
+                values: HashMap::from([("callsign".into(), "Сокіл".into())]),
+            }],
+            &[CustomFieldMapRow {
+                display_name: "Гараж".into(),
+                field_key: "garage".into(),
+                description: "Тест".into(),
+                initial_value: String::new(),
+            }],
+            &[CustomValueRow {
+                owner_key: "АА 1111 АА".into(),
+                values: HashMap::from([("garage".into(), "1".into())]),
+            }],
+            &[CrewRow {
+                name: "Екіпаж Сокіл".into(),
+                platoon: "1 взвод".into(),
+                position_name: "СП-1".into(),
+                reconnaissance_area: "Північ".into(),
+            }],
+            &[CrewMemberRow {
+                crew_name: "Екіпаж Сокіл".into(),
+                personnel_tax_id: "1234567890".into(),
+                personnel_full_name: "Тест Іван Іванович".into(),
+            }],
+            &[
+                EquipmentRow {
+                    category: "generator".into(),
+                    name: "EcoFlow Delta".into(),
+                    inventory_number: "GEN-01".into(),
+                    status: "Справний".into(),
+                    crew_name: "Екіпаж Сокіл".into(),
+                    holder_tax_id: String::new(),
+                    holder_full_name: String::new(),
+                    notes: String::new(),
+                },
+                EquipmentRow {
+                    category: "uav".into(),
+                    name: "Mavic 3".into(),
+                    inventory_number: "UAV-01".into(),
+                    status: "Справний".into(),
+                    crew_name: "Екіпаж Сокіл".into(),
+                    holder_tax_id: String::new(),
+                    holder_full_name: String::new(),
+                    notes: String::new(),
+                },
+                EquipmentRow {
+                    category: "communications".into(),
+                    name: "Motorola".into(),
+                    inventory_number: "COM-01".into(),
+                    status: "Справний".into(),
+                    crew_name: "Екіпаж Сокіл".into(),
+                    holder_tax_id: String::new(),
+                    holder_full_name: String::new(),
+                    notes: String::new(),
+                },
+                EquipmentRow {
+                    category: "weapon_ammo".into(),
+                    name: "АК-74".into(),
+                    inventory_number: "WPN-01".into(),
+                    status: "Справний".into(),
+                    crew_name: String::new(),
+                    holder_tax_id: "1234567890".into(),
+                    holder_full_name: "Тест Іван Іванович".into(),
+                    notes: String::new(),
+                },
+            ],
+            &[IncidentRow {
+                incident_type: "Втрата БпЛА".into(),
+                occurred_at: "2026-08-15 12:30".into(),
+                crew_name: "Екіпаж Сокіл".into(),
+                equipment_category: "uav".into(),
+                equipment_inventory_number: "UAV-01".into(),
+                equipment_name: "Mavic 3".into(),
+                position_name: "СП-1".into(),
+                reconnaissance_area: "Північ".into(),
+                description: "Тестовий запис".into(),
+            }],
+        )
+        .unwrap();
+        let imported = import(&path).unwrap();
+        assert_eq!(imported.crews.len(), 1);
+        assert_eq!(imported.crew_members.len(), 1);
+        assert_eq!(imported.equipment.len(), 4);
+        assert_eq!(imported.incidents[0].equipment_inventory_number, "UAV-01");
+        assert_eq!(
+            imported.personnel_custom_field_maps[0].field_key,
+            "callsign"
+        );
+        assert_eq!(imported.vehicle_custom_fields[0].values["garage"], "1");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn checked_in_excel_template_matches_the_current_import_format() {
+        let template = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("outputs/personnel-import-template.xlsx");
+        let imported = import(&template).expect("контрольний Excel-шаблон має імпортуватися");
+
+        assert!(imported.personnel.is_empty());
+        assert!(imported.vehicles.is_empty());
+        assert!(imported.crews.is_empty());
+        assert!(imported.crew_members.is_empty());
+        assert!(imported.equipment.is_empty());
+        assert!(imported.incidents.is_empty());
+        let mut archive = ZipArchive::new(File::open(template).unwrap()).unwrap();
+        let mut workbook = String::new();
+        archive
+            .by_name("xl/workbook.xml")
+            .unwrap()
+            .read_to_string(&mut workbook)
+            .unwrap();
+        for sheet in [
+            "Екіпажі",
+            "Склад екіпажів",
+            "Генератори",
+            "БпЛА",
+            "Зв’язок",
+            "Зброя та БК",
+            "Інциденти",
+        ] {
+            assert!(
+                workbook.contains(sheet),
+                "у шаблоні відсутній аркуш {sheet}"
+            );
+        }
+    }
+
+    #[test]
     fn imports_a_workbook_when_the_vehicle_sheet_is_not_the_fifth_sheet() {
         let path = std::env::temp_dir().join(format!(
             "shablonizator-reordered-{}.xlsx",
@@ -687,7 +1382,13 @@ mod tests {
                 registration_number: "АА 1111 АА".into(),
                 status: "Справний".into(),
                 driver_tax_id: "1234567890".into(),
+                driver_full_name: "Тест Іван Іванович".into(),
+                crew_name: String::new(),
             }],
+            &[],
+            &[],
+            &[],
+            &[],
             &[],
             &[],
             &[],
@@ -709,7 +1410,7 @@ mod tests {
             let mut content = String::new();
             entry.read_to_string(&mut content).unwrap();
             if name == "xl/workbook.xml" {
-                content = content.replace("r:id=\"rId5\"", "r:id=\"rId4\"");
+                content = content.replace("r:id=\"rId4\"", "r:id=\"rId5\"");
             }
             if name == "xl/_rels/workbook.xml.rels" {
                 content = content.replace("Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet4.xml\"", "Id=\"rId4\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet5.xml\"");
