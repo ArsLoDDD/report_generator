@@ -1,6 +1,5 @@
 import { Car, Pencil, RefreshCw, Trash2, UserPlus, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { PageTitle } from "../../shared/ui/PageTitle";
 import { Modal } from "../../shared/ui/Modal";
@@ -11,18 +10,9 @@ import { useNotifications } from "../../shared/ui/NotificationProvider";
 import type { CustomFieldDefinition, Person } from "../../shared/types/domain";
 import { personnelService } from "../../shared/services/personnelService";
 import { settingsService } from "../settings/services/settingsService";
-
-type Vehicle = {
-  id: number;
-  name: string;
-  registrationNumber: string;
-  status: string;
-  personnelId: number | null;
-  driverName: string | null;
-  crewId: number | null;
-  crewName: string | null;
-};
-type Crew = { id: number; name: string };
+import { vehiclesService } from "./services/vehiclesService";
+import type { Vehicle } from "./types";
+import type { Crew } from "../operations/types";
 
 const statuses = ["Справний", "Потребує ремонту", "Ремонтується", "Несправний"];
 const statusOptions = statuses.map((value) => ({ value, label: value }));
@@ -51,20 +41,20 @@ export function VehiclesPage({ people }: { people: Person[] }) {
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
   const { notify } = useNotifications();
 
-  const reload = () => void invoke<Vehicle[]>("list_vehicles")
+  const reload = useCallback(() => void vehiclesService.list()
     .then((rows) => {
       setItems(rows);
       setSelected((current) => current ? rows.find((item) => item.id === current.id) ?? null : null);
     })
-    .catch(() => notify("Не вдалося завантажити автомобілі.", "error"));
+    .catch(() => notify("Не вдалося завантажити автомобілі.", "error")), [notify]);
 
-  useEffect(reload, []);
-  useEffect(() => { void invoke<Crew[]>("list_crews").then((items) => setCrews(Array.isArray(items) ? items : [])).catch(() => setCrews([])); }, []);
+  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { void vehiclesService.listCrews().then((items) => setCrews(Array.isArray(items) ? items : [])).catch(() => setCrews([])); }, []);
   useEffect(() => {
     void settingsService.get()
       .then((settings) => setVisibleColumns(settings.visibleVehicleColumns ?? []))
       .catch(() => setVisibleColumns([]));
-  }, []);
+  }, [reload]);
   useEffect(() => {
     const loadCustomFields = () => {
       void personnelService
@@ -79,7 +69,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
     loadCustomFields();
     window.addEventListener("vehicles-refresh", refresh);
     return () => window.removeEventListener("vehicles-refresh", refresh);
-  }, []);
+  }, [reload]);
 
   const drivers = useMemo(
     () => people.filter((person) => person.position.toLocaleLowerCase("uk").includes("водій")),
@@ -133,7 +123,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
       return;
     }
     try {
-      await invoke("create_vehicle", { name: name.trim(), registrationNumber: registrationNumber.trim(), status });
+      await vehiclesService.create(name.trim(), registrationNumber.trim(), status);
       closeEditor();
       reload();
       notify("Автомобіль додано.", "success");
@@ -144,7 +134,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
   const reassign = async () => {
     if (!selected) return;
     try {
-      await invoke("assign_vehicle", { vehicleId: selected.id, personnelId: driverId ? Number(driverId) : null, crewId: crewId ? Number(crewId) : null });
+      await vehiclesService.assign(selected.id, driverId ? Number(driverId) : null, crewId ? Number(crewId) : null);
       setAssignmentOpen(false);
       reload();
       notify("Закріплення автомобіля оновлено.", "success");
@@ -155,7 +145,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
   const updateStatus = async (nextStatus: string) => {
     if (!selected) return;
     try {
-      await invoke("update_vehicle_status", { vehicleId: selected.id, status: nextStatus });
+      await vehiclesService.updateStatus(selected.id, nextStatus);
       reload();
       notify("Статус автомобіля оновлено.", "success");
     } catch {
@@ -165,7 +155,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
   const remove = async () => {
     if (!selected) return;
     try {
-      await invoke("delete_vehicle", { vehicleId: selected.id });
+      await vehiclesService.remove(selected.id);
       setRemoving(false);
       setSelected(null);
       reload();

@@ -21,9 +21,9 @@ export const signerFields = source.signerFields as Field[];
 export const variableRegistry: VariableDefinition[] = [
   ...personFields.map((field) => fieldToVariable(field, `військовий_1_${field.id}`, "Військовослужбовець")),
   ...vehicleFields.map((field) => fieldToVariable(field, `військовий_1_автомобіль_1_${field.id}`, "Автомобіль військовослужбовця")),
-  ...vehicleFields.map((field) => fieldToVariable(field, `автомобіль_${field.id}`, "Автомобіль")),
-  ...crewFields.map((field) => fieldToVariable(field, `екіпаж_${field.id}`, "Екіпаж")),
-  ...["генератор", "бпла", "звʼязок", "зброя_та_бк"].flatMap((subject) => equipmentFields.map((field) => fieldToVariable(field, `${subject}_${field.id}`, subject === "бпла" ? "БпЛА" : subject === "звʼязок" ? "Зв’язок" : subject === "генератор" ? "Генератор" : "Зброя та БК"))),
+  ...vehicleFields.map((field) => fieldToVariable(field, `автомобіль_1_${field.id}`, "Автомобіль")),
+  ...crewFields.map((field) => fieldToVariable(field, `екіпаж_1_${field.id}`, "Екіпаж")),
+  ...["генератор", "бпла", "звʼязок", "зброя_та_бк"].flatMap((subject) => equipmentFields.map((field) => fieldToVariable(field, `${subject}_1_${field.id}`, subject === "бпла" ? "БпЛА" : subject === "звʼязок" ? "Зв’язок" : subject === "генератор" ? "Генератор" : "Зброя та БК"))),
   ...source.signerRoles.flatMap((role) => signerFields.map((field) => fieldToVariable(field, `${role.id}_${field.id}`, role.name))),
   ...generationParameterFields.map((field) => fieldToVariable(field, field.id, "Параметри документа"))
 ];
@@ -37,22 +37,60 @@ export function getGenerationParameter(token: string) {
 }
 export const modifierRegistry: ModifierDefinition[] = source.modifiers.map((item) => ({ ...item, group: item.group as ModifierDefinition["group"], description: item.group === "case" ? `Відмінює значення: ${item.name.toLowerCase()} відмінок.` : `Змінює написання: ${item.name.toLowerCase()}.` }));
 export const tokenFor = (id: string, modifiers: string[] = []) => `{{${[id, ...modifiers].join(":")}}}`;
+
+export type SelectionSubjectId = "personnel" | "vehicle" | "crew" | "generator" | "uav" | "communications" | "weaponAmmo";
+export type SelectionRequirement = { id: SelectionSubjectId; prefix: string; label: string; count: number; category?: string };
+const selectionSubjects: Array<Omit<SelectionRequirement, "count"> & { fields: Field[] }> = [
+  { id: "personnel", prefix: "військовий", label: "Військовослужбовці", fields: personFields },
+  { id: "vehicle", prefix: "автомобіль", label: "Автомобілі", fields: vehicleFields },
+  { id: "crew", prefix: "екіпаж", label: "Екіпажі", fields: crewFields },
+  { id: "generator", prefix: "генератор", label: "Генератори", category: "generator", fields: equipmentFields },
+  { id: "uav", prefix: "бпла", label: "БпЛА", category: "uav", fields: equipmentFields },
+  { id: "communications", prefix: "звʼязок", label: "Засоби зв’язку", category: "communications", fields: equipmentFields },
+  { id: "weaponAmmo", prefix: "зброя_та_бк", label: "Зброя та БК", category: "weapon_ammo", fields: equipmentFields },
+];
+
+/** Derives ordered, exact selection requirements from the variables used by a template. */
+export function getSelectionRequirements(tokens: string[]): SelectionRequirement[] {
+  const counts = new Map<SelectionSubjectId, number>();
+  const isFieldToken = (value: string) => /^\p{L}[\p{L}\p{N}_]*$/u.test(value);
+  for (const raw of tokens) {
+    const base = raw.split(":")[0];
+    if (getGenerationParameter(base)) continue;
+    for (const subject of selectionSubjects) {
+      let index = 0;
+      if (subject.id === "personnel") {
+        const match = /^військовий_([1-9]\d*)_(.+)$/u.exec(base);
+        if (match && (isFieldToken(match[2]) || match[2].startsWith("автомобіль_"))) index = Number(match[1]);
+      } else {
+        const rest = base.startsWith(`${subject.prefix}_`) ? base.slice(subject.prefix.length + 1) : "";
+        const numbered = /^([1-9]\d*)_(.+)$/u.exec(rest);
+        if (numbered && isFieldToken(numbered[2])) index = Number(numbered[1]);
+      }
+      if (index) counts.set(subject.id, Math.max(counts.get(subject.id) ?? 0, index));
+    }
+  }
+  return selectionSubjects.flatMap(({ fields: _fields, ...subject }) => {
+    const count = counts.get(subject.id) ?? 0;
+    return count ? [{ ...subject, count }] : [];
+  });
+}
 export function getVariable(id: string) {
   const direct = variableRegistry.find((item) => item.id === id);
   if (direct) return direct;
   const match = /^військовий_([1-9]\d*)_(.+)$/.exec(id);
   if (!match) {
-    const crew = /^екіпаж_(.+)$/.exec(id);
+    const crew = /^екіпаж_(?:[1-9]\d*)_(.+)$/u.exec(id);
     if (crew) {
       const field = crewFields.find((item) => item.id === crew[1]);
       if (field) return fieldToVariable(field, id, "Екіпаж");
     }
-    const equipment = /^(генератор|бпла|звʼязок|зброя_та_бк)_(.+)$/.exec(id);
+    const equipment = /^(генератор|бпла|звʼязок|зброя_та_бк)_(?:[1-9]\d*)_(.+)$/u.exec(id);
     if (equipment) {
       const field = equipmentFields.find((item) => item.id === equipment[2]);
       if (field) return fieldToVariable(field, id, equipment[1]);
     }
-    const vehicle = /^автомобіль_(.+)$/.exec(id);
+    const vehicle = /^автомобіль_(?:[1-9]\d*)_(.+)$/u.exec(id);
     if (!vehicle) return undefined;
     const field = vehicleFields.find((item) => item.id === vehicle[1]);
     if (field) return fieldToVariable(field, id, "Автомобіль");

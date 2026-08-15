@@ -16,7 +16,7 @@ const fields: Array<{ key: DraftKey; label: string; placeholder: string; wide?: 
   { key: "givenName", label: "Ім’я", placeholder: "Іван", required: true },
   { key: "patronymic", label: "По батькові", placeholder: "Аркадійович" },
   { key: "position", label: "Посада (повна з військовою частиною)", placeholder: "Стрілець, військова частина А0000", wide: true, required: true },
-  { key: "taxId", label: "ІПН", placeholder: "7462389812", required: true },
+  { key: "taxId", label: "ІПН / ідентифікатор", placeholder: "7462389812", required: true },
   { key: "birthDate", label: "Дата народження", placeholder: "02.03.1999 року" },
   { key: "educationLevel", label: "Формат освіти", placeholder: "вища" },
   { key: "educationDetails", label: "Де отримана освіта", placeholder: "Львівська комерційна академія у 2002р", wide: true },
@@ -41,7 +41,7 @@ export function PersonnelForm({ initialValue, submitLabel, onSubmit, onCancel }:
   const changeCore = (key: string, value: string) => setDraft((current) => ({ ...current, coreFields: { ...current.coreFields, [key]: value } }));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (draft.taxId.length !== 10 || !/^\d{10}$/.test(draft.taxId)) { setValidationMessage("ІПН має містити рівно 10 цифр."); return; }
+    if (!draft.taxId.trim()) { setValidationMessage("Вкажіть ІПН або інший ідентифікатор."); return; }
     setValidationMessage(null); setIsSaving(true);
     try { await onSubmit(draft); } finally { setIsSaving(false); }
   };

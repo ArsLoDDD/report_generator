@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Plus } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { personnelService } from "../services/personnelService";
 import type { CustomFieldDefinition } from "../types/domain";
 import { useNotifications } from "./NotificationProvider";
@@ -16,8 +16,8 @@ export function PageTitle({ title, subtitle, actions, customFieldsScope }: { tit
   const [fields, setFields] = useState<CustomFieldDefinition[]>([]);
   const { notify } = useNotifications();
 
-  const loadFields = async () => setFields(customFieldsScope === "vehicle" ? await personnelService.listVehicleCustomFields() : await personnelService.listCustomFields());
-  useEffect(() => { if (customFieldsScope || title === "Особовий склад") void loadFields().catch(() => undefined); }, [customFieldsScope, title]);
+  const loadFields = useCallback(async () => setFields(customFieldsScope === "vehicle" ? await personnelService.listVehicleCustomFields() : await personnelService.listCustomFields()), [customFieldsScope]);
+  useEffect(() => { if (customFieldsScope || title === "Особовий склад") void loadFields().catch(() => undefined); }, [customFieldsScope, title, loadFields]);
 
   const closeEditor = () => { setEditorOpen(false); setFormOpen(false); setEditingFieldKey(null); setField(emptyField()); };
   const startCreate = () => { setEditingFieldKey(null); setField(emptyField()); setFormOpen(true); };

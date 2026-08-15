@@ -1,9 +1,9 @@
 mod database;
+mod operations;
 mod personnel;
 mod report_generation;
 mod settings;
 mod xlsx;
-
 use chrono::{DateTime, Local};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -23,13 +23,13 @@ use zip::{
     CompressionMethod,
 };
 
-struct DatabaseState {
+pub(crate) struct DatabaseState {
     connection: Connection,
     path: PathBuf,
     is_persistent: bool,
 }
 
-struct AppState(Mutex<DatabaseState>, Vec<StartupWarning>);
+pub(crate) struct AppState(pub(crate) Mutex<DatabaseState>, Vec<StartupWarning>);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,106 +82,6 @@ struct TemplatesPage {
     items: Vec<TemplateFile>,
     total_count: u64,
 }
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Vehicle {
-    id: i64,
-    name: String,
-    registration_number: String,
-    status: String,
-    personnel_id: Option<i64>,
-    driver_name: Option<String>,
-    crew_id: Option<i64>,
-    crew_name: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Crew {
-    id: i64,
-    name: String,
-    platoon: String,
-    position_name: String,
-    reconnaissance_area: String,
-    member_count: i64,
-    members: Vec<CrewMember>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CrewMember {
-    personnel_id: i64,
-    full_name: String,
-    rank: String,
-    position: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct CrewDraft {
-    name: String,
-    platoon: String,
-    position_name: String,
-    reconnaissance_area: String,
-    #[serde(default)]
-    member_ids: Vec<i64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Equipment {
-    id: i64,
-    category: String,
-    name: String,
-    inventory_number: String,
-    status: String,
-    crew_id: Option<i64>,
-    crew_name: Option<String>,
-    personnel_id: Option<i64>,
-    holder_name: Option<String>,
-    notes: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct EquipmentDraft {
-    category: String,
-    name: String,
-    inventory_number: String,
-    status: String,
-    crew_id: Option<i64>,
-    personnel_id: Option<i64>,
-    notes: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Incident {
-    id: i64,
-    incident_type: String,
-    occurred_at: String,
-    crew_id: Option<i64>,
-    crew_name: Option<String>,
-    equipment_id: Option<i64>,
-    equipment_name: Option<String>,
-    position_name: String,
-    reconnaissance_area: String,
-    crew_snapshot: String,
-    vehicle_name: String,
-    description: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct IncidentDraft {
-    incident_type: String,
-    occurred_at: String,
-    crew_id: Option<i64>,
-    equipment_id: Option<i64>,
-    position_name: String,
-    reconnaissance_area: String,
-    description: String,
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -191,6 +91,14 @@ struct TemplateAnalysisProposal {
     label: String,
     category: String,
     occurrences: u32,
+    alternatives: Vec<TemplateAnalysisAlternative>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TemplateAnalysisAlternative {
+    token: String,
+    label: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -209,6 +117,27 @@ struct TemplateAnalysisReplacement {
     token: String,
     #[serde(default)]
     replacement: Option<String>,
+    #[serde(default)]
+    occurrence: Option<usize>,
+}
+
+fn ordered_analysis_replacements(
+    items: Vec<TemplateAnalysisReplacement>,
+) -> Vec<(String, String, Option<usize>)> {
+    let (mut detected, manual): (Vec<_>, Vec<_>) = items
+        .into_iter()
+        .partition(|item| item.replacement.is_none());
+    detected.sort_by(|left, right| right.value.chars().count().cmp(&left.value.chars().count()));
+    detected
+        .into_iter()
+        .chain(manual)
+        .map(|item| {
+            let replacement = item
+                .replacement
+                .unwrap_or_else(|| format!("{{{{{}}}}}", item.token));
+            (item.value, replacement, item.occurrence)
+        })
+        .collect()
 }
 
 pub const DATABASE_FILE_NAME: &str = "особовий_склад.db";
@@ -291,35 +220,52 @@ fn ensure_application_structure(app: &tauri::AppHandle) -> Result<PathBuf, Strin
 
 fn create_operational_report_templates(directory: &Path) -> Result<(), String> {
     let templates = [
-        ("Контрольний рапорт — екіпаж.docx", "Контрольний рапорт щодо екіпажу {{екіпаж_назва}}", "Взвод: {{екіпаж_взвод}}. Позиція: {{екіпаж_позиція}}. Район розвідки: {{екіпаж_район_розвідки}}. Склад: {{екіпаж_склад}}. Автомобілі: {{екіпаж_автомобілі}}."),
-        ("Контрольний рапорт — генератор.docx", "Контрольний рапорт щодо генератора", "Генератор: {{генератор_назва}}. Інвентарний номер: {{генератор_інвентарний_номер}}. Стан: {{генератор_статус}}. Примітка: {{генератор_примітка}}."),
-        ("Контрольний рапорт — БпЛА.docx", "Контрольний рапорт щодо БпЛА", "БпЛА: {{бпла_назва}}. Інвентарний номер: {{бпла_інвентарний_номер}}. Стан: {{бпла_статус}}. Примітка: {{бпла_примітка}}."),
-        ("Контрольний рапорт — зв’язок.docx", "Контрольний рапорт щодо засобу зв’язку", "Засіб зв’язку: {{звʼязок_назва}}. Інвентарний номер: {{звʼязок_інвентарний_номер}}. Стан: {{звʼязок_статус}}. Примітка: {{звʼязок_примітка}}."),
-        ("Контрольний рапорт — зброя та БК.docx", "Контрольний рапорт щодо зброї та БК", "Майно: {{зброя_та_бк_назва}}. Інвентарний номер: {{зброя_та_бк_інвентарний_номер}}. Стан: {{зброя_та_бк_статус}}. Примітка: {{зброя_та_бк_примітка}}."),
+        ("Контрольний рапорт — екіпаж.docx", "Контрольний рапорт щодо екіпажу {{екіпаж_1_назва}}", "Взвод: {{екіпаж_1_взвод}}. Позиція: {{екіпаж_1_позиція}}. Район розвідки: {{екіпаж_1_район_розвідки}}. Склад: {{екіпаж_1_склад}}. Автомобілі: {{екіпаж_1_автомобілі}}."),
+        ("Контрольний рапорт — генератор.docx", "Контрольний рапорт щодо генератора", "Генератор: {{генератор_1_назва}}. Інвентарний номер: {{генератор_1_інвентарний_номер}}. Стан: {{генератор_1_статус}}. Примітка: {{генератор_1_примітка}}."),
+        ("Контрольний рапорт — БпЛА.docx", "Контрольний рапорт щодо БпЛА", "БпЛА: {{бпла_1_назва}}. Інвентарний номер: {{бпла_1_інвентарний_номер}}. Стан: {{бпла_1_статус}}. Примітка: {{бпла_1_примітка}}."),
+        ("Контрольний рапорт — зв’язок.docx", "Контрольний рапорт щодо засобу зв’язку", "Засіб зв’язку: {{звʼязок_1_назва}}. Інвентарний номер: {{звʼязок_1_інвентарний_номер}}. Стан: {{звʼязок_1_статус}}. Примітка: {{звʼязок_1_примітка}}."),
+        ("Контрольний рапорт — зброя та БК.docx", "Контрольний рапорт щодо зброї та БК", "Майно: {{зброя_та_бк_1_назва}}. Інвентарний номер: {{зброя_та_бк_1_інвентарний_номер}}. Стан: {{зброя_та_бк_1_статус}}. Примітка: {{зброя_та_бк_1_примітка}}."),
         ("Контрольний рапорт — військовослужбовець.docx", "Контрольний рапорт", "Доповідаю щодо {{військовий_1_звання:родовий}} {{військовий_1_піб:родовий}}. Посада: {{військовий_1_посада}}. Закріплений автомобіль: {{військовий_1_автомобіль_1_назва}} {{військовий_1_автомобіль_1_номер}}. Дата: {{дата_рапорту}}. Підписант: {{основний_підписант_посада}}, {{основний_підписант_звання}} {{основний_підписант_піб}}."),
     ];
     for (name, title, body) in templates {
         let path = directory.join(name);
-        if path.exists() { continue; }
+        if path.exists() {
+            continue;
+        }
         create_simple_report_template(&path, title, body)?;
     }
     Ok(())
 }
 
 fn create_simple_report_template(path: &Path, title: &str, body: &str) -> Result<(), String> {
-    let file = fs::File::create(path).map_err(|_| "Не вдалося створити контрольний шаблон.".to_string())?;
+    let file = fs::File::create(path)
+        .map_err(|_| "Не вдалося створити контрольний шаблон.".to_string())?;
     let mut archive = ZipWriter::new(file);
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-    let document = format!(r#"<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>{title}</w:t></w:r></w:p><w:p><w:r><w:t>{body}</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>"#);
+    let document = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>{title}</w:t></w:r></w:p><w:p><w:r><w:t>{body}</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>"#
+    );
     for (name, contents) in [
-        ("[Content_Types].xml", r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#),
-        ("_rels/.rels", r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#),
+        (
+            "[Content_Types].xml",
+            r#"<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#,
+        ),
+        (
+            "_rels/.rels",
+            r#"<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#,
+        ),
         ("word/document.xml", document.as_str()),
     ] {
-        archive.start_file(name, options).map_err(|_| "Не вдалося сформувати контрольний шаблон.".to_string())?;
-        archive.write_all(contents.as_bytes()).map_err(|_| "Не вдалося записати контрольний шаблон.".to_string())?;
+        archive
+            .start_file(name, options)
+            .map_err(|_| "Не вдалося сформувати контрольний шаблон.".to_string())?;
+        archive
+            .write_all(contents.as_bytes())
+            .map_err(|_| "Не вдалося записати контрольний шаблон.".to_string())?;
     }
-    archive.finish().map_err(|_| "Не вдалося завершити контрольний шаблон.".to_string())?;
+    archive
+        .finish()
+        .map_err(|_| "Не вдалося завершити контрольний шаблон.".to_string())?;
     Ok(())
 }
 
@@ -339,7 +285,7 @@ fn create_vehicle_report_template(path: &Path) -> Result<(), String> {
         ),
         (
             "word/document.xml",
-            r#"<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>РАПОРТ</w:t></w:r></w:p><w:p><w:r><w:t>Доповідаю про автомобіль {{автомобіль_назва}}, державний номер {{автомобіль_номер}}.</w:t></w:r></w:p><w:p><w:r><w:t>Технічний стан: {{автомобіль_статус}}.</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>"#,
+            r#"<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>РАПОРТ</w:t></w:r></w:p><w:p><w:r><w:t>Доповідаю про автомобіль {{автомобіль_1_назва}}, державний номер {{автомобіль_1_номер}}.</w:t></w:r></w:p><w:p><w:r><w:t>Технічний стан: {{автомобіль_1_статус}}.</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>"#,
         ),
     ] {
         archive
@@ -369,7 +315,12 @@ fn template_analysis_value(
 ) {
     let value = value.trim();
     let occurrences = whole_text_match_count(text, value);
-    if value.is_empty() || occurrences == 0 || proposals.iter().any(|item| item.value == value && item.token == token) {
+    if value.is_empty()
+        || occurrences == 0
+        || proposals
+            .iter()
+            .any(|item| item.value == value && item.token == token)
+    {
         return;
     }
     proposals.push(TemplateAnalysisProposal {
@@ -378,7 +329,34 @@ fn template_analysis_value(
         label: label.into(),
         category: category.into(),
         occurrences: occurrences as u32,
+        alternatives: analysis_alternatives(token),
     });
+}
+
+fn analysis_alternatives(token: &str) -> Vec<TemplateAnalysisAlternative> {
+    let values: &[(&str, &str)] = match token {
+        "екіпаж_1" => &[
+            ("екіпаж_1_назва", "Назва обраного екіпажу"),
+            ("військовий_1_екіпаж", "Екіпаж обраного військовослужбовця"),
+        ],
+        "екіпаж_1_назва" => &[
+            ("екіпаж_1", "Текстовий параметр документа"),
+            ("військовий_1_екіпаж", "Екіпаж обраного військовослужбовця"),
+        ],
+        "назва_позиції_1" => &[("екіпаж_1_позиція", "Позиція обраного екіпажу")],
+        "населений_пункт_1" => {
+            &[("екіпаж_1_район_розвідки", "Район розвідки обраного екіпажу")]
+        }
+        "екіпаж_1_позиція" => &[("назва_позиції_1", "Текстовий параметр документа")],
+        _ => &[],
+    };
+    values
+        .iter()
+        .map(|(token, label)| TemplateAnalysisAlternative {
+            token: (*token).into(),
+            label: (*label).into(),
+        })
+        .collect()
 }
 
 /// Counts only complete values. It deliberately does not treat `Арсен` as a
@@ -398,7 +376,10 @@ fn whole_text_match_count(text: &str, value: &str) -> usize {
         let left = haystack[..start].chars().next_back();
         let right = haystack[end..].chars().next();
         let starts_with_word = needle.chars().next().is_some_and(char::is_alphanumeric);
-        let ends_with_word = needle.chars().next_back().is_some_and(char::is_alphanumeric);
+        let ends_with_word = needle
+            .chars()
+            .next_back()
+            .is_some_and(char::is_alphanumeric);
         if (!starts_with_word || !left.is_some_and(char::is_alphanumeric))
             && (!ends_with_word || !right.is_some_and(char::is_alphanumeric))
         {
@@ -454,9 +435,15 @@ fn detected_document_proposals(proposals: &mut Vec<TemplateAnalysisProposal>, te
         let normalized = value.trim_matches(|character: char| !character.is_alphanumeric());
         let compact_unit = if normalized.chars().count() == 5
             && matches!(normalized.chars().next(), Some('А' | 'а' | 'A' | 'a'))
-            && normalized.chars().skip(1).all(|character| character.is_ascii_digit())
+            && normalized
+                .chars()
+                .skip(1)
+                .all(|character| character.is_ascii_digit())
         {
-            Some((normalized.to_string(), normalized.chars().skip(1).collect::<String>()))
+            Some((
+                normalized.to_string(),
+                normalized.chars().skip(1).collect::<String>(),
+            ))
         } else if matches!(normalized, "А" | "а" | "A" | "a") {
             words.get(index + 1).and_then(|next| {
                 let digits = next.trim_matches(|character: char| !character.is_ascii_digit());
@@ -468,7 +455,10 @@ fn detected_document_proposals(proposals: &mut Vec<TemplateAnalysisProposal>, te
         };
         if let Some((unit, digits)) = compact_unit {
             let key = format!("А{digits}");
-            if detected_units.iter().any(|existing: &String| existing == &key) {
+            if detected_units
+                .iter()
+                .any(|existing: &String| existing == &key)
+            {
                 continue;
             }
             detected_units.push(key);
@@ -514,8 +504,17 @@ fn document_settlement_after(text: &str, marker: &str) -> Option<String> {
     let words = text[start..]
         .trim_start_matches(|character: char| character.is_whitespace() || character == '.')
         .split_whitespace()
-        .map(|word| word.trim_matches(|character: char| !character.is_alphabetic() && character != '-' && character != '\''))
-        .take_while(|word| !matches!(word.to_lowercase().as_str(), "в" | "у" | "на" | "смузі" | "районі" | "та" | "з"))
+        .map(|word| {
+            word.trim_matches(|character: char| {
+                !character.is_alphabetic() && character != '-' && character != '\''
+            })
+        })
+        .take_while(|word| {
+            !matches!(
+                word.to_lowercase().as_str(),
+                "в" | "у" | "на" | "смузі" | "районі" | "та" | "з"
+            )
+        })
         .take(4)
         .filter(|word| !word.is_empty())
         .collect::<Vec<_>>();
@@ -529,14 +528,25 @@ fn detected_document_person_proposals(proposals: &mut Vec<TemplateAnalysisPropos
     let words = text
         .split_whitespace()
         .filter_map(|word| {
-            let value = word.trim_matches(|character: char| !character.is_alphabetic() && character != '\'');
+            let value = word
+                .trim_matches(|character: char| !character.is_alphabetic() && character != '\'');
             (value.chars().count() >= 2).then(|| value.to_string())
         })
         .collect::<Vec<_>>();
     let ranks = [
-        "солдат", "матрос", "сержант", "старший сержант", "головний сержант",
-        "молодший лейтенант", "лейтенант", "старший лейтенант", "капітан", "майор",
-        "підполковник", "полковник", "генерал",
+        "солдат",
+        "матрос",
+        "сержант",
+        "старший сержант",
+        "головний сержант",
+        "молодший лейтенант",
+        "лейтенант",
+        "старший лейтенант",
+        "капітан",
+        "майор",
+        "підполковник",
+        "полковник",
+        "генерал",
     ];
     for (index, triple) in words.windows(3).enumerate() {
         let first = &triple[0];
@@ -549,21 +559,40 @@ fn detected_document_person_proposals(proposals: &mut Vec<TemplateAnalysisPropos
         let third_title = third.chars().next().is_some_and(char::is_uppercase)
             && !third.chars().skip(1).any(char::is_uppercase);
         let first_upper = first.chars().any(char::is_alphabetic)
-            && first.chars().filter(|character| character.is_alphabetic()).all(char::is_uppercase);
+            && first
+                .chars()
+                .filter(|character| character.is_alphabetic())
+                .all(char::is_uppercase);
         let third_upper = third.chars().any(char::is_alphabetic)
-            && third.chars().filter(|character| character.is_alphabetic()).all(char::is_uppercase);
-        let before = words[index.saturating_sub(3)..index].join(" ").to_lowercase();
+            && third
+                .chars()
+                .filter(|character| character.is_alphabetic())
+                .all(char::is_uppercase);
+        let before = words[index.saturating_sub(3)..index]
+            .join(" ")
+            .to_lowercase();
         let has_rank_context = ranks.iter().any(|rank| before.ends_with(rank));
         if !has_rank_context {
             continue;
         }
-        let (given_name, patronymic, surname, full_name) = if first_title && second_title && third_upper {
-            (first.as_str(), second.as_str(), third.as_str(), format!("{first} {second} {third}"))
-        } else if first_upper && second_title && third_title {
-            (second.as_str(), third.as_str(), first.as_str(), format!("{first} {second} {third}"))
-        } else {
-            continue;
-        };
+        let (given_name, patronymic, surname, full_name) =
+            if first_title && second_title && third_upper {
+                (
+                    first.as_str(),
+                    second.as_str(),
+                    third.as_str(),
+                    format!("{first} {second} {third}"),
+                )
+            } else if first_upper && second_title && third_title {
+                (
+                    second.as_str(),
+                    third.as_str(),
+                    first.as_str(),
+                    format!("{first} {second} {third}"),
+                )
+            } else {
+                continue;
+            };
         template_analysis_value(
             proposals,
             text,
@@ -602,7 +631,11 @@ fn detected_document_person_proposals(proposals: &mut Vec<TemplateAnalysisPropos
 fn document_signature_position(text: &str, name_in_document: &str, rank: &str) -> Option<String> {
     let name_offset = text.to_lowercase().find(&name_in_document.to_lowercase())?;
     let before_name = &text[..name_offset];
-    let mut lines = before_name.lines().rev().map(str::trim).filter(|line| !line.is_empty());
+    let mut lines = before_name
+        .lines()
+        .rev()
+        .map(str::trim)
+        .filter(|line| !line.is_empty());
     let last_line = lines.next()?;
     // A DOCX signature block is often a single paragraph: "Посада звання ПІБ".
     // In that case take the text before the rank, rather than the whole paragraph.
@@ -631,15 +664,24 @@ struct SignerNameParts {
 
 fn is_uppercase_word(value: &str) -> bool {
     value.chars().any(char::is_alphabetic)
-        && value.chars().filter(|character| character.is_alphabetic()).all(char::is_uppercase)
+        && value
+            .chars()
+            .filter(|character| character.is_alphabetic())
+            .all(char::is_uppercase)
 }
 
 fn signer_name_parts(full_name: &str) -> Option<SignerNameParts> {
-    let parts = full_name.split_whitespace().map(str::to_string).collect::<Vec<_>>();
+    let parts = full_name
+        .split_whitespace()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
     if !(2..=3).contains(&parts.len()) {
         return None;
     }
-    let surname_index = parts.iter().position(|part| is_uppercase_word(part)).unwrap_or(0);
+    let surname_index = parts
+        .iter()
+        .position(|part| is_uppercase_word(part))
+        .unwrap_or(0);
     let (surname, given_name, patronymic) = match (parts.len(), surname_index) {
         (3, 2) => (parts[2].clone(), parts[0].clone(), Some(parts[1].clone())),
         (3, _) => (parts[0].clone(), parts[1].clone(), Some(parts[2].clone())),
@@ -647,7 +689,12 @@ fn signer_name_parts(full_name: &str) -> Option<SignerNameParts> {
         (2, _) => (parts[1].clone(), parts[0].clone(), None),
         _ => return None,
     };
-    Some(SignerNameParts { surname, given_name, patronymic, full_name: parts.join(" ") })
+    Some(SignerNameParts {
+        surname,
+        given_name,
+        patronymic,
+        full_name: parts.join(" "),
+    })
 }
 
 struct SignerNameInDocument {
@@ -662,13 +709,15 @@ fn normalized_name(value: &str) -> String {
     value
         .chars()
         .filter(|character| character.is_alphabetic())
-        .map(|character| match character.to_lowercase().next().unwrap_or(character) {
-            // Ukrainian documents sometimes use the orthographic variants і/и
-            // in a personal name. The original document spelling is retained
-            // in the replacement; this normalization is only for recognition.
-            'і' => 'и',
-            character => character,
-        })
+        .map(
+            |character| match character.to_lowercase().next().unwrap_or(character) {
+                // Ukrainian documents sometimes use the orthographic variants і/и
+                // in a personal name. The original document spelling is retained
+                // in the replacement; this normalization is only for recognition.
+                'і' => 'и',
+                character => character,
+            },
+        )
         .collect()
 }
 
@@ -692,7 +741,10 @@ fn name_edit_distance(left: &str, right: &str) -> usize {
 fn similar_name(left: &str, right: &str) -> bool {
     let left = normalized_name(left);
     let right = normalized_name(right);
-    left == right || (left.chars().count() >= 4 && right.chars().count() >= 4 && name_edit_distance(&left, &right) <= 1)
+    left == right
+        || (left.chars().count() >= 4
+            && right.chars().count() >= 4
+            && name_edit_distance(&left, &right) <= 1)
 }
 
 fn signer_name_in_document(text: &str, name: &SignerNameParts) -> Option<SignerNameInDocument> {
@@ -707,7 +759,9 @@ fn signer_name_in_document(text: &str, name: &SignerNameParts) -> Option<SignerN
     }
     let words = text
         .split_whitespace()
-        .map(|word| word.trim_matches(|character: char| !character.is_alphabetic() && character != '\''))
+        .map(|word| {
+            word.trim_matches(|character: char| !character.is_alphabetic() && character != '\'')
+        })
         .filter(|word| !word.is_empty())
         .collect::<Vec<_>>();
     for pair in words.windows(2) {
@@ -739,17 +793,49 @@ fn detected_signer_block_proposals(
     role: &settings::SignerRole,
 ) {
     let signer = &role.signer;
-    let Some(name_parts) = signer_name_parts(&signer.full_name) else { return; };
-    let Some(name_in_document) = signer_name_in_document(text, &name_parts) else { return; };
+    let Some(name_parts) = signer_name_parts(&signer.full_name) else {
+        return;
+    };
+    let Some(name_in_document) = signer_name_in_document(text, &name_parts) else {
+        return;
+    };
     let category = format!("Підписант: {}", role.name);
     if name_in_document.has_full_name {
-        template_analysis_value(proposals, text, &name_in_document.full_name, &format!("{}_піб", role.id), &format!("ПІБ: {}", role.name), &category);
+        template_analysis_value(
+            proposals,
+            text,
+            &name_in_document.full_name,
+            &format!("{}_піб", role.id),
+            &format!("ПІБ: {}", role.name),
+            &category,
+        );
     }
-    template_analysis_value(proposals, text, &name_in_document.surname, &format!("{}_прізвище", role.id), &format!("Прізвище: {}", role.name), &category);
-    template_analysis_value(proposals, text, &name_in_document.given_name, &format!("{}_імя", role.id), &format!("Ім’я: {}", role.name), &category);
+    template_analysis_value(
+        proposals,
+        text,
+        &name_in_document.surname,
+        &format!("{}_прізвище", role.id),
+        &format!("Прізвище: {}", role.name),
+        &category,
+    );
+    template_analysis_value(
+        proposals,
+        text,
+        &name_in_document.given_name,
+        &format!("{}_імя", role.id),
+        &format!("Ім’я: {}", role.name),
+        &category,
+    );
     if name_in_document.has_full_name {
         if let Some(patronymic) = &name_in_document.patronymic {
-            template_analysis_value(proposals, text, patronymic, &format!("{}_по_батькові", role.id), &format!("По батькові: {}", role.name), &category);
+            template_analysis_value(
+                proposals,
+                text,
+                patronymic,
+                &format!("{}_по_батькові", role.id),
+                &format!("По батькові: {}", role.name),
+                &category,
+            );
         }
     }
     if signer.rank.chars().count() >= 4 {
@@ -762,7 +848,9 @@ fn detected_signer_block_proposals(
             &category,
         );
     }
-    if let Some(position) = document_signature_position(text, &name_in_document.full_name, &signer.rank) {
+    if let Some(position) =
+        document_signature_position(text, &name_in_document.full_name, &signer.rank)
+    {
         template_analysis_value(
             proposals,
             text,
@@ -777,9 +865,8 @@ fn detected_signer_block_proposals(
 fn document_phrase_after(text: &str, marker: &str) -> Option<String> {
     let lower = text.to_lowercase();
     let start = lower.find(marker)? + marker.len();
-    let remaining = text[start..].trim_start_matches(|character: char| {
-        character.is_whitespace() || character == ':'
-    });
+    let remaining = text[start..]
+        .trim_start_matches(|character: char| character.is_whitespace() || character == ':');
     let quoted = [("«", "»"), ("\"", "\""), ("“", "”")]
         .iter()
         .find_map(|(opening, closing)| {
@@ -789,11 +876,13 @@ fn document_phrase_after(text: &str, marker: &str) -> Option<String> {
                     .map(|end| after_opening[..end].trim().to_string())
             })
         });
-    let value = quoted.unwrap_or_else(|| remaining
-        .chars()
-        .take_while(|character| !matches!(character, ',' | ';' | '\n' | '\r'))
-        .take(90)
-        .collect::<String>());
+    let value = quoted.unwrap_or_else(|| {
+        remaining
+            .chars()
+            .take_while(|character| !matches!(character, ',' | ';' | '\n' | '\r'))
+            .take(90)
+            .collect::<String>()
+    });
     let value = value.trim_matches(|character: char| {
         character.is_whitespace() || matches!(character, ':' | '«' | '»' | '.')
     });
@@ -902,7 +991,7 @@ fn analyse_report_for_template(
             &mut proposals,
             &text,
             &name,
-            "автомобіль_назва",
+            "автомобіль_1_назва",
             "Назва автомобіля",
             "Автомобіль",
         );
@@ -910,7 +999,7 @@ fn analyse_report_for_template(
             &mut proposals,
             &text,
             &registration,
-            "автомобіль_номер",
+            "автомобіль_1_номер",
             "Номер автомобіля",
             "Автомобіль",
         );
@@ -918,12 +1007,101 @@ fn analyse_report_for_template(
             &mut proposals,
             &text,
             &status,
-            "автомобіль_статус",
+            "автомобіль_1_статус",
             "Статус автомобіля",
             "Автомобіль",
         );
     }
+    let mut crew_statement = database
+        .connection
+        .prepare("SELECT name,platoon,position_name,reconnaissance_area FROM crews")
+        .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?;
+    let crews = crew_statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?;
+    for (name, platoon, position, area) in crews {
+        for (value, token, label) in [
+            (name, "екіпаж_1_назва", "Назва екіпажу"),
+            (platoon, "екіпаж_1_взвод", "Взвод екіпажу"),
+            (position, "екіпаж_1_позиція", "Позиція екіпажу"),
+            (area, "екіпаж_1_район_розвідки", "Район розвідки"),
+        ] {
+            template_analysis_value(&mut proposals, &text, &value, token, label, "Екіпаж");
+        }
+    }
+    let mut equipment_statement = database
+        .connection
+        .prepare("SELECT category,name,inventory_number,status,notes FROM equipment")
+        .map_err(|_| "Не вдалося прочитати майно.".to_string())?;
+    let equipment = equipment_statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|_| "Не вдалося прочитати майно.".to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Не вдалося прочитати майно.".to_string())?;
+    for (category, name, inventory, status, notes) in equipment {
+        let (prefix, category_label) = match category.as_str() {
+            "generator" => ("генератор", "Генератор"),
+            "uav" => ("бпла", "БпЛА"),
+            "communications" => ("звʼязок", "Зв’язок"),
+            "weapon_ammo" => ("зброя_та_бк", "Зброя та БК"),
+            _ => continue,
+        };
+        for (value, field, label) in [
+            (name, "назва", "Назва"),
+            (inventory, "інвентарний_номер", "Інвентарний номер"),
+            (status, "статус", "Статус"),
+            (notes, "примітка", "Примітка"),
+        ] {
+            template_analysis_value(
+                &mut proposals,
+                &text,
+                &value,
+                &format!("{prefix}_1_{field}"),
+                &format!("{label}: {category_label}"),
+                category_label,
+            );
+        }
+    }
     detected_document_proposals(&mut proposals, &text);
+    let document_crew_values = proposals
+        .iter()
+        .filter(|proposal| proposal.token == "екіпаж_1")
+        .map(|proposal| proposal.value.to_lowercase())
+        .collect::<Vec<_>>();
+    proposals.retain(|proposal| {
+        proposal.token != "екіпаж_1_назва"
+            || !document_crew_values
+                .iter()
+                .any(|value| value == &proposal.value.to_lowercase())
+    });
+    let position_values = proposals
+        .iter()
+        .filter(|proposal| proposal.token.ends_with("_посада"))
+        .map(|proposal| proposal.value.to_lowercase())
+        .collect::<Vec<_>>();
+    proposals.retain(|proposal| {
+        !proposal.token.starts_with("військова_частина_")
+            || !position_values
+                .iter()
+                .any(|position| position.contains(&proposal.value.to_lowercase()))
+    });
     proposals.sort_by(|left, right| {
         right
             .occurrences
@@ -960,12 +1138,14 @@ fn render_report_analysis_preview(
         "shablonizator-preview-{}-{nonce}.docx",
         std::process::id()
     ));
-    let replacement_values = replacements.into_iter().map(|item| {
-        let replacement = item.replacement.unwrap_or_else(|| format!("{{{{{}}}}}", item.token));
-        (item.value, replacement)
-    }).collect::<Vec<_>>();
-    report_generation::create_template_from_literal_replacements(&source, &temporary, &replacement_values)?;
-    let bytes = std::fs::read(&temporary).map_err(|_| "Не вдалося підготувати перегляд документа.".to_string());
+    let replacement_values = ordered_analysis_replacements(replacements);
+    report_generation::create_template_from_literal_replacements(
+        &source,
+        &temporary,
+        &replacement_values,
+    )?;
+    let bytes = std::fs::read(&temporary)
+        .map_err(|_| "Не вдалося підготувати перегляд документа.".to_string());
     let _ = std::fs::remove_file(temporary);
     bytes
 }
@@ -1006,15 +1186,7 @@ async fn create_template_from_report_analysis(
         destination = directory.join(format!("{safe_name} ({suffix}).docx"));
         suffix += 1;
     }
-    let replacements = replacements
-        .into_iter()
-        .map(|item| {
-            let replacement = item
-                .replacement
-                .unwrap_or_else(|| format!("{{{{{}}}}}", item.token));
-            (item.value, replacement)
-        })
-        .collect::<Vec<_>>();
+    let replacements = ordered_analysis_replacements(replacements);
     let source_for_task = source.clone();
     let destination_for_task = destination.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -1027,227 +1199,6 @@ async fn create_template_from_report_analysis(
     .await
     .map_err(|_| "Не вдалося завершити створення DOCX-шаблону.".to_string())??;
     Ok(destination.to_string_lossy().into())
-}
-
-#[tauri::command]
-fn list_vehicles(state: tauri::State<AppState>) -> Result<Vec<Vehicle>, String> {
-    let db = state
-        .0
-        .lock()
-        .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    let mut query = db.connection.prepare("SELECT v.id,v.name,v.registration_number,v.status,v.personnel_id,CASE WHEN p.id IS NULL THEN NULL ELSE trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) END,v.crew_id,c.name FROM vehicles v LEFT JOIN personnel p ON p.id=v.personnel_id LEFT JOIN crews c ON c.id=v.crew_id ORDER BY v.name").map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?;
-    let result = query
-        .query_map([], |row| {
-            Ok(Vehicle {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                registration_number: row.get(2)?,
-                status: row.get(3)?,
-                personnel_id: row.get(4)?,
-                driver_name: row.get(5)?,
-                crew_id: row.get(6)?,
-                crew_name: row.get(7)?,
-            })
-        })
-        .map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| "Не вдалося прочитати автомобілі.".to_string());
-    result
-}
-#[tauri::command]
-fn create_vehicle(
-    state: tauri::State<AppState>,
-    name: String,
-    registration_number: String,
-    status: String,
-) -> Result<(), String> {
-    let db = state
-        .0
-        .lock()
-        .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    db.connection
-        .execute(
-            "INSERT INTO vehicles(name,registration_number,status) VALUES (?1,?2,?3)",
-            rusqlite::params![name.trim(), registration_number.trim(), status],
-        )
-        .map_err(|_| "Не вдалося додати автомобіль.".to_string())?;
-    let id = db.connection.last_insert_rowid();
-    db.connection.execute("INSERT INTO vehicle_custom_fields(vehicle_id,field_key,field_value) SELECT ?1,field_key,initial_value FROM vehicle_custom_field_definitions", [id]).map_err(|_| "Не вдалося встановити кастомні поля автомобіля.".to_string())?;
-    Ok(())
-}
-#[tauri::command]
-fn assign_vehicle(
-    state: tauri::State<AppState>,
-    vehicle_id: i64,
-    personnel_id: Option<i64>,
-    crew_id: Option<i64>,
-) -> Result<(), String> {
-    let db = state
-        .0
-        .lock()
-        .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    if let Some(id) = personnel_id {
-        let position: String = db
-            .connection
-            .query_row("SELECT position FROM personnel WHERE id=?1", [id], |row| {
-                row.get(0)
-            })
-            .map_err(|_| "Водія не знайдено.".to_string())?;
-        if !position.to_lowercase().contains("водій") {
-            return Err("Автомобіль можна закріпити лише за водієм.".into());
-        }
-    }
-    db.connection
-        .execute(
-            "UPDATE vehicles SET personnel_id=?1, crew_id=?2 WHERE id=?3",
-            rusqlite::params![personnel_id, crew_id, vehicle_id],
-        )
-        .map_err(|_| "Не вдалося змінити закріплення автомобіля.".to_string())?;
-    Ok(())
-}
-#[tauri::command]
-fn update_vehicle_status(
-    state: tauri::State<AppState>,
-    vehicle_id: i64,
-    status: String,
-) -> Result<(), String> {
-    let db = state
-        .0
-        .lock()
-        .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    db.connection
-        .execute(
-            "UPDATE vehicles SET status=?1 WHERE id=?2",
-            rusqlite::params![status, vehicle_id],
-        )
-        .map_err(|_| "Не вдалося змінити статус автомобіля.".to_string())
-        .map(|_| ())
-}
-#[tauri::command]
-fn delete_vehicle(state: tauri::State<AppState>, vehicle_id: i64) -> Result<(), String> {
-    let db = state
-        .0
-        .lock()
-        .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    db.connection
-        .execute("DELETE FROM vehicles WHERE id=?1", [vehicle_id])
-        .map_err(|_| "Не вдалося видалити автомобіль.".to_string())
-        .map(|_| ())
-}
-
-fn crew_members(connection: &Connection, crew_id: i64) -> Result<Vec<CrewMember>, String> {
-    let mut statement = connection.prepare("SELECT p.id, trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic), p.rank, p.position FROM crew_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=?1 AND cm.left_at IS NULL ORDER BY cm.joined_at, p.id")
-        .map_err(|_| "Не вдалося прочитати склад екіпажу.".to_string())?;
-    let result = statement.query_map([crew_id], |row| Ok(CrewMember { personnel_id: row.get(0)?, full_name: row.get(1)?, rank: row.get(2)?, position: row.get(3)? }))
-        .map_err(|_| "Не вдалося прочитати склад екіпажу.".to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| "Не вдалося прочитати склад екіпажу.".to_string());
-    result
-}
-
-#[tauri::command]
-fn list_crews(state: tauri::State<AppState>) -> Result<Vec<Crew>, String> {
-    let db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    let mut statement = db.connection.prepare("SELECT c.id,c.name,c.platoon,c.position_name,c.reconnaissance_area,COUNT(cm.id) FROM crews c LEFT JOIN crew_members cm ON cm.crew_id=c.id AND cm.left_at IS NULL GROUP BY c.id ORDER BY c.platoon COLLATE NOCASE,c.name COLLATE NOCASE")
-        .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?;
-    let rows = statement.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)?)))
-        .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?
-        .collect::<Result<Vec<_>, _>>().map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?;
-    rows.into_iter().map(|(id,name,platoon,position_name,reconnaissance_area,member_count)| Ok(Crew { id, name, platoon, position_name, reconnaissance_area, member_count, members: crew_members(&db.connection,id)? })).collect()
-}
-
-#[tauri::command]
-fn create_crew(state: tauri::State<AppState>, draft: CrewDraft) -> Result<(), String> {
-    if draft.name.trim().is_empty() { return Err("Вкажіть назву екіпажу.".into()); }
-    let db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    db.connection.execute("INSERT INTO crews(name,platoon,position_name,reconnaissance_area) VALUES(?1,?2,?3,?4)", rusqlite::params![draft.name.trim(),draft.platoon.trim(),draft.position_name.trim(),draft.reconnaissance_area.trim()]).map_err(|_| "Не вдалося створити екіпаж. Перевірте унікальність назви.".to_string())?;
-    let crew_id = db.connection.last_insert_rowid();
-    for personnel_id in draft.member_ids { db.connection.execute("INSERT INTO crew_members(crew_id,personnel_id) VALUES(?1,?2)", rusqlite::params![crew_id,personnel_id]).map_err(|_| "Не вдалося додати учасника екіпажу.".to_string())?; }
-    Ok(())
-}
-
-#[tauri::command]
-fn update_crew(state: tauri::State<AppState>, crew_id: i64, draft: CrewDraft) -> Result<(), String> {
-    if draft.name.trim().is_empty() { return Err("Вкажіть назву екіпажу.".into()); }
-    let db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    db.connection.execute("UPDATE crews SET name=?1,platoon=?2,position_name=?3,reconnaissance_area=?4 WHERE id=?5", rusqlite::params![draft.name.trim(),draft.platoon.trim(),draft.position_name.trim(),draft.reconnaissance_area.trim(),crew_id]).map_err(|_| "Не вдалося оновити екіпаж.".to_string())?;
-    db.connection.execute("UPDATE crew_members SET left_at=CURRENT_TIMESTAMP WHERE crew_id=?1 AND left_at IS NULL", [crew_id]).map_err(|_| "Не вдалося оновити склад екіпажу.".to_string())?;
-    for personnel_id in draft.member_ids { db.connection.execute("INSERT INTO crew_members(crew_id,personnel_id) VALUES(?1,?2)", rusqlite::params![crew_id,personnel_id]).map_err(|_| "Не вдалося оновити склад екіпажу.".to_string())?; }
-    Ok(())
-}
-
-#[tauri::command]
-fn delete_crew(state: tauri::State<AppState>, crew_id: i64) -> Result<(), String> {
-    let db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    db.connection.execute("DELETE FROM crews WHERE id=?1", [crew_id]).map_err(|_| "Не вдалося видалити екіпаж.".to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-fn list_equipment(state: tauri::State<AppState>, category: String) -> Result<Vec<Equipment>, String> {
-    let db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    let mut statement = db.connection.prepare("SELECT e.id,e.category,e.name,e.inventory_number,e.status,e.crew_id,c.name,e.personnel_id,CASE WHEN p.id IS NULL THEN NULL ELSE trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) END,e.notes FROM equipment e LEFT JOIN crews c ON c.id=e.crew_id LEFT JOIN personnel p ON p.id=e.personnel_id WHERE e.category=?1 ORDER BY e.name COLLATE NOCASE,e.id")
-        .map_err(|_| "Не вдалося прочитати майно.".to_string())?;
-    let result = statement.query_map([category], |row| Ok(Equipment { id:row.get(0)?,category:row.get(1)?,name:row.get(2)?,inventory_number:row.get(3)?,status:row.get(4)?,crew_id:row.get(5)?,crew_name:row.get(6)?,personnel_id:row.get(7)?,holder_name:row.get(8)?,notes:row.get(9)? }))
-        .map_err(|_| "Не вдалося прочитати майно.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати майно.".to_string())
-        ;
-    result
-}
-
-#[tauri::command]
-fn create_equipment(state: tauri::State<AppState>, draft: EquipmentDraft) -> Result<(), String> {
-    if draft.name.trim().is_empty() { return Err("Вкажіть назву запису.".into()); }
-    if !["generator","uav","communications","weapon_ammo"].contains(&draft.category.as_str()) { return Err("Невідома категорія майна.".into()); }
-    if draft.category == "weapon_ammo" && draft.personnel_id.is_none() { return Err("Зброю та БК потрібно закріпити за військовослужбовцем.".into()); }
-    let db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    db.connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,personnel_id,notes) VALUES(?1,?2,?3,?4,?5,?6,?7)", rusqlite::params![draft.category,draft.name.trim(),draft.inventory_number.trim(),draft.status,draft.crew_id,draft.personnel_id,draft.notes.trim()]).map_err(|_| "Не вдалося додати запис майна.".to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-fn delete_equipment(state: tauri::State<AppState>, equipment_id: i64) -> Result<(), String> {
-    let db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    db.connection.execute("DELETE FROM equipment WHERE id=?1", [equipment_id]).map_err(|_| "Не вдалося видалити запис майна.".to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-fn list_incidents(state: tauri::State<AppState>) -> Result<Vec<Incident>, String> {
-    let db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    let mut statement = db.connection.prepare("SELECT i.id,i.incident_type,i.occurred_at,i.crew_id,c.name,i.equipment_id,e.name,i.position_name,i.reconnaissance_area,i.crew_snapshot,COALESCE((SELECT group_concat(v.name || ' ' || v.registration_number, ', ') FROM vehicles v WHERE v.crew_id=i.crew_id),''),i.description FROM incidents i LEFT JOIN crews c ON c.id=i.crew_id LEFT JOIN equipment e ON e.id=i.equipment_id ORDER BY i.created_at DESC,i.id DESC").map_err(|_| "Не вдалося прочитати інциденти.".to_string())?;
-    let result = statement.query_map([], |row| Ok(Incident { id:row.get(0)?,incident_type:row.get(1)?,occurred_at:row.get(2)?,crew_id:row.get(3)?,crew_name:row.get(4)?,equipment_id:row.get(5)?,equipment_name:row.get(6)?,position_name:row.get(7)?,reconnaissance_area:row.get(8)?,crew_snapshot:row.get(9)?,vehicle_name:row.get(10)?,description:row.get(11)? }))
-        .map_err(|_| "Не вдалося прочитати інциденти.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати інциденти.".to_string())
-        ;
-    result
-}
-
-#[tauri::command]
-fn create_incident(state: tauri::State<AppState>, draft: IncidentDraft) -> Result<(), String> {
-    if draft.incident_type.trim().is_empty() { return Err("Оберіть тип інциденту.".into()); }
-    let db = state.0.lock().map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    let (position_name, reconnaissance_area, crew_snapshot) = if let Some(crew_id) = draft.crew_id {
-        let info: (String, String) = db.connection
-            .query_row(
-                "SELECT position_name, reconnaissance_area FROM crews WHERE id=?1",
-                [crew_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .map_err(|_| "Екіпаж не знайдено.".to_string())?;
-        let members = crew_members(&db.connection, crew_id)?
-            .into_iter()
-            .map(|member| member.full_name)
-            .collect::<Vec<_>>()
-            .join(", ");
-        (
-            if draft.position_name.trim().is_empty() { info.0 } else { draft.position_name.trim().into() },
-            if draft.reconnaissance_area.trim().is_empty() { info.1 } else { draft.reconnaissance_area.trim().into() },
-            members,
-        )
-    } else {
-        (draft.position_name.trim().into(), draft.reconnaissance_area.trim().into(), String::new())
-    };
-    db.connection.execute("INSERT INTO incidents(incident_type,occurred_at,crew_id,equipment_id,position_name,reconnaissance_area,crew_snapshot,description) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",rusqlite::params![draft.incident_type.trim(),draft.occurred_at.trim(),draft.crew_id,draft.equipment_id,position_name,reconnaissance_area,crew_snapshot,draft.description.trim()]).map_err(|_| "Не вдалося зберегти інцидент.".to_string())?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -1530,7 +1481,10 @@ fn import_personnel_xlsx(
             && equipment.holder_tax_id.trim().is_empty()
             && equipment.holder_full_name.trim().is_empty()
         {
-            return Err("Для запису на аркуші «Зброя та БК» вкажіть відповідального військовослужбовця.".into());
+            return Err(
+                "Для запису на аркуші «Зброя та БК» вкажіть відповідального військовослужбовця."
+                    .into(),
+            );
         }
     }
     let mut db = state
@@ -1547,16 +1501,32 @@ fn import_personnel_xlsx(
                 "DELETE FROM incidents; DELETE FROM equipment; DELETE FROM vehicles; DELETE FROM crews; DELETE FROM personnel; DELETE FROM custom_field_definitions; DELETE FROM vehicle_custom_field_definitions;",
             ).map_err(|_| "Не вдалося очистити дані перед імпортом.".to_string())?;
         }
-        let ensure_custom_fields = |scope: &str, fields: &[xlsx::CustomFieldMapRow]| -> Result<(), String> {
-            let (definitions, values) = if scope == "vehicle" { ("vehicle_custom_field_definitions", "vehicle_custom_fields") } else { ("custom_field_definitions", "personnel_custom_fields") };
+        let ensure_custom_fields = |scope: &str,
+                                    fields: &[xlsx::CustomFieldMapRow]|
+         -> Result<(), String> {
+            let (definitions, values) = if scope == "vehicle" {
+                ("vehicle_custom_field_definitions", "vehicle_custom_fields")
+            } else {
+                ("custom_field_definitions", "personnel_custom_fields")
+            };
             for field in fields {
-                if field.field_key.trim().is_empty() { continue; }
+                if field.field_key.trim().is_empty() {
+                    continue;
+                }
                 db.connection.execute(
                     &format!("INSERT OR IGNORE INTO {definitions}(field_key,display_name,description,initial_value) VALUES(?1,?2,'','')"),
                     rusqlite::params![field.field_key.trim(), field.display_name.trim()],
                 ).map_err(|_| "Не вдалося створити кастомне поле з Excel.".to_string())?;
-                let owner = if scope == "vehicle" { "vehicle_id" } else { "personnel_id" };
-                let source = if scope == "vehicle" { "vehicles" } else { "personnel" };
+                let owner = if scope == "vehicle" {
+                    "vehicle_id"
+                } else {
+                    "personnel_id"
+                };
+                let source = if scope == "vehicle" {
+                    "vehicles"
+                } else {
+                    "personnel"
+                };
                 db.connection.execute(
                     &format!("INSERT OR IGNORE INTO {values}({owner},field_key,field_value) SELECT id,?1,'' FROM {source}"),
                     [field.field_key.trim()],
@@ -1571,9 +1541,19 @@ fn import_personnel_xlsx(
             personnel::create_import(&db.connection, draft)?;
             count += 1;
         }
-        let personnel_id = |tax_id: &str, full_name: &str| -> Result<Option<(i64, String)>, String> {
+        let personnel_id = |tax_id: &str,
+                            full_name: &str|
+         -> Result<Option<(i64, String)>, String> {
             if !tax_id.trim().is_empty() {
-                return db.connection.query_row("SELECT id,position FROM personnel WHERE tax_id=?1", [tax_id.trim()], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|_| "Не вдалося знайти військовослужбовця за ІПН.".to_string());
+                return db
+                    .connection
+                    .query_row(
+                        "SELECT id,position FROM personnel WHERE tax_id=?1",
+                        [tax_id.trim()],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .optional()
+                    .map_err(|_| "Не вдалося знайти військовослужбовця за ІПН.".to_string());
             }
             if !full_name.trim().is_empty() {
                 return db.connection.query_row("SELECT id,position FROM personnel WHERE trim(surname || ' ' || given_name || ' ' || patronymic)=?1", [full_name.trim()], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(|_| "Не вдалося знайти військовослужбовця за ПІБ.".to_string());
@@ -1585,39 +1565,151 @@ fn import_personnel_xlsx(
             count += 1;
         }
         for member in data.crew_members {
-            let crew_id = db.connection.query_row("SELECT id FROM crews WHERE name=?1", [member.crew_name.trim()], |row| row.get::<_, i64>(0)).optional().map_err(|_| "Не вдалося знайти екіпаж для його складу.".to_string())?.ok_or_else(|| format!("Для складу екіпажу не знайдено «{}».", member.crew_name))?;
-            let person_id = personnel_id(&member.personnel_tax_id, &member.personnel_full_name)?.map(|value| value.0).ok_or_else(|| format!("Не знайдено військовослужбовця для екіпажу «{}».", member.crew_name))?;
-            db.connection.execute("INSERT OR IGNORE INTO crew_members(crew_id,personnel_id) VALUES(?1,?2)", rusqlite::params![crew_id,person_id]).map_err(|_| "Не вдалося імпортувати склад екіпажу.".to_string())?;
+            let crew_id = db
+                .connection
+                .query_row(
+                    "SELECT id FROM crews WHERE name=?1",
+                    [member.crew_name.trim()],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|_| "Не вдалося знайти екіпаж для його складу.".to_string())?
+                .ok_or_else(|| format!("Для складу екіпажу не знайдено «{}».", member.crew_name))?;
+            let person_id = personnel_id(&member.personnel_tax_id, &member.personnel_full_name)?
+                .map(|value| value.0)
+                .ok_or_else(|| {
+                    format!(
+                        "Не знайдено військовослужбовця для екіпажу «{}».",
+                        member.crew_name
+                    )
+                })?;
+            db.connection
+                .execute(
+                    "INSERT OR IGNORE INTO crew_members(crew_id,personnel_id) VALUES(?1,?2)",
+                    rusqlite::params![crew_id, person_id],
+                )
+                .map_err(|_| "Не вдалося імпортувати склад екіпажу.".to_string())?;
             count += 1;
         }
         for vehicle in data.vehicles {
-            let driver_id = if vehicle.driver_tax_id.trim().is_empty() && vehicle.driver_full_name.trim().is_empty() { None } else {
-                let (id, position) = personnel_id(&vehicle.driver_tax_id, &vehicle.driver_full_name)?.ok_or_else(|| format!("Для автомобіля «{}» не знайдено водія.", vehicle.registration_number))?;
+            let driver_id = if vehicle.driver_tax_id.trim().is_empty()
+                && vehicle.driver_full_name.trim().is_empty()
+            {
+                None
+            } else {
+                let (id, position) =
+                    personnel_id(&vehicle.driver_tax_id, &vehicle.driver_full_name)?.ok_or_else(
+                        || {
+                            format!(
+                                "Для автомобіля «{}» не знайдено водія.",
+                                vehicle.registration_number
+                            )
+                        },
+                    )?;
                 if !position.to_lowercase().contains("водій") {
                     return Err(format!(
-                        "Закріплений за автомобілем «{}» військовослужбовець не має посади водія.", vehicle.registration_number
+                        "Закріплений за автомобілем «{}» військовослужбовець не має посади водія.",
+                        vehicle.registration_number
                     ));
                 }
                 Some(id)
             };
-            let crew_id = if vehicle.crew_name.trim().is_empty() { None } else { Some(db.connection.query_row("SELECT id FROM crews WHERE name=?1", [vehicle.crew_name.trim()], |row| row.get::<_,i64>(0)).optional().map_err(|_| "Не вдалося знайти екіпаж автомобіля.".to_string())?.ok_or_else(|| format!("Для автомобіля «{}» не знайдено екіпаж «{}».", vehicle.registration_number, vehicle.crew_name))?) };
+            let crew_id = if vehicle.crew_name.trim().is_empty() {
+                None
+            } else {
+                Some(
+                    db.connection
+                        .query_row(
+                            "SELECT id FROM crews WHERE name=?1",
+                            [vehicle.crew_name.trim()],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .optional()
+                        .map_err(|_| "Не вдалося знайти екіпаж автомобіля.".to_string())?
+                        .ok_or_else(|| {
+                            format!(
+                                "Для автомобіля «{}» не знайдено екіпаж «{}».",
+                                vehicle.registration_number, vehicle.crew_name
+                            )
+                        })?,
+                )
+            };
             db.connection.execute("INSERT INTO vehicles(name, registration_number, status, personnel_id, crew_id) VALUES(?1, ?2, ?3, ?4, ?5)", rusqlite::params![vehicle.name.trim(), vehicle.registration_number.trim(), if vehicle.status.trim().is_empty() { "Справний" } else { vehicle.status.trim() }, driver_id, crew_id]).map_err(|_| format!("Не вдалося додати автомобіль з номером «{}». Перевірте, чи такого номера ще немає в базі.", vehicle.registration_number))?;
             let vehicle_id = db.connection.last_insert_rowid();
             db.connection.execute("INSERT INTO vehicle_custom_fields(vehicle_id,field_key,field_value) SELECT ?1,field_key,initial_value FROM vehicle_custom_field_definitions", [vehicle_id]).map_err(|_| "Не вдалося встановити кастомні поля автомобіля.".to_string())?;
             count += 1;
         }
         for equipment in data.equipment {
-            let crew_id = if equipment.crew_name.trim().is_empty() { None } else { Some(db.connection.query_row("SELECT id FROM crews WHERE name=?1", [equipment.crew_name.trim()], |row| row.get::<_,i64>(0)).optional().map_err(|_| "Не вдалося знайти екіпаж майна.".to_string())?.ok_or_else(|| format!("Для майна «{}» не знайдено екіпаж «{}».", equipment.name, equipment.crew_name))?) };
-            let holder_id = personnel_id(&equipment.holder_tax_id, &equipment.holder_full_name)?.map(|value| value.0);
-            if equipment.category == "weapon_ammo" && holder_id.is_none() { return Err(format!("Для «{}» не знайдено відповідального військовослужбовця.", equipment.name)); }
+            let crew_id = if equipment.crew_name.trim().is_empty() {
+                None
+            } else {
+                Some(
+                    db.connection
+                        .query_row(
+                            "SELECT id FROM crews WHERE name=?1",
+                            [equipment.crew_name.trim()],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .optional()
+                        .map_err(|_| "Не вдалося знайти екіпаж майна.".to_string())?
+                        .ok_or_else(|| {
+                            format!(
+                                "Для майна «{}» не знайдено екіпаж «{}».",
+                                equipment.name, equipment.crew_name
+                            )
+                        })?,
+                )
+            };
+            let holder_id = personnel_id(&equipment.holder_tax_id, &equipment.holder_full_name)?
+                .map(|value| value.0);
+            if equipment.category == "weapon_ammo" && holder_id.is_none() {
+                return Err(format!(
+                    "Для «{}» не знайдено відповідального військовослужбовця.",
+                    equipment.name
+                ));
+            }
             db.connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,personnel_id,notes) VALUES(?1,?2,?3,?4,?5,?6,?7)", rusqlite::params![equipment.category,equipment.name.trim(),equipment.inventory_number.trim(),if equipment.status.trim().is_empty(){"Справний"}else{equipment.status.trim()},crew_id,holder_id,equipment.notes.trim()]).map_err(|_| "Не вдалося імпортувати майно.".to_string())?;
             count += 1;
         }
         for incident in data.incidents {
-            if incident.incident_type.trim().is_empty() { return Err("На аркуші «Інциденти» вкажіть тип інциденту.".into()); }
-            let crew_id = if incident.crew_name.trim().is_empty() { None } else { Some(db.connection.query_row("SELECT id FROM crews WHERE name=?1", [incident.crew_name.trim()], |row| row.get::<_,i64>(0)).optional().map_err(|_| "Не вдалося знайти екіпаж інциденту.".to_string())?.ok_or_else(|| format!("Для інциденту не знайдено екіпаж «{}».", incident.crew_name))?) };
-            let equipment_id = if incident.equipment_category.trim().is_empty() && incident.equipment_inventory_number.trim().is_empty() && incident.equipment_name.trim().is_empty() { None } else { db.connection.query_row("SELECT id FROM equipment WHERE category=?1 AND ((?2 <> '' AND inventory_number=?2) OR (?2 = '' AND name=?3)) ORDER BY id LIMIT 1", rusqlite::params![incident.equipment_category.trim(),incident.equipment_inventory_number.trim(),incident.equipment_name.trim()], |row| row.get::<_,i64>(0)).optional().map_err(|_| "Не вдалося знайти майно інциденту.".to_string())? };
-            let snapshot = crew_id.map(|id| crew_members(&db.connection,id).unwrap_or_default().into_iter().map(|member| member.full_name).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+            if incident.incident_type.trim().is_empty() {
+                return Err("На аркуші «Інциденти» вкажіть тип інциденту.".into());
+            }
+            let crew_id = if incident.crew_name.trim().is_empty() {
+                None
+            } else {
+                Some(
+                    db.connection
+                        .query_row(
+                            "SELECT id FROM crews WHERE name=?1",
+                            [incident.crew_name.trim()],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .optional()
+                        .map_err(|_| "Не вдалося знайти екіпаж інциденту.".to_string())?
+                        .ok_or_else(|| {
+                            format!("Для інциденту не знайдено екіпаж «{}».", incident.crew_name)
+                        })?,
+                )
+            };
+            let equipment_id = if incident.equipment_category.trim().is_empty()
+                && incident.equipment_inventory_number.trim().is_empty()
+                && incident.equipment_name.trim().is_empty()
+            {
+                None
+            } else {
+                db.connection.query_row("SELECT id FROM equipment WHERE category=?1 AND ((?2 <> '' AND inventory_number=?2) OR (?2 = '' AND name=?3)) ORDER BY id LIMIT 1", rusqlite::params![incident.equipment_category.trim(),incident.equipment_inventory_number.trim(),incident.equipment_name.trim()], |row| row.get::<_,i64>(0)).optional().map_err(|_| "Не вдалося знайти майно інциденту.".to_string())?
+            };
+            let snapshot = crew_id
+                .map(|id| {
+                    operations::crew_members(&db.connection, id)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|member| member.full_name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
             db.connection.execute("INSERT INTO incidents(incident_type,occurred_at,crew_id,equipment_id,position_name,reconnaissance_area,crew_snapshot,description) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",rusqlite::params![incident.incident_type.trim(),incident.occurred_at.trim(),crew_id,equipment_id,incident.position_name.trim(),incident.reconnaissance_area.trim(),snapshot,incident.description.trim()]).map_err(|_| "Не вдалося імпортувати інцидент.".to_string())?;
             count += 1;
         }
@@ -1625,12 +1717,30 @@ fn import_personnel_xlsx(
             let person_id = personnel_id(&row.owner_key, "")?
                 .or(personnel_id("", &row.owner_key)?)
                 .map(|value| value.0)
-                .ok_or_else(|| format!("Не знайдено військовослужбовця для кастомних полів «{}».", row.owner_key))?;
-            for (key, value) in row.values { db.connection.execute("INSERT INTO personnel_custom_fields(personnel_id,field_key,field_value) VALUES(?1,?2,?3) ON CONFLICT(personnel_id,field_key) DO UPDATE SET field_value=excluded.field_value", rusqlite::params![person_id,key,value]).map_err(|_| "Не вдалося зберегти кастомне поле військовослужбовця.".to_string())?; }
+                .ok_or_else(|| {
+                    format!(
+                        "Не знайдено військовослужбовця для кастомних полів «{}».",
+                        row.owner_key
+                    )
+                })?;
+            for (key, value) in row.values {
+                db.connection.execute("INSERT INTO personnel_custom_fields(personnel_id,field_key,field_value) VALUES(?1,?2,?3) ON CONFLICT(personnel_id,field_key) DO UPDATE SET field_value=excluded.field_value", rusqlite::params![person_id,key,value]).map_err(|_| "Не вдалося зберегти кастомне поле військовослужбовця.".to_string())?;
+            }
         }
         for row in data.vehicle_custom_fields {
-            let vehicle_id = db.connection.query_row("SELECT id FROM vehicles WHERE registration_number=?1", [row.owner_key.trim()], |row| row.get::<_,i64>(0)).optional().map_err(|_| "Не вдалося знайти автомобіль для кастомних полів.".to_string())?.ok_or_else(|| "Не знайдено автомобіль для кастомних полів.".to_string())?;
-            for (key, value) in row.values { db.connection.execute("INSERT INTO vehicle_custom_fields(vehicle_id,field_key,field_value) VALUES(?1,?2,?3) ON CONFLICT(vehicle_id,field_key) DO UPDATE SET field_value=excluded.field_value", rusqlite::params![vehicle_id,key,value]).map_err(|_| "Не вдалося зберегти кастомне поле автомобіля.".to_string())?; }
+            let vehicle_id = db
+                .connection
+                .query_row(
+                    "SELECT id FROM vehicles WHERE registration_number=?1",
+                    [row.owner_key.trim()],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|_| "Не вдалося знайти автомобіль для кастомних полів.".to_string())?
+                .ok_or_else(|| "Не знайдено автомобіль для кастомних полів.".to_string())?;
+            for (key, value) in row.values {
+                db.connection.execute("INSERT INTO vehicle_custom_fields(vehicle_id,field_key,field_value) VALUES(?1,?2,?3) ON CONFLICT(vehicle_id,field_key) DO UPDATE SET field_value=excluded.field_value", rusqlite::params![vehicle_id,key,value]).map_err(|_| "Не вдалося зберегти кастомне поле автомобіля.".to_string())?;
+            }
         }
         Ok(count)
     })();
@@ -1644,11 +1754,9 @@ fn import_personnel_xlsx(
                 let fields = if mode == "replace" {
                     imported_custom_fields
                 } else {
-                    let mut fields = database::load_custom_fields_file(
-                        &root,
-                        CUSTOM_VARIABLES_FILE_NAME,
-                    )
-                    .unwrap_or_default();
+                    let mut fields =
+                        database::load_custom_fields_file(&root, CUSTOM_VARIABLES_FILE_NAME)
+                            .unwrap_or_default();
                     for imported in imported_custom_fields {
                         if let Some(existing) = fields.iter_mut().find(|field| {
                             field.field_key == imported.field_key && field.scope == imported.scope
@@ -1713,15 +1821,48 @@ fn export_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<
         })
         .collect::<Vec<_>>();
     let custom_rows = |query: &str| -> Result<Vec<xlsx::CustomValueRow>, String> {
-        let mut statement = db.connection.prepare(query).map_err(|_| "Не вдалося прочитати кастомні поля для Excel.".to_string())?;
-        let entries = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))).map_err(|_| "Не вдалося прочитати кастомні поля для Excel.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати кастомні поля для Excel.".to_string())?;
-        let mut grouped = std::collections::BTreeMap::<String, std::collections::HashMap<String,String>>::new();
-        for (owner, key, value) in entries { grouped.entry(owner).or_default().insert(key, value); }
-        Ok(grouped.into_iter().map(|(owner_key, values)| xlsx::CustomValueRow { owner_key, values }).collect())
+        let mut statement = db
+            .connection
+            .prepare(query)
+            .map_err(|_| "Не вдалося прочитати кастомні поля для Excel.".to_string())?;
+        let entries = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|_| "Не вдалося прочитати кастомні поля для Excel.".to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "Не вдалося прочитати кастомні поля для Excel.".to_string())?;
+        let mut grouped =
+            std::collections::BTreeMap::<String, std::collections::HashMap<String, String>>::new();
+        for (owner, key, value) in entries {
+            grouped.entry(owner).or_default().insert(key, value);
+        }
+        Ok(grouped
+            .into_iter()
+            .map(|(owner_key, values)| xlsx::CustomValueRow { owner_key, values })
+            .collect())
     };
     let personnel_custom_values = custom_rows("SELECT CASE WHEN p.tax_id<>'' THEN p.tax_id ELSE trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) END,v.field_key,v.field_value FROM personnel_custom_fields v JOIN personnel p ON p.id=v.personnel_id")?;
     let vehicle_custom_values = custom_rows("SELECT v.registration_number,c.field_key,c.field_value FROM vehicle_custom_fields c JOIN vehicles v ON v.id=c.vehicle_id")?;
-    let crews = db.connection.prepare("SELECT name,platoon,position_name,reconnaissance_area FROM crews ORDER BY id").map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?.query_map([], |row| Ok(xlsx::CrewRow { name:row.get(0)?,platoon:row.get(1)?,position_name:row.get(2)?,reconnaissance_area:row.get(3)? })).map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?;
+    let crews = db
+        .connection
+        .prepare("SELECT name,platoon,position_name,reconnaissance_area FROM crews ORDER BY id")
+        .map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?
+        .query_map([], |row| {
+            Ok(xlsx::CrewRow {
+                name: row.get(0)?,
+                platoon: row.get(1)?,
+                position_name: row.get(2)?,
+                reconnaissance_area: row.get(3)?,
+            })
+        })
+        .map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?;
     let crew_members = db.connection.prepare("SELECT c.name,COALESCE(p.tax_id,''),trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) FROM crew_members cm JOIN crews c ON c.id=cm.crew_id JOIN personnel p ON p.id=cm.personnel_id WHERE cm.left_at IS NULL ORDER BY cm.id").map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?.query_map([], |row| Ok(xlsx::CrewMemberRow { crew_name:row.get(0)?,personnel_tax_id:row.get(1)?,personnel_full_name:row.get(2)? })).map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?;
     let equipment = db.connection.prepare("SELECT e.category,e.name,e.inventory_number,e.status,COALESCE(c.name,''),COALESCE(p.tax_id,''),COALESCE(trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic),''),e.notes FROM equipment e LEFT JOIN crews c ON c.id=e.crew_id LEFT JOIN personnel p ON p.id=e.personnel_id ORDER BY e.id").map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.query_map([], |row| Ok(xlsx::EquipmentRow { category:row.get(0)?,name:row.get(1)?,inventory_number:row.get(2)?,status:row.get(3)?,crew_name:row.get(4)?,holder_tax_id:row.get(5)?,holder_full_name:row.get(6)?,notes:row.get(7)? })).map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?;
     let incidents = db.connection.prepare("SELECT i.incident_type,i.occurred_at,COALESCE(c.name,''),COALESCE(e.category,''),COALESCE(e.inventory_number,''),COALESCE(e.name,''),i.position_name,i.reconnaissance_area,i.description FROM incidents i LEFT JOIN crews c ON c.id=i.crew_id LEFT JOIN equipment e ON e.id=i.equipment_id ORDER BY i.id").map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.query_map([], |row| Ok(xlsx::IncidentRow { incident_type:row.get(0)?,occurred_at:row.get(1)?,crew_name:row.get(2)?,equipment_category:row.get(3)?,equipment_inventory_number:row.get(4)?,equipment_name:row.get(5)?,position_name:row.get(6)?,reconnaissance_area:row.get(7)?,description:row.get(8)? })).map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?;
@@ -2540,20 +2681,20 @@ fn main() {
             export_application_data,
             import_application_data,
             list_generated_reports,
-            list_vehicles,
-            create_vehicle,
-            assign_vehicle,
-            update_vehicle_status,
-            delete_vehicle,
-            list_crews,
-            create_crew,
-            update_crew,
-            delete_crew,
-            list_equipment,
-            create_equipment,
-            delete_equipment,
-            list_incidents,
-            create_incident
+            operations::list_vehicles,
+            operations::create_vehicle,
+            operations::assign_vehicle,
+            operations::update_vehicle_status,
+            operations::delete_vehicle,
+            operations::list_crews,
+            operations::create_crew,
+            operations::update_crew,
+            operations::delete_crew,
+            operations::list_equipment,
+            operations::create_equipment,
+            operations::delete_equipment,
+            operations::list_incidents,
+            operations::create_incident
         ])
         .run(tauri::generate_context!())
         .expect("Не вдалося запустити застосунок");
@@ -2565,8 +2706,14 @@ mod tests {
 
     #[test]
     fn analysis_counts_only_whole_values() {
-        assert_eq!(whole_text_match_count("Арсеній прибув. АРСЕНІЙ підтвердив.", "Арсен"), 0);
-        assert_eq!(whole_text_match_count("Арсен прибув; Арсеній залишився.", "Арсен"), 1);
+        assert_eq!(
+            whole_text_match_count("Арсеній прибув. АРСЕНІЙ підтвердив.", "Арсен"),
+            0
+        );
+        assert_eq!(
+            whole_text_match_count("Арсен прибув; Арсеній залишився.", "Арсен"),
+            1
+        );
         assert_eq!(whole_text_match_count("АРСЕН прибув.", "Арсен"), 1);
     }
 
@@ -2579,6 +2726,47 @@ mod tests {
         assert_eq!(
             document_phrase_after("позиція «Сокіл»; продовжити виконання", "позиція "),
             Some("Сокіл".into())
+        );
+    }
+
+    #[test]
+    fn crew_document_parameter_offers_one_click_subject_variants() {
+        let alternatives = analysis_alternatives("екіпаж_1");
+        assert!(alternatives
+            .iter()
+            .any(|item| item.token == "екіпаж_1_назва"));
+        assert!(alternatives
+            .iter()
+            .any(|item| item.token == "військовий_1_екіпаж"));
+    }
+
+    #[test]
+    fn manual_analysis_changes_run_after_detected_replacements_in_user_order() {
+        let result = ordered_analysis_replacements(vec![
+            TemplateAnalysisReplacement {
+                value: "Екіпаж ТЕСТ".into(),
+                token: "екіпаж_1".into(),
+                replacement: None,
+                occurrence: None,
+            },
+            TemplateAnalysisReplacement {
+                value: "{{екіпаж_1}}".into(),
+                token: String::new(),
+                replacement: Some(" {{військовий_1_екіпаж}} ".into()),
+                occurrence: Some(0),
+            },
+        ]);
+        assert_eq!(
+            result[0],
+            ("Екіпаж ТЕСТ".into(), "{{екіпаж_1}}".into(), None)
+        );
+        assert_eq!(
+            result[1],
+            (
+                "{{екіпаж_1}}".into(),
+                " {{військовий_1_екіпаж}} ".into(),
+                Some(0)
+            )
         );
     }
 
@@ -2612,8 +2800,13 @@ mod tests {
         let text = "Командир підрозділу\nмайор Максим Петрович ТЕСТОВИЙ";
         let mut proposals = Vec::new();
         detected_signer_block_proposals(&mut proposals, text, &role);
-        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_піб"));
-        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_посада" && proposal.value == "Командир підрозділу"));
+        assert!(proposals
+            .iter()
+            .any(|proposal| proposal.token == "основний_підписант_піб"));
+        assert!(proposals
+            .iter()
+            .any(|proposal| proposal.token == "основний_підписант_посада"
+                && proposal.value == "Командир підрозділу"));
         let mut short_name_proposals = Vec::new();
         detected_document_person_proposals(&mut short_name_proposals, "майор Максим ТЕСТОВИЙ");
         assert!(short_name_proposals.is_empty());
@@ -2633,9 +2826,16 @@ mod tests {
         let text = "Командир підрозділу\nмайор Максим ТЕСТОВИЙ";
         let mut proposals = Vec::new();
         detected_signer_block_proposals(&mut proposals, text, &role);
-        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_прізвище" && proposal.value == "ТЕСТОВИЙ"));
-        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_імя" && proposal.value == "Максим"));
-        assert!(!proposals.iter().any(|proposal| proposal.token == "основний_підписант_піб"));
+        assert!(proposals
+            .iter()
+            .any(|proposal| proposal.token == "основний_підписант_прізвище"
+                && proposal.value == "ТЕСТОВИЙ"));
+        assert!(proposals.iter().any(
+            |proposal| proposal.token == "основний_підписант_імя" && proposal.value == "Максим"
+        ));
+        assert!(!proposals
+            .iter()
+            .any(|proposal| proposal.token == "основний_підписант_піб"));
         let mut generic = Vec::new();
         detected_document_person_proposals(&mut generic, text);
         assert!(generic.is_empty());
@@ -2655,11 +2855,24 @@ mod tests {
         let text = "Командир підрозділу майор Максим ТЕСТОВИЙ";
         let mut proposals = Vec::new();
         detected_signer_block_proposals(&mut proposals, text, &role);
-        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_прізвище" && proposal.value == "ТЕСТОВИЙ"));
-        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_імя" && proposal.value == "Максим"));
-        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_звання" && proposal.value == "майор"));
-        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_посада" && proposal.value == "Командир підрозділу"));
-        assert!(!proposals.iter().any(|proposal| proposal.token == "основний_підписант_піб"));
+        assert!(proposals
+            .iter()
+            .any(|proposal| proposal.token == "основний_підписант_прізвище"
+                && proposal.value == "ТЕСТОВИЙ"));
+        assert!(proposals.iter().any(
+            |proposal| proposal.token == "основний_підписант_імя" && proposal.value == "Максим"
+        ));
+        assert!(proposals
+            .iter()
+            .any(|proposal| proposal.token == "основний_підписант_звання"
+                && proposal.value == "майор"));
+        assert!(proposals
+            .iter()
+            .any(|proposal| proposal.token == "основний_підписант_посада"
+                && proposal.value == "Командир підрозділу"));
+        assert!(!proposals
+            .iter()
+            .any(|proposal| proposal.token == "основний_підписант_піб"));
     }
 
     #[test]
@@ -2676,9 +2889,17 @@ mod tests {
         let text = "Командир роти молодший лейтенант Максім ТАКТІКУЛЬЩІК";
         let mut proposals = Vec::new();
         detected_signer_block_proposals(&mut proposals, text, &role);
-        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_прізвище" && proposal.value == "ТАКТІКУЛЬЩІК"));
-        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_імя" && proposal.value == "Максім"));
-        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_посада" && proposal.value == "Командир роти"));
+        assert!(proposals
+            .iter()
+            .any(|proposal| proposal.token == "основний_підписант_прізвище"
+                && proposal.value == "ТАКТІКУЛЬЩІК"));
+        assert!(proposals.iter().any(
+            |proposal| proposal.token == "основний_підписант_імя" && proposal.value == "Максім"
+        ));
+        assert!(proposals
+            .iter()
+            .any(|proposal| proposal.token == "основний_підписант_посада"
+                && proposal.value == "Командир роти"));
     }
 
     #[test]
@@ -2693,7 +2914,9 @@ mod tests {
             signer: settings::SignerSettings {
                 full_name: "ТАКТІКУЛЬЩІК Максим Едуардович".into(),
                 rank: "молодший лейтенант".into(),
-                position: "Командир роти безпілотних авіаційних комплексів військової частини А2222".into(),
+                position:
+                    "Командир роти безпілотних авіаційних комплексів військової частини А2222"
+                        .into(),
             },
         };
         let text = report_generation::read_docx_text(path).unwrap();
@@ -2701,7 +2924,9 @@ mod tests {
         detected_signer_block_proposals(&mut proposals, &text, &role);
         // Файл є локальним ручним зразком, тому перевіряємо лише правило:
         // якщо в ньому знайдено блок підписанта, він не має стати даними військовослужбовця.
-        assert!(!proposals.iter().any(|proposal| proposal.token == "військовий_1_звання"));
+        assert!(!proposals
+            .iter()
+            .any(|proposal| proposal.token == "військовий_1_звання"));
     }
 
     #[test]
@@ -2713,8 +2938,12 @@ mod tests {
         let text = report_generation::read_docx_text(path).unwrap();
         let mut proposals = Vec::new();
         detected_document_proposals(&mut proposals, &text);
-        assert!(proposals.iter().any(|proposal| proposal.token == "військова_частина_1" && proposal.value == "А2222"));
-        assert!(proposals.iter().any(|proposal| proposal.token == "військова_частина_2" && proposal.value == "А1111"));
+        assert!(proposals
+            .iter()
+            .any(|proposal| proposal.token == "військова_частина_1" && proposal.value == "А2222"));
+        assert!(proposals
+            .iter()
+            .any(|proposal| proposal.token == "військова_частина_2" && proposal.value == "А1111"));
     }
 
     #[test]
@@ -2731,22 +2960,33 @@ mod tests {
         let text = "Командир роти молодший лейтенант Максім ТАКТІКУЛЬЩІК";
         let mut proposals = Vec::new();
         detected_signer_block_proposals(&mut proposals, text, &role);
-        assert!(!proposals.iter().any(|proposal| proposal.token == "військовий_1_звання"));
-        assert!(proposals.iter().any(|proposal| proposal.token == "основний_підписант_звання"));
+        assert!(!proposals
+            .iter()
+            .any(|proposal| proposal.token == "військовий_1_звання"));
+        assert!(proposals
+            .iter()
+            .any(|proposal| proposal.token == "основний_підписант_звання"));
     }
 
     #[test]
     fn document_proposals_do_not_create_a_personnel_rank_from_a_signature_block() {
         let mut proposals = Vec::new();
-        detected_document_proposals(&mut proposals, "Командир роти молодший лейтенант Максім ТАКТІКУЛЬЩІК");
-        assert!(!proposals.iter().any(|proposal| proposal.token == "військовий_1_звання"));
+        detected_document_proposals(
+            &mut proposals,
+            "Командир роти молодший лейтенант Максім ТАКТІКУЛЬЩІК",
+        );
+        assert!(!proposals
+            .iter()
+            .any(|proposal| proposal.token == "військовий_1_звання"));
     }
 
     #[test]
     fn analysis_does_not_treat_arbitrary_title_words_as_a_name() {
         let mut proposals = Vec::new();
         detected_document_proposals(&mut proposals, "Рапорт Виконання ЗАВДАННЯ завершено");
-        assert!(!proposals.iter().any(|proposal| proposal.token == "військовий_1_піб"));
+        assert!(!proposals
+            .iter()
+            .any(|proposal| proposal.token == "військовий_1_піб"));
     }
 
     #[test]
@@ -2761,10 +3001,23 @@ mod tests {
     #[test]
     fn analysis_finds_compact_and_spaced_military_unit_numbers_once_each() {
         let mut proposals = Vec::new();
-        detected_document_proposals(&mut proposals, "військова частина А2222 та військова частина А 3333; повторно А2222");
-        assert!(proposals.iter().any(|proposal| proposal.token == "військова_частина_1" && proposal.value == "А2222"));
-        assert!(proposals.iter().any(|proposal| proposal.token == "військова_частина_2" && proposal.value == "А 3333"));
-        assert_eq!(proposals.iter().filter(|proposal| proposal.token.starts_with("військова_частина_")).count(), 2);
+        detected_document_proposals(
+            &mut proposals,
+            "військова частина А2222 та військова частина А 3333; повторно А2222",
+        );
+        assert!(proposals
+            .iter()
+            .any(|proposal| proposal.token == "військова_частина_1" && proposal.value == "А2222"));
+        assert!(proposals
+            .iter()
+            .any(|proposal| proposal.token == "військова_частина_2" && proposal.value == "А 3333"));
+        assert_eq!(
+            proposals
+                .iter()
+                .filter(|proposal| proposal.token.starts_with("військова_частина_"))
+                .count(),
+            2
+        );
     }
 
     #[test]
@@ -2866,10 +3119,19 @@ mod tests {
 
     #[test]
     fn creates_operational_control_templates() {
-        let root = std::env::temp_dir().join(format!("shablonizator-operational-templates-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!(
+            "shablonizator-operational-templates-{}",
+            std::process::id()
+        ));
         fs::create_dir_all(&root).unwrap();
         create_operational_report_templates(&root).unwrap();
-        for name in ["Контрольний рапорт — екіпаж.docx", "Контрольний рапорт — генератор.docx", "Контрольний рапорт — БпЛА.docx", "Контрольний рапорт — зв’язок.docx", "Контрольний рапорт — зброя та БК.docx"] {
+        for name in [
+            "Контрольний рапорт — екіпаж.docx",
+            "Контрольний рапорт — генератор.docx",
+            "Контрольний рапорт — БпЛА.docx",
+            "Контрольний рапорт — зв’язок.docx",
+            "Контрольний рапорт — зброя та БК.docx",
+        ] {
             let result = report_generation::inspect(root.join(name).to_str().unwrap());
             assert!(result.is_valid, "{name}: {:?}", result.errors);
             assert!(!result.variables.is_empty());

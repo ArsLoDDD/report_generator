@@ -304,13 +304,8 @@ pub(crate) fn validate(draft: &PersonnelDraft) -> Result<(), String> {
     {
         return Err("Заповніть звання, прізвище, ім'я та посаду.".to_string());
     }
-    if draft.tax_id.len() != 10
-        || !draft
-            .tax_id
-            .chars()
-            .all(|character| character.is_ascii_digit())
-    {
-        return Err("ІПН має містити рівно 10 цифр.".to_string());
+    if draft.tax_id.trim().is_empty() {
+        return Err("Вкажіть ІПН або інший ідентифікатор.".to_string());
     }
     if !["", "чоловіча", "жіноча"].contains(&draft.gender.as_str()) {
         return Err("Оберіть чоловічу або жіночу стать.".to_string());
@@ -319,15 +314,6 @@ pub(crate) fn validate(draft: &PersonnelDraft) -> Result<(), String> {
 }
 
 pub(crate) fn validate_import(draft: &PersonnelDraft) -> Result<(), String> {
-    if !draft.tax_id.trim().is_empty()
-        && (draft.tax_id.len() != 10
-            || !draft
-                .tax_id
-                .chars()
-                .all(|character| character.is_ascii_digit()))
-    {
-        return Err("ІПН має містити рівно 10 цифр або бути порожнім.".to_string());
-    }
     if !["", "чоловіча", "жіноча"].contains(&draft.gender.as_str()) {
         return Err("Оберіть чоловічу або жіночу стать.".to_string());
     }
@@ -379,12 +365,14 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_tax_id() {
+    fn accepts_any_non_empty_tax_id_format_and_rejects_an_empty_value() {
         let mut draft = valid_draft();
-        draft.tax_id = "123".into();
+        draft.tax_id = "AB-123/ТЕСТ".into();
+        assert!(validate(&draft).is_ok());
+        draft.tax_id.clear();
         assert_eq!(
             validate(&draft).unwrap_err(),
-            "ІПН має містити рівно 10 цифр."
+            "Вкажіть ІПН або інший ідентифікатор."
         );
     }
 

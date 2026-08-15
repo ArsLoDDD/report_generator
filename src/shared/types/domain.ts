@@ -21,6 +21,7 @@ export type TemplateAnalysisProposal = {
   label: string;
   category: string;
   occurrences: number;
+  alternatives: Array<{ token: string; label: string }>;
 };
 
 export type TemplateAnalysis = {
@@ -32,6 +33,7 @@ export type TemplateAnalysis = {
 
 export type TemplateAnalysisReplacement = Pick<TemplateAnalysisProposal, "value" | "token"> & {
   replacement?: string;
+  occurrence?: number;
 };
 
 export type Person = {

@@ -55,7 +55,7 @@ describe("Генерація рапорту", () => {
   });
 
   it("shows crews when a template uses crew variables", async () => {
-    generation.inspection = { isValid: true, errors: [], variables: ["екіпаж_назва"] };
+    generation.inspection = { isValid: true, errors: [], variables: ["екіпаж_1_назва"] };
     render(<NotificationProvider><ReportGenerationPage template={template} templates={[template]} hasMoreTemplates={false} isLoadingMoreTemplates={false} onLoadMoreTemplates={vi.fn()} people={[person]} hasMorePeople={false} isLoadingMorePeople={false} onLoadMorePeople={vi.fn()} selected={[]} onToggle={vi.fn()} onAll={vi.fn()} onClear={vi.fn()} onChoose={vi.fn()} /></NotificationProvider>);
     expect(await screen.findByText("Вибір екіпажів")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Екіпаж «Сокіл»"));
@@ -64,7 +64,7 @@ describe("Генерація рапорту", () => {
   });
 
   it("shows equipment records when a template uses UAV variables", async () => {
-    generation.inspection = { isValid: true, errors: [], variables: ["бпла_назва"] };
+    generation.inspection = { isValid: true, errors: [], variables: ["бпла_1_назва"] };
     render(<NotificationProvider><ReportGenerationPage template={template} templates={[template]} hasMoreTemplates={false} isLoadingMoreTemplates={false} onLoadMoreTemplates={vi.fn()} people={[person]} hasMorePeople={false} isLoadingMorePeople={false} onLoadMorePeople={vi.fn()} selected={[]} onToggle={vi.fn()} onAll={vi.fn()} onClear={vi.fn()} onChoose={vi.fn()} /></NotificationProvider>);
     expect(await screen.findByText("Вибір майна")).toBeInTheDocument();
     fireEvent.click(screen.getByText("DJI Matrice 30T"));

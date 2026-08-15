@@ -19,7 +19,7 @@ describe("Конструктор змінних", () => {
     personnelService.listCustomFields.mockResolvedValue([]); personnelService.listVehicleCustomFields.mockResolvedValue([]);
     render(<NotificationProvider><VariableConstructorPage /></NotificationProvider>);
     fireEvent.click(screen.getByRole("button", { name: /Автомобіль/ }));
-    expect(await screen.findByRole("button", { name: /\{\{автомобіль_назва\}\}/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /\{\{автомобіль_1_назва\}\}/ })).toBeInTheDocument();
   });
   it("keeps the signer field the user selected instead of returning to surname", async () => {
     personnelService.listCustomFields.mockResolvedValue([]);

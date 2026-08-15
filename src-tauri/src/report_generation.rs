@@ -168,19 +168,63 @@ pub fn validate(
     parameters: &HashMap<String, String>,
 ) -> TemplateValidationResult {
     let mut result = inspect(template_path);
-    let uses_personnel = result.variables.iter().any(|token| selection_kind(token) == Some("personnel"));
-    let uses_vehicle = result.variables.iter().any(|token| selection_kind(token) == Some("vehicle"));
-    let uses_crew = result.variables.iter().any(|token| selection_kind(token) == Some("crew"));
-    let uses_equipment = result.variables.iter().any(|token| selection_kind(token) == Some("equipment"));
-    if uses_personnel && ids.is_empty() { result.errors.push("Оберіть щонайменше одного військовослужбовця.".into()); }
-    if uses_vehicle && vehicle_ids.is_empty() { result.errors.push("Оберіть щонайменше один автомобіль.".into()); }
-    if uses_crew && crew_ids.is_empty() { result.errors.push("Оберіть щонайменше один екіпаж.".into()); }
-    if uses_equipment && equipment_ids.is_empty() { result.errors.push("Оберіть щонайменше один запис майна.".into()); }
-    if crew_ids.iter().any(|id| connection.query_row("SELECT 1 FROM crews WHERE id=?1", [id], |_| Ok(())).is_err()) {
-        result.errors.push("Один або кілька обраних екіпажів більше не існують.".into());
+    let required = selection_requirements(&result.variables);
+    validate_selection_count(
+        &mut result.errors,
+        "personnel",
+        "військовослужбовців",
+        ids.len(),
+        *required.get("personnel").unwrap_or(&0),
+    );
+    validate_selection_count(
+        &mut result.errors,
+        "vehicle",
+        "автомобілів",
+        vehicle_ids.len(),
+        *required.get("vehicle").unwrap_or(&0),
+    );
+    validate_selection_count(
+        &mut result.errors,
+        "crew",
+        "екіпажів",
+        crew_ids.len(),
+        *required.get("crew").unwrap_or(&0),
+    );
+    for (category, label) in [
+        ("generator", "генераторів"),
+        ("uav", "БпЛА"),
+        ("communications", "засобів зв’язку"),
+        ("weapon_ammo", "зброї та БК"),
+    ] {
+        let selected_count = equipment_ids
+            .iter()
+            .filter(|id| equipment_category(connection, **id).as_deref() == Some(category))
+            .count();
+        validate_selection_count(
+            &mut result.errors,
+            category,
+            label,
+            selected_count,
+            *required.get(category).unwrap_or(&0),
+        );
     }
-    if equipment_ids.iter().any(|id| connection.query_row("SELECT 1 FROM equipment WHERE id=?1", [id], |_| Ok(())).is_err()) {
-        result.errors.push("Один або кілька обраних записів майна більше не існують.".into());
+    if crew_ids.iter().any(|id| {
+        connection
+            .query_row("SELECT 1 FROM crews WHERE id=?1", [id], |_| Ok(()))
+            .is_err()
+    }) {
+        result
+            .errors
+            .push("Один або кілька обраних екіпажів більше не існують.".into());
+    }
+    if equipment_ids.iter().any(|id| {
+        connection
+            .query_row("SELECT 1 FROM equipment WHERE id=?1", [id], |_| Ok(()))
+            .is_err()
+    }) {
+        result
+            .errors
+            .push("Один або кілька обраних записів майна більше не існують.".into());
     }
     for token in &result.variables {
         if let Some(n) = person_number(token) {
@@ -234,6 +278,32 @@ pub fn validate(
     result.is_valid = result.errors.is_empty();
     result
 }
+
+fn validate_selection_count(
+    errors: &mut Vec<String>,
+    _kind: &str,
+    label: &str,
+    actual: usize,
+    expected: usize,
+) {
+    if expected > 0 && actual != expected {
+        errors.push(format!(
+            "Для цього шаблону потрібно обрати рівно {expected} {label}; обрано {actual}."
+        ));
+    } else if expected == 0 && actual > 0 {
+        errors.push(format!(
+            "Шаблон не використовує {label}, тому зайвий вибір відхилено."
+        ));
+    }
+}
+
+fn equipment_category(connection: &Connection, id: i64) -> Option<String> {
+    connection
+        .query_row("SELECT category FROM equipment WHERE id=?1", [id], |row| {
+            row.get(0)
+        })
+        .ok()
+}
 pub fn generate(
     connection: &Connection,
     root: &Path,
@@ -258,8 +328,9 @@ pub fn generate(
         &people,
         &settings::load(root)?,
         request.report_date.as_deref(),
-        request.vehicle_ids.first().copied(),
+        None,
     )?;
+    add_selected_vehicles(connection, &request.vehicle_ids, &mut values)?;
     add_selected_crews(connection, &request.crew_ids, &mut values)?;
     add_selected_equipment(connection, &request.equipment_ids, &mut values)?;
     add_generation_parameters(
@@ -351,6 +422,17 @@ fn validate_token(token: &str) -> Vec<String> {
 }
 fn custom_field_token(base: &str) -> bool {
     if let Some(key) = base.strip_prefix("автомобіль_") {
+        let Some((number, key)) = key.split_once('_') else {
+            return false;
+        };
+        if number
+            .parse::<usize>()
+            .ok()
+            .filter(|number| *number > 0)
+            .is_none()
+        {
+            return false;
+        }
         return !key.is_empty()
             && key.chars().next().is_some_and(char::is_alphabetic)
             && key
@@ -372,14 +454,22 @@ fn custom_field_token(base: &str) -> bool {
             .all(|value| value == '_' || value.is_alphanumeric())
 }
 fn field_for(base: &str) -> Option<&'static Field> {
+    if let Some(field) = document_field_for(base) {
+        return Some(field);
+    }
     if let Some(id) = base.strip_prefix("автомобіль_") {
+        let id = numbered_subject_field(id)?;
         return registry().vehicle_fields.iter().find(|f| f.id == id);
     }
     if let Some(id) = base.strip_prefix("екіпаж_") {
-        return registry().crew_fields.iter().find(|f| f.id == id);
+        let id = numbered_subject_field(id)?;
+        if let Some(field) = registry().crew_fields.iter().find(|field| field.id == id) {
+            return Some(field);
+        }
     }
     for prefix in ["генератор_", "бпла_", "звʼязок_", "зброя_та_бк_"] {
         if let Some(id) = base.strip_prefix(prefix) {
+            let id = numbered_subject_field(id)?;
             return registry().equipment_fields.iter().find(|f| f.id == id);
         }
     }
@@ -399,9 +489,6 @@ fn field_for(base: &str) -> Option<&'static Field> {
                 .find(|field| field.id == field_id);
         }
         return registry().person_fields.iter().find(|f| f.id == id);
-    }
-    if let Some(f) = document_field_for(base) {
-        return Some(f);
     }
     for role in &registry().signer_roles {
         if let Some(id) = base.strip_prefix(&(role.id.clone() + "_")) {
@@ -423,13 +510,84 @@ fn field_for(base: &str) -> Option<&'static Field> {
     }
     None
 }
+
+fn numbered_subject_field(value: &str) -> Option<&str> {
+    let (number, field) = value.split_once('_')?;
+    number
+        .parse::<usize>()
+        .ok()
+        .filter(|number| *number > 0)
+        .map(|_| field)
+}
 fn selection_kind(token: &str) -> Option<&'static str> {
     let base = token.split(':').next().unwrap_or_default();
-    if base.starts_with("військовий_") { Some("personnel") }
-    else if base.starts_with("автомобіль_") { Some("vehicle") }
-    else if base.starts_with("екіпаж_") { Some("crew") }
-    else if ["генератор_", "бпла_", "звʼязок_", "зброя_та_бк_"].iter().any(|prefix| base.starts_with(prefix)) { Some("equipment") }
-    else { None }
+    if document_field_for(base).is_some() {
+        None
+    } else if base.starts_with("військовий_") {
+        Some("personnel")
+    } else if base.starts_with("автомобіль_") {
+        Some("vehicle")
+    } else if base.starts_with("екіпаж_") {
+        Some("crew")
+    } else if ["генератор_", "бпла_", "звʼязок_", "зброя_та_бк_"]
+        .iter()
+        .any(|prefix| base.starts_with(prefix))
+    {
+        Some("equipment")
+    } else {
+        None
+    }
+}
+
+fn selection_requirements(tokens: &[String]) -> HashMap<&'static str, usize> {
+    let mut result: HashMap<&'static str, usize> = HashMap::new();
+    for token in tokens {
+        let base = token.split(':').next().unwrap_or_default();
+        let Some(kind) = selection_kind(base) else {
+            continue;
+        };
+        let key = equipment_subject(base).unwrap_or(kind);
+        let number = selection_number(base).unwrap_or(1);
+        result
+            .entry(key)
+            .and_modify(|current| *current = (*current).max(number))
+            .or_insert(number);
+    }
+    result
+}
+
+fn equipment_subject(base: &str) -> Option<&'static str> {
+    [
+        ("генератор_", "generator"),
+        ("бпла_", "uav"),
+        ("звʼязок_", "communications"),
+        ("зброя_та_бк_", "weapon_ammo"),
+    ]
+    .into_iter()
+    .find_map(|(prefix, kind)| base.starts_with(prefix).then_some(kind))
+}
+
+fn selection_number(base: &str) -> Option<usize> {
+    if let Some(number) = person_number(base) {
+        return Some(number);
+    }
+    for prefix in [
+        "автомобіль_",
+        "екіпаж_",
+        "генератор_",
+        "бпла_",
+        "звʼязок_",
+        "зброя_та_бк_",
+    ] {
+        if let Some(rest) = base.strip_prefix(prefix) {
+            return rest
+                .split_once('_')
+                .and_then(|(part, _)| part.parse::<usize>().ok())
+                .filter(|number| *number > 0)
+                .or(Some(1));
+        }
+    }
+    None
 }
 
 fn document_field_for(base: &str) -> Option<&'static Field> {
@@ -503,7 +661,12 @@ fn values_for(
         let prefix = format!("військовий_{}", i + 1);
         let gender = detect_gender(&p.gender, &p.patronymic);
         for field in &registry().person_fields {
-            let text = person_value(p, field.source_key.as_deref().unwrap_or_default());
+            let source_key = field.source_key.as_deref().unwrap_or_default();
+            let text = if source_key == "crew_name" {
+                connection.query_row("SELECT c.name FROM crew_members cm JOIN crews c ON c.id=cm.crew_id WHERE cm.personnel_id=?1 AND cm.left_at IS NULL ORDER BY cm.joined_at DESC LIMIT 1", [p.id], |row| row.get(0)).unwrap_or_default()
+            } else {
+                person_value(p, source_key)
+            };
             map.insert(
                 format!("{prefix}_{}", field.id),
                 Value::new(text, &field.kind, gender),
@@ -687,12 +850,19 @@ fn add_person_vehicles(
     Ok(())
 }
 
-fn add_selected_crews(connection: &Connection, crew_ids: &[i64], values: &mut HashMap<String, Value>) -> Result<(), String> {
+fn add_selected_crews(
+    connection: &Connection,
+    crew_ids: &[i64],
+    values: &mut HashMap<String, Value>,
+) -> Result<(), String> {
     for (index, crew_id) in crew_ids.iter().enumerate() {
-        let (name, platoon, position, area): (String, String, String, String) = connection.query_row(
-            "SELECT name,platoon,position_name,reconnaissance_area FROM crews WHERE id=?1", [crew_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        ).map_err(|_| "Не вдалося прочитати вибраний екіпаж.".to_string())?;
+        let (name, platoon, position, area): (String, String, String, String) = connection
+            .query_row(
+                "SELECT name,platoon,position_name,reconnaissance_area FROM crews WHERE id=?1",
+                [crew_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .map_err(|_| "Не вдалося прочитати вибраний екіпаж.".to_string())?;
         let members = connection.prepare("SELECT trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) FROM crew_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=?1 AND cm.left_at IS NULL ORDER BY cm.joined_at,p.id")
             .map_err(|_| "Не вдалося прочитати склад екіпажу.".to_string())?
             .query_map([crew_id], |row| row.get::<_, String>(0)).map_err(|_| "Не вдалося прочитати склад екіпажу.".to_string())?
@@ -701,25 +871,108 @@ fn add_selected_crews(connection: &Connection, crew_ids: &[i64], values: &mut Ha
             .map_err(|_| "Не вдалося прочитати автомобілі екіпажу.".to_string())?
             .query_map([crew_id], |row| row.get::<_, String>(0)).map_err(|_| "Не вдалося прочитати автомобілі екіпажу.".to_string())?
             .collect::<Result<Vec<_>, _>>().map_err(|_| "Не вдалося прочитати автомобілі екіпажу.".to_string())?.join(", ");
-        let prefix = if index == 0 { "екіпаж".to_string() } else { format!("екіпаж_{}", index + 1) };
+        let prefix = format!("екіпаж_{}", index + 1);
         for field in &registry().crew_fields {
-            let text = match field.source_key.as_deref() { Some("name") => name.clone(), Some("platoon") => platoon.clone(), Some("position_name") => position.clone(), Some("reconnaissance_area") => area.clone(), Some("members") => members.clone(), Some("vehicles") => vehicles.clone(), _ => String::new() };
-            values.insert(format!("{prefix}_{}", field.id), Value::new(text, &field.kind, None));
+            let text = match field.source_key.as_deref() {
+                Some("name") => name.clone(),
+                Some("platoon") => platoon.clone(),
+                Some("position_name") => position.clone(),
+                Some("reconnaissance_area") => area.clone(),
+                Some("members") => members.clone(),
+                Some("vehicles") => vehicles.clone(),
+                _ => String::new(),
+            };
+            values.insert(
+                format!("{prefix}_{}", field.id),
+                Value::new(text, &field.kind, None),
+            );
         }
     }
     Ok(())
 }
 
-fn add_selected_equipment(connection: &Connection, equipment_ids: &[i64], values: &mut HashMap<String, Value>) -> Result<(), String> {
+fn add_selected_vehicles(
+    connection: &Connection,
+    vehicle_ids: &[i64],
+    values: &mut HashMap<String, Value>,
+) -> Result<(), String> {
+    for (index, vehicle_id) in vehicle_ids.iter().enumerate() {
+        let (name, number, status): (String, String, String) = connection
+            .query_row(
+                "SELECT name,registration_number,status FROM vehicles WHERE id=?1",
+                [vehicle_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .map_err(|_| "Не вдалося прочитати вибраний автомобіль.".to_string())?;
+        let prefix = format!("автомобіль_{}", index + 1);
+        for field in &registry().vehicle_fields {
+            let text = match field.source_key.as_deref() {
+                Some("name") => name.clone(),
+                Some("registration_number") => number.clone(),
+                Some("status") => status.clone(),
+                _ => String::new(),
+            };
+            values.insert(
+                format!("{prefix}_{}", field.id),
+                Value::new(text, &field.kind, None),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn add_selected_equipment(
+    connection: &Connection,
+    equipment_ids: &[i64],
+    values: &mut HashMap<String, Value>,
+) -> Result<(), String> {
+    let mut category_indexes: HashMap<String, usize> = HashMap::new();
     for equipment_id in equipment_ids {
-        let (category, name, inventory_number, status, notes): (String, String, String, String, String) = connection.query_row(
-            "SELECT category,name,inventory_number,status,notes FROM equipment WHERE id=?1", [equipment_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
-        ).map_err(|_| "Не вдалося прочитати вибране майно.".to_string())?;
-        let prefix = match category.as_str() { "generator" => "генератор", "uav" => "бпла", "communications" => "звʼязок", "weapon_ammo" => "зброя_та_бк", _ => continue };
+        let (category, name, inventory_number, status, notes): (
+            String,
+            String,
+            String,
+            String,
+            String,
+        ) = connection
+            .query_row(
+                "SELECT category,name,inventory_number,status,notes FROM equipment WHERE id=?1",
+                [equipment_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .map_err(|_| "Не вдалося прочитати вибране майно.".to_string())?;
+        let base_prefix = match category.as_str() {
+            "generator" => "генератор",
+            "uav" => "бпла",
+            "communications" => "звʼязок",
+            "weapon_ammo" => "зброя_та_бк",
+            _ => continue,
+        };
+        let index = category_indexes
+            .entry(category.clone())
+            .and_modify(|value| *value += 1)
+            .or_insert(1);
+        let prefix = format!("{base_prefix}_{index}");
         for field in &registry().equipment_fields {
-            let text = match field.source_key.as_deref() { Some("name") => name.clone(), Some("inventory_number") => inventory_number.clone(), Some("status") => status.clone(), Some("notes") => notes.clone(), _ => String::new() };
-            values.insert(format!("{prefix}_{}", field.id), Value::new(text, &field.kind, None));
+            let text = match field.source_key.as_deref() {
+                Some("name") => name.clone(),
+                Some("inventory_number") => inventory_number.clone(),
+                Some("status") => status.clone(),
+                Some("notes") => notes.clone(),
+                _ => String::new(),
+            };
+            values.insert(
+                format!("{prefix}_{}", field.id),
+                Value::new(text, &field.kind, None),
+            );
         }
     }
     Ok(())
@@ -1278,8 +1531,10 @@ pub fn read_docx_text(path: &Path) -> Result<String, String> {
 /// important paragraph layout properties. This stays local and is solely for
 /// the analyser preview; DOCX generation still preserves the original XML.
 pub fn read_docx_paragraphs(path: &Path) -> Result<Vec<DocxParagraphPreview>, String> {
-    let file = File::open(path).map_err(|_| "Не вдалося відкрити DOCX-файл. Перевірте шлях і доступ.".to_string())?;
-    let mut zip = ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-документом.".to_string())?;
+    let file = File::open(path)
+        .map_err(|_| "Не вдалося відкрити DOCX-файл. Перевірте шлях і доступ.".to_string())?;
+    let mut zip =
+        ZipArchive::new(file).map_err(|_| "Файл не є коректним DOCX-документом.".to_string())?;
     let mut xml = String::new();
     zip.by_name("word/document.xml")
         .map_err(|_| "У DOCX не знайдено основний текст документа.".to_string())?
@@ -1287,10 +1542,15 @@ pub fn read_docx_paragraphs(path: &Path) -> Result<Vec<DocxParagraphPreview>, St
         .map_err(|_| "Не вдалося прочитати текст DOCX-документа.".to_string())?;
     let mut paragraphs = Vec::new();
     for raw in xml.split("</w:p>") {
-        let Some(start) = raw.rfind("<w:p") else { continue; };
+        let Some(start) = raw.rfind("<w:p") else {
+            continue;
+        };
         let paragraph = &raw[start..];
-        let text = word_xml_visible_text(&paragraph.replace("<w:tab/>", "\t").replace("<w:br/>", "\n"));
-        if text.trim().is_empty() { continue; }
+        let text =
+            word_xml_visible_text(&paragraph.replace("<w:tab/>", "\t").replace("<w:br/>", "\n"));
+        if text.trim().is_empty() {
+            continue;
+        }
         let value = |name: &str| -> Option<String> {
             let start = paragraph.find(name)? + name.len();
             let tail = &paragraph[start..];
@@ -1298,11 +1558,26 @@ pub fn read_docx_paragraphs(path: &Path) -> Result<Vec<DocxParagraphPreview>, St
             Some(tail[..end].to_string())
         };
         let alignment = value("<w:jc w:val=\"").unwrap_or_else(|| "left".into());
-        let left_indent = value("<w:ind w:left=\"").and_then(|v| v.parse().ok()).unwrap_or(0);
-        let first_line_indent = value("w:firstLine=\"").and_then(|v| v.parse().ok()).unwrap_or(0);
-        let space_before = value("<w:spacing w:before=\"").and_then(|v| v.parse().ok()).unwrap_or(0);
-        let space_after = value("w:after=\"").and_then(|v| v.parse().ok()).unwrap_or(0);
-        paragraphs.push(DocxParagraphPreview { text, alignment, left_indent, first_line_indent, space_before, space_after });
+        let left_indent = value("<w:ind w:left=\"")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        let first_line_indent = value("w:firstLine=\"")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        let space_before = value("<w:spacing w:before=\"")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        let space_after = value("w:after=\"")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        paragraphs.push(DocxParagraphPreview {
+            text,
+            alignment,
+            left_indent,
+            first_line_indent,
+            space_before,
+            space_after,
+        });
     }
     Ok(paragraphs)
 }
@@ -1314,10 +1589,12 @@ pub fn create_template_from_replacements(
     output: &Path,
     replacements: &[(String, String)],
 ) -> Result<(), String> {
-    let literal_replacements = replacements
+    let mut literal_replacements = replacements
         .iter()
-        .map(|(value, token)| (value.clone(), format!("{{{{{token}}}}}")))
+        .map(|(value, token)| (value.clone(), format!("{{{{{token}}}}}"), None))
         .collect::<Vec<_>>();
+    literal_replacements
+        .sort_by(|left, right| right.0.chars().count().cmp(&left.0.chars().count()));
     create_template_from_literal_replacements(input, output, &literal_replacements)
 }
 
@@ -1327,7 +1604,7 @@ pub fn create_template_from_replacements(
 pub fn create_template_from_literal_replacements(
     input: &Path,
     output: &Path,
-    replacements: &[(String, String)],
+    replacements: &[(String, String, Option<usize>)],
 ) -> Result<(), String> {
     let temporary_output = output.with_file_name(format!(
         ".{}.partial-{}",
@@ -1359,7 +1636,9 @@ pub fn create_template_from_literal_replacements(
                     match xml_reader.read_event_into(&mut buffer) {
                         Ok(Event::Eof) => break,
                         Ok(_) => buffer.clear(),
-                        Err(_) => return Err("Створений DOCX-шаблон містить пошкоджений XML.".into()),
+                        Err(_) => {
+                            return Err("Створений DOCX-шаблон містить пошкоджений XML.".into())
+                        }
                     }
                 }
             }
@@ -1381,7 +1660,7 @@ pub fn create_template_from_literal_replacements(
 fn create_template_archive(
     input: &Path,
     output: &Path,
-    replacements: &[(String, String)],
+    replacements: &[(String, String, Option<usize>)],
 ) -> Result<(), String> {
     let mut zip = ZipArchive::new(
         File::open(input).map_err(|_| "Не вдалося відкрити вихідний DOCX-файл.".to_string())?,
@@ -1413,14 +1692,13 @@ fn create_template_archive(
             let mut xml = String::from_utf8_lossy(&bytes).into_owned();
             // A full name must be replaced before its surname; otherwise the
             // shorter replacement destroys the longer source text first.
-            let mut ordered = replacements.to_vec();
-            ordered.sort_by(|left, right| right.0.chars().count().cmp(&left.0.chars().count()));
-            for (value, replacement) in &ordered {
-                if !value.trim().is_empty() {
-                    xml = replace_word_token_case_insensitive(
+            for (value, replacement, occurrence) in replacements {
+                if !value.is_empty() {
+                    xml = replace_word_token_occurrence_case_insensitive(
                         &xml,
                         value,
                         &escape_xml(replacement),
+                        *occurrence,
                     );
                 }
             }
@@ -1494,7 +1772,9 @@ fn word_xml_visible_text(xml: &str) -> String {
                 }
             }
             Ok(Event::Empty(element)) if element.name().as_ref() == b"w:tab" => output.push('\t'),
-            Ok(Event::End(element)) if matches!(element.name().as_ref(), b"w:p" | b"w:tr") => output.push('\n'),
+            Ok(Event::End(element)) if matches!(element.name().as_ref(), b"w:p" | b"w:tr") => {
+                output.push('\n')
+            }
             Ok(Event::Eof) => break,
             Ok(_) => {}
             Err(_) => return xml_visible_text(xml),
@@ -1599,10 +1879,65 @@ fn replace_word_token(xml: &str, token: &str, replacement: &str) -> String {
     replace_word_token_with(xml, token, replacement, false)
 }
 fn replace_word_token_case_insensitive(xml: &str, token: &str, replacement: &str) -> String {
+    replace_word_token_occurrence_case_insensitive(xml, token, replacement, None)
+}
+fn replace_word_token_occurrence_case_insensitive(
+    xml: &str,
+    token: &str,
+    replacement: &str,
+    occurrence: Option<usize>,
+) -> String {
     // Private-use characters never occur in a template token, therefore a
     // short value such as `а` cannot match the temporary replacement.
     let placeholder = "\u{E000}";
-    replace_word_token_with(xml, token, &placeholder, true).replace(&placeholder, replacement)
+    let replaced = match occurrence {
+        Some(index) => replace_word_token_once_with(xml, token, placeholder, true, index),
+        None => replace_word_token_with(xml, token, placeholder, true),
+    };
+    let replaced = if replacement.starts_with(char::is_whitespace)
+        || replacement.ends_with(char::is_whitespace)
+    {
+        preserve_word_text_spaces(&replaced, placeholder)
+    } else {
+        replaced
+    };
+    replaced.replace(placeholder, replacement)
+}
+
+fn replace_word_token_once_with(
+    xml: &str,
+    token: &str,
+    replacement: &str,
+    case_insensitive: bool,
+    occurrence: usize,
+) -> String {
+    let Some((nodes, sn, so, en, eo)) = token_location(xml, token, case_insensitive, occurrence)
+    else {
+        return xml.to_string();
+    };
+    replace_at_location(xml, nodes, sn, so, en, eo, replacement)
+}
+
+fn preserve_word_text_spaces(xml: &str, marker: &str) -> String {
+    let mut result = xml.to_string();
+    let mut search_from = 0;
+    while let Some(relative) = result[search_from..].find(marker) {
+        let marker_start = search_from + relative;
+        let Some(tag_start) = result[..marker_start].rfind("<w:t") else {
+            break;
+        };
+        let Some(relative_tag_end) = result[tag_start..marker_start].find('>') else {
+            break;
+        };
+        let tag_end = tag_start + relative_tag_end;
+        if !result[tag_start..tag_end].contains("xml:space=") {
+            result.insert_str(tag_end, " xml:space=\"preserve\"");
+            search_from = marker_start + " xml:space=\"preserve\"".len() + marker.len();
+        } else {
+            search_from = marker_start + marker.len();
+        }
+    }
+    result
 }
 fn replace_word_token_with(
     xml: &str,
@@ -1611,40 +1946,53 @@ fn replace_word_token_with(
     case_insensitive: bool,
 ) -> String {
     let mut result = xml.to_string();
-    while let Some((nodes, sn, so, en, eo)) = token_location(&result, token, case_insensitive) {
-        let mut vals = nodes
-            .iter()
-            .map(|(s, e)| result[*s..*e].to_string())
-            .collect::<Vec<_>>();
-        if sn == en {
-            vals[sn].replace_range(so..eo, replacement)
-        } else {
-            vals[sn].replace_range(so.., replacement);
-            for v in &mut vals[sn + 1..en] {
-                v.clear()
-            }
-            vals[en].replace_range(..eo, "")
-        }
-        let mut rebuilt = String::new();
-        let mut cursor = 0;
-        for ((s, e), v) in nodes.iter().zip(vals) {
-            rebuilt.push_str(&result[cursor..*s]);
-            rebuilt.push_str(&v);
-            cursor = *e
-        }
-        rebuilt.push_str(&result[cursor..]);
-        result = rebuilt
+    while let Some((nodes, sn, so, en, eo)) = token_location(&result, token, case_insensitive, 0) {
+        result = replace_at_location(&result, nodes, sn, so, en, eo, replacement);
     }
     result
+}
+
+fn replace_at_location(
+    xml: &str,
+    nodes: Vec<(usize, usize)>,
+    sn: usize,
+    so: usize,
+    en: usize,
+    eo: usize,
+    replacement: &str,
+) -> String {
+    let mut vals = nodes
+        .iter()
+        .map(|(s, e)| xml[*s..*e].to_string())
+        .collect::<Vec<_>>();
+    if sn == en {
+        vals[sn].replace_range(so..eo, replacement)
+    } else {
+        vals[sn].replace_range(so.., replacement);
+        for value in &mut vals[sn + 1..en] {
+            value.clear()
+        }
+        vals[en].replace_range(..eo, "")
+    }
+    let mut rebuilt = String::new();
+    let mut cursor = 0;
+    for ((start, end), value) in nodes.iter().zip(vals) {
+        rebuilt.push_str(&xml[cursor..*start]);
+        rebuilt.push_str(&value);
+        cursor = *end
+    }
+    rebuilt.push_str(&xml[cursor..]);
+    rebuilt
 }
 fn token_location(
     xml: &str,
     token: &str,
     case_insensitive: bool,
+    occurrence: usize,
 ) -> Option<(Vec<(usize, usize)>, usize, usize, usize, usize)> {
     let nodes = word_text_nodes(xml);
     let text = nodes.iter().map(|(s, e)| &xml[*s..*e]).collect::<String>();
-    let start = find_whole_text_token(&text, token, case_insensitive)?;
+    let start = find_whole_text_token_nth(&text, token, case_insensitive, occurrence)?;
     let end = start + token.len();
     let (mut cursor, mut sl, mut el) = (0, None, None);
     for (i, (s, e)) in nodes.iter().enumerate() {
@@ -1663,7 +2011,12 @@ fn token_location(
     Some((nodes, sn, so, en, eo))
 }
 
-fn find_whole_text_token(text: &str, token: &str, case_insensitive: bool) -> Option<usize> {
+fn find_whole_text_token_nth(
+    text: &str,
+    token: &str,
+    case_insensitive: bool,
+    occurrence: usize,
+) -> Option<usize> {
     let haystack = if case_insensitive {
         text.to_lowercase()
     } else {
@@ -1675,6 +2028,7 @@ fn find_whole_text_token(text: &str, token: &str, case_insensitive: bool) -> Opt
         token.into()
     };
     let mut from = 0;
+    let mut matched = 0;
     while let Some(relative) = haystack[from..].find(&needle) {
         let start = from + relative;
         let end = start + needle.len();
@@ -1685,7 +2039,10 @@ fn find_whole_text_token(text: &str, token: &str, case_insensitive: bool) -> Opt
         if (!starts_with_word || !left.is_some_and(char::is_alphanumeric))
             && (!ends_with_word || !right.is_some_and(char::is_alphanumeric))
         {
-            return Some(start);
+            if matched == occurrence {
+                return Some(start);
+            }
+            matched += 1;
         }
         from = end;
     }
@@ -1793,9 +2150,34 @@ mod tests {
             .contains("{{військовий_1_посада}}"));
         assert!(ZipArchive::new(File::open(&destination).unwrap()).is_ok());
         assert!(!destination
-            .with_file_name(format!(".{}.partial-{}", destination.file_name().unwrap().to_string_lossy(), std::process::id()))
+            .with_file_name(format!(
+                ".{}.partial-{}",
+                destination.file_name().unwrap().to_string_lossy(),
+                std::process::id()
+            ))
             .exists());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn literal_replacement_keeps_case_and_boundary_spaces() {
+        let xml = "<w:r><w:t>ПОЧАТОК</w:t></w:r>";
+        let result = replace_word_token_case_insensitive(xml, "початок", "  як Введено ");
+        assert!(result.contains("<w:t xml:space=\"preserve\">  як Введено </w:t>"));
+    }
+
+    #[test]
+    fn literal_replacement_can_delete_whitespace() {
+        let xml = "<w:r><w:t>ліве  праве</w:t></w:r>";
+        let result = replace_word_token_case_insensitive(xml, "  ", "");
+        assert!(result.contains("<w:t>лівеправе</w:t>"));
+    }
+
+    #[test]
+    fn literal_replacement_can_target_one_specific_occurrence() {
+        let xml = "<w:r><w:t>один пробіл один пробіл один</w:t></w:r>";
+        let result = replace_word_token_occurrence_case_insensitive(xml, " ", "_", Some(1));
+        assert!(result.contains("<w:t>один пробіл_один пробіл один</w:t>"));
     }
 
     #[test]
@@ -1894,13 +2276,37 @@ mod tests {
             }
         }
         for field in &registry().crew_fields {
-            assert!(validate_token(&format!("екіпаж_{}", field.id)).is_empty())
+            assert!(validate_token(&format!("екіпаж_1_{}", field.id)).is_empty())
         }
         for prefix in ["генератор", "бпла", "звʼязок", "зброя_та_бк"] {
             for field in &registry().equipment_fields {
-                assert!(validate_token(&format!("{prefix}_{}", field.id)).is_empty())
+                assert!(validate_token(&format!("{prefix}_1_{}", field.id)).is_empty())
             }
         }
+    }
+
+    #[test]
+    fn accepts_numbered_document_parameter_with_crew_prefix() {
+        assert!(validate_token("екіпаж_1").is_empty());
+        assert_eq!(selection_kind("екіпаж_1"), None);
+        assert!(!validate_token("екіпаж_назва").is_empty());
+    }
+
+    #[test]
+    fn derives_exact_counts_for_every_selected_subject_without_confusing_document_parameters() {
+        let tokens = vec![
+            "екіпаж_1".to_string(),
+            "військовий_2_піб".to_string(),
+            "автомобіль_3_номер".to_string(),
+            "генератор_2_назва".to_string(),
+            "бпла_1_статус".to_string(),
+        ];
+        let result = selection_requirements(&tokens);
+        assert_eq!(result.get("personnel"), Some(&2));
+        assert_eq!(result.get("vehicle"), Some(&3));
+        assert_eq!(result.get("generator"), Some(&2));
+        assert_eq!(result.get("uav"), Some(&1));
+        assert_eq!(result.get("crew"), None);
     }
 
     #[test]
@@ -1915,9 +2321,9 @@ mod tests {
         let mut values = HashMap::new();
         add_selected_crews(&connection, &[crew_id], &mut values).unwrap();
         add_selected_equipment(&connection, &[equipment_id], &mut values).unwrap();
-        assert_eq!(values["екіпаж_назва"].text, "Екіпаж «Тест»");
-        assert_eq!(values["екіпаж_автомобілі"].text, "Тест-авто ТЕСТ 001");
-        assert_eq!(values["бпла_назва"].text, "Тест-БпЛА");
+        assert_eq!(values["екіпаж_1_назва"].text, "Екіпаж «Тест»");
+        assert_eq!(values["екіпаж_1_автомобілі"].text, "Тест-авто ТЕСТ 001");
+        assert_eq!(values["бпла_1_назва"].text, "Тест-БпЛА");
     }
 
     #[test]
