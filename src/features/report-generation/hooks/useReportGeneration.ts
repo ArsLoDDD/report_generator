@@ -26,17 +26,17 @@ export function useReportGeneration() {
     }
   }, []);
 
-  const generate = async (templatePath: string, personnelIds: number[], parameters: Record<string, string> = {}, vehicleIds: number[] = [], crewIds: number[] = [], equipmentIds: number[] = []) => {
+  const generate = async (templatePath: string, personnelIds: number[], parameters: Record<string, string> = {}, vehicleIds: number[] = [], crewIds: number[] = [], equipmentIds: number[] = [], positionIds: number[] = []) => {
     setError(null);
     setGeneratedReport(null);
     setIsGenerating(true);
     try {
-      const result = await reportGenerationService.validateTemplate(templatePath, personnelIds, parameters, vehicleIds, crewIds, equipmentIds);
+      const result = await reportGenerationService.validateTemplate(templatePath, personnelIds, parameters, vehicleIds, crewIds, equipmentIds, positionIds);
       setValidation(result);
       if (!result.isValid) {
         return;
       }
-      setGeneratedReport(await reportGenerationService.generateReport({ templatePath, personnelIds, vehicleIds, crewIds, equipmentIds, parameters }));
+      setGeneratedReport(await reportGenerationService.generateReport({ templatePath, personnelIds, vehicleIds, crewIds, equipmentIds, positionIds, parameters }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не вдалося створити рапорт. Спробуйте ще раз.");
     } finally {

@@ -32,6 +32,8 @@ pub struct GenerateReportRequest {
     #[serde(default)]
     pub crew_ids: Vec<i64>,
     #[serde(default)]
+    pub position_ids: Vec<i64>,
+    #[serde(default)]
     pub equipment_ids: Vec<i64>,
     #[serde(default)]
     pub parameters: HashMap<String, String>,
@@ -67,6 +69,7 @@ struct Registry {
     person_fields: Vec<Field>,
     vehicle_fields: Vec<Field>,
     crew_fields: Vec<Field>,
+    position_fields: Vec<Field>,
     equipment_fields: Vec<Field>,
     signer_roles: Vec<Role>,
     signer_fields: Vec<Field>,
@@ -157,12 +160,14 @@ pub fn inspect(template_path: &str) -> TemplateValidationResult {
         variables,
     }
 }
+#[allow(clippy::too_many_arguments)]
 pub fn validate(
     connection: &Connection,
     template_path: &str,
     ids: &[i64],
     vehicle_ids: &[i64],
     crew_ids: &[i64],
+    position_ids: &[i64],
     equipment_ids: &[i64],
     date: Option<&str>,
     parameters: &HashMap<String, String>,
@@ -175,6 +180,13 @@ pub fn validate(
         "військовослужбовців",
         ids.len(),
         *required.get("personnel").unwrap_or(&0),
+    );
+    validate_selection_count(
+        &mut result.errors,
+        "position",
+        "позицій",
+        position_ids.len(),
+        *required.get("position").unwrap_or(&0),
     );
     validate_selection_count(
         &mut result.errors,
@@ -216,6 +228,15 @@ pub fn validate(
         result
             .errors
             .push("Один або кілька обраних екіпажів більше не існують.".into());
+    }
+    if position_ids.iter().any(|id| {
+        connection
+            .query_row("SELECT 1 FROM positions WHERE id=?1", [id], |_| Ok(()))
+            .is_err()
+    }) {
+        result
+            .errors
+            .push("Одна або кілька обраних позицій більше не існують.".into());
     }
     if equipment_ids.iter().any(|id| {
         connection
@@ -315,6 +336,7 @@ pub fn generate(
         &request.personnel_ids,
         &request.vehicle_ids,
         &request.crew_ids,
+        &request.position_ids,
         &request.equipment_ids,
         request.report_date.as_deref(),
         &request.parameters,
@@ -332,6 +354,7 @@ pub fn generate(
     )?;
     add_selected_vehicles(connection, &request.vehicle_ids, &mut values)?;
     add_selected_crews(connection, &request.crew_ids, &mut values)?;
+    add_selected_positions(connection, &request.position_ids, &mut values)?;
     add_selected_equipment(connection, &request.equipment_ids, &mut values)?;
     add_generation_parameters(
         &mut values,
@@ -467,6 +490,13 @@ fn field_for(base: &str) -> Option<&'static Field> {
             return Some(field);
         }
     }
+    if let Some(id) = base.strip_prefix("позиція_") {
+        let id = numbered_subject_field(id)?;
+        return registry()
+            .position_fields
+            .iter()
+            .find(|field| field.id == id);
+    }
     for prefix in ["генератор_", "бпла_", "звʼязок_", "зброя_та_бк_"] {
         if let Some(id) = base.strip_prefix(prefix) {
             let id = numbered_subject_field(id)?;
@@ -529,6 +559,8 @@ fn selection_kind(token: &str) -> Option<&'static str> {
         Some("vehicle")
     } else if base.starts_with("екіпаж_") {
         Some("crew")
+    } else if base.starts_with("позиція_") {
+        Some("position")
     } else if ["генератор_", "бпла_", "звʼязок_", "зброя_та_бк_"]
         .iter()
         .any(|prefix| base.starts_with(prefix))
@@ -574,6 +606,7 @@ fn selection_number(base: &str) -> Option<usize> {
     for prefix in [
         "автомобіль_",
         "екіпаж_",
+        "позиція_",
         "генератор_",
         "бпла_",
         "звʼязок_",
@@ -850,17 +883,18 @@ fn add_person_vehicles(
     Ok(())
 }
 
+#[allow(clippy::type_complexity)]
 fn add_selected_crews(
     connection: &Connection,
     crew_ids: &[i64],
     values: &mut HashMap<String, Value>,
 ) -> Result<(), String> {
     for (index, crew_id) in crew_ids.iter().enumerate() {
-        let (name, platoon, position, area): (String, String, String, String) = connection
+        let row: (String,String,String,String,String,String,String,String,i64,String,String,String,String,String,String) = connection
             .query_row(
-                "SELECT name,platoon,position_name,reconnaissance_area FROM crews WHERE id=?1",
+                "SELECT name,platoon,position_name,reconnaissance_area,unit_type,company_name,battle_order,sector,official_strength,status,uav_name,uav_type,functional_duties,current_location,notes FROM crews WHERE id=?1",
                 [crew_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?,r.get(10)?,r.get(11)?,r.get(12)?,r.get(13)?,r.get(14)?)),
             )
             .map_err(|_| "Не вдалося прочитати вибраний екіпаж.".to_string())?;
         let members = connection.prepare("SELECT trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) FROM crew_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=?1 AND cm.left_at IS NULL ORDER BY cm.joined_at,p.id")
@@ -872,14 +906,38 @@ fn add_selected_crews(
             .query_map([crew_id], |row| row.get::<_, String>(0)).map_err(|_| "Не вдалося прочитати автомобілі екіпажу.".to_string())?
             .collect::<Result<Vec<_>, _>>().map_err(|_| "Не вдалося прочитати автомобілі екіпажу.".to_string())?.join(", ");
         let prefix = format!("екіпаж_{}", index + 1);
+        let data = [
+            ("name", row.0),
+            ("platoon", row.1),
+            ("position_name", row.2),
+            ("reconnaissance_area", row.3),
+            ("unit_type", row.4),
+            ("company_name", row.5),
+            ("battle_order", row.6),
+            ("sector", row.7),
+            ("official_strength", row.8.to_string()),
+            (
+                "actual_strength",
+                members
+                    .split(", ")
+                    .filter(|value| !value.is_empty())
+                    .count()
+                    .to_string(),
+            ),
+            ("status", row.9),
+            ("uav_name", row.10),
+            ("uav_type", row.11),
+            ("functional_duties", row.12),
+            ("current_location", row.13),
+            ("notes", row.14),
+            ("members", members.clone()),
+            ("vehicles", vehicles.clone()),
+        ]
+        .into_iter()
+        .collect::<HashMap<_, _>>();
         for field in &registry().crew_fields {
             let text = match field.source_key.as_deref() {
-                Some("name") => name.clone(),
-                Some("platoon") => platoon.clone(),
-                Some("position_name") => position.clone(),
-                Some("reconnaissance_area") => area.clone(),
-                Some("members") => members.clone(),
-                Some("vehicles") => vehicles.clone(),
+                Some(key) => data.get(key).cloned().unwrap_or_default(),
                 _ => String::new(),
             };
             values.insert(
@@ -915,6 +973,46 @@ fn add_selected_vehicles(
             values.insert(
                 format!("{prefix}_{}", field.id),
                 Value::new(text, &field.kind, None),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn add_selected_positions(
+    connection: &Connection,
+    position_ids: &[i64],
+    values: &mut HashMap<String, Value>,
+) -> Result<(), String> {
+    for (index, id) in position_ids.iter().enumerate() {
+        let row:(String,String,String,String,String,String,String,String,String,String,String,String)=connection.query_row("SELECT p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.size,p.mgrs,trim(COALESCE((SELECT group_concat(e.name, ', ') FROM position_uavs pu JOIN equipment e ON e.id=pu.equipment_id WHERE pu.position_id=p.id),'') || CASE WHEN p.suitable_uav_text<>'' THEN CASE WHEN EXISTS(SELECT 1 FROM position_uavs pu WHERE pu.position_id=p.id) THEN ', ' ELSE '' END || p.suitable_uav_text ELSE '' END),COALESCE(c.name,''),p.notes FROM positions p LEFT JOIN crews c ON c.id=p.crew_id WHERE p.id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?,r.get(10)?,r.get(11)?))).map_err(|_|"Не вдалося прочитати вибрану позицію.".to_string())?;
+        let data = [
+            ("name", row.0),
+            ("position_type", row.1),
+            ("strip_name", row.2),
+            ("locality", row.3),
+            ("battle_order", row.4),
+            ("sector", row.5),
+            ("condition", row.6),
+            ("size", row.7),
+            ("mgrs", row.8),
+            ("suitable_uavs", row.9),
+            ("crew_name", row.10),
+            ("notes", row.11),
+        ]
+        .into_iter()
+        .collect::<HashMap<_, _>>();
+        let prefix = format!("позиція_{}", index + 1);
+        for field in &registry().position_fields {
+            values.insert(
+                format!("{prefix}_{}", field.id),
+                Value::new(
+                    data.get(field.source_key.as_deref().unwrap_or_default())
+                        .cloned()
+                        .unwrap_or_default(),
+                    &field.kind,
+                    None,
+                ),
             );
         }
     }
@@ -1584,6 +1682,7 @@ pub fn read_docx_paragraphs(path: &Path) -> Result<Vec<DocxParagraphPreview>, St
 
 /// Creates a copy of a DOCX and replaces only the confirmed literal values.
 /// The original document is not modified.
+#[allow(dead_code)]
 pub fn create_template_from_replacements(
     input: &Path,
     output: &Path,
@@ -1593,8 +1692,7 @@ pub fn create_template_from_replacements(
         .iter()
         .map(|(value, token)| (value.clone(), format!("{{{{{token}}}}}"), None))
         .collect::<Vec<_>>();
-    literal_replacements
-        .sort_by(|left, right| right.0.chars().count().cmp(&left.0.chars().count()));
+    literal_replacements.sort_by_key(|right| std::cmp::Reverse(right.0.chars().count()));
     create_template_from_literal_replacements(input, output, &literal_replacements)
 }
 
@@ -1843,10 +1941,10 @@ fn replace_variables(xml: &str, values: &HashMap<String, Value>) -> Result<Strin
 
 fn style_replacement(xml: &str, replacement: &str, modifiers: &[&str]) -> String {
     let mut properties = String::new();
-    if modifiers.iter().any(|item| *item == "жирним") {
+    if modifiers.contains(&"жирним") {
         properties.push_str("<w:b/>");
     }
-    if modifiers.iter().any(|item| *item == "підкреслити") {
+    if modifiers.contains(&"підкреслити") {
         properties.push_str("<w:u w:val=\"single\"/>");
     }
     if properties.is_empty() {
@@ -1878,6 +1976,7 @@ fn style_replacement(xml: &str, replacement: &str, modifiers: &[&str]) -> String
 fn replace_word_token(xml: &str, token: &str, replacement: &str) -> String {
     replace_word_token_with(xml, token, replacement, false)
 }
+#[allow(dead_code)]
 fn replace_word_token_case_insensitive(xml: &str, token: &str, replacement: &str) -> String {
     replace_word_token_occurrence_case_insensitive(xml, token, replacement, None)
 }
@@ -1984,6 +2083,7 @@ fn replace_at_location(
     rebuilt.push_str(&xml[cursor..]);
     rebuilt
 }
+#[allow(clippy::type_complexity)]
 fn token_location(
     xml: &str,
     token: &str,
@@ -2218,7 +2318,7 @@ mod tests {
             source,
             &destination,
             &[
-                ("ПЛЮШКА".into(), "екіпаж_1".into()),
+                ("ПЛЮШКА".into(), "назва_екіпажу_1".into()),
                 ("СІЛЬПО".into(), "назва_позиції_1".into()),
                 ("ОСОЇВКА".into(), "населений_пункт_1".into()),
                 ("Арсеній ШКОЛЬНІКОВ".into(), "основний_підписант_піб".into()),
@@ -2227,7 +2327,7 @@ mod tests {
         .unwrap();
         assert!(ZipArchive::new(File::open(&destination).unwrap()).is_ok());
         let result = read_docx_text(&destination).unwrap();
-        assert!(result.contains("{{екіпаж_1}}"));
+        assert!(result.contains("{{назва_екіпажу_1}}"));
         assert!(result.contains("{{назва_позиції_1}}"));
         assert!(result.contains("{{населений_пункт_1}}"));
         let _ = fs::remove_dir_all(root);
@@ -2249,7 +2349,7 @@ mod tests {
             source,
             &destination,
             &[
-                ("ТЕСТЮШКІ".into(), "екіпаж_1".into()),
+                ("ТЕСТЮШКІ".into(), "назва_екіпажу_1".into()),
                 ("Максім".into(), "військовий_1_імя".into()),
                 ("ТАКТІКУЛЬЩІК".into(), "військовий_1_прізвище".into()),
                 ("12.08.2026".into(), "дата_рапорту_1".into()),
@@ -2258,7 +2358,7 @@ mod tests {
         .unwrap();
         assert!(ZipArchive::new(File::open(&destination).unwrap()).is_ok());
         let result = read_docx_text(&destination).unwrap();
-        assert!(result.contains("{{екіпаж_1}}"));
+        assert!(result.contains("{{назва_екіпажу_1}}"));
         // Не прив'язуємо результат до конкретного наповнення локального документа:
         // в ньому може не бути тестового імені як окремого текстового фрагмента.
         assert!(result.contains("{{дата_рапорту_1}}"));
@@ -2286,26 +2386,29 @@ mod tests {
     }
 
     #[test]
-    fn accepts_numbered_document_parameter_with_crew_prefix() {
-        assert!(validate_token("екіпаж_1").is_empty());
-        assert_eq!(selection_kind("екіпаж_1"), None);
+    fn requires_an_explicit_field_for_a_numbered_crew_subject() {
+        assert!(validate_token("назва_екіпажу_1").is_empty());
+        assert_eq!(selection_kind("назва_екіпажу_1"), None);
+        assert!(!validate_token("екіпаж_1").is_empty());
         assert!(!validate_token("екіпаж_назва").is_empty());
     }
 
     #[test]
     fn derives_exact_counts_for_every_selected_subject_without_confusing_document_parameters() {
         let tokens = vec![
-            "екіпаж_1".to_string(),
+            "назва_екіпажу_1".to_string(),
             "військовий_2_піб".to_string(),
             "автомобіль_3_номер".to_string(),
             "генератор_2_назва".to_string(),
             "бпла_1_статус".to_string(),
+            "позиція_2_mgrs".to_string(),
         ];
         let result = selection_requirements(&tokens);
         assert_eq!(result.get("personnel"), Some(&2));
         assert_eq!(result.get("vehicle"), Some(&3));
         assert_eq!(result.get("generator"), Some(&2));
         assert_eq!(result.get("uav"), Some(&1));
+        assert_eq!(result.get("position"), Some(&2));
         assert_eq!(result.get("crew"), None);
     }
 
@@ -2318,12 +2421,17 @@ mod tests {
         connection.execute("INSERT INTO vehicles(name,registration_number,status,crew_id) VALUES('Тест-авто','ТЕСТ 001','Справний',?1)", [crew_id]).unwrap();
         connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,notes) VALUES('uav','Тест-БпЛА','БПЛА-Т','Справний',?1,'Контрольний запис')", [crew_id]).unwrap();
         let equipment_id = connection.last_insert_rowid();
+        connection.execute("INSERT INTO positions(name,position_type,locality,mgrs,is_active,crew_id) VALUES('СП «Тест»','Основна','н.п. Тестове','36U UV 12000 67000',1,?1)", [crew_id]).unwrap();
+        let position_id = connection.last_insert_rowid();
         let mut values = HashMap::new();
         add_selected_crews(&connection, &[crew_id], &mut values).unwrap();
         add_selected_equipment(&connection, &[equipment_id], &mut values).unwrap();
+        add_selected_positions(&connection, &[position_id], &mut values).unwrap();
         assert_eq!(values["екіпаж_1_назва"].text, "Екіпаж «Тест»");
         assert_eq!(values["екіпаж_1_автомобілі"].text, "Тест-авто ТЕСТ 001");
         assert_eq!(values["бпла_1_назва"].text, "Тест-БпЛА");
+        assert_eq!(values["позиція_1_назва"].text, "СП «Тест»");
+        assert_eq!(values["позиція_1_mgrs"].text, "36U UV 12000 67000");
     }
 
     #[test]
@@ -2471,6 +2579,7 @@ mod tests {
                 report_date: None,
                 vehicle_ids: Vec::new(),
                 crew_ids: Vec::new(),
+                position_ids: Vec::new(),
                 equipment_ids: Vec::new(),
                 parameters: HashMap::from([
                     ("дата_рапорту_1".into(), "2026-08-12".into()),
@@ -2625,6 +2734,7 @@ mod tests {
                 report_date: None,
                 vehicle_ids: Vec::new(),
                 crew_ids: Vec::new(),
+                position_ids: Vec::new(),
                 equipment_ids: Vec::new(),
                 parameters: HashMap::new(),
             },

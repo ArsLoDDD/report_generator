@@ -17,6 +17,26 @@ function errorMessage(error: unknown, fallback: string) {
 
 function proposalKey(proposal: Pick<TemplateAnalysisProposal, "value" | "token">) { return `${proposal.value}\u0000${proposal.token}`; }
 
+export function normaliseAnalysisProposals(proposals: TemplateAnalysisProposal[]) {
+  return proposals.map((proposal) => {
+    if (proposal.token !== "екіпаж_1") return proposal;
+    return {
+      ...proposal,
+      token: "назва_екіпажу_1",
+      label: "Назва екіпажу в документі",
+      alternatives: [
+        { token: "екіпаж_1_назва", label: "Назва обраного екіпажу" },
+        { token: "військовий_1_екіпаж", label: "Екіпаж обраного військовослужбовця" },
+        ...(proposal.alternatives ?? []).filter((item) => item.token !== "екіпаж_1" && item.token !== "назва_екіпажу_1"),
+      ].filter((item, index, items) => items.findIndex((candidate) => candidate.token === item.token) === index),
+    };
+  });
+}
+
+export function defaultAnalysisSelection(proposals: TemplateAnalysisProposal[]) {
+  return proposals.filter((proposal) => proposal.autoSelect).map(proposalKey);
+}
+
 export function ReportAnalyserPage({ onCreated, onOpenConstructor }: { onCreated: (templatePath: string) => void; onOpenConstructor: () => void }) {
   const [path, setPath] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<TemplateAnalysis | null>(null);
@@ -33,7 +53,17 @@ export function ReportAnalyserPage({ onCreated, onOpenConstructor }: { onCreated
   const previewRef = useRef<HTMLDivElement>(null);
   const [previewError, setPreviewError] = useState("");
   const { notify } = useNotifications();
+  useEffect(() => {
+    if (!analysis?.proposals.some((proposal) => proposal.token === "екіпаж_1")) return;
+    const proposals = normaliseAnalysisProposals(analysis.proposals);
+    setAnalysis({ ...analysis, proposals });
+    setSelected(defaultAnalysisSelection(proposals));
+  }, [analysis]);
   const selectedProposals = useMemo(() => analysis?.proposals.filter((proposal) => selected.includes(proposalKey(proposal))) ?? [], [analysis, selected]);
+  const proposalGroups = useMemo(() => analysis ? [
+    { confidence: "high" as const, title: "Надійні збіги", items: analysis.proposals.filter((proposal) => proposal.confidence === "high") },
+    { confidence: "medium" as const, title: "Потребують перевірки", items: analysis.proposals.filter((proposal) => proposal.confidence === "medium") },
+  ].filter((group) => group.items.length > 0) : [], [analysis]);
   const replacements = useMemo<TemplateAnalysisReplacement[]>(() => [
     ...selectedProposals.map((proposal) => ({ value: proposal.value, token: tokenOverrides[proposalKey(proposal)] ?? proposal.token })),
     ...manual.map(({ value, replacement, occurrence }) => ({ value, token: "", replacement, occurrence }))
@@ -63,8 +93,9 @@ export function ReportAnalyserPage({ onCreated, onOpenConstructor }: { onCreated
     setIsAnalysing(true);
     try {
       const result = await templateService.analyseReport(reportPath);
-      setAnalysis(result); setSelected(result.proposals.map(proposalKey)); setManual([]); setSelectedText(""); setTokenOverrides({});
-      notify(result.proposals.length ? `Знайдено пропозицій: ${result.proposals.length}.` : "Відомі дані в рапорті не знайдені.", result.proposals.length ? "success" : "info");
+      const proposals = normaliseAnalysisProposals(result.proposals);
+      setAnalysis({ ...result, proposals }); setSelected(defaultAnalysisSelection(proposals)); setManual([]); setSelectedText(""); setTokenOverrides({});
+      notify(proposals.length ? `Знайдено пропозицій: ${proposals.length}.` : "Відомі дані в рапорті не знайдені.", proposals.length ? "success" : "info");
     } catch (error) { notify(errorMessage(error, "Не вдалося проаналізувати рапорт."), "error"); }
     finally { setIsAnalysing(false); }
   };
@@ -123,7 +154,7 @@ export function ReportAnalyserPage({ onCreated, onOpenConstructor }: { onCreated
   return <PageFrame className="report-analyser-page" tools={<section className="panel analyser-source"><div><small>Вихідний рапорт</small><b title={path ?? ""}>{path?.split(/[\\/]/).pop() ?? "Файл ще не обрано"}</b></div><button className="button primary" disabled={isAnalysing} onClick={() => void choose()}>{isAnalysing ? <LoaderCircle className="spin" /> : <FolderOpen />}{isAnalysing ? "Аналізуємо…" : "Обрати DOCX"}</button></section>}>
     {!analysis ? <section className="panel analyser-empty"><FileText /><h2>{isAnalysing ? "Аналізуємо рапорт…" : "Оберіть готовий рапорт"}</h2><p>{isAnalysing ? "Визначаємо можливі змінні та готуємо точний перегляд документа." : "Одразу після вибору файл буде проаналізовано."}</p></section> : <div className="analyser-layout">
       <section className="panel analyser-editor"><header><div><h2>Редактор шаблону</h2><p>Це точний локальний перегляд DOCX. Зміни, увімкнені праворуч, одразу відображаються у документі.</p></div><div className="analyser-editor__actions">{manual.length > 0 && <button className="icon-button" title="Скасувати останню ручну зміну" aria-label="Скасувати останню ручну зміну" onClick={() => setManual((current) => current.slice(0, -1))}><Undo2 /></button>}<b>{replacements.length} замін</b></div></header><div ref={editorRef} className="analyser-editor__text analyser-editor__document" onMouseUp={rememberSelection} onKeyUp={rememberSelection} aria-label="Текст документа для редагування"><div ref={previewRef} className="analyser-docx-preview" />{previewError && <p className="analyser-preview-error">{previewError}</p>}</div>{selectedText && <footer className="analyser-selection"><span>Виділено: <b>{selectedText}</b></span><input value={replacementInput} onChange={(event) => setReplacementInput(event.target.value)} placeholder="{{змінна}} або інший текст" aria-label="Нова заміна" /><button className="button primary" onClick={applyManualReplacement}><Replace />Застосувати</button><button className="icon-button danger" title="Видалити виділений текст" aria-label="Видалити виділений текст" onClick={deleteSelection}><Trash2 /></button></footer>}</section>
-      <aside className="panel analyser-sidebar"><section className="analyser-proposals"><header><div><h2>Запропоновані заміни</h2><p>Зніміть позначку — у редакторі повернеться початковий текст.</p></div><div className="analyser-proposals__actions"><button className="icon-button" title="Відкрити конструктор змінних" aria-label="Відкрити конструктор змінних" onClick={onOpenConstructor}><WandSparkles /></button><b>{selectedProposals.length} обрано</b></div></header><div className="analyser-proposals__scroll">{analysis.proposals.map((proposal) => { const key = proposalKey(proposal); const activeToken = tokenOverrides[key] ?? proposal.token; return <div key={key} className={selected.includes(key) ? "analyser-proposal analyser-proposal--selected" : "analyser-proposal"}><input type="checkbox" checked={selected.includes(key)} onChange={() => toggle(proposal)} /><div><span>{proposal.category}</span><b>{proposal.label}</b><code>{proposal.value}</code>{proposal.alternatives?.length > 0 && <div className="analyser-proposal__alternatives">{[{ token: proposal.token, label: "Автоматично" }, ...proposal.alternatives].map((alternative) => <button key={alternative.token} className={activeToken === alternative.token ? "active" : ""} title={alternative.label} onClick={() => setTokenOverrides((current) => ({ ...current, [key]: alternative.token }))}>{`{{${alternative.token}}}`}</button>)}</div>}</div><aside><code>{`{{${activeToken}}}`}</code><small>{proposal.occurrences} збіг{proposal.occurrences === 1 ? "" : "ів"}</small></aside></div>; })}{analysis.proposals.length === 0 && <p className="analyser-no-proposals">Збігів із даними програми не знайдено. Виділіть текст у редакторі й додайте потрібну заміну вручну.</p>}</div></section><footer className="analyser-create"><label>Назва файлу<input value={templateName} onChange={(event) => setTemplateName(event.target.value)} /></label><p>Стиль, відступи та пробіли оригінального DOCX зберігаються; змінюється лише підтверджений текст.</p><button className="button primary" disabled={!templateName.trim() || isCreating} onClick={() => void create()}>{isCreating ? <LoaderCircle className="spin" /> : <Check />}Створити шаблон</button></footer></aside>
+      <aside className="panel analyser-sidebar"><section className="analyser-proposals"><header><div><h2>Запропоновані заміни</h2><p>Автоматично ввімкнені лише однозначні збіги. Решту підтвердьте вручну.</p></div><div className="analyser-proposals__actions"><button className="icon-button" title="Відкрити конструктор змінних" aria-label="Відкрити конструктор змінних" onClick={onOpenConstructor}><WandSparkles /></button><b>{selectedProposals.length} обрано</b></div></header><div className="analyser-proposals__scroll">{proposalGroups.map((group) => <section className={`analyser-proposal-group analyser-proposal-group--${group.confidence}`} key={group.confidence}><header><b>{group.title}</b><span>{group.items.length}</span></header>{group.items.map((proposal) => { const key = proposalKey(proposal); const activeToken = tokenOverrides[key] ?? proposal.token; return <div key={key} title={proposal.reason} className={selected.includes(key) ? "analyser-proposal analyser-proposal--selected" : "analyser-proposal"}><input type="checkbox" checked={selected.includes(key)} onChange={() => toggle(proposal)} /><div><span>{proposal.category}</span><b>{proposal.label}</b><code>{proposal.value}</code><small className="analyser-proposal__reason">{proposal.reason}</small>{proposal.alternatives?.length > 0 && <div className="analyser-proposal__alternatives">{[{ token: proposal.token, label: "Автоматично" }, ...proposal.alternatives].map((alternative) => <button key={alternative.token} className={activeToken === alternative.token ? "active" : ""} title={alternative.label} onClick={() => setTokenOverrides((current) => ({ ...current, [key]: alternative.token }))}>{`{{${alternative.token}}}`}</button>)}</div>}</div><aside><span className={`analyser-confidence analyser-confidence--${proposal.confidence}`}>{proposal.confidence === "high" ? "Надійна" : "Перевірте"}</span><code>{`{{${activeToken}}}`}</code><small>{proposal.occurrences} збіг{proposal.occurrences === 1 ? "" : "ів"}</small></aside></div>; })}</section>)}{analysis.proposals.length === 0 && <p className="analyser-no-proposals">Збігів із даними програми не знайдено. Виділіть текст у редакторі й додайте потрібну заміну вручну.</p>}</div></section><footer className="analyser-create"><label>Назва файлу<input value={templateName} onChange={(event) => setTemplateName(event.target.value)} /></label><p>Стиль, відступи та пробіли оригінального DOCX зберігаються; змінюється лише підтверджений текст.</p><button className="button primary" disabled={!templateName.trim() || isCreating} onClick={() => void create()}>{isCreating ? <LoaderCircle className="spin" /> : <Check />}Створити шаблон</button></footer></aside>
     </div>}
   </PageFrame>;
 }

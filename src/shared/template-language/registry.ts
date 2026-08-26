@@ -14,6 +14,7 @@ export const templateLanguageVersion = source.version;
 export const personFields = source.personFields as Field[];
 export const vehicleFields = source.vehicleFields as Field[];
 export const crewFields = source.crewFields as Field[];
+export const positionFields = source.positionFields as Field[];
 export const equipmentFields = source.equipmentFields as Field[];
 export const generationParameterFields = source.documentFields as GenerationParameterField[];
 export const signerRoles = source.signerRoles;
@@ -23,6 +24,7 @@ export const variableRegistry: VariableDefinition[] = [
   ...vehicleFields.map((field) => fieldToVariable(field, `військовий_1_автомобіль_1_${field.id}`, "Автомобіль військовослужбовця")),
   ...vehicleFields.map((field) => fieldToVariable(field, `автомобіль_1_${field.id}`, "Автомобіль")),
   ...crewFields.map((field) => fieldToVariable(field, `екіпаж_1_${field.id}`, "Екіпаж")),
+  ...positionFields.map((field) => fieldToVariable(field, `позиція_1_${field.id}`, "Позиція")),
   ...["генератор", "бпла", "звʼязок", "зброя_та_бк"].flatMap((subject) => equipmentFields.map((field) => fieldToVariable(field, `${subject}_1_${field.id}`, subject === "бпла" ? "БпЛА" : subject === "звʼязок" ? "Зв’язок" : subject === "генератор" ? "Генератор" : "Зброя та БК"))),
   ...source.signerRoles.flatMap((role) => signerFields.map((field) => fieldToVariable(field, `${role.id}_${field.id}`, role.name))),
   ...generationParameterFields.map((field) => fieldToVariable(field, field.id, "Параметри документа"))
@@ -38,12 +40,13 @@ export function getGenerationParameter(token: string) {
 export const modifierRegistry: ModifierDefinition[] = source.modifiers.map((item) => ({ ...item, group: item.group as ModifierDefinition["group"], description: item.group === "case" ? `Відмінює значення: ${item.name.toLowerCase()} відмінок.` : `Змінює написання: ${item.name.toLowerCase()}.` }));
 export const tokenFor = (id: string, modifiers: string[] = []) => `{{${[id, ...modifiers].join(":")}}}`;
 
-export type SelectionSubjectId = "personnel" | "vehicle" | "crew" | "generator" | "uav" | "communications" | "weaponAmmo";
+export type SelectionSubjectId = "personnel" | "vehicle" | "crew" | "position" | "generator" | "uav" | "communications" | "weaponAmmo";
 export type SelectionRequirement = { id: SelectionSubjectId; prefix: string; label: string; count: number; category?: string };
 const selectionSubjects: Array<Omit<SelectionRequirement, "count"> & { fields: Field[] }> = [
   { id: "personnel", prefix: "військовий", label: "Військовослужбовці", fields: personFields },
   { id: "vehicle", prefix: "автомобіль", label: "Автомобілі", fields: vehicleFields },
   { id: "crew", prefix: "екіпаж", label: "Екіпажі", fields: crewFields },
+  { id: "position", prefix: "позиція", label: "Позиції", fields: positionFields },
   { id: "generator", prefix: "генератор", label: "Генератори", category: "generator", fields: equipmentFields },
   { id: "uav", prefix: "бпла", label: "БпЛА", category: "uav", fields: equipmentFields },
   { id: "communications", prefix: "звʼязок", label: "Засоби зв’язку", category: "communications", fields: equipmentFields },
@@ -78,12 +81,19 @@ export function getSelectionRequirements(tokens: string[]): SelectionRequirement
 export function getVariable(id: string) {
   const direct = variableRegistry.find((item) => item.id === id);
   if (direct) return direct;
+  const generationParameter = getGenerationParameter(id);
+  if (generationParameter) return fieldToVariable(generationParameter, id, "Параметри документа");
   const match = /^військовий_([1-9]\d*)_(.+)$/.exec(id);
   if (!match) {
     const crew = /^екіпаж_(?:[1-9]\d*)_(.+)$/u.exec(id);
     if (crew) {
       const field = crewFields.find((item) => item.id === crew[1]);
       if (field) return fieldToVariable(field, id, "Екіпаж");
+    }
+    const position = /^позиція_(?:[1-9]\d*)_(.+)$/u.exec(id);
+    if (position) {
+      const field = positionFields.find((item) => item.id === position[1]);
+      if (field) return fieldToVariable(field, id, "Позиція");
     }
     const equipment = /^(генератор|бпла|звʼязок|зброя_та_бк)_(?:[1-9]\d*)_(.+)$/u.exec(id);
     if (equipment) {

@@ -19,6 +19,17 @@ pub struct SignerRole {
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UnitSettings {
+    #[serde(default = "default_unit_kind")]
+    pub kind: String,
+    #[serde(default)]
+    pub short_name: String,
+    #[serde(default)]
+    pub authorized_strength: i64,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub main_signer: SignerSettings,
     pub commander: SignerSettings,
@@ -37,6 +48,19 @@ pub struct AppSettings {
     pub visible_personnel_columns: Vec<String>,
     #[serde(default)]
     pub visible_vehicle_columns: Vec<String>,
+    #[serde(default = "default_unit")]
+    pub unit: UnitSettings,
+}
+
+fn default_unit_kind() -> String {
+    "Рота".into()
+}
+fn default_unit() -> UnitSettings {
+    UnitSettings {
+        kind: default_unit_kind(),
+        short_name: String::new(),
+        authorized_strength: 0,
+    }
 }
 
 const MAIN_SIGNER_ID: &str = "основний_підписант";
@@ -130,9 +154,31 @@ pub fn defaults() -> AppSettings {
         signer_roles: Vec::new(),
         visible_personnel_columns: Vec::new(),
         visible_vehicle_columns: Vec::new(),
+        unit: default_unit(),
     };
     settings.signer_roles = default_roles(&settings);
     settings
+}
+
+pub fn update_unit_settings(root: &Path, unit: UnitSettings) -> Result<AppSettings, String> {
+    let kind = unit.kind.trim();
+    if !matches!(kind, "Рота" | "Окремий взвод") {
+        return Err("Оберіть тип підрозділу: «Рота» або «Окремий взвод».".into());
+    }
+    if unit.short_name.trim().is_empty() {
+        return Err("Вкажіть коротку назву підрозділу, наприклад «РБАК».".into());
+    }
+    if unit.authorized_strength < 0 {
+        return Err("Чисельність за штатом не може бути від’ємною.".into());
+    }
+    let mut settings = load(root)?;
+    settings.unit = UnitSettings {
+        kind: kind.into(),
+        short_name: unit.short_name.trim().into(),
+        authorized_strength: unit.authorized_strength,
+    };
+    save(root, &settings)?;
+    Ok(settings)
 }
 
 pub fn update_visible_personnel_columns(

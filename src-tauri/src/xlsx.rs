@@ -68,7 +68,38 @@ pub const VEHICLE_KEYS: &[&str] = &[
     "driver_full_name",
     "crew_name",
 ];
-pub const CREW_KEYS: &[&str] = &["name", "platoon", "position_name", "reconnaissance_area"];
+pub const CREW_KEYS: &[&str] = &[
+    "unit_type",
+    "company_name",
+    "name",
+    "platoon",
+    "position_name",
+    "reconnaissance_area",
+    "battle_order",
+    "sector",
+    "official_strength",
+    "status",
+    "uav_name",
+    "uav_type",
+    "functional_duties",
+    "current_location",
+    "notes",
+];
+pub const POSITION_KEYS: &[&str] = &[
+    "name",
+    "position_type",
+    "strip_name",
+    "locality",
+    "battle_order",
+    "sector",
+    "condition",
+    "size",
+    "mgrs",
+    "suitable_uav_text",
+    "is_active",
+    "crew_name",
+    "notes",
+];
 pub const CREW_MEMBER_KEYS: &[&str] = &["crew_name", "personnel_tax_id", "personnel_full_name"];
 pub const EQUIPMENT_KEYS: &[&str] = &[
     "name",
@@ -101,12 +132,60 @@ pub struct VehicleRow {
     pub crew_name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CrewRow {
     pub name: String,
     pub platoon: String,
     pub position_name: String,
     pub reconnaissance_area: String,
+    pub unit_type: String,
+    pub company_name: String,
+    pub battle_order: String,
+    pub sector: String,
+    pub official_strength: String,
+    pub status: String,
+    pub uav_name: String,
+    pub uav_type: String,
+    pub functional_duties: String,
+    pub current_location: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BcsRow {
+    pub section: String,
+    pub position_name: String,
+    pub battle_order: String,
+    pub sector: String,
+    pub crew_name: String,
+    pub crew_actual: String,
+    pub crew_official: String,
+    pub crew_status: String,
+    pub uav_name: String,
+    pub uav_type: String,
+    pub personnel_position: String,
+    pub rank: String,
+    pub full_name: String,
+    pub duties: String,
+    pub location: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PositionRow {
+    pub name: String,
+    pub position_type: String,
+    pub strip_name: String,
+    pub locality: String,
+    pub battle_order: String,
+    pub sector: String,
+    pub condition: String,
+    pub size: String,
+    pub mgrs: String,
+    pub suitable_uav_text: String,
+    pub is_active: String,
+    pub crew_name: String,
+    pub notes: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,6 +227,7 @@ pub struct ImportData {
     pub crew_members: Vec<CrewMemberRow>,
     pub equipment: Vec<EquipmentRow>,
     pub incidents: Vec<IncidentRow>,
+    pub positions: Vec<PositionRow>,
     pub personnel_custom_fields: Vec<CustomValueRow>,
     pub vehicle_custom_fields: Vec<CustomValueRow>,
     pub personnel_custom_field_maps: Vec<CustomFieldMapRow>,
@@ -268,11 +348,43 @@ fn crew_label(key: &str) -> &str {
         "platoon" => "Взвод",
         "position_name" => "Позиція",
         "reconnaissance_area" => "Район розвідки",
+        "unit_type" => "Підрозділ по типу",
+        "company_name" => "Рота / окремий взвод",
+        "battle_order" => "БРО",
+        "sector" => "Сектор роботи",
+        "official_strength" => "Кількість в/с за штатом",
+        "status" => "Статус екіпажу",
+        "uav_name" => "Назва БпАК",
+        "uav_type" => "Тип БпАК",
+        "functional_duties" => "Функціональні обов’язки",
+        "current_location" => "Де знаходиться",
+        "notes" => "Примітка",
         "crew_name" => "Назва екіпажу",
         "personnel_tax_id" => "ІПН військовослужбовця",
         "personnel_full_name" => "ПІБ військовослужбовця",
         _ => key,
     }
+}
+fn position_label(key: &str) -> &str {
+    match key {
+        "name" => "Назва позиції",
+        "position_type" => "Тип позиції",
+        "strip_name" => "Смуга",
+        "locality" => "Район населеного пункту",
+        "battle_order" => "БРО",
+        "sector" => "Сектор",
+        "condition" => "Стан",
+        "size" => "Розмір",
+        "mgrs" => "Приблизні координати MGRS",
+        "suitable_uav_text" => "Під які БпЛА підходить",
+        "is_active" => "Активна",
+        "crew_name" => "Закріплений екіпаж",
+        "notes" => "Примітка",
+        _ => key,
+    }
+}
+fn position_export_label(key: &str) -> String {
+    position_label(key).into()
 }
 fn equipment_label(key: &str) -> &str {
     match key {
@@ -345,6 +457,7 @@ fn worksheet_xml(headers: &[String], keys: &[String], rows: &[Vec<String>]) -> S
 }
 
 /// The exported workbook is the canonical interchange format: one personnel sheet and one vehicle sheet.
+#[allow(clippy::too_many_arguments)]
 pub fn export(
     path: &Path,
     people: &[Personnel],
@@ -357,6 +470,7 @@ pub fn export(
     crew_members: &[CrewMemberRow],
     equipment: &[EquipmentRow],
     incidents: &[IncidentRow],
+    positions: &[PositionRow],
 ) -> Result<(), String> {
     let file = File::create(path).map_err(|_| "Не вдалося створити Excel-файл.".to_string())?;
     let mut archive = ZipWriter::new(file);
@@ -403,10 +517,41 @@ pub fn export(
         .iter()
         .map(|crew| {
             vec![
+                crew.unit_type.clone(),
+                crew.company_name.clone(),
                 crew.name.clone(),
                 crew.platoon.clone(),
                 crew.position_name.clone(),
                 crew.reconnaissance_area.clone(),
+                crew.battle_order.clone(),
+                crew.sector.clone(),
+                crew.official_strength.clone(),
+                crew.status.clone(),
+                crew.uav_name.clone(),
+                crew.uav_type.clone(),
+                crew.functional_duties.clone(),
+                crew.current_location.clone(),
+                crew.notes.clone(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let position_rows = positions
+        .iter()
+        .map(|row| {
+            vec![
+                row.name.clone(),
+                row.position_type.clone(),
+                row.strip_name.clone(),
+                row.locality.clone(),
+                row.battle_order.clone(),
+                row.sector.clone(),
+                row.condition.clone(),
+                row.size.clone(),
+                row.mgrs.clone(),
+                row.suitable_uav_text.clone(),
+                row.is_active.clone(),
+                row.crew_name.clone(),
+                row.notes.clone(),
             ]
         })
         .collect::<Vec<_>>();
@@ -480,8 +625,8 @@ pub fn export(
     };
     let map_sheet = |keys: &[&str], label: fn(&str) -> String| {
         worksheet_xml(
-            &vec!["Назва в Excel".into(), "Назва змінної в БД".into()],
-            &vec!["excel_name".into(), "field_key".into()],
+            &["Назва в Excel".into(), "Назва змінної в БД".into()],
+            &["excel_name".into(), "field_key".into()],
             &keys
                 .iter()
                 .map(|key| vec![label(key), (*key).to_string()])
@@ -540,6 +685,24 @@ pub fn export(
         (
             "Мапа полів екіпажів".to_string(),
             map_sheet(CREW_KEYS, crew_export_label),
+        ),
+        (
+            "Позиції".to_string(),
+            worksheet_xml(
+                &POSITION_KEYS
+                    .iter()
+                    .map(|key| position_label(key).to_string())
+                    .collect::<Vec<_>>(),
+                &POSITION_KEYS
+                    .iter()
+                    .map(|key| key.to_string())
+                    .collect::<Vec<_>>(),
+                &position_rows,
+            ),
+        ),
+        (
+            "Мапа полів позицій".to_string(),
+            map_sheet(POSITION_KEYS, position_export_label),
         ),
         (
             "Склад екіпажів".to_string(),
@@ -663,6 +826,172 @@ pub fn export(
         sheets.drain(..).enumerate().map(|(index, (_, content))| {
             (format!("xl/worksheets/sheet{}.xml", index + 1), content)
         }),
+    );
+    for (name, content) in files {
+        archive
+            .start_file(name, options)
+            .map_err(|_| "Не вдалося сформувати Excel-файл.".to_string())?;
+        archive
+            .write_all(content.as_bytes())
+            .map_err(|_| "Не вдалося записати Excel-файл.".to_string())?;
+    }
+    archive
+        .finish()
+        .map_err(|_| "Не вдалося завершити Excel-файл.".to_string())?;
+    Ok(())
+}
+
+pub fn export_bcs(
+    path: &Path,
+    unit_name: &str,
+    date: &str,
+    authorized_strength: i64,
+    rows: &[BcsRow],
+) -> Result<(), String> {
+    let mut data_rows = Vec::<Vec<String>>::new();
+    for row in rows {
+        data_rows.push(vec![
+            row.section.clone(),
+            row.position_name.clone(),
+            row.battle_order.clone(),
+            row.sector.clone(),
+            row.crew_name.clone(),
+            row.crew_actual.clone(),
+            row.crew_official.clone(),
+            row.crew_status.clone(),
+            row.uav_name.clone(),
+            row.uav_type.clone(),
+            row.personnel_position.clone(),
+            row.rank.clone(),
+            row.full_name.clone(),
+            row.duties.clone(),
+            row.location.clone(),
+            row.notes.clone(),
+        ]);
+    }
+    let headers = [
+        "Підрозділи по типу",
+        "Назва позиції",
+        "БРО",
+        "Сектор роботи",
+        "Назва екіпажу",
+        "Кількість в/с\nпрацює в екіпажах",
+        "Кількість в/с",
+        "Статус Екіпажу",
+        "Назва БпАК",
+        "Тип БпАК",
+        "Посада по штату",
+        "Військове звання",
+        "П.І.Б.",
+        "Функціональні обов’язки, які виконує",
+        "Де знаходиться",
+        "Примітка",
+    ]
+    .iter()
+    .map(|value| value.to_string())
+    .collect::<Vec<_>>();
+    let mut sheet = String::from("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetViews><sheetView workbookViewId=\"0\"><pane ySplit=\"4\" topLeftCell=\"A5\" activePane=\"bottomLeft\" state=\"frozen\"/></sheetView></sheetViews><sheetData>");
+    for row_index in 1..=3 {
+        sheet.push_str(&format!("<row r=\"{}\">", row_index));
+        if row_index == 1 {
+            sheet.push_str(&cell(0, row_index, &format!("БЧС {}", unit_name)));
+        } else if row_index == 2 {
+            sheet.push_str(&cell(
+                0,
+                row_index,
+                &format!("станом на 08:00 год {}", date),
+            ));
+        }
+        sheet.push_str("</row>");
+    }
+    sheet.push_str("<row r=\"4\">");
+    for (index, header) in headers.iter().enumerate() {
+        sheet.push_str(&cell(index, 4, header));
+    }
+    sheet.push_str("</row>");
+    for (index, values) in data_rows.iter().enumerate() {
+        sheet.push_str(&format!("<row r=\"{}\">", index + 5));
+        for (column, value) in values.iter().enumerate() {
+            sheet.push_str(&cell(column, index + 5, value));
+        }
+        sheet.push_str("</row>");
+    }
+    let summary_start = data_rows.len() + 7;
+    let totals = [
+        ("БЧС за штатом", authorized_strength.to_string()),
+        ("БЧС за списком", rows.len().to_string()),
+        (
+            "В екіпажах",
+            rows.iter()
+                .filter(|row| !row.crew_name.is_empty())
+                .count()
+                .to_string(),
+        ),
+    ];
+    let location_start = summary_start;
+    let locations = [
+        "ПУ",
+        "ШТАБ",
+        "УПР",
+        "КСП Роти",
+        "ЗАБ",
+        "ОХ",
+        "ГШР",
+        "На позиції",
+        "ЗБЗ",
+        "ПБЗ",
+        "ЗХВ",
+        "ВІДП",
+        "НАВЧ",
+        "ВІДР",
+        "ЛІК",
+        "Відкомандировані",
+        "ОХП",
+        "Прикомандирований",
+        "СЗЧ",
+        "ПТЗ Новостав",
+        "Реко та облаштування",
+        "Логістика на позиції",
+    ];
+    for (index, location) in locations.iter().enumerate() {
+        let row = location_start + index;
+        sheet.push_str(&format!("<row r=\"{}\">", row));
+        if let Some((label, value)) = totals.get(index) {
+            sheet.push_str(&cell(4, row, label));
+            sheet.push_str(&cell(5, row, value));
+        }
+        if index == 0 {
+            sheet.push_str(&cell(8, row, "БЧС по місцях"));
+        }
+        sheet.push_str(&cell(12, row, location));
+        sheet.push_str(&cell(
+            15,
+            row,
+            &rows
+                .iter()
+                .filter(|item| item.location == *location)
+                .count()
+                .to_string(),
+        ));
+        sheet.push_str("</row>");
+    }
+    sheet.push_str(&format!("</sheetData><mergeCells count=\"2\"><mergeCell ref=\"A1:P1\"/><mergeCell ref=\"A2:P2\"/></mergeCells><autoFilter ref=\"A4:P{}\"/><cols>{}</cols></worksheet>", data_rows.len() + 4, (1..=16).map(|index| format!("<col min=\"{0}\" max=\"{0}\" width=\"18\" customWidth=\"1\"/>", index)).collect::<String>()));
+    write_workbook(path, vec![("БЧС".into(), sheet)])
+}
+
+fn write_workbook(path: &Path, mut sheets: Vec<(String, String)>) -> Result<(), String> {
+    let file = File::create(path).map_err(|_| "Не вдалося створити Excel-файл.".to_string())?;
+    let mut archive = ZipWriter::new(file);
+    let options = SimpleFileOptions::default();
+    let content_types = format!("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>{}</Types>", sheets.iter().enumerate().map(|(index, _)| format!("<Override PartName=\"/xl/worksheets/sheet{}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>", index + 1)).collect::<String>());
+    let relationships = format!("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">{}</Relationships>", sheets.iter().enumerate().map(|(index, _)| format!("<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet{}.xml\"/>", index + 1, index + 1)).collect::<String>());
+    let workbook = format!("<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>{}</sheets></workbook>", sheets.iter().enumerate().map(|(index, (name, _))| format!("<sheet name=\"{}\" sheetId=\"{}\" r:id=\"rId{}\"/>", esc(name), index + 1, index + 1)).collect::<String>());
+    let mut files = vec![("[Content_Types].xml".to_string(), content_types), ("_rels/.rels".to_string(), "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>".to_string()), ("xl/_rels/workbook.xml.rels".to_string(), relationships), ("xl/workbook.xml".to_string(), workbook)];
+    files.extend(
+        sheets
+            .drain(..)
+            .enumerate()
+            .map(|(index, (_, xml))| (format!("xl/worksheets/sheet{}.xml", index + 1), xml)),
     );
     for (name, content) in files {
         archive
@@ -838,10 +1167,8 @@ fn records(rows: Vec<Vec<String>>, sheet: &str) -> Result<Vec<RowWithNumber>, St
             let map = keys
                 .iter()
                 .enumerate()
-                .filter_map(|(index, key)| {
-                    (!key.trim().is_empty())
-                        .then(|| (key.clone(), row.get(index).cloned().unwrap_or_default()))
-                })
+                .filter(|(_, key)| !key.trim().is_empty())
+                .map(|(index, key)| (key.clone(), row.get(index).cloned().unwrap_or_default()))
                 .collect::<HashMap<_, _>>();
             (!map.values().all(|value| value.trim().is_empty()))
                 .then_some(RowWithNumber { values: map })
@@ -899,13 +1226,12 @@ fn optional_custom_values(
             let fields = keys
                 .iter()
                 .enumerate()
-                .filter_map(|(index, key)| {
-                    (!key.trim().is_empty()).then(|| {
-                        (
-                            key.trim().to_string(),
-                            row.get(index).cloned().unwrap_or_default(),
-                        )
-                    })
+                .filter(|(_, key)| !key.trim().is_empty())
+                .map(|(index, key)| {
+                    (
+                        key.trim().to_string(),
+                        row.get(index).cloned().unwrap_or_default(),
+                    )
                 })
                 .collect::<HashMap<_, _>>();
             let owner = fields.get(owner_key).cloned().unwrap_or_default();
@@ -1039,6 +1365,55 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
                 .get("reconnaissance_area")
                 .cloned()
                 .unwrap_or_default(),
+            unit_type: row
+                .values
+                .get("unit_type")
+                .cloned()
+                .unwrap_or_else(|| "Екіпаж".into()),
+            company_name: row.values.get("company_name").cloned().unwrap_or_default(),
+            battle_order: row.values.get("battle_order").cloned().unwrap_or_default(),
+            sector: row.values.get("sector").cloned().unwrap_or_default(),
+            official_strength: row
+                .values
+                .get("official_strength")
+                .cloned()
+                .unwrap_or_else(|| "4".into()),
+            status: row.values.get("status").cloned().unwrap_or_default(),
+            uav_name: row.values.get("uav_name").cloned().unwrap_or_default(),
+            uav_type: row.values.get("uav_type").cloned().unwrap_or_default(),
+            functional_duties: row
+                .values
+                .get("functional_duties")
+                .cloned()
+                .unwrap_or_default(),
+            current_location: row
+                .values
+                .get("current_location")
+                .cloned()
+                .unwrap_or_default(),
+            notes: row.values.get("notes").cloned().unwrap_or_default(),
+        })
+        .collect();
+    let positions = optional_records(&mut archive, "Позиції", &shared)?
+        .into_iter()
+        .map(|row| PositionRow {
+            name: row.values.get("name").cloned().unwrap_or_default(),
+            position_type: row.values.get("position_type").cloned().unwrap_or_default(),
+            strip_name: row.values.get("strip_name").cloned().unwrap_or_default(),
+            locality: row.values.get("locality").cloned().unwrap_or_default(),
+            battle_order: row.values.get("battle_order").cloned().unwrap_or_default(),
+            sector: row.values.get("sector").cloned().unwrap_or_default(),
+            condition: row.values.get("condition").cloned().unwrap_or_default(),
+            size: row.values.get("size").cloned().unwrap_or_default(),
+            mgrs: row.values.get("mgrs").cloned().unwrap_or_default(),
+            suitable_uav_text: row
+                .values
+                .get("suitable_uav_text")
+                .cloned()
+                .unwrap_or_default(),
+            is_active: row.values.get("is_active").cloned().unwrap_or_default(),
+            crew_name: row.values.get("crew_name").cloned().unwrap_or_default(),
+            notes: row.values.get("notes").cloned().unwrap_or_default(),
         })
         .collect();
     let crew_members = optional_records(&mut archive, "Склад екіпажів", &shared)?
@@ -1136,6 +1511,7 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
         crew_members,
         equipment,
         incidents,
+        positions,
         personnel_custom_fields,
         vehicle_custom_fields,
         personnel_custom_field_maps,
@@ -1187,6 +1563,7 @@ mod tests {
                 driver_full_name: "Тест Іван Іванович".into(),
                 crew_name: String::new(),
             }],
+            &[],
             &[],
             &[],
             &[],
@@ -1257,6 +1634,7 @@ mod tests {
                 platoon: "1 взвод".into(),
                 position_name: "СП-1".into(),
                 reconnaissance_area: "Північ".into(),
+                ..CrewRow::default()
             }],
             &[CrewMemberRow {
                 crew_name: "Екіпаж Сокіл".into(),
@@ -1316,12 +1694,28 @@ mod tests {
                 reconnaissance_area: "Північ".into(),
                 description: "Тестовий запис".into(),
             }],
+            &[PositionRow {
+                name: "СП Тест".into(),
+                position_type: "Основна".into(),
+                strip_name: "Смуга 1".into(),
+                locality: "н.п. Тестове".into(),
+                battle_order: "БР №1".into(),
+                sector: "Північ".into(),
+                condition: "Готова".into(),
+                size: "20 × 30 м".into(),
+                mgrs: "36U UV 12000 67000".into(),
+                suitable_uav_text: "Mavic".into(),
+                is_active: "Так".into(),
+                crew_name: "Екіпаж Сокіл".into(),
+                notes: String::new(),
+            }],
         )
         .unwrap();
         let imported = import(&path).unwrap();
         assert_eq!(imported.crews.len(), 1);
         assert_eq!(imported.crew_members.len(), 1);
         assert_eq!(imported.equipment.len(), 4);
+        assert_eq!(imported.positions.len(), 1);
         assert_eq!(imported.incidents[0].equipment_inventory_number, "UAV-01");
         assert_eq!(
             imported.personnel_custom_field_maps[0].field_key,
@@ -1345,6 +1739,7 @@ mod tests {
         assert!(imported.crew_members.is_empty());
         assert!(imported.equipment.is_empty());
         assert!(imported.incidents.is_empty());
+        assert!(imported.positions.is_empty());
         let mut archive = ZipArchive::new(File::open(template).unwrap()).unwrap();
         let mut workbook = String::new();
         archive
@@ -1360,6 +1755,8 @@ mod tests {
             "Зв’язок",
             "Зброя та БК",
             "Інциденти",
+            "Позиції",
+            "Мапа полів позицій",
         ] {
             assert!(
                 workbook.contains(sheet),
@@ -1385,6 +1782,7 @@ mod tests {
                 driver_full_name: "Тест Іван Іванович".into(),
                 crew_name: String::new(),
             }],
+            &[],
             &[],
             &[],
             &[],
@@ -1477,6 +1875,46 @@ mod tests {
         assert_eq!(imported.personnel[0].given_name, "АНАТОЛІЙ");
         assert_eq!(imported.personnel[0].patronymic, "АНАТОЛІЙОВИЧ");
         assert!(imported.personnel[0].tax_id.is_empty());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn exports_bcs_with_the_reference_columns_and_location_totals() {
+        let path =
+            std::env::temp_dir().join(format!("shablonizator-bcs-{}.xlsx", std::process::id()));
+        export_bcs(
+            &path,
+            "РБАК",
+            "16.08.2026",
+            78,
+            &[BcsRow {
+                section: "Екіпажі".into(),
+                crew_name: "Екіпаж ТЕСТ".into(),
+                crew_actual: "3".into(),
+                crew_official: "4".into(),
+                full_name: "ТЕСТОВИЙ Тест Тестович".into(),
+                location: "На позиції".into(),
+                ..BcsRow::default()
+            }],
+        )
+        .unwrap();
+        let mut archive = ZipArchive::new(File::open(&path).unwrap()).unwrap();
+        let mut workbook = String::new();
+        archive
+            .by_name("xl/workbook.xml")
+            .unwrap()
+            .read_to_string(&mut workbook)
+            .unwrap();
+        assert!(workbook.contains("БЧС"));
+        let mut sheet = String::new();
+        archive
+            .by_name("xl/worksheets/sheet1.xml")
+            .unwrap()
+            .read_to_string(&mut sheet)
+            .unwrap();
+        assert!(sheet.contains("Підрозділи по типу"));
+        assert!(sheet.contains("Логістика на позиції"));
+        assert!(sheet.contains("БЧС за штатом"));
         let _ = std::fs::remove_file(path);
     }
 }

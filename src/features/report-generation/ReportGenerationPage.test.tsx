@@ -11,6 +11,7 @@ vi.mock("./hooks/useReportGeneration", () => ({ useReportGeneration: () => gener
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn((command: string) => {
   if (command === "list_crews") return Promise.resolve([{ id: 7, name: "Екіпаж «Сокіл»", platoon: "1 взвод", positionName: "СП «Північ»", reconnaissanceArea: "район", memberCount: 4 }]);
   if (command === "list_equipment") return Promise.resolve([{ id: 8, category: "uav", name: "DJI Matrice 30T", inventoryNumber: "БПЛА-001", status: "Справний", crewName: "Екіпаж «Сокіл»", holderName: null }]);
+  if (command === "list_positions") return Promise.resolve([{ id: 9, name: "СП «Північ»", positionType: "Основна", locality: "н.п. Тестове", crewName: "Екіпаж «Сокіл»" }]);
   return Promise.resolve([]);
 }) }));
 
@@ -32,7 +33,7 @@ describe("Генерація рапорту", () => {
     expect(onToggle).toHaveBeenCalledWith(1);
     fireEvent.click(screen.getByRole("button", { name: "Готово" }));
     fireEvent.click(screen.getByRole("button", { name: "Згенерувати рапорт" }));
-    expect(generation.generate).toHaveBeenCalledWith("/templates/report.docx", [1], { дата_рапорту: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }, [], [], []);
+    expect(generation.generate).toHaveBeenCalledWith("/templates/report.docx", [1], { дата_рапорту: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }, [], [], [], []);
   });
 
   it("does not show parameter controls when the token is absent", () => {
@@ -51,7 +52,7 @@ describe("Генерація рапорту", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Інша військова частина №1" }), { target: { value: "А1111" } });
     expect(screen.getByRole("button", { name: "Згенерувати рапорт" })).not.toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Згенерувати рапорт" }));
-    expect(generation.generate).toHaveBeenCalledWith("/templates/report.docx", [], { дата_рапорту: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), військова_частина_1: "А1111" }, [], [], []);
+    expect(generation.generate).toHaveBeenCalledWith("/templates/report.docx", [], { дата_рапорту: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), військова_частина_1: "А1111" }, [], [], [], []);
   });
 
   it("shows crews when a template uses crew variables", async () => {
@@ -60,7 +61,7 @@ describe("Генерація рапорту", () => {
     expect(await screen.findByText("Вибір екіпажів")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Екіпаж «Сокіл»"));
     fireEvent.click(screen.getByRole("button", { name: "Згенерувати рапорт" }));
-    expect(generation.generate).toHaveBeenCalledWith("/templates/report.docx", [], {}, [], [7], []);
+    expect(generation.generate).toHaveBeenCalledWith("/templates/report.docx", [], {}, [], [7], [], []);
   });
 
   it("shows equipment records when a template uses UAV variables", async () => {
@@ -69,6 +70,15 @@ describe("Генерація рапорту", () => {
     expect(await screen.findByText("Вибір майна")).toBeInTheDocument();
     fireEvent.click(screen.getByText("DJI Matrice 30T"));
     fireEvent.click(screen.getByRole("button", { name: "Згенерувати рапорт" }));
-    expect(generation.generate).toHaveBeenCalledWith("/templates/report.docx", [], {}, [], [], [8]);
+    expect(generation.generate).toHaveBeenCalledWith("/templates/report.docx", [], {}, [], [], [8], []);
+  });
+
+  it("requires selecting a position when a template uses position variables", async () => {
+    generation.inspection = { isValid: true, errors: [], variables: ["позиція_1_назва"] };
+    render(<NotificationProvider><ReportGenerationPage template={template} templates={[template]} hasMoreTemplates={false} isLoadingMoreTemplates={false} onLoadMoreTemplates={vi.fn()} people={[person]} hasMorePeople={false} isLoadingMorePeople={false} onLoadMorePeople={vi.fn()} selected={[]} onToggle={vi.fn()} onAll={vi.fn()} onClear={vi.fn()} onChoose={vi.fn()} /></NotificationProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: /Позиції/ }));
+    fireEvent.click(await screen.findByText("СП «Північ»"));
+    fireEvent.click(screen.getByRole("button", { name: "Згенерувати рапорт" }));
+    expect(generation.generate).toHaveBeenCalledWith("/templates/report.docx", [], {}, [], [], [], [9]);
   });
 });

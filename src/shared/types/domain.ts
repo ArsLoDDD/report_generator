@@ -21,6 +21,9 @@ export type TemplateAnalysisProposal = {
   label: string;
   category: string;
   occurrences: number;
+  confidence: "high" | "medium";
+  autoSelect: boolean;
+  reason: string;
   alternatives: Array<{ token: string; label: string }>;
 };
 
@@ -82,6 +85,7 @@ export type SignerSettings = {
 };
 
 export type SignerRole = { id: string; name: string; signer: SignerSettings };
+export type UnitSettings = { kind: "Рота" | "Окремий взвод"; shortName: string; authorizedStrength: number };
 
 export type AppSettings = {
   mainSigner: SignerSettings;
@@ -94,6 +98,7 @@ export type AppSettings = {
   signerRoles: SignerRole[];
   visiblePersonnelColumns?: string[];
   visibleVehicleColumns?: string[];
+  unit: UnitSettings;
 };
 
 export type StartupWarning = {
@@ -102,4 +107,4 @@ export type StartupWarning = {
   message: string;
 };
 
-export type Screen = "generator" | "templates" | "report-analyser" | "people" | "vehicles" | "generators" | "uavs" | "communications" | "weapons" | "crews" | "incidents" | "generated" | "settings" | "documentation" | "variable-constructor";
+export type Screen = "generator" | "templates" | "report-analyser" | "people" | "staffing-bcs" | "positions" | "vehicles" | "generators" | "uavs" | "communications" | "weapons" | "crews" | "incidents" | "generated" | "settings" | "documentation" | "variable-constructor";

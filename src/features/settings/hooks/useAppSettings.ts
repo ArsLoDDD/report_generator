@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AppSettings, SignerSettings } from "../../../shared/types/domain";
+import type { AppSettings, SignerSettings, UnitSettings } from "../../../shared/types/domain";
 import { settingsService } from "../services/settingsService";
 
 export function useAppSettings() {
@@ -29,5 +29,11 @@ export function useAppSettings() {
     catch (error) { setErrorMessage(error instanceof Error ? error.message : "Не вдалося видалити підписанта."); return false; }
     finally { setIsSaving(false); }
   };
-  return { settings, errorMessage, isSaving, updateSigner, addSigner, deleteSigner };
+  const updateUnit = async (unit: UnitSettings) => {
+    setIsSaving(true); setErrorMessage(null);
+    try { setSettings(await settingsService.updateUnit(unit)); return true; }
+    catch (error) { setErrorMessage(error instanceof Error ? error.message : "Не вдалося зберегти налаштування підрозділу."); return false; }
+    finally { setIsSaving(false); }
+  };
+  return { settings, errorMessage, isSaving, updateSigner, addSigner, deleteSigner, updateUnit };
 }

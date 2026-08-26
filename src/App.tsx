@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, BatteryCharging, BookOpen, Car, ChevronDown, Crosshair, FileSearch, FileText, Folder, Home, PanelLeftClose, PanelLeftOpen, Radio, Settings, Shield, Users, UsersRound, WandSparkles } from "lucide-react";
+import { AlertTriangle, BatteryCharging, BookOpen, Car, ChevronDown, Crosshair, FileSearch, FileText, Folder, Home, MapPinned, Network, PanelLeftClose, PanelLeftOpen, Radio, Settings, Shield, Users, UsersRound, WandSparkles } from "lucide-react";
 import appIcon from "./assets/shablonizator-header-mark.png";
 import { useStartupWarnings } from "./app/hooks/useStartupWarnings";
 import { ProgramGuidePage } from "./features/documentation/ProgramGuidePage";
@@ -8,7 +8,7 @@ import { GeneratedReportsPage } from "./features/generated-reports/GeneratedRepo
 import { prefetchGeneratedReports } from "./features/generated-reports/hooks/useGeneratedReports";
 import { PersonnelPage } from "./features/personnel/PersonnelPage";
 import { VehiclesPage } from "./features/vehicles/VehiclesPage";
-import { CrewsPage, EquipmentPage, IncidentsPage } from "./features/operations/OperationalPages";
+import { CrewsPage, EquipmentPage, IncidentsPage, PositionsPage, StaffingBcsPage } from "./features/operations/OperationalPages";
 import { usePersonnel } from "./features/personnel/hooks/usePersonnel";
 import { ReportGenerationPage } from "./features/report-generation/ReportGenerationPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
@@ -20,9 +20,9 @@ import { NotificationProvider } from "./shared/ui/NotificationProvider";
 
 const navigationGroups = [
   { label: "Документи", items: [["generator", "Генерація рапортів", Home], ["templates", "Шаблони", FileText], ["report-analyser", "Аналізатор рапортів", FileSearch], ["generated", "Згенеровані рапорти", Folder], ["variable-constructor", "Конструктор змінних", WandSparkles]] },
-  { label: "Особовий склад", items: [["people", "Особовий склад", Users], ["crews", "Екіпажі", UsersRound]] },
+  { label: "Особовий склад", items: [["people", "Особовий склад", Users], ["staffing-bcs", "Штат та БЧС", Network], ["crews", "Екіпажі", UsersRound]] },
+  { label: "Бойова робота", items: [["positions", "Позиції", MapPinned], ["incidents", "Інциденти", AlertTriangle]] },
   { label: "Техніка та майно", items: [["vehicles", "Автомобілі", Car], ["generators", "Генератори", BatteryCharging], ["uavs", "БпЛА", Crosshair], ["communications", "Зв’язок", Radio], ["weapons", "Зброя та БК", Shield]] },
-  { label: "Події", items: [["incidents", "Інциденти", AlertTriangle]] },
 ] as const;
 
 export default function App() {
@@ -87,6 +87,8 @@ export default function App() {
       {screen === "templates" && <TemplatesPage templates={templates} totalCount={templatesTotalCount} hasMore={templatesHasMore} isRefreshing={templatesRefreshing} isLoadingMore={templatesLoadingMore} onLoadMore={loadMoreTemplates} selected={templateInfo ?? templates[0] ?? null} onSelect={setTemplateInfo} onRefresh={refreshTemplates} />}
       {(screen === "report-analyser" || analyserVisited) && <div className="persistent-screen" hidden={screen !== "report-analyser"}><ReportAnalyserPage onOpenConstructor={() => setConstructorOpen(true)} onCreated={(createdPath) => { void refreshTemplates().then((items) => { setTemplateInfo(items.find((template) => template.sourcePath === createdPath) ?? null); setScreen("templates"); }); }} /></div>}
       {screen === "people" && <PersonnelPage people={people} totalCount={personnelTotalCount} hasMore={personnelHasMore} isLoading={personnelLoading} isLoadingMore={personnelLoadingMore} errorMessage={personnelError} onCreate={createPersonnel} onUpdate={updatePersonnel} onDelete={deletePersonnel} onRefresh={refreshPersonnel} onLoadMore={loadMorePersonnel} />}
+      {screen === "staffing-bcs" && <StaffingBcsPage />}
+      {screen === "positions" && <PositionsPage />}
       {screen === "vehicles" && <VehiclesPage people={people} />}
       {screen === "generators" && <EquipmentPage category="generator" people={people} />}
       {screen === "uavs" && <EquipmentPage category="uav" people={people} />}

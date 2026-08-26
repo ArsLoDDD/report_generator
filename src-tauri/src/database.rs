@@ -78,6 +78,10 @@ pub const STANDARD_EXTRA_FIELDS: &[(&str, &str)] = &[
     ("service_type", "Вид служби"),
     ("service_start_date", "Дата призову / Укладання контракту"),
     ("conscription_institution", "Установа призову"),
+    ("functional_duties", "Функціональні обов’язки"),
+    ("current_location", "Де знаходиться"),
+    ("bcs_status", "Статус у БЧС"),
+    ("bcs_notes", "Примітка БЧС"),
 ];
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -230,6 +234,17 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             platoon TEXT NOT NULL DEFAULT '',
             position_name TEXT NOT NULL DEFAULT '',
             reconnaissance_area TEXT NOT NULL DEFAULT '',
+            unit_type TEXT NOT NULL DEFAULT 'Екіпаж',
+            company_name TEXT NOT NULL DEFAULT '',
+            battle_order TEXT NOT NULL DEFAULT '',
+            sector TEXT NOT NULL DEFAULT '',
+            official_strength INTEGER NOT NULL DEFAULT 4,
+            status TEXT NOT NULL DEFAULT 'Формується',
+            uav_name TEXT NOT NULL DEFAULT '',
+            uav_type TEXT NOT NULL DEFAULT '',
+            functional_duties TEXT NOT NULL DEFAULT '',
+            current_location TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE IF NOT EXISTS crew_members (
@@ -267,6 +282,76 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         );
         CREATE INDEX IF NOT EXISTS incidents_created_idx ON incidents(created_at DESC);",
     ).map_err(|_| "Не вдалося підготувати таблиці підрозділів і майна.".to_string())?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS personnel_staff_assignments (
+            personnel_id INTEGER PRIMARY KEY REFERENCES personnel(id) ON DELETE CASCADE,
+            acting_position TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS staff_recommendations (
+            id INTEGER PRIMARY KEY,
+            personnel_id INTEGER NOT NULL REFERENCES personnel(id) ON DELETE CASCADE,
+            position_name TEXT NOT NULL,
+            issued_at TEXT NOT NULL,
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS staff_recommendations_personnel_idx ON staff_recommendations(personnel_id, issued_at DESC);
+        CREATE TABLE IF NOT EXISTS staff_position_recommendations (
+            id INTEGER PRIMARY KEY,
+            position_name TEXT NOT NULL,
+            full_name TEXT NOT NULL,
+            phone TEXT NOT NULL DEFAULT '',
+            rank TEXT NOT NULL DEFAULT '',
+            birth_date TEXT NOT NULL DEFAULT '',
+            issued_at TEXT NOT NULL,
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS staff_position_recommendations_position_idx ON staff_position_recommendations(position_name, issued_at DESC);"
+    ).map_err(|_| "Не вдалося підготувати кадрові призначення.".to_string())?;
+    for statement in [
+        "ALTER TABLE crews ADD COLUMN unit_type TEXT NOT NULL DEFAULT 'Екіпаж'",
+        "ALTER TABLE crews ADD COLUMN company_name TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE crews ADD COLUMN battle_order TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE crews ADD COLUMN sector TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE crews ADD COLUMN official_strength INTEGER NOT NULL DEFAULT 4",
+        "ALTER TABLE crews ADD COLUMN status TEXT NOT NULL DEFAULT 'Формується'",
+        "ALTER TABLE crews ADD COLUMN uav_name TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE crews ADD COLUMN uav_type TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE crews ADD COLUMN functional_duties TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE crews ADD COLUMN current_location TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE crews ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
+    ] {
+        connection.execute(statement, []).ok();
+    }
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS positions (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            position_type TEXT NOT NULL DEFAULT 'Основна' CHECK(position_type IN ('Основна','Запасна','В облаштуванні')),
+            strip_name TEXT NOT NULL DEFAULT '',
+            locality TEXT NOT NULL DEFAULT '',
+            battle_order TEXT NOT NULL DEFAULT '',
+            sector TEXT NOT NULL DEFAULT '',
+            condition TEXT NOT NULL DEFAULT 'Готова',
+            size TEXT NOT NULL DEFAULT '',
+            mgrs TEXT NOT NULL DEFAULT '',
+            suitable_uav_text TEXT NOT NULL DEFAULT '',
+            is_active INTEGER NOT NULL DEFAULT 0 CHECK(is_active IN (0,1)),
+            crew_id INTEGER REFERENCES crews(id) ON DELETE SET NULL,
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK(is_active = 0 OR crew_id IS NOT NULL)
+        );
+        CREATE INDEX IF NOT EXISTS positions_type_idx ON positions(position_type);
+        CREATE INDEX IF NOT EXISTS positions_crew_idx ON positions(crew_id);
+        CREATE TABLE IF NOT EXISTS position_uavs (
+            position_id INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+            equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
+            PRIMARY KEY(position_id, equipment_id)
+        );"
+    ).map_err(|_| "Не вдалося підготувати таблицю позицій.".to_string())?;
     let existing_columns = connection
         .prepare("PRAGMA table_info(personnel)")
         .and_then(|mut statement| {
@@ -315,7 +400,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             .map_err(|_| "Не вдалося додати стать до бази даних.".to_string())?;
     }
     connection
-        .pragma_update(None, "user_version", 3)
+        .pragma_update(None, "user_version", 4)
         .map_err(|_| "Не вдалося завершити міграцію бази даних.".to_string())?;
     let columns = connection
         .prepare("PRAGMA table_info(personnel)")
@@ -915,7 +1000,7 @@ mod tests {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            3
+            4
         );
         let columns = connection
             .prepare("PRAGMA table_info(personnel)")
@@ -1042,5 +1127,33 @@ mod tests {
             .query_row("SELECT incident_type FROM incidents", [], |row| row.get(0))
             .unwrap();
         assert_eq!(incident, "Втрата БпЛА");
+    }
+
+    #[test]
+    fn position_test_fixture_covers_every_kind_without_seeding_production() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO crews(name) VALUES('Екіпаж Тест')", [])
+            .unwrap();
+        for (index, kind) in [
+            "Основна",
+            "Основна",
+            "Запасна",
+            "Запасна",
+            "В облаштуванні",
+            "В облаштуванні",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            connection.execute(
+                "INSERT INTO positions(name,position_type,mgrs,is_active,crew_id) VALUES(?1,?2,?3,?4,?5)",
+                rusqlite::params![format!("Позиція {}", index + 1), kind, format!("36U UV {}000 {}000", 10 + index, 60 + index), index == 0, if index == 0 { Some(1_i64) } else { None }],
+            ).unwrap();
+        }
+        let counts = connection.prepare("SELECT position_type,COUNT(*) FROM positions GROUP BY position_type ORDER BY position_type").unwrap().query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(counts.len(), 3);
+        assert!(counts.iter().all(|(_, count)| *count == 2));
     }
 }

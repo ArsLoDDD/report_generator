@@ -3,7 +3,7 @@ import { BookOpen, Copy } from "lucide-react";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { SearchInput } from "../../shared/ui/SearchInput";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
-import { crewFields, equipmentFields, modifierRegistry, signerFields, signerRoles, tokenFor, variableRegistry, vehicleFields, type VariableDefinition } from "../../shared/template-language/registry";
+import { crewFields, equipmentFields, modifierRegistry, positionFields, signerFields, signerRoles, tokenFor, variableRegistry, vehicleFields, type VariableDefinition } from "../../shared/template-language/registry";
 import { morphologyService, type UkrainianCase } from "../../shared/services/morphologyService";
 import { personnelService } from "../../shared/services/personnelService";
 import type { CustomFieldDefinition } from "../../shared/types/domain";
@@ -72,9 +72,9 @@ export function VariableConstructorPage({ embedded = false }: { embedded?: boole
   }, []);
 
   const isPerson = objectId === "person";
-  const numberedPrefix = objectId === "person" ? "військовий" : objectId === "vehicle" ? "автомобіль" : objectId === "crew" ? "екіпаж" : objectId === "generator" ? "генератор" : objectId === "uav" ? "бпла" : objectId === "communications" ? "звʼязок" : objectId === "weapon_ammo" ? "зброя_та_бк" : "";
+  const numberedPrefix = objectId === "person" ? "військовий" : objectId === "vehicle" ? "автомобіль" : objectId === "crew" ? "екіпаж" : objectId === "position" ? "позиція" : objectId === "generator" ? "генератор" : objectId === "uav" ? "бпла" : objectId === "communications" ? "звʼязок" : objectId === "weapon_ammo" ? "зброя_та_бк" : "";
   const signerObjects = useMemo(() => availableSignerRoles.length ? availableSignerRoles.map((role) => [role.id, role.name] as const) : fallbackSignerObjects, [availableSignerRoles]);
-  const objects = useMemo(() => [{ id: "person", label: "Військовослужбовець" }, { id: "vehicle", label: "Автомобіль" }, { id: "crew", label: "Екіпаж" }, { id: "generator", label: "Генератор" }, { id: "uav", label: "БпЛА" }, { id: "communications", label: "Зв’язок" }, { id: "weapon_ammo", label: "Зброя та БК" }, ...signerObjects.map(([id, label]) => ({ id, label })), { id: "document", label: "Параметри документа" }], [signerObjects]);
+  const objects = useMemo(() => [{ id: "person", label: "Військовослужбовець" }, { id: "vehicle", label: "Автомобіль" }, { id: "crew", label: "Екіпаж" }, { id: "position", label: "Позиція" }, { id: "generator", label: "Генератор" }, { id: "uav", label: "БпЛА" }, { id: "communications", label: "Зв’язок" }, { id: "weapon_ammo", label: "Зброя та БК" }, ...signerObjects.map(([id, label]) => ({ id, label })), { id: "document", label: "Параметри документа" }], [signerObjects]);
   const categoryItems = useMemo(() => {
     const matches = (item: VariableDefinition) => `${item.name} ${item.description} ${item.id}`.toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"));
     const personnelValueFields = customFields.map(toPersonnelValue);
@@ -86,6 +86,7 @@ export function VariableConstructorPage({ embedded = false }: { embedded?: boole
     if (isPerson) return [...variableRegistry.filter((item) => item.id.startsWith("військовий_1_")), ...personnelValueFields, ...vehicleCustomFields.map(toPersonnelVehicleValue)].filter(matches);
     if (objectId === "vehicle") return [...vehicleFields.map((item) => ({ id: `автомобіль_1_${item.id}`, name: item.name, category: "Автомобіль", description: item.description ?? item.name, example: item.example, kind: item.kind as VariableDefinition["kind"], supportsCases: item.cases })), ...vehicleValueFields].filter(matches);
     if (objectId === "crew") return crewFields.map((item) => ({ id: `екіпаж_1_${item.id}`, name: item.name, category: "Екіпаж", description: item.description ?? item.name, example: item.example, kind: item.kind as VariableDefinition["kind"], supportsCases: item.cases })).filter(matches);
+    if (objectId === "position") return positionFields.map((item) => ({ id: `позиція_1_${item.id}`, name: item.name, category: "Позиція", description: item.description ?? item.name, example: item.example, kind: item.kind as VariableDefinition["kind"], supportsCases: item.cases })).filter(matches);
     const equipmentPrefix = objectId === "generator" ? "генератор" : objectId === "uav" ? "бпла" : objectId === "communications" ? "звʼязок" : objectId === "weapon_ammo" ? "зброя_та_бк" : "";
     if (equipmentPrefix) return equipmentFields.map((item) => ({ id: `${equipmentPrefix}_1_${item.id}`, name: item.name, category: objects.find((object) => object.id === objectId)?.label ?? "Майно", description: item.description ?? item.name, example: item.example, kind: item.kind as VariableDefinition["kind"], supportsCases: item.cases })).filter(matches);
     if (objectId === "document") return variableRegistry.filter((item) => item.category === "Параметри документа" && matches(item));

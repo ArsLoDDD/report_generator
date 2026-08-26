@@ -15,13 +15,14 @@ type GenerateReportRequest = {
   vehicleIds?: number[];
   crewIds?: number[];
   equipmentIds?: number[];
+  positionIds?: number[];
   parameters?: Record<string, string>;
 };
 
 export const reportGenerationService = {
   selectTemplateFile: () => invoke<string | null>("select_template_file"),
   inspectTemplate: (templatePath: string) => invoke<TemplateValidationResult>("inspect_template", { templatePath }),
-  validateTemplate: (templatePath: string, personnelIds: number[], parameters: Record<string, string> = {}, vehicleIds: number[] = [], crewIds: number[] = [], equipmentIds: number[] = []) => invoke<TemplateValidationResult>("validate_template", { templatePath, personnelIds, vehicleIds, crewIds, equipmentIds, parameters }),
+  validateTemplate: (templatePath: string, personnelIds: number[], parameters: Record<string, string> = {}, vehicleIds: number[] = [], crewIds: number[] = [], equipmentIds: number[] = [], positionIds: number[] = []) => invoke<TemplateValidationResult>("validate_template", { templatePath, personnelIds, vehicleIds, crewIds, equipmentIds, positionIds, parameters }),
   generateReport: (request: GenerateReportRequest) => invoke<GeneratedReport>("generate_report", { request }),
   openGeneratedReport: (reportPath: string) => invoke<void>("open_generated_report", { reportPath }),
   openGeneratedReportFolder: (folderPath: string) => invoke<void>("open_generated_report_folder", { folderPath })

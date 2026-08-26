@@ -1,4 +1,4 @@
-import { Archive, Download, FileSpreadsheet, FolderOpen, Pencil, Plus, Trash2, Upload, Users } from "lucide-react";
+import { Archive, Building2, Download, FileSpreadsheet, FolderOpen, Pencil, Plus, Trash2, Upload, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { PageFrame } from "../../shared/ui/PageFrame";
@@ -9,7 +9,8 @@ import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { personnelService } from "../../shared/services/personnelService";
 import { useAppSettings } from "./hooks/useAppSettings";
 import { settingsService } from "./services/settingsService";
-import type { SignerRole, SignerSettings } from "../../shared/types/domain";
+import type { SignerRole, SignerSettings, UnitSettings } from "../../shared/types/domain";
+import { Select } from "../../shared/ui/Select";
 
 const emptySigner: SignerSettings = { fullName: "", rank: "", position: "" };
 const legacyRoles = (settings: { mainSigner: SignerSettings; commander: SignerSettings; chief: SignerSettings; deputyPpp: SignerSettings; deputyArmament: SignerSettings; deputyRear: SignerSettings; fuelChief: SignerSettings }): SignerRole[] => [
@@ -33,13 +34,23 @@ function SignerEditor({ role, onClose, onSave, busy }: { role: SignerRole | "new
   </Modal>;
 }
 
+function UnitEditor({ initial, onClose, onSave, busy }: { initial: UnitSettings; onClose: () => void; onSave: (unit: UnitSettings) => Promise<void>; busy: boolean }) {
+  const [unit, setUnit] = useState<UnitSettings>(initial);
+  return <Modal title="Параметри підрозділу" onClose={onClose} className="unit-editor-modal"><div className="operation-editor__body">
+    <label className="form-field"><span>Тип підрозділу</span><Select ariaLabel="Тип підрозділу" value={unit.kind} onChange={(kind) => setUnit((current) => ({ ...current, kind: kind as UnitSettings["kind"] }))} options={[{ value: "Рота", label: "Рота" }, { value: "Окремий взвод", label: "Окремий взвод" }]} /></label>
+    <label className="form-field"><span>Коротка назва</span><input autoFocus value={unit.shortName} onChange={(event) => setUnit((current) => ({ ...current, shortName: event.target.value }))} placeholder="РБАК" /></label>
+    <label className="form-field form-field--wide"><span>Чисельність за штатом</span><input type="number" min="0" value={unit.authorizedStrength || ""} onChange={(event) => setUnit((current) => ({ ...current, authorizedStrength: Number(event.target.value) || 0 }))} /></label>
+  </div><footer className="modal-actions"><button className="button" onClick={onClose}>Скасувати</button><button className="button primary" disabled={busy} onClick={() => void onSave(unit)}>Зберегти</button></footer></Modal>;
+}
+
 export function SettingsPage() {
-  const { settings, errorMessage, isSaving, updateSigner, addSigner, deleteSigner } = useAppSettings();
+  const { settings, errorMessage, isSaving, updateSigner, addSigner, deleteSigner, updateUnit } = useAppSettings();
   const { notify } = useNotifications();
   const [exportOpen, setExportOpen] = useState(false);
   const [excelOpen, setExcelOpen] = useState(false);
   const [editor, setEditor] = useState<SignerRole | "new" | null>(null);
   const [deleting, setDeleting] = useState<SignerRole | null>(null);
+  const [unitEditor, setUnitEditor] = useState(false);
   const [options, setOptions] = useState({ database: true, settings: true, customVariables: true, templates: true, reports: false });
   useEffect(() => { if (errorMessage) notify(errorMessage, "error"); }, [errorMessage, notify]);
   const createBackup = async () => { try { await settingsService.createDatabaseBackup(); notify("Резервну копію бази даних створено.", "success"); } catch { notify("Не вдалося створити резервну копію бази даних.", "error"); } };
@@ -52,8 +63,10 @@ export function SettingsPage() {
     if (ok) { setEditor(null); notify(editor === "new" ? "Підписанта додано. Змінні вже доступні в конструкторі." : "Дані підписанта збережено.", "success"); }
   };
   const removeSigner = async () => { if (!deleting) return; if (await deleteSigner(deleting.id)) { setDeleting(null); notify("Підписанта та його змінні видалено.", "success"); } };
+  const saveUnit = async (unit: UnitSettings) => { if (await updateUnit(unit)) { setUnitEditor(false); notify("Параметри підрозділу збережено.", "success"); } };
   return <PageFrame header={<PageTitle title="Налаштування" subtitle="Підписанти, Excel-база та перенесення даних" />} className="settings-page">
     <section className="settings-content">
+      <section className="panel settings-panel unit-settings"><header className="settings-section-title"><Building2 /><div><h2>Підрозділ</h2><p>{settings?.unit?.kind ?? "Рота"} · {settings?.unit?.shortName || "Назву не вказано"} · {settings?.unit?.authorizedStrength || 0} за штатом</p></div><button className="button" onClick={() => setUnitEditor(true)}><Pencil />Налаштувати</button></header></section>
       <section className="panel settings-panel signers">
         <header className="settings-section-title"><Users /><div><h2>Підписанти</h2><p>Ролі й дані, доступні у шаблонах.</p></div><button className="button primary" onClick={() => setEditor("new")}><Plus />Додати підписанта</button></header>
         {settings ? <div className="signers-table-wrap"><table className="signers-table"><thead><tr><th>Роль</th><th>ПІБ</th><th>Звання</th><th>Посада</th><th>Дії</th></tr></thead><tbody>{(settings.signerRoles?.length ? settings.signerRoles : legacyRoles(settings)).map((role) => <tr key={role.id}><td><b>{role.name}</b><code>{`{{${role.id}_піб}}`}</code></td><td>{role.signer.fullName || "—"}</td><td>{role.signer.rank || "—"}</td><td>{role.signer.position || "—"}</td><td><div className="table-actions"><button className="button icon-only" aria-label={`Редагувати ${role.name}`} onClick={() => setEditor(role)}><Pencil /></button>{role.id !== "основний_підписант" && <button className="button icon-only danger" aria-label={`Видалити ${role.name}`} onClick={() => setDeleting(role)}><Trash2 /></button>}</div></td></tr>)}</tbody></table></div> : <p>Завантаження налаштувань…</p>}
@@ -61,6 +74,7 @@ export function SettingsPage() {
       <aside className="panel settings-actions"><button className="button" onClick={() => void settingsService.openApplicationDirectory()}><FolderOpen />Відкрити директорію</button><button className="button" onClick={() => void createBackup()}><Archive />Резервна копія БД</button><button className="button" onClick={() => setExcelOpen(true)}><FileSpreadsheet />Імпорт Excel-бази</button><button className="button" onClick={() => void exportExcel()}><FileSpreadsheet />Експорт Excel-бази</button><button className="button" onClick={() => setExportOpen(true)}><Download />Експортувати всі дані</button><button className="button" onClick={() => void importArchive()}><Upload />Імпортувати архів даних</button></aside>
     </section>
     {editor && <SignerEditor role={editor} onClose={() => setEditor(null)} onSave={saveSigner} busy={isSaving} />}
+    {unitEditor && <UnitEditor initial={settings?.unit ?? { kind: "Рота", shortName: "", authorizedStrength: 0 }} onClose={() => setUnitEditor(false)} onSave={saveUnit} busy={isSaving} />}
     {deleting && <ConfirmDialog title="Видалити підписанта?" message={`Підписант «${deleting.name}» і змінні з префіксом {{${deleting.id}_…}} стануть недоступними.`} confirmLabel="Видалити" onConfirm={() => void removeSigner()} onCancel={() => setDeleting(null)} busy={isSaving} />}
     {excelOpen && <Modal title="Імпорт Excel-бази" onClose={() => setExcelOpen(false)} className="personnel-import-modal"><div className="personnel-import-modal__body"><p>Оберіть, як застосувати дані з локального Excel-файлу.</p><div className="personnel-import-options"><button className="personnel-import-option" onClick={() => void importExcel("append")}><b>Доповнити базу даних</b><span>Додати записи з файлу до наявних. Існуючі записи не видаляються.</span></button><button className="personnel-import-option personnel-import-option--danger" onClick={() => void importExcel("replace")}><b>Замінити базу даних</b><span>Очистити особовий склад і автомобілі, а потім завантажити записи з файлу.</span></button></div></div></Modal>}
     {exportOpen && <Modal title="Експорт усіх даних" onClose={() => setExportOpen(false)}><p>Оберіть складові архіву.</p>{Object.entries({ database: "База даних", settings: "Налаштування", customVariables: "Кастомні поля", templates: "Шаблони", reports: "Згенеровані рапорти" }).map(([key, label]) => <label key={key}><input type="checkbox" checked={options[key as keyof typeof options]} onChange={() => setOptions((current) => ({ ...current, [key]: !current[key as keyof typeof current] }))} /> {label}</label>)}<footer className="modal-actions"><button className="button" onClick={() => setExportOpen(false)}>Скасувати</button><button className="button primary" onClick={() => void exportArchive()}>Створити архів</button></footer></Modal>}
