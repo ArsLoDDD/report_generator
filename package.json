@@ -6,8 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:simple": "tsc -b && vite build --mode simple",
+    "build:advanced": "tsc -b && vite build --mode advanced",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:build:simple": "tauri build --config src-tauri/tauri.simple.conf.json --bundles nsis",
+    "tauri:build:advanced": "tauri build --config src-tauri/tauri.advanced.conf.json --bundles nsis",
     "test": "vitest run",
     "lint": "eslint src --max-warnings 0",
     "check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",

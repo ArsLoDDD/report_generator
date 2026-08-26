@@ -19,6 +19,21 @@ export const equipmentFields = source.equipmentFields as Field[];
 export const generationParameterFields = source.documentFields as GenerationParameterField[];
 export const signerRoles = source.signerRoles;
 export const signerFields = source.signerFields as Field[];
+const subjectPrefixes = ["військовий_", "автомобіль_", "екіпаж_", "позиція_", "генератор_", "бпла_", "звʼязок_", "зброя_та_бк_"];
+const isDynamicDocumentParameter = (token: string) =>
+  /^\p{L}[\p{L}\p{N}_]*$/u.test(token)
+  && /[а-щьюяєіїґ]/iu.test(token)
+  && !subjectPrefixes.some((prefix) => token.startsWith(prefix))
+  && !signerRoles.some((role) => token.startsWith(`${role.id}_`))
+  && !generationParameterFields.some((field) => {
+    const suffix = token.slice(field.id.length + 1);
+    return token.startsWith(`${field.id}_`) && /^\d+$/.test(suffix);
+  });
+const dynamicParameterName = (token: string) => token
+  .split("_")
+  .filter(Boolean)
+  .map((part) => `${part.slice(0, 1).toLocaleUpperCase("uk-UA")}${part.slice(1)}`)
+  .join(" ");
 export const variableRegistry: VariableDefinition[] = [
   ...personFields.map((field) => fieldToVariable(field, `військовий_1_${field.id}`, "Військовослужбовець")),
   ...vehicleFields.map((field) => fieldToVariable(field, `військовий_1_автомобіль_1_${field.id}`, "Автомобіль військовослужбовця")),
@@ -32,10 +47,21 @@ export const variableRegistry: VariableDefinition[] = [
 export function getGenerationParameter(token: string) {
   const direct = generationParameterFields.find((field) => field.id === token);
   if (direct) return direct;
-  return generationParameterFields
+  const numbered = generationParameterFields
     .filter((field) => token.startsWith(`${field.id}_`))
     .sort((left, right) => right.id.length - left.id.length)
     .find((field) => /^[1-9]\d*$/.test(token.slice(field.id.length + 1)));
+  if (numbered) return numbered;
+  if (!isDynamicDocumentParameter(token)) return undefined;
+  return {
+    id: token,
+    name: dynamicParameterName(token),
+    kind: "text",
+    example: "",
+    cases: false,
+    description: "Довільний параметр, створений у редакторі шаблону.",
+    inputType: "text"
+  } satisfies GenerationParameterField;
 }
 export const modifierRegistry: ModifierDefinition[] = source.modifiers.map((item) => ({ ...item, group: item.group as ModifierDefinition["group"], description: item.group === "case" ? `Відмінює значення: ${item.name.toLowerCase()} відмінок.` : `Змінює написання: ${item.name.toLowerCase()}.` }));
 export const tokenFor = (id: string, modifiers: string[] = []) => `{{${[id, ...modifiers].join(":")}}}`;

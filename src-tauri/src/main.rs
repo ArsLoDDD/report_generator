@@ -225,7 +225,17 @@ fn executable_root() -> Result<PathBuf, String> {
     Ok(directory)
 }
 
-fn ensure_application_structure(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+fn is_simple_edition(app: &tauri::AppHandle) -> bool {
+    app.config()
+        .product_name
+        .as_deref()
+        .is_some_and(|name| name.contains("проста версія"))
+}
+
+fn ensure_application_structure_for_edition(
+    app: &tauri::AppHandle,
+    is_simple_edition: bool,
+) -> Result<PathBuf, String> {
     let root = application_root(app)?;
     for directory in [
         TEMPLATES_DIRECTORY_NAME,
@@ -235,15 +245,21 @@ fn ensure_application_structure(app: &tauri::AppHandle) -> Result<PathBuf, Strin
         fs::create_dir_all(root.join(directory))
             .map_err(|_| format!("Не вдалося створити папку «{directory}»."))?;
     }
-    let vehicle_template = root
-        .join(TEMPLATES_DIRECTORY_NAME)
-        .join("Рапорт на автомобіль.docx");
-    if !vehicle_template.exists() {
-        create_vehicle_report_template(&vehicle_template)?;
+    if !is_simple_edition {
+        let vehicle_template = root
+            .join(TEMPLATES_DIRECTORY_NAME)
+            .join("Рапорт на автомобіль.docx");
+        if !vehicle_template.exists() {
+            create_vehicle_report_template(&vehicle_template)?;
+        }
+        create_operational_report_templates(&root.join(TEMPLATES_DIRECTORY_NAME))?;
     }
-    create_operational_report_templates(&root.join(TEMPLATES_DIRECTORY_NAME))?;
     settings::load(&root)?;
     Ok(root)
+}
+
+fn ensure_application_structure(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    ensure_application_structure_for_edition(app, is_simple_edition(app))
 }
 
 fn create_operational_report_templates(directory: &Path) -> Result<(), String> {
@@ -657,7 +673,16 @@ fn next_parameter_token(counters: &mut HashMap<String, usize>, base: &str) -> St
     format!("{base}_{count}")
 }
 
+#[cfg(test)]
 fn detected_document_proposals(proposals: &mut Vec<TemplateAnalysisProposal>, text: &str) {
+    detected_document_proposals_for_edition(proposals, text, false);
+}
+
+fn detected_document_proposals_for_edition(
+    proposals: &mut Vec<TemplateAnalysisProposal>,
+    text: &str,
+    is_simple_edition: bool,
+) {
     detected_registry_document_proposals(proposals, text);
     let words = text.split_whitespace().collect::<Vec<_>>();
     let mut parameter_counters = HashMap::new();
@@ -806,7 +831,7 @@ fn detected_document_proposals(proposals: &mut Vec<TemplateAnalysisProposal>, te
             );
         }
     }
-    detected_document_person_proposals(proposals, text);
+    detected_document_person_proposals(proposals, text, is_simple_edition);
 }
 
 fn document_settlement_after(text: &str, marker: &str) -> Option<String> {
@@ -835,7 +860,11 @@ fn document_settlement_after(text: &str, marker: &str) -> Option<String> {
 /// Finds a name written in the report itself. This is intentionally separate
 /// from the personnel database: a historical report may contain a person who
 /// was renamed, removed, or has not yet been entered into the application.
-fn detected_document_person_proposals(proposals: &mut Vec<TemplateAnalysisProposal>, text: &str) {
+fn detected_document_person_proposals(
+    proposals: &mut Vec<TemplateAnalysisProposal>,
+    text: &str,
+    is_simple_edition: bool,
+) {
     let words = text
         .split_whitespace()
         .filter_map(|word| {
@@ -846,9 +875,12 @@ fn detected_document_person_proposals(proposals: &mut Vec<TemplateAnalysisPropos
         .collect::<Vec<_>>();
     let ranks = [
         "солдат",
+        "старший солдат",
         "матрос",
         "сержант",
+        "молодший сержант",
         "старший сержант",
+        "штаб-сержант",
         "головний сержант",
         "молодший лейтенант",
         "лейтенант",
@@ -882,10 +914,15 @@ fn detected_document_person_proposals(proposals: &mut Vec<TemplateAnalysisPropos
         let before = words[index.saturating_sub(3)..index]
             .join(" ")
             .to_lowercase();
-        let has_rank_context = ranks.iter().any(|rank| before.ends_with(rank));
-        if !has_rank_context {
+        // Several ranks end with another rank ("молодший сержант" →
+        // "сержант"). Always retain the longest complete phrase.
+        let Some(rank) = ranks
+            .iter()
+            .filter(|rank| before.ends_with(**rank))
+            .max_by_key(|rank| rank.chars().count())
+        else {
             continue;
-        }
+        };
         let (given_name, patronymic, surname, full_name) =
             if first_title && second_title && third_upper {
                 (
@@ -904,46 +941,100 @@ fn detected_document_person_proposals(proposals: &mut Vec<TemplateAnalysisPropos
             } else {
                 continue;
             };
+        let (
+            full_name_token,
+            surname_token,
+            given_name_token,
+            patronymic_token,
+            rank_token,
+            position_token,
+            category,
+            reason,
+        ) = if is_simple_edition {
+            (
+                "піб_військовий_1",
+                "прізвище_військовий_1",
+                "імя_військовий_1",
+                "по_батькові_військовий_1",
+                "звання_військовий_1",
+                "посада_військовий_1",
+                "Параметри документа",
+                "ПІБ визначено у документі, але не знайдено в особовому складі.",
+            )
+        } else {
+            (
+                "військовий_1_піб",
+                "військовий_1_прізвище",
+                "військовий_1_імя",
+                "військовий_1_по_батькові",
+                "військовий_1_звання",
+                "військовий_1_посада",
+                "Військовослужбовець",
+                "ПІБ визначено за структурою тексту, але запис не прив’язаний до бази даних.",
+            )
+        };
         template_analysis_value_with_confidence(
             proposals,
             text,
             &full_name,
-            "військовий_1_піб",
+            full_name_token,
             "ПІБ, знайдений у документі",
-            "Військовослужбовець",
+            category,
             "medium",
-            "ПІБ визначено за структурою тексту, але запис не прив’язаний до бази даних.",
+            reason,
         );
         template_analysis_value_with_confidence(
             proposals,
             text,
             surname,
-            "військовий_1_прізвище",
+            surname_token,
             "Прізвище, знайдене у документі",
-            "Військовослужбовець",
+            category,
             "medium",
-            "ПІБ визначено за структурою тексту, але запис не прив’язаний до бази даних.",
+            reason,
         );
         template_analysis_value_with_confidence(
             proposals,
             text,
             given_name,
-            "військовий_1_імя",
+            given_name_token,
             "Ім’я, знайдене у документі",
-            "Військовослужбовець",
+            category,
             "medium",
-            "ПІБ визначено за структурою тексту, але запис не прив’язаний до бази даних.",
+            reason,
         );
         template_analysis_value_with_confidence(
             proposals,
             text,
             patronymic,
-            "військовий_1_по_батькові",
+            patronymic_token,
             "По батькові, знайдене у документі",
-            "Військовослужбовець",
+            category,
             "medium",
-            "ПІБ визначено за структурою тексту, але запис не прив’язаний до бази даних.",
+            reason,
         );
+        template_analysis_value_with_confidence(
+            proposals,
+            text,
+            rank,
+            rank_token,
+            "Звання військовослужбовця, знайдене у документі",
+            category,
+            "medium",
+            reason,
+        );
+        if let Some(position) = document_signature_position(text, &full_name, rank) {
+            template_analysis_value_with_confidence(
+                proposals,
+                text,
+                &position,
+                position_token,
+                "Посада військовослужбовця, знайдена у документі",
+                category,
+                "medium",
+                reason,
+            );
+        }
     }
 }
 
@@ -970,7 +1061,24 @@ fn document_signature_position(text: &str, name_in_document: &str, rank: &str) -
         last_line
     };
     let position = position.trim_matches(|character: char| character == ',' || character == ';');
-    (position.chars().count() >= 8).then(|| position.to_string())
+    let normalized = position.to_lowercase();
+    let word_count = position.split_whitespace().count();
+    // A position must come from a compact signature block. If Word did not
+    // preserve the signature separation, the preceding report sentence must
+    // never be offered as a "position".
+    let looks_like_report_sentence = position.contains(['.', '!', '?'])
+        || word_count > 14
+        || [
+            "дійсним",
+            "доповідаю",
+            "прошу",
+            "відповідно",
+            "згідно",
+            "у зв’язку",
+        ]
+        .iter()
+        .any(|marker| normalized.contains(marker));
+    (position.chars().count() >= 8 && !looks_like_report_sentence).then(|| position.to_string())
 }
 
 #[derive(Clone)]
@@ -1210,6 +1318,7 @@ fn document_phrase_after(text: &str, marker: &str) -> Option<String> {
 
 #[tauri::command]
 fn analyse_report_for_template(
+    app: tauri::AppHandle,
     state: tauri::State<AppState>,
     report_path: String,
 ) -> Result<TemplateAnalysis, String> {
@@ -1290,185 +1399,187 @@ fn analyse_report_for_template(
             "Військовослужбовець",
         );
     }
-    let mut vehicle_statement = database
-        .connection
-        .prepare("SELECT name, registration_number, status FROM vehicles")
-        .map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?;
-    let vehicles = vehicle_statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })
-        .map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?;
-    for (name, registration, status) in vehicles {
-        if whole_text_match_count(&text, &name) == 0
-            && whole_text_match_count(&text, &registration) == 0
-        {
-            continue;
-        }
-        template_analysis_value(
-            &mut proposals,
-            &text,
-            &name,
-            "автомобіль_1_назва",
-            "Назва автомобіля",
-            "Автомобіль",
-        );
-        template_analysis_value(
-            &mut proposals,
-            &text,
-            &registration,
-            "автомобіль_1_номер",
-            "Номер автомобіля",
-            "Автомобіль",
-        );
-        template_analysis_value(
-            &mut proposals,
-            &text,
-            &status,
-            "автомобіль_1_статус",
-            "Статус автомобіля",
-            "Автомобіль",
-        );
-    }
-    let mut crew_statement = database
-        .connection
-        .prepare("SELECT name,platoon,position_name,reconnaissance_area FROM crews")
-        .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?;
-    let crews = crew_statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })
-        .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?;
-    for (name, platoon, position, area) in crews {
-        if whole_text_match_count(&text, &name) == 0 {
-            continue;
-        }
-        for (value, token, label) in [
-            (name, "екіпаж_1_назва", "Назва екіпажу"),
-            (platoon, "екіпаж_1_взвод", "Взвод екіпажу"),
-            (position, "екіпаж_1_позиція", "Позиція екіпажу"),
-            (area, "екіпаж_1_район_розвідки", "Район розвідки"),
-        ] {
-            template_analysis_value(&mut proposals, &text, &value, token, label, "Екіпаж");
-        }
-    }
-    let mut position_statement = database
-        .connection
-        .prepare("SELECT name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text FROM positions")
-        .map_err(|_| "Не вдалося прочитати позиції.".to_string())?;
-    let positions = position_statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-                row.get::<_, String>(5)?,
-                row.get::<_, String>(6)?,
-                row.get::<_, String>(7)?,
-                row.get::<_, String>(8)?,
-                row.get::<_, String>(9)?,
-            ))
-        })
-        .map_err(|_| "Не вдалося прочитати позиції.".to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| "Не вдалося прочитати позиції.".to_string())?;
-    for (
-        name,
-        position_type,
-        strip,
-        locality,
-        battle_order,
-        sector,
-        condition,
-        size,
-        mgrs,
-        suitable_uavs,
-    ) in positions
-    {
-        if whole_text_match_count(&text, &name) == 0 {
-            continue;
-        }
-        for (value, token, label) in [
-            (name, "позиція_1_назва", "Назва позиції"),
-            (position_type, "позиція_1_тип", "Тип позиції"),
-            (strip, "позиція_1_смуга", "Смуга позиції"),
-            (
-                locality,
-                "позиція_1_населений_пункт",
-                "Населений пункт позиції",
-            ),
-            (battle_order, "позиція_1_бро", "БРО позиції"),
-            (sector, "позиція_1_сектор", "Сектор позиції"),
-            (condition, "позиція_1_стан", "Стан позиції"),
-            (size, "позиція_1_розмір", "Розмір позиції"),
-            (mgrs, "позиція_1_mgrs", "MGRS позиції"),
-            (suitable_uavs, "позиція_1_бпла", "Сумісні БпЛА позиції"),
-        ] {
-            template_analysis_value(&mut proposals, &text, &value, token, label, "Позиція");
-        }
-    }
-    let mut equipment_statement = database
-        .connection
-        .prepare("SELECT category,name,inventory_number,status,notes FROM equipment")
-        .map_err(|_| "Не вдалося прочитати майно.".to_string())?;
-    let equipment = equipment_statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-            ))
-        })
-        .map_err(|_| "Не вдалося прочитати майно.".to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| "Не вдалося прочитати майно.".to_string())?;
-    for (category, name, inventory, status, notes) in equipment {
-        if whole_text_match_count(&text, &name) == 0
-            && whole_text_match_count(&text, &inventory) == 0
-        {
-            continue;
-        }
-        let (prefix, category_label) = match category.as_str() {
-            "generator" => ("генератор", "Генератор"),
-            "uav" => ("бпла", "БпЛА"),
-            "communications" => ("звʼязок", "Зв’язок"),
-            "weapon_ammo" => ("зброя_та_бк", "Зброя та БК"),
-            _ => continue,
-        };
-        for (value, field, label) in [
-            (name, "назва", "Назва"),
-            (inventory, "інвентарний_номер", "Інвентарний номер"),
-            (status, "статус", "Статус"),
-            (notes, "примітка", "Примітка"),
-        ] {
+    if !is_simple_edition(&app) {
+        let mut vehicle_statement = database
+            .connection
+            .prepare("SELECT name, registration_number, status FROM vehicles")
+            .map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?;
+        let vehicles = vehicle_statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?;
+        for (name, registration, status) in vehicles {
+            if whole_text_match_count(&text, &name) == 0
+                && whole_text_match_count(&text, &registration) == 0
+            {
+                continue;
+            }
             template_analysis_value(
                 &mut proposals,
                 &text,
-                &value,
-                &format!("{prefix}_1_{field}"),
-                &format!("{label}: {category_label}"),
-                category_label,
+                &name,
+                "автомобіль_1_назва",
+                "Назва автомобіля",
+                "Автомобіль",
+            );
+            template_analysis_value(
+                &mut proposals,
+                &text,
+                &registration,
+                "автомобіль_1_номер",
+                "Номер автомобіля",
+                "Автомобіль",
+            );
+            template_analysis_value(
+                &mut proposals,
+                &text,
+                &status,
+                "автомобіль_1_статус",
+                "Статус автомобіля",
+                "Автомобіль",
             );
         }
+        let mut crew_statement = database
+            .connection
+            .prepare("SELECT name,platoon,position_name,reconnaissance_area FROM crews")
+            .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?;
+        let crews = crew_statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?;
+        for (name, platoon, position, area) in crews {
+            if whole_text_match_count(&text, &name) == 0 {
+                continue;
+            }
+            for (value, token, label) in [
+                (name, "екіпаж_1_назва", "Назва екіпажу"),
+                (platoon, "екіпаж_1_взвод", "Взвод екіпажу"),
+                (position, "екіпаж_1_позиція", "Позиція екіпажу"),
+                (area, "екіпаж_1_район_розвідки", "Район розвідки"),
+            ] {
+                template_analysis_value(&mut proposals, &text, &value, token, label, "Екіпаж");
+            }
+        }
+        let mut position_statement = database
+        .connection
+        .prepare("SELECT name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text FROM positions")
+        .map_err(|_| "Не вдалося прочитати позиції.".to_string())?;
+        let positions = position_statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, String>(9)?,
+                ))
+            })
+            .map_err(|_| "Не вдалося прочитати позиції.".to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "Не вдалося прочитати позиції.".to_string())?;
+        for (
+            name,
+            position_type,
+            strip,
+            locality,
+            battle_order,
+            sector,
+            condition,
+            size,
+            mgrs,
+            suitable_uavs,
+        ) in positions
+        {
+            if whole_text_match_count(&text, &name) == 0 {
+                continue;
+            }
+            for (value, token, label) in [
+                (name, "позиція_1_назва", "Назва позиції"),
+                (position_type, "позиція_1_тип", "Тип позиції"),
+                (strip, "позиція_1_смуга", "Смуга позиції"),
+                (
+                    locality,
+                    "позиція_1_населений_пункт",
+                    "Населений пункт позиції",
+                ),
+                (battle_order, "позиція_1_бро", "БРО позиції"),
+                (sector, "позиція_1_сектор", "Сектор позиції"),
+                (condition, "позиція_1_стан", "Стан позиції"),
+                (size, "позиція_1_розмір", "Розмір позиції"),
+                (mgrs, "позиція_1_mgrs", "MGRS позиції"),
+                (suitable_uavs, "позиція_1_бпла", "Сумісні БпЛА позиції"),
+            ] {
+                template_analysis_value(&mut proposals, &text, &value, token, label, "Позиція");
+            }
+        }
+        let mut equipment_statement = database
+            .connection
+            .prepare("SELECT category,name,inventory_number,status,notes FROM equipment")
+            .map_err(|_| "Не вдалося прочитати майно.".to_string())?;
+        let equipment = equipment_statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })
+            .map_err(|_| "Не вдалося прочитати майно.".to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "Не вдалося прочитати майно.".to_string())?;
+        for (category, name, inventory, status, notes) in equipment {
+            if whole_text_match_count(&text, &name) == 0
+                && whole_text_match_count(&text, &inventory) == 0
+            {
+                continue;
+            }
+            let (prefix, category_label) = match category.as_str() {
+                "generator" => ("генератор", "Генератор"),
+                "uav" => ("бпла", "БпЛА"),
+                "communications" => ("звʼязок", "Зв’язок"),
+                "weapon_ammo" => ("зброя_та_бк", "Зброя та БК"),
+                _ => continue,
+            };
+            for (value, field, label) in [
+                (name, "назва", "Назва"),
+                (inventory, "інвентарний_номер", "Інвентарний номер"),
+                (status, "статус", "Статус"),
+                (notes, "примітка", "Примітка"),
+            ] {
+                template_analysis_value(
+                    &mut proposals,
+                    &text,
+                    &value,
+                    &format!("{prefix}_1_{field}"),
+                    &format!("{label}: {category_label}"),
+                    category_label,
+                );
+            }
+        }
     }
-    detected_document_proposals(&mut proposals, &text);
+    detected_document_proposals_for_edition(&mut proposals, &text, is_simple_edition(&app));
     consolidate_analysis_proposals(&mut proposals);
     let document_crew_values = proposals
         .iter()
@@ -1492,6 +1603,24 @@ fn analyse_report_for_template(
                 .iter()
                 .any(|position| position.contains(&proposal.value.to_lowercase()))
     });
+    if is_simple_edition(&app) {
+        for proposal in &mut proposals {
+            proposal.alternatives.retain(|alternative| {
+                !matches!(
+                    alternative.token.as_str(),
+                    token if token.starts_with("автомобіль_")
+                        || token.starts_with("екіпаж_")
+                        || token.starts_with("позиція_")
+                        || token.starts_with("генератор_")
+                        || token.starts_with("бпла_")
+                        || token.starts_with("звʼязок_")
+                        || token.starts_with("зброя_та_бк_")
+                        || token.contains("_автомобіль_")
+                        || token.contains("_екіпаж")
+                )
+            });
+        }
+    }
     proposals.sort_by(|left, right| {
         confidence_score(&right.confidence)
             .cmp(&confidence_score(&left.confidence))
@@ -3129,11 +3258,21 @@ fn list_generated_reports(
 }
 
 fn main() {
-    tauri::Builder::default()
+    let context = tauri::generate_context!();
+    let simple_edition = context
+        .config()
+        .product_name
+        .as_deref()
+        .is_some_and(|name| name.contains("проста версія"));
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            let root = ensure_application_structure(app.handle()).map_err(io::Error::other)?;
+            let root = ensure_application_structure_for_edition(
+                app.handle(),
+                is_simple_edition(app.handle()),
+            )
+            .map_err(io::Error::other)?;
             let templates_were_missing =
                 !directory_contains_docx(&root.join(TEMPLATES_DIRECTORY_NAME));
             let (database, database_was_missing) =
@@ -3145,8 +3284,49 @@ fn main() {
             );
             app.manage(AppState(Mutex::new(database), warnings));
             Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
+        });
+
+    let app = if simple_edition {
+        builder.invoke_handler(tauri::generate_handler![
+            list_personnel,
+            create_personnel,
+            update_personnel,
+            delete_personnel,
+            import_personnel_xlsx,
+            export_personnel_xlsx,
+            list_custom_fields,
+            list_personnel_fields,
+            create_custom_field,
+            update_custom_field,
+            delete_custom_field,
+            get_startup_warnings,
+            get_app_settings,
+            update_signer_settings,
+            add_signer,
+            delete_signer,
+            update_visible_personnel_columns,
+            list_templates,
+            select_template_file,
+            inspect_template,
+            analyse_report_for_template,
+            render_report_analysis_preview,
+            create_template_from_report_analysis,
+            validate_template,
+            generate_report,
+            open_template,
+            open_templates_directory,
+            delete_template,
+            open_generated_report,
+            open_generated_report_folder,
+            delete_generated_reports,
+            open_application_directory,
+            create_database_backup,
+            export_application_data,
+            import_application_data,
+            list_generated_reports
+        ])
+    } else {
+        builder.invoke_handler(tauri::generate_handler![
             list_personnel,
             create_personnel,
             update_personnel,
@@ -3216,8 +3396,9 @@ fn main() {
             operations::create_incident,
             update_unit_settings
         ])
-        .run(tauri::generate_context!())
-        .expect("Не вдалося запустити застосунок");
+    };
+
+    app.run(context).expect("Не вдалося запустити застосунок");
 }
 
 #[cfg(test)]
@@ -3329,6 +3510,45 @@ mod tests {
     }
 
     #[test]
+    fn simple_edition_treats_an_unknown_person_as_a_document_parameter() {
+        let text = "Командир підрозділу молодший лейтенант Максим Петрович ТЕСТОВИЙ";
+        let mut proposals = Vec::new();
+        detected_document_proposals_for_edition(&mut proposals, text, true);
+        assert!(proposals.iter().any(|proposal| {
+            proposal.value == "Максим Петрович ТЕСТОВИЙ"
+                && proposal.token == "піб_військовий_1"
+                && proposal.category == "Параметри документа"
+        }));
+        assert!(!proposals
+            .iter()
+            .any(|proposal| proposal.token.starts_with("військовий_1_")));
+    }
+
+    #[test]
+    fn simple_edition_offers_rank_and_position_for_an_unknown_person() {
+        let text = "Командир відділення молодший сержант Максим Петрович ТЕСТОВИЙ";
+        let mut proposals = Vec::new();
+        detected_document_proposals_for_edition(&mut proposals, text, true);
+        assert!(proposals.iter().any(|proposal| {
+            proposal.value == "молодший сержант" && proposal.token == "звання_військовий_1"
+        }));
+        assert!(proposals.iter().any(|proposal| {
+            proposal.value == "Командир відділення" && proposal.token == "посада_військовий_1"
+        }));
+    }
+
+    #[test]
+    fn document_person_analysis_never_turns_a_report_sentence_into_a_position() {
+        let text =
+            "Дійсним доповідаю Вам, що завдання виконано молодший сержант Максим Петрович ТЕСТОВИЙ";
+        let mut proposals = Vec::new();
+        detected_document_proposals_for_edition(&mut proposals, text, true);
+        assert!(!proposals
+            .iter()
+            .any(|proposal| proposal.token == "посада_військовий_1"));
+    }
+
+    #[test]
     fn analysis_requires_three_name_parts_and_uses_the_matching_signer_role() {
         let role = settings::SignerRole {
             id: "основний_підписант".into(),
@@ -3350,7 +3570,11 @@ mod tests {
             .any(|proposal| proposal.token == "основний_підписант_посада"
                 && proposal.value == "Командир підрозділу"));
         let mut short_name_proposals = Vec::new();
-        detected_document_person_proposals(&mut short_name_proposals, "майор Максим ТЕСТОВИЙ");
+        detected_document_person_proposals(
+            &mut short_name_proposals,
+            "майор Максим ТЕСТОВИЙ",
+            false,
+        );
         assert!(short_name_proposals.is_empty());
     }
 
@@ -3379,7 +3603,7 @@ mod tests {
             .iter()
             .any(|proposal| proposal.token == "основний_підписант_піб"));
         let mut generic = Vec::new();
-        detected_document_person_proposals(&mut generic, text);
+        detected_document_person_proposals(&mut generic, text, false);
         assert!(generic.is_empty());
     }
 

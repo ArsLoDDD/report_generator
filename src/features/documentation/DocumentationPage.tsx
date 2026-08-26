@@ -12,6 +12,7 @@ import type { SignerRole } from "../../shared/types/domain";
 
 const textModifiers = new Set(["великими", "маленькими", "з_великої"]);
 const styleModifiers = new Set(["жирним", "підкреслити"]);
+const isSimpleEdition = import.meta.env.VITE_APP_EDITION === "simple";
 const fallbackSignerObjects = [
   ["основний_підписант", "Основний підписант"], ["командир", "Командир"], ["начальник_штабу", "Начальник штабу"],
   ["заступник_ппп", "Заступник командира з ППП"], ["заступник_озброєння", "Заступник командира з озброєння"],
@@ -67,21 +68,27 @@ export function VariableConstructorPage({ embedded = false }: { embedded?: boole
 
   useEffect(() => {
     void personnelService.listCustomFields().then(setCustomFields).catch(() => undefined);
-    void personnelService.listVehicleCustomFields?.().then(setVehicleCustomFields).catch(() => undefined);
+    if (!isSimpleEdition) void personnelService.listVehicleCustomFields?.().then(setVehicleCustomFields).catch(() => undefined);
     void settingsService.get().then((settings) => setAvailableSignerRoles(settings.signerRoles ?? [])).catch(() => undefined);
   }, []);
 
   const isPerson = objectId === "person";
   const numberedPrefix = objectId === "person" ? "військовий" : objectId === "vehicle" ? "автомобіль" : objectId === "crew" ? "екіпаж" : objectId === "position" ? "позиція" : objectId === "generator" ? "генератор" : objectId === "uav" ? "бпла" : objectId === "communications" ? "звʼязок" : objectId === "weapon_ammo" ? "зброя_та_бк" : "";
   const signerObjects = useMemo(() => availableSignerRoles.length ? availableSignerRoles.map((role) => [role.id, role.name] as const) : fallbackSignerObjects, [availableSignerRoles]);
-  const objects = useMemo(() => [{ id: "person", label: "Військовослужбовець" }, { id: "vehicle", label: "Автомобіль" }, { id: "crew", label: "Екіпаж" }, { id: "position", label: "Позиція" }, { id: "generator", label: "Генератор" }, { id: "uav", label: "БпЛА" }, { id: "communications", label: "Зв’язок" }, { id: "weapon_ammo", label: "Зброя та БК" }, ...signerObjects.map(([id, label]) => ({ id, label })), { id: "document", label: "Параметри документа" }], [signerObjects]);
+  const objects = useMemo(() => [
+    { id: "person", label: "Військовослужбовець" },
+    ...(!isSimpleEdition ? [{ id: "vehicle", label: "Автомобіль" }, { id: "crew", label: "Екіпаж" }, { id: "position", label: "Позиція" }, { id: "generator", label: "Генератор" }, { id: "uav", label: "БпЛА" }, { id: "communications", label: "Зв’язок" }, { id: "weapon_ammo", label: "Зброя та БК" }] : []),
+    ...signerObjects.map(([id, label]) => ({ id, label })),
+    { id: "document", label: "Параметри документа" }
+  ], [signerObjects]);
   const categoryItems = useMemo(() => {
     const matches = (item: VariableDefinition) => `${item.name} ${item.description} ${item.id}`.toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"));
     const personnelValueFields = customFields.map(toPersonnelValue);
     const vehicleValueFields = vehicleCustomFields.map(toVehicleValue);
     const roleIds = new Set(signerRoles.map((role) => role.id));
     const dynamicSignerValues = signerObjects.flatMap(([roleId, roleName]) => signerFields.map((item) => ({ id: `${roleId}_${item.id}`, name: item.name, category: roleName, description: item.description ?? item.name, example: item.example, kind: item.kind as VariableDefinition["kind"], supportsCases: item.cases })));
-    const withoutStaticSigners = variableRegistry.filter((item) => ![...roleIds].some((roleId) => item.id.startsWith(`${roleId}_`)));
+    const withoutStaticSigners = variableRegistry.filter((item) => ![...roleIds].some((roleId) => item.id.startsWith(`${roleId}_`)))
+      .filter((item) => !isSimpleEdition || (!item.id.includes("_автомобіль") && !item.id.includes("_екіпаж") && !item.id.startsWith("автомобіль_") && !item.id.startsWith("екіпаж_") && !item.id.startsWith("позиція_") && !/^(генератор|бпла|звʼязок|зброя_та_бк)_/u.test(item.id)));
     if (viewMode === "all") return [...withoutStaticSigners, ...dynamicSignerValues, ...personnelValueFields, ...vehicleValueFields].filter(matches);
     if (isPerson) return [...variableRegistry.filter((item) => item.id.startsWith("військовий_1_")), ...personnelValueFields, ...vehicleCustomFields.map(toPersonnelVehicleValue)].filter(matches);
     if (objectId === "vehicle") return [...vehicleFields.map((item) => ({ id: `автомобіль_1_${item.id}`, name: item.name, category: "Автомобіль", description: item.description ?? item.name, example: item.example, kind: item.kind as VariableDefinition["kind"], supportsCases: item.cases })), ...vehicleValueFields].filter(matches);

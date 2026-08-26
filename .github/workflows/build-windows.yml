@@ -1,4 +1,4 @@
-name: Збірка для Windows
+name: Windows installers
 
 on:
   push:
@@ -6,39 +6,49 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Windows інсталятор
+  verify:
+    name: Перевірки
     runs-on: windows-latest
-
     steps:
-      - name: Отримати код
-        uses: actions/checkout@v4
-
-      - name: Встановити Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
-      - name: Встановити Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+      - run: npm ci
+      - run: npm run test:full
 
-      - name: Встановити залежності
-        run: npm ci
-
-      - name: Перевірити застосунок
-        run: npm run test:full
-
-      - name: Зібрати Windows-інсталятор
-        uses: tauri-apps/tauri-action@v0
+  build:
+    name: ${{ matrix.label }}
+    needs: verify
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - edition: simple
+            label: Проста версія
+            artifact: Shablonizator-Simple-Windows
+          - edition: advanced
+            label: Просунута версія
+            artifact: Shablonizator-Advanced-Windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          args: --bundles nsis
-
-      - name: Завантажити результат
-        uses: actions/upload-artifact@v4
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          name: Shablonizator-Windows
+          targets: x86_64-pc-windows-msvc
+      - run: npm ci
+      - name: Зібрати інсталятор
+        run: npm run tauri:build:${{ matrix.edition }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
           path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error

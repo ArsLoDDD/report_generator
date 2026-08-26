@@ -863,6 +863,7 @@ pub fn list_staff_recommendations(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri exposes these form fields as separate command arguments.
 pub fn create_vacancy_recommendation(
     state: tauri::State<AppState>,
     position_name: String,

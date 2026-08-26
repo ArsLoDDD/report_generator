@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TemplateAnalysisProposal } from "../../shared/types/domain";
-import { defaultAnalysisSelection, normaliseAnalysisProposals } from "./ReportAnalyserPage";
+import { defaultAnalysisSelection, normaliseAnalysisProposals, tokenSelectedInEditor } from "./ReportAnalyserPage";
 
 function proposal(overrides: Partial<TemplateAnalysisProposal>): TemplateAnalysisProposal {
   return {
@@ -42,5 +42,11 @@ describe("report analyser confidence", () => {
       "екіпаж_1_назва",
       "військовий_1_екіпаж",
     ]);
+  });
+
+  it("recognises a selected variable with or without its braces for modifier editing", () => {
+    expect(tokenSelectedInEditor("{{військовий_1_звання:родовий}}")).toEqual({ id: "військовий_1_звання", modifiers: ["родовий"] });
+    expect(tokenSelectedInEditor("піб_військовий_1")).toEqual({ id: "піб_військовий_1", modifiers: [] });
+    expect(tokenSelectedInEditor("звичайний текст")).toBeNull();
   });
 });

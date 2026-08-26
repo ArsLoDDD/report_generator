@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Шаблонізатор — проста версія",
+  "version": "0.1.0",
+  "identifier": "ua.shablonizator.simple",
+  "build": { "beforeDevCommand": "npm run dev -- --mode simple", "devUrl": "http://localhost:1420", "beforeBuildCommand": "npm run build:simple", "frontendDist": "../dist" },
+  "app": { "windows": [{ "title": "Шаблонізатор — проста версія", "width": 1600, "height": 960, "minWidth": 1100, "minHeight": 680, "maximized": true }], "security": { "csp": null } },
+  "bundle": { "active": true, "targets": ["nsis"], "icon": ["icons/icon.png", "icons/icon.ico"] }
+}

@@ -263,7 +263,7 @@ pub fn validate(
     }
     for token in &result.variables {
         let base = token.split(':').next().unwrap_or_default();
-        if document_field_for(base).is_some()
+        if (document_field_for(base).is_some() || dynamic_document_parameter(base))
             && parameters
                 .get(base)
                 .map(String::as_str)
@@ -402,7 +402,8 @@ fn validate_token(token: &str) -> Vec<String> {
     let base = parts[0].trim();
     let field = field_for(base);
     let is_custom = field.is_none() && custom_field_token(base);
-    if field.is_none() && !is_custom {
+    let is_document_parameter = field.is_none() && dynamic_document_parameter(base);
+    if field.is_none() && !is_custom && !is_document_parameter {
         return vec![format!(
             "Невідома змінна «{{{{{token}}}}}». У v2 старі назви не підтримуються."
         )];
@@ -475,6 +476,47 @@ fn custom_field_token(base: &str) -> bool {
         && key
             .chars()
             .all(|value| value == '_' || value.is_alphanumeric())
+}
+
+/// A Ukrainian token entered manually in the template editor is a text parameter
+/// of this document. It does not create a new database column.
+fn dynamic_document_parameter(base: &str) -> bool {
+    let reserved_subject = [
+        "військовий_",
+        "автомобіль_",
+        "екіпаж_",
+        "позиція_",
+        "генератор_",
+        "бпла_",
+        "звʼязок_",
+        "зброя_та_бк_",
+    ]
+    .iter()
+    .any(|prefix| base.starts_with(prefix));
+    let reserved_signer = registry()
+        .signer_roles
+        .iter()
+        .any(|role| base.starts_with(&(role.id.clone() + "_")));
+    let reserved_document_parameter = registry()
+        .document_fields
+        .iter()
+        .filter_map(|field| base.strip_prefix(&(field.id.clone() + "_")))
+        .any(|suffix| {
+            !suffix.is_empty() && suffix.chars().all(|character| character.is_ascii_digit())
+        });
+    let has_ukrainian_letter = base.chars().any(|character| {
+        "абвгґдеєжзиіїйклмнопрстуфхцчшщьюя"
+            .contains(character.to_lowercase().next().unwrap_or_default())
+    });
+
+    !reserved_subject
+        && !reserved_signer
+        && !reserved_document_parameter
+        && base.chars().next().is_some_and(char::is_alphabetic)
+        && base
+            .chars()
+            .all(|character| character == '_' || character.is_alphanumeric())
+        && has_ukrainian_letter
 }
 fn field_for(base: &str) -> Option<&'static Field> {
     if let Some(field) = document_field_for(base) {
@@ -551,7 +593,7 @@ fn numbered_subject_field(value: &str) -> Option<&str> {
 }
 fn selection_kind(token: &str) -> Option<&'static str> {
     let base = token.split(':').next().unwrap_or_default();
-    if document_field_for(base).is_some() {
+    if document_field_for(base).is_some() || dynamic_document_parameter(base) {
         None
     } else if base.starts_with("військовий_") {
         Some("personnel")
@@ -800,10 +842,11 @@ fn add_generation_parameters(
     legacy_date: Option<&str>,
 ) -> Result<(), String> {
     for (token, raw) in parameters {
-        let Some(field) = document_field_for(token) else {
+        let field = document_field_for(token);
+        if field.is_none() && !dynamic_document_parameter(token) {
             continue;
-        };
-        let text = match field.input_type.as_deref() {
+        }
+        let text = match field.and_then(|item| item.input_type.as_deref()) {
             Some("date") => NaiveDate::parse_from_str(raw, "%Y-%m-%d")
                 .map(|date| date.format("%d.%m.%Y року").to_string())
                 .map_err(|_| format!("Параметр «{token}» має містити коректну дату."))?,
@@ -812,7 +855,9 @@ fn add_generation_parameters(
                 .map_err(|_| format!("Параметр «{token}» має містити коректні дату й час."))?,
             _ => raw.trim().to_string(),
         };
-        values.insert(token.clone(), Value::new(text, &field.kind, None));
+        let gender = document_person_gender(parameters, token);
+        let kind = field.map(|item| item.kind.as_str()).unwrap_or("text");
+        values.insert(token.clone(), Value::new(text, kind, gender));
     }
     if !parameters.contains_key("дата_рапорту") {
         if let Some(raw) = legacy_date.filter(|value| !value.is_empty()) {
@@ -825,6 +870,42 @@ fn add_generation_parameters(
         }
     }
     Ok(())
+}
+
+/// Document parameters for a person are independent fields, but their common
+/// numeric suffix lets rank/name declension use the patronymic entered for the
+/// same person (for example `піб_військовий_1` and `звання_військовий_1`).
+fn document_person_gender(
+    parameters: &HashMap<String, String>,
+    token: &str,
+) -> Option<&'static str> {
+    let (base, number) = token.rsplit_once('_')?;
+    if number
+        .parse::<usize>()
+        .ok()
+        .filter(|number| *number > 0)
+        .is_none()
+        || !matches!(
+            base,
+            "піб_військовий"
+                | "прізвище_військовий"
+                | "імя_військовий"
+                | "по_батькові_військовий"
+                | "звання_військовий"
+                | "посада_військовий"
+        )
+    {
+        return None;
+    }
+    let values = [
+        parameters.get(&format!("по_батькові_військовий_{number}")),
+        parameters.get(&format!("піб_військовий_{number}")),
+    ];
+    values.into_iter().flatten().find_map(|value| {
+        value
+            .split_whitespace()
+            .find_map(|word| detect_gender("", word))
+    })
 }
 
 fn add_person_vehicles(
@@ -1222,15 +1303,15 @@ fn decline(value: &str, kind: &str, case: &str, gender: Option<&str>) -> Result<
     if case == "називний" {
         return Ok(value.into());
     }
-    let gender=gender.ok_or_else(||format!("Не вдалося визначити стать для відмінювання «{value}». Вкажіть стать у картці військовослужбовця."))?;
-    if kind == "rank" {
-        return Ok(decline_rank(value, case, gender));
-    }
     if kind == "position" {
         return Ok(value
             .split_once(',')
             .map(|(head, tail)| format!("{},{}", decline_position_head(head, case), tail))
             .unwrap_or_else(|| decline_position_head(value, case)));
+    }
+    let gender=gender.ok_or_else(||format!("Не вдалося визначити стать для відмінювання «{value}». Вкажіть стать у картці військовослужбовця або по батькові в параметрах документа."))?;
+    if kind == "rank" {
+        return Ok(decline_rank(value, case, gender));
     }
     Ok(value
         .split_whitespace()
@@ -2516,6 +2597,24 @@ mod tests {
     }
 
     #[test]
+    fn accepts_a_manual_ukrainian_template_parameter() {
+        assert!(validate_token("умови_передачі").is_empty());
+        assert!(validate_token("адреса_лікарні").is_empty());
+        assert!(!validate_token("soldier_name").is_empty());
+
+        let mut values = HashMap::new();
+        let parameters = HashMap::from([(
+            "умови_передачі".to_string(),
+            "Згідно з актом приймання-передачі".to_string(),
+        )]);
+        add_generation_parameters(&mut values, &parameters, None).unwrap();
+        assert_eq!(
+            values["умови_передачі"].text,
+            "Згідно з актом приймання-передачі"
+        );
+    }
+
+    #[test]
     fn supports_every_compatible_modifier_for_document_parameters() {
         for field in &registry().document_fields {
             let styles = format!("{}:жирним:підкреслити", field.id);
@@ -2536,7 +2635,7 @@ mod tests {
 
             for modifier in ["родовий", "давальний", "орудний"] {
                 let token = format!("{}:{modifier}", field.id);
-                assert!(!validate_token(&token).is_empty(), "{token}");
+                assert_eq!(validate_token(&token).is_empty(), field.cases, "{token}");
             }
         }
 

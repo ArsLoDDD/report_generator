@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Шаблонізатор — просунута версія",
+  "version": "0.1.0",
+  "identifier": "ua.shablonizator.advanced",
+  "build": { "beforeDevCommand": "npm run dev -- --mode advanced", "devUrl": "http://localhost:1420", "beforeBuildCommand": "npm run build:advanced", "frontendDist": "../dist" },
+  "app": { "windows": [{ "title": "Шаблонізатор", "width": 1920, "height": 1080, "minWidth": 1100, "minHeight": 680, "maximized": true }], "security": { "csp": null } },
+  "bundle": { "active": true, "targets": ["nsis"], "icon": ["icons/icon.png", "icons/icon.ico"] }
+}

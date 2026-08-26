@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getSelectionRequirements, getVariable } from "./registry";
+import { getGenerationParameter, getSelectionRequirements, getVariable } from "./registry";
 
 describe("selection requirements", () => {
   it("keeps personnel first and derives exact counts for mixed subjects", () => {
@@ -51,5 +51,13 @@ describe("selection requirements", () => {
       expect.objectContaining({ id: "personnel", count: 2 }),
       expect.objectContaining({ id: "vehicle", count: 2 }),
     ]);
+  });
+
+  it("uses a manually created Ukrainian token as a document parameter", () => {
+    expect(getGenerationParameter("умови_передачі")?.name).toBe("Умови Передачі");
+    expect(getGenerationParameter("адреса_лікарні")?.name).toBe("Адреса Лікарні");
+    expect(getVariable("умови_передачі")?.category).toBe("Параметри документа");
+    expect(getSelectionRequirements(["умови_передачі"])).toEqual([]);
+    expect(getGenerationParameter("soldier_name")).toBeUndefined();
   });
 });
