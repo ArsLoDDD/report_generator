@@ -87,16 +87,6 @@ pub fn export(
             end += 1;
         }
         group_starts.push(first);
-        if end - start > 1 {
-            for col in 0..10 {
-                merges.push(format!(
-                    "{0}{1}:{0}{2}",
-                    (b'A' + col as u8) as char,
-                    start + 7,
-                    end + 6
-                ));
-            }
-        }
         for (index, row) in rows.iter().enumerate().take(end).skip(start) {
             let r = index + 7;
             let values = [
@@ -149,9 +139,6 @@ pub fn export(
                 _ => 177,
             };
             for (col, value) in values.iter().enumerate() {
-                if col < 10 && index != start {
-                    continue;
-                }
                 if (col == 5 || col == 6) && !value.is_empty() {
                     let number = value
                         .parse::<i64>()

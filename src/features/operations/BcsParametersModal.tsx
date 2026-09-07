@@ -2,12 +2,14 @@ import { FileSpreadsheet, Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal } from "../../shared/ui/Modal";
 import type { TemporaryPerson } from "./types";
 
-export function BcsParametersModal({ unitName, date, zoom, people, onUnitName, onDate, onZoom, onAdd, onEdit, onDelete, onExport, onClose }: {
+export function BcsParametersModal({ unitName, fileName, date, zoom, people, onUnitName, onFileName, onDate, onZoom, onAdd, onEdit, onDelete, onExport, onClose }: {
   unitName: string;
+  fileName: string;
   date: string;
   zoom: number;
   people: TemporaryPerson[];
   onUnitName: (value: string) => void;
+  onFileName: (value: string) => void;
   onDate: (value: string) => void;
   onZoom: (value: number) => void;
   onAdd: (category: TemporaryPerson["category"]) => void;
@@ -20,6 +22,7 @@ export function BcsParametersModal({ unitName, date, zoom, people, onUnitName, o
     <div className="bcs-parameters">
       <section className="bcs-parameters__general">
         <label className="form-field form-field--wide"><span>Назва підрозділу в шапці БЧС</span><input value={unitName} onChange={(event) => onUnitName(event.target.value)} placeholder="Назва підрозділу" /></label>
+        <label className="form-field form-field--wide"><span>Назва файлу БЧС</span><input value={fileName} onChange={(event) => onFileName(event.target.value)} placeholder="РБАК 07.09.2026" /><small>Розширення .xlsx додасться автоматично.</small></label>
         <label className="form-field"><span>Дата БЧС · станом на 08:00</span><input inputMode="numeric" maxLength={10} placeholder="дд.мм.рррр" value={date} onChange={(event) => onDate(event.target.value.replace(/[^\d.]/g, "").slice(0,10))} /></label>
         <label className="form-field"><span>Масштаб таблиці · {zoom}%</span><input type="range" min="45" max="110" step="5" value={zoom} onChange={(event) => onZoom(Number(event.target.value))} /></label>
       </section>

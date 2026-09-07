@@ -974,8 +974,9 @@ fn shared_strings(archive: &mut ZipArchive<File>) -> Vec<String> {
             item.split("</si>")
                 .next()
                 .unwrap_or("")
-                .split("<t>")
+                .split("<t")
                 .skip(1)
+                .filter_map(|part| part.split_once('>').map(|(_, text)| text))
                 .filter_map(|part| part.split("</t>").next())
                 .map(unescape)
                 .collect::<String>()
@@ -990,8 +991,9 @@ fn attribute(cell: &str, name: &str) -> Option<String> {
 }
 fn cell_value(cell: &str, shared: &[String]) -> String {
     if let Some(text) = cell
-        .split("<t>")
+        .split("<t")
         .nth(1)
+        .and_then(|part| part.split_once('>').map(|(_, text)| text))
         .and_then(|part| part.split("</t>").next())
     {
         return unescape(text);
@@ -1262,7 +1264,13 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
                 .cloned()
                 .unwrap_or_default();
             let military_id = values.get("military_id").cloned().unwrap_or_default();
-            let gender = values.get("gender").cloned().unwrap_or_default();
+            // Excel users naturally enter the visible labels "Чоловіча" and
+            // "Жіноча", while the database stores their lowercase values.
+            // Normalise casing and surrounding spaces at the import boundary.
+            let gender = values
+                .get("gender")
+                .map(|value| value.trim().to_lowercase())
+                .unwrap_or_default();
             values.remove("rank");
             values.remove("position");
             values.remove("tax_id");
@@ -1516,7 +1524,7 @@ mod tests {
             military_id: String::new(),
             assigned_vehicle_name: String::new(),
             assigned_vehicle_registration: String::new(),
-            gender: String::new(),
+            gender: "Чоловіча".into(),
             core_fields: HashMap::from([("phone".into(), "+380501234567".into())]),
             custom_fields: HashMap::new(),
         }
@@ -1559,6 +1567,7 @@ mod tests {
         assert!(workbook.contains("Автомобілі"));
         let imported = import(&path).unwrap();
         assert_eq!(imported.personnel.len(), 1);
+        assert_eq!(imported.personnel[0].gender, "чоловіча");
         assert_eq!(
             imported.personnel[0].core_fields.get("phone").unwrap(),
             "+380501234567"

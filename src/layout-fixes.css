@@ -243,6 +243,21 @@ body { overflow: hidden; }
 .form-field input { min-width: 0; width: 100%; height: 41px; border: 1px solid #2a3d48; border-radius: 6px; outline: none; background: #08141c; color: #e5edf1; padding: 0 11px; }
 .form-field input:focus { border-color: #3ba74a; box-shadow: 0 0 0 2px #2c8d3a25; }
 .form-error { color: #ff7373; margin: 14px 0 0; }
+.excel-import-error {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 14px;
+  align-items: center;
+  margin: 14px 0;
+  padding: 14px 16px;
+  border: 1px solid #7c3940;
+  border-radius: 8px;
+  background: #2b1518;
+  color: #ffd4d7;
+}
+.excel-import-error b { grid-column: 1; color: #ff8d94; }
+.excel-import-error span { grid-column: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
+.excel-import-error .button { grid-column: 2; grid-row: 1 / span 2; }
 .confirm-dialog { width: min(500px, 100%); }
 .confirm-dialog__message { display: flex; align-items: flex-start; gap: 13px; padding: 22px 20px; }
 .confirm-dialog__message svg { flex: 0 0 auto; color: #f1ad32; }
