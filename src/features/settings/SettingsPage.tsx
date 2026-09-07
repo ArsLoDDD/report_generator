@@ -1,18 +1,18 @@
-import { Archive, Building2, Download, FileSpreadsheet, FolderOpen, GripVertical, Pencil, Plus, Trash2, Upload, Users } from "lucide-react";
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { open, save } from "@tauri-apps/plugin-dialog";
-import { PageFrame } from "../../shared/ui/PageFrame";
-import { PageTitle } from "../../shared/ui/PageTitle";
-import { Modal } from "../../shared/ui/Modal";
-import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
-import { useNotifications } from "../../shared/ui/NotificationProvider";
-import { personnelService } from "../../shared/services/personnelService";
-import { useAppSettings } from "./hooks/useAppSettings";
-import { settingsService } from "./services/settingsService";
-import type { SignerRole, SignerSettings, UnitSettings, UnitStructureNode } from "../../shared/types/domain";
-import { Select } from "../../shared/ui/Select";
-import { defaultUnitStructure, structureWithUnmappedPositions, usableUnitStructure } from "../../shared/unit-structure";
-import { operationsService } from "../operations/services/operationsService";
+import { open, save } from "@tauri-apps/plugin-dialog"
+import { Archive, Building2, Download, FileSpreadsheet, FolderOpen, GripVertical, Pencil, Plus, Trash2, Upload, Users } from "lucide-react"
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { personnelService } from "../../shared/services/personnelService"
+import type { SignerRole, SignerSettings, UnitSettings, UnitStructureNode } from "../../shared/types/domain"
+import { ConfirmDialog } from "../../shared/ui/ConfirmDialog"
+import { Modal } from "../../shared/ui/Modal"
+import { useNotifications } from "../../shared/ui/NotificationProvider"
+import { PageFrame } from "../../shared/ui/PageFrame"
+import { PageTitle } from "../../shared/ui/PageTitle"
+import { Select } from "../../shared/ui/Select"
+import { defaultUnitStructure, structureWithUnmappedPositions, usableUnitStructure } from "../../shared/unit-structure"
+import { operationsService } from "../operations/services/operationsService"
+import { useAppSettings } from "./hooks/useAppSettings"
+import { settingsService } from "./services/settingsService"
 
 const emptySigner: SignerSettings = { fullName: "", rank: "", position: "" };
 const legacyRoles = (settings: { mainSigner: SignerSettings; commander: SignerSettings; chief: SignerSettings; deputyPpp: SignerSettings; deputyArmament: SignerSettings; deputyRear: SignerSettings; fuelChief: SignerSettings }): SignerRole[] => [
