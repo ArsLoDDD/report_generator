@@ -82,5 +82,525 @@
     }
   ],
   "visiblePersonnelColumns": [],
-  "visibleVehicleColumns": []
+  "visibleVehicleColumns": [],
+  "unit": {
+    "kind": "Рота",
+    "shortName": "РБАК",
+    "fullName": "рота безпілотних авіаційних комплексів",
+    "unitCode": "",
+    "authorizedStrength": 72,
+    "structure": [
+      {
+        "id": "management",
+        "parentId": null,
+        "kind": "group",
+        "name": "Управління роти",
+        "order": 0
+      },
+      {
+        "id": "management-0",
+        "parentId": "management",
+        "kind": "position",
+        "name": "Командир роти",
+        "order": 0
+      },
+      {
+        "id": "management-1",
+        "parentId": "management",
+        "kind": "position",
+        "name": "Заступник командира",
+        "order": 4
+      },
+      {
+        "id": "management-2",
+        "parentId": "management",
+        "kind": "position",
+        "name": "Заступник командира роти з психологічної підтримки персоналу",
+        "order": 8
+      },
+      {
+        "id": "management-3",
+        "parentId": "management",
+        "kind": "position",
+        "name": "Головний сержант",
+        "order": 1
+      },
+      {
+        "id": "management-4",
+        "parentId": "management",
+        "kind": "position",
+        "name": "Старший технік",
+        "order": 2
+      },
+      {
+        "id": "management-5",
+        "parentId": "management",
+        "kind": "position",
+        "name": "Технік",
+        "order": 3
+      },
+      {
+        "id": "management-6",
+        "parentId": "management",
+        "kind": "position",
+        "name": "Сержант із матеріального забезпечення",
+        "order": 5
+      },
+      {
+        "id": "management-7",
+        "parentId": "management",
+        "kind": "position",
+        "name": "Старший бойовий медик",
+        "order": 6
+      },
+      {
+        "id": "management-8",
+        "parentId": "management",
+        "kind": "position",
+        "name": "Водій-електрик",
+        "order": 7
+      },
+      {
+        "id": "management-9",
+        "parentId": "management",
+        "kind": "position",
+        "name": "Водій",
+        "order": 9
+      },
+      {
+        "id": "platoon-1",
+        "parentId": null,
+        "kind": "group",
+        "name": "1 взвод",
+        "order": 1
+      },
+      {
+        "id": "platoon-1-command",
+        "parentId": "platoon-1",
+        "kind": "group",
+        "name": "Командування взводу",
+        "order": 0
+      },
+      {
+        "id": "platoon-1-commander",
+        "parentId": "platoon-1-command",
+        "kind": "position",
+        "name": "Командир взводу",
+        "order": 0
+      },
+      {
+        "id": "platoon-1-department-1",
+        "parentId": "platoon-1",
+        "kind": "group",
+        "name": "1 відділення",
+        "order": 1
+      },
+      {
+        "id": "platoon-1-department-1-0",
+        "parentId": "platoon-1-department-1",
+        "kind": "position",
+        "name": "Головний сержант — командир відділення",
+        "order": 0
+      },
+      {
+        "id": "platoon-1-department-1-1",
+        "parentId": "platoon-1-department-1",
+        "kind": "position",
+        "name": "Оператор",
+        "order": 1
+      },
+      {
+        "id": "platoon-1-department-1-2",
+        "parentId": "platoon-1-department-1",
+        "kind": "position",
+        "name": "Механік",
+        "order": 2
+      },
+      {
+        "id": "platoon-1-department-1-3",
+        "parentId": "platoon-1-department-1",
+        "kind": "position",
+        "name": "Водій-електрик",
+        "order": 3
+      },
+      {
+        "id": "platoon-1-department-2",
+        "parentId": "platoon-1",
+        "kind": "group",
+        "name": "2 відділення",
+        "order": 2
+      },
+      {
+        "id": "platoon-1-department-2-0",
+        "parentId": "platoon-1-department-2",
+        "kind": "position",
+        "name": "Командир відділення",
+        "order": 0
+      },
+      {
+        "id": "platoon-1-department-2-1",
+        "parentId": "platoon-1-department-2",
+        "kind": "position",
+        "name": "Оператор",
+        "order": 1
+      },
+      {
+        "id": "platoon-1-department-2-2",
+        "parentId": "platoon-1-department-2",
+        "kind": "position",
+        "name": "Механік",
+        "order": 2
+      },
+      {
+        "id": "platoon-1-department-2-3",
+        "parentId": "platoon-1-department-2",
+        "kind": "position",
+        "name": "Водій-електрик",
+        "order": 3
+      },
+      {
+        "id": "platoon-1-department-3",
+        "parentId": "platoon-1",
+        "kind": "group",
+        "name": "3 відділення",
+        "order": 3
+      },
+      {
+        "id": "platoon-1-department-3-0",
+        "parentId": "platoon-1-department-3",
+        "kind": "position",
+        "name": "Командир відділення",
+        "order": 0
+      },
+      {
+        "id": "platoon-1-department-3-1",
+        "parentId": "platoon-1-department-3",
+        "kind": "position",
+        "name": "Оператор",
+        "order": 1
+      },
+      {
+        "id": "platoon-1-department-3-2",
+        "parentId": "platoon-1-department-3",
+        "kind": "position",
+        "name": "Механік",
+        "order": 2
+      },
+      {
+        "id": "platoon-1-department-3-3",
+        "parentId": "platoon-1-department-3",
+        "kind": "position",
+        "name": "Водій-електрик",
+        "order": 3
+      },
+      {
+        "id": "platoon-2",
+        "parentId": null,
+        "kind": "group",
+        "name": "2 взвод",
+        "order": 2
+      },
+      {
+        "id": "platoon-2-command",
+        "parentId": "platoon-2",
+        "kind": "group",
+        "name": "Командування взводу",
+        "order": 0
+      },
+      {
+        "id": "platoon-2-commander",
+        "parentId": "platoon-2-command",
+        "kind": "position",
+        "name": "Командир взводу",
+        "order": 0
+      },
+      {
+        "id": "platoon-2-department-1",
+        "parentId": "platoon-2",
+        "kind": "group",
+        "name": "1 відділення",
+        "order": 1
+      },
+      {
+        "id": "platoon-2-department-1-0",
+        "parentId": "platoon-2-department-1",
+        "kind": "position",
+        "name": "Головний сержант — командир відділення",
+        "order": 0
+      },
+      {
+        "id": "platoon-2-department-1-1",
+        "parentId": "platoon-2-department-1",
+        "kind": "position",
+        "name": "Оператор",
+        "order": 1
+      },
+      {
+        "id": "platoon-2-department-1-2",
+        "parentId": "platoon-2-department-1",
+        "kind": "position",
+        "name": "Механік",
+        "order": 2
+      },
+      {
+        "id": "platoon-2-department-1-3",
+        "parentId": "platoon-2-department-1",
+        "kind": "position",
+        "name": "Водій-електрик",
+        "order": 3
+      },
+      {
+        "id": "platoon-2-department-2",
+        "parentId": "platoon-2",
+        "kind": "group",
+        "name": "2 відділення",
+        "order": 2
+      },
+      {
+        "id": "platoon-2-department-2-0",
+        "parentId": "platoon-2-department-2",
+        "kind": "position",
+        "name": "Командир відділення",
+        "order": 0
+      },
+      {
+        "id": "platoon-2-department-2-1",
+        "parentId": "platoon-2-department-2",
+        "kind": "position",
+        "name": "Оператор",
+        "order": 1
+      },
+      {
+        "id": "platoon-2-department-2-2",
+        "parentId": "platoon-2-department-2",
+        "kind": "position",
+        "name": "Механік",
+        "order": 2
+      },
+      {
+        "id": "platoon-2-department-2-3",
+        "parentId": "platoon-2-department-2",
+        "kind": "position",
+        "name": "Водій-електрик",
+        "order": 3
+      },
+      {
+        "id": "platoon-2-department-3",
+        "parentId": "platoon-2",
+        "kind": "group",
+        "name": "3 відділення",
+        "order": 3
+      },
+      {
+        "id": "platoon-2-department-3-0",
+        "parentId": "platoon-2-department-3",
+        "kind": "position",
+        "name": "Командир відділення",
+        "order": 0
+      },
+      {
+        "id": "platoon-2-department-3-1",
+        "parentId": "platoon-2-department-3",
+        "kind": "position",
+        "name": "Оператор",
+        "order": 1
+      },
+      {
+        "id": "platoon-2-department-3-2",
+        "parentId": "platoon-2-department-3",
+        "kind": "position",
+        "name": "Механік",
+        "order": 2
+      },
+      {
+        "id": "platoon-2-department-3-3",
+        "parentId": "platoon-2-department-3",
+        "kind": "position",
+        "name": "Водій-електрик",
+        "order": 3
+      },
+      {
+        "id": "platoon-3",
+        "parentId": null,
+        "kind": "group",
+        "name": "3 взвод",
+        "order": 3
+      },
+      {
+        "id": "platoon-3-command",
+        "parentId": "platoon-3",
+        "kind": "group",
+        "name": "Командування взводу",
+        "order": 0
+      },
+      {
+        "id": "platoon-3-commander",
+        "parentId": "platoon-3-command",
+        "kind": "position",
+        "name": "Командир взводу",
+        "order": 0
+      },
+      {
+        "id": "platoon-3-department-1",
+        "parentId": "platoon-3",
+        "kind": "group",
+        "name": "1 відділення",
+        "order": 1
+      },
+      {
+        "id": "platoon-3-department-1-0",
+        "parentId": "platoon-3-department-1",
+        "kind": "position",
+        "name": "Головний сержант — командир відділення",
+        "order": 0
+      },
+      {
+        "id": "platoon-3-department-1-1",
+        "parentId": "platoon-3-department-1",
+        "kind": "position",
+        "name": "Оператор",
+        "order": 1
+      },
+      {
+        "id": "platoon-3-department-1-2",
+        "parentId": "platoon-3-department-1",
+        "kind": "position",
+        "name": "Механік",
+        "order": 2
+      },
+      {
+        "id": "platoon-3-department-1-3",
+        "parentId": "platoon-3-department-1",
+        "kind": "position",
+        "name": "Водій-електрик",
+        "order": 3
+      },
+      {
+        "id": "platoon-3-department-2",
+        "parentId": "platoon-3",
+        "kind": "group",
+        "name": "2 відділення",
+        "order": 2
+      },
+      {
+        "id": "platoon-3-department-2-0",
+        "parentId": "platoon-3-department-2",
+        "kind": "position",
+        "name": "Командир відділення",
+        "order": 0
+      },
+      {
+        "id": "platoon-3-department-2-1",
+        "parentId": "platoon-3-department-2",
+        "kind": "position",
+        "name": "Оператор",
+        "order": 1
+      },
+      {
+        "id": "platoon-3-department-2-2",
+        "parentId": "platoon-3-department-2",
+        "kind": "position",
+        "name": "Механік",
+        "order": 2
+      },
+      {
+        "id": "platoon-3-department-2-3",
+        "parentId": "platoon-3-department-2",
+        "kind": "position",
+        "name": "Водій-електрик",
+        "order": 3
+      },
+      {
+        "id": "platoon-3-department-3",
+        "parentId": "platoon-3",
+        "kind": "group",
+        "name": "3 відділення",
+        "order": 3
+      },
+      {
+        "id": "platoon-3-department-3-0",
+        "parentId": "platoon-3-department-3",
+        "kind": "position",
+        "name": "Командир відділення",
+        "order": 0
+      },
+      {
+        "id": "platoon-3-department-3-1",
+        "parentId": "platoon-3-department-3",
+        "kind": "position",
+        "name": "Оператор",
+        "order": 1
+      },
+      {
+        "id": "platoon-3-department-3-2",
+        "parentId": "platoon-3-department-3",
+        "kind": "position",
+        "name": "Механік",
+        "order": 2
+      },
+      {
+        "id": "platoon-3-department-3-3",
+        "parentId": "platoon-3-department-3",
+        "kind": "position",
+        "name": "Водій-електрик",
+        "order": 3
+      },
+      {
+        "id": "other",
+        "parentId": null,
+        "kind": "group",
+        "name": "Інші",
+        "order": 4
+      },
+      {
+        "id": "other-position-2-115",
+        "parentId": "other",
+        "kind": "position",
+        "name": "командир 3 взводу безпілотних авіаційних комплексів роти безпілотних авіаційних комплексів військової частини А5027",
+        "order": 4
+      },
+      {
+        "id": "special-collection-processing",
+        "parentId": null,
+        "kind": "group",
+        "name": "Відділення збору та обробки інформації",
+        "order": 5
+      },
+      {
+        "id": "special-collection-position-70",
+        "parentId": "special-collection-processing",
+        "kind": "position",
+        "name": "водій-електрик",
+        "order": 2
+      },
+      {
+        "id": "special-collection-position-71",
+        "parentId": "special-collection-processing",
+        "kind": "position",
+        "name": "дешифрувальник розвідувальних матеріалів з безпілотних літальних апаратів",
+        "order": 3
+      },
+      {
+        "id": "special-collection-position-72",
+        "parentId": "special-collection-processing",
+        "kind": "position",
+        "name": "командир",
+        "order": 0
+      },
+      {
+        "id": "special-collection-position-73",
+        "parentId": "special-collection-processing",
+        "kind": "position",
+        "name": "оператор",
+        "order": 4
+      },
+      {
+        "id": "special-collection-position-74",
+        "parentId": "special-collection-processing",
+        "kind": "position",
+        "name": "старший дешифрувальник розвідувальних матеріалів з безпілотних літальних апаратів",
+        "order": 1
+      }
+    ]
+  }
 }

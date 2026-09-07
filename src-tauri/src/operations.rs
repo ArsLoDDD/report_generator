@@ -28,6 +28,8 @@ pub struct Crew {
     battle_order: String,
     sector: String,
     official_strength: i64,
+    working_strength: i64,
+    position_id: Option<i64>,
     status: String,
     uav_name: String,
     uav_type: String,
@@ -36,6 +38,7 @@ pub struct Crew {
     notes: String,
     member_count: i64,
     members: Vec<CrewMember>,
+    actual_members: Vec<CrewMember>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,6 +65,10 @@ pub struct CrewDraft {
     sector: String,
     #[serde(default = "default_official_strength")]
     official_strength: i64,
+    #[serde(default)]
+    working_strength: i64,
+    #[serde(default)]
+    position_id: Option<i64>,
     #[serde(default = "default_crew_status")]
     status: String,
     #[serde(default)]
@@ -76,6 +83,8 @@ pub struct CrewDraft {
     notes: String,
     #[serde(default)]
     member_ids: Vec<i64>,
+    #[serde(default)]
+    actual_member_ids: Vec<i64>,
 }
 fn default_unit_type() -> String {
     "Екіпаж".into()
@@ -98,6 +107,8 @@ pub struct Position {
     battle_order: String,
     sector: String,
     condition: String,
+    condition_level: i64,
+    field_type: String,
     size: String,
     mgrs: String,
     suitable_uav_text: String,
@@ -119,6 +130,8 @@ pub struct PositionDraft {
     battle_order: String,
     sector: String,
     condition: String,
+    condition_level: i64,
+    field_type: String,
     size: String,
     mgrs: String,
     suitable_uav_text: String,
@@ -132,6 +145,9 @@ pub struct PositionDraft {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StaffingRecord {
+    working_strength: i64,
+    staff_slot_id: String,
+    acting_slot_id: String,
     personnel_id: i64,
     full_name: String,
     rank: String,
@@ -171,6 +187,7 @@ pub struct StaffRecommendation {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VacancyRecommendation {
+    slot_id: String,
     id: i64,
     position_name: String,
     full_name: String,
@@ -185,6 +202,16 @@ pub struct VacancyRecommendation {
 #[serde(rename_all = "camelCase")]
 pub struct StaffTransfer {
     personnel_id: i64,
+    position: String,
+    slot_id: String,
+    expected_position: String,
+    expected_occupant_ids: Vec<i64>,
+}
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActingChange {
+    personnel_id: i64,
+    slot_id: String,
     position: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -352,10 +379,26 @@ pub(crate) fn crew_members(
         .map_err(|_| "Не вдалося прочитати склад екіпажу.".to_string());
     result
 }
+fn actual_crew_members(connection: &Connection, crew_id: i64) -> Result<Vec<CrewMember>, String> {
+    let mut statement=connection.prepare("SELECT p.id,trim(p.surname||' '||p.given_name||' '||p.patronymic),p.rank,p.position FROM crew_actual_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=?1 ORDER BY p.position,p.id").map_err(|_|"Не вдалося прочитати фактичний склад екіпажу.".to_string())?;
+    let members = statement
+        .query_map([crew_id], |row| {
+            Ok(CrewMember {
+                personnel_id: row.get(0)?,
+                full_name: row.get(1)?,
+                rank: row.get(2)?,
+                position: row.get(3)?,
+            })
+        })
+        .map_err(|_| "Не вдалося прочитати фактичний склад екіпажу.".to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Не вдалося прочитати фактичний склад екіпажу.".to_string())?;
+    Ok(members)
+}
 #[tauri::command]
 pub fn list_crews(state: tauri::State<AppState>) -> Result<Vec<Crew>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
-    let mut s=db.connection.prepare("SELECT c.id,c.name,c.platoon,c.position_name,c.reconnaissance_area,c.unit_type,c.company_name,c.battle_order,c.sector,c.official_strength,c.status,c.uav_name,c.uav_type,c.functional_duties,c.current_location,c.notes,COUNT(cm.id) FROM crews c LEFT JOIN crew_members cm ON cm.crew_id=c.id AND cm.left_at IS NULL GROUP BY c.id ORDER BY c.platoon COLLATE NOCASE,c.name COLLATE NOCASE").map_err(|_|"Не вдалося прочитати екіпажі.".to_string())?;
+    let mut s=db.connection.prepare("SELECT c.id,c.name,c.platoon,COALESCE(p.name,c.position_name),COALESCE(p.locality,c.reconnaissance_area),c.unit_type,c.company_name,COALESCE(p.battle_order,c.battle_order),c.sector,c.official_strength,(SELECT COUNT(*) FROM crew_actual_members am WHERE am.crew_id=c.id),c.status,c.uav_name,c.uav_type,c.functional_duties,c.current_location,c.notes,COUNT(cm.id),c.position_id FROM crews c LEFT JOIN crew_members cm ON cm.crew_id=c.id AND cm.left_at IS NULL LEFT JOIN positions p ON p.id=c.position_id GROUP BY c.id ORDER BY c.platoon COLLATE NOCASE,c.name COLLATE NOCASE").map_err(|_|"Не вдалося прочитати екіпажі.".to_string())?;
     let rows = s
         .query_map([], |r| {
             Ok((
@@ -369,13 +412,15 @@ pub fn list_crews(state: tauri::State<AppState>) -> Result<Vec<Crew>, String> {
                 r.get::<_, String>(7)?,
                 r.get::<_, String>(8)?,
                 r.get::<_, i64>(9)?,
-                r.get::<_, String>(10)?,
+                r.get::<_, i64>(10)?,
                 r.get::<_, String>(11)?,
                 r.get::<_, String>(12)?,
                 r.get::<_, String>(13)?,
                 r.get::<_, String>(14)?,
                 r.get::<_, String>(15)?,
-                r.get::<_, i64>(16)?,
+                r.get::<_, String>(16)?,
+                r.get::<_, i64>(17)?,
+                r.get::<_, Option<i64>>(18)?,
             ))
         })
         .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?
@@ -394,6 +439,7 @@ pub fn list_crews(state: tauri::State<AppState>) -> Result<Vec<Crew>, String> {
                 battle_order,
                 sector,
                 official_strength,
+                working_strength,
                 status,
                 uav_name,
                 uav_type,
@@ -401,6 +447,7 @@ pub fn list_crews(state: tauri::State<AppState>) -> Result<Vec<Crew>, String> {
                 current_location,
                 notes,
                 member_count,
+                position_id,
             )| {
                 Ok(Crew {
                     id,
@@ -413,6 +460,8 @@ pub fn list_crews(state: tauri::State<AppState>) -> Result<Vec<Crew>, String> {
                     battle_order,
                     sector,
                     official_strength,
+                    working_strength,
+                    position_id,
                     status,
                     uav_name,
                     uav_type,
@@ -421,6 +470,7 @@ pub fn list_crews(state: tauri::State<AppState>) -> Result<Vec<Crew>, String> {
                     notes,
                     member_count,
                     members: crew_members(&db.connection, id)?,
+                    actual_members: actual_crew_members(&db.connection, id)?,
                 })
             },
         )
@@ -431,18 +481,26 @@ pub fn create_crew(state: tauri::State<AppState>, draft: CrewDraft) -> Result<()
     if draft.name.trim().is_empty() {
         return Err("Вкажіть назву екіпажу.".into());
     }
+    let mut actual_member_ids = draft.actual_member_ids.clone();
+    for personnel_id in &draft.member_ids {
+        if !actual_member_ids.contains(personnel_id) {
+            actual_member_ids.push(*personnel_id);
+        }
+    }
+    let working_strength = actual_member_ids.len() as i64;
     let db = state.0.lock().map_err(|_| busy())?;
     db.connection
         .execute(
-            "INSERT INTO crews(name,platoon,position_name,reconnaissance_area,unit_type,company_name,battle_order,sector,official_strength,status,uav_name,uav_type,functional_duties,current_location,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+            "INSERT INTO crews(name,platoon,position_name,reconnaissance_area,unit_type,company_name,battle_order,sector,official_strength,working_strength,status,uav_name,uav_type,functional_duties,current_location,notes,position_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
             rusqlite::params![
                 draft.name.trim(),
                 draft.platoon.trim(),
                 draft.position_name.trim(),
                 draft.reconnaissance_area.trim(), draft.unit_type.trim(), draft.company_name.trim(),
-                draft.battle_order.trim(), draft.sector.trim(), draft.official_strength.max(0), draft.status.trim(),
+                draft.battle_order.trim(), draft.sector.trim(), draft.official_strength.max(0), working_strength,
+                draft.status.trim(),
                 draft.uav_name.trim(), draft.uav_type.trim(), draft.functional_duties.trim(),
-                draft.current_location.trim(), draft.notes.trim()
+                draft.current_location.trim(), draft.notes.trim(), draft.position_id
             ],
         )
         .map_err(|_| "Не вдалося створити екіпаж. Перевірте унікальність назви.".to_string())?;
@@ -450,10 +508,24 @@ pub fn create_crew(state: tauri::State<AppState>, draft: CrewDraft) -> Result<()
     for personnel_id in draft.member_ids {
         db.connection
             .execute(
+                "UPDATE crew_members SET left_at=CURRENT_TIMESTAMP WHERE personnel_id=?1 AND left_at IS NULL",
+                [personnel_id],
+            )
+            .map_err(|_| "Не вдалося перемістити учасника з попереднього екіпажу.".to_string())?;
+        db.connection
+            .execute(
                 "INSERT INTO crew_members(crew_id,personnel_id) VALUES(?1,?2)",
                 rusqlite::params![id, personnel_id],
             )
             .map_err(|_| "Не вдалося додати учасника екіпажу.".to_string())?;
+    }
+    for personnel_id in actual_member_ids {
+        db.connection
+            .execute(
+                "INSERT OR REPLACE INTO crew_actual_members(crew_id,personnel_id) VALUES(?1,?2)",
+                rusqlite::params![id, personnel_id],
+            )
+            .map_err(|_| "Не вдалося додати фактичного учасника екіпажу.".to_string())?;
     }
     Ok(())
 }
@@ -467,7 +539,19 @@ pub fn update_crew(
         return Err("Вкажіть назву екіпажу.".into());
     }
     let db = state.0.lock().map_err(|_| busy())?;
-    db.connection.execute("UPDATE crews SET name=?1,platoon=?2,position_name=?3,reconnaissance_area=?4,unit_type=?5,company_name=?6,battle_order=?7,sector=?8,official_strength=?9,status=?10,uav_name=?11,uav_type=?12,functional_duties=?13,current_location=?14,notes=?15 WHERE id=?16",rusqlite::params![draft.name.trim(),draft.platoon.trim(),draft.position_name.trim(),draft.reconnaissance_area.trim(),draft.unit_type.trim(),draft.company_name.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.official_strength.max(0),draft.status.trim(),draft.uav_name.trim(),draft.uav_type.trim(),draft.functional_duties.trim(),draft.current_location.trim(),draft.notes.trim(),crew_id]).map_err(|_|"Не вдалося оновити екіпаж.".to_string())?;
+    let previous_official_ids = crew_members(&db.connection, crew_id)?
+        .into_iter()
+        .map(|member| member.personnel_id)
+        .collect::<Vec<_>>();
+    let mut actual_member_ids = draft.actual_member_ids.clone();
+    for personnel_id in &draft.member_ids {
+        if !previous_official_ids.contains(personnel_id)
+            && !actual_member_ids.contains(personnel_id)
+        {
+            actual_member_ids.push(*personnel_id);
+        }
+    }
+    db.connection.execute("UPDATE crews SET name=?1,platoon=?2,position_name=?3,reconnaissance_area=?4,unit_type=?5,company_name=?6,battle_order=?7,sector=?8,official_strength=?9,working_strength=?10,status=?11,uav_name=?12,uav_type=?13,functional_duties=?14,current_location=?15,notes=?16,position_id=?17 WHERE id=?18",rusqlite::params![draft.name.trim(),draft.platoon.trim(),draft.position_name.trim(),draft.reconnaissance_area.trim(),draft.unit_type.trim(),draft.company_name.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.official_strength.max(0),actual_member_ids.len() as i64,draft.status.trim(),draft.uav_name.trim(),draft.uav_type.trim(),draft.functional_duties.trim(),draft.current_location.trim(),draft.notes.trim(),draft.position_id,crew_id]).map_err(|_|"Не вдалося оновити екіпаж.".to_string())?;
     db.connection.execute("UPDATE crew_members SET left_at=CURRENT_TIMESTAMP WHERE crew_id=?1 AND left_at IS NULL",[crew_id]).map_err(|_|"Не вдалося оновити склад екіпажу.".to_string())?;
     for personnel_id in draft.member_ids {
         db.connection
@@ -482,6 +566,20 @@ pub fn update_crew(
                 rusqlite::params![crew_id, personnel_id],
             )
             .map_err(|_| "Не вдалося оновити склад екіпажу.".to_string())?;
+    }
+    db.connection
+        .execute(
+            "DELETE FROM crew_actual_members WHERE crew_id=?1",
+            [crew_id],
+        )
+        .map_err(|_| "Не вдалося оновити фактичний склад екіпажу.".to_string())?;
+    for personnel_id in actual_member_ids {
+        db.connection
+            .execute(
+                "INSERT OR REPLACE INTO crew_actual_members(crew_id,personnel_id) VALUES(?1,?2)",
+                rusqlite::params![crew_id, personnel_id],
+            )
+            .map_err(|_| "Не вдалося оновити фактичний склад екіпажу.".to_string())?;
     }
     Ok(())
 }
@@ -538,7 +636,7 @@ fn position_uavs(
 #[tauri::command]
 pub fn list_positions(state: tauri::State<AppState>) -> Result<Vec<Position>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
-    let mut statement = db.connection.prepare("SELECT p.id,p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.size,p.mgrs,p.suitable_uav_text,p.is_active,p.crew_id,c.name,p.notes FROM positions p LEFT JOIN crews c ON c.id=p.crew_id ORDER BY p.is_active DESC,p.position_type,p.name COLLATE NOCASE").map_err(|_| "Не вдалося прочитати позиції.".to_string())?;
+    let mut statement = db.connection.prepare("SELECT p.id,p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.size,p.mgrs,p.suitable_uav_text,p.is_active,NULL,GROUP_CONCAT(c.name, ', '),p.notes,p.condition_level,p.field_type FROM positions p LEFT JOIN crews c ON c.position_id=p.id GROUP BY p.id ORDER BY p.position_type,p.name COLLATE NOCASE").map_err(|_| "Не вдалося прочитати позиції.".to_string())?;
     let rows = statement
         .query_map([], |r| {
             Ok((
@@ -557,6 +655,8 @@ pub fn list_positions(state: tauri::State<AppState>) -> Result<Vec<Position>, St
                 r.get::<_, Option<i64>>(12)?,
                 r.get::<_, Option<String>>(13)?,
                 r.get::<_, String>(14)?,
+                r.get::<_, i64>(15)?,
+                r.get::<_, String>(16)?,
             ))
         })
         .map_err(|_| "Не вдалося прочитати позиції.".to_string())?
@@ -580,6 +680,8 @@ pub fn list_positions(state: tauri::State<AppState>) -> Result<Vec<Position>, St
                 crew_id,
                 crew_name,
                 notes,
+                condition_level,
+                field_type,
             )| {
                 let (uav_ids, uav_names) = position_uavs(&db.connection, id)?;
                 Ok(Position {
@@ -591,6 +693,8 @@ pub fn list_positions(state: tauri::State<AppState>) -> Result<Vec<Position>, St
                     battle_order,
                     sector,
                     condition,
+                    condition_level,
+                    field_type,
                     size,
                     mgrs,
                     suitable_uav_text,
@@ -651,12 +755,16 @@ fn validate_position(draft: &PositionDraft) -> Result<String, String> {
     if draft.name.trim().is_empty() {
         return Err("Вкажіть назву позиції.".into());
     }
-    if !["Основна", "Запасна", "В облаштуванні"].contains(&draft.position_type.as_str())
+    if ![
+        "Основна",
+        "Запасна",
+        "Облаштовується",
+        "Виявлена ворогом",
+        "Зайнята суміжниками",
+    ]
+    .contains(&draft.position_type.as_str())
     {
         return Err("Оберіть коректний тип позиції.".into());
-    }
-    if draft.is_active && draft.crew_id.is_none() {
-        return Err("Активна позиція обов’язково має бути закріплена за екіпажем.".into());
     }
     normalise_mgrs(&draft.mgrs)
 }
@@ -665,7 +773,7 @@ fn validate_position(draft: &PositionDraft) -> Result<String, String> {
 pub fn create_position(state: tauri::State<AppState>, draft: PositionDraft) -> Result<(), String> {
     let mgrs = validate_position(&draft)?;
     let db = state.0.lock().map_err(|_| busy())?;
-    db.connection.execute("INSERT INTO positions(name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,crew_id,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",rusqlite::params![draft.name.trim(),draft.position_type,draft.strip_name.trim(),draft.locality.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.condition.trim(),draft.size.trim(),mgrs,draft.suitable_uav_text.trim(),draft.is_active,draft.crew_id,draft.notes.trim()]).map_err(|_|"Не вдалося створити позицію. Перевірте унікальність назви.".to_string())?;
+    db.connection.execute("INSERT INTO positions(name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,crew_id,notes,condition_level,field_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",rusqlite::params![draft.name.trim(),draft.position_type,draft.strip_name.trim(),draft.locality.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.condition.trim(),draft.size.trim(),mgrs,draft.suitable_uav_text.trim(),draft.is_active,draft.crew_id,draft.notes.trim(),draft.condition_level.clamp(0,100),draft.field_type.trim()]).map_err(|_|"Не вдалося створити позицію. Перевірте унікальність назви.".to_string())?;
     save_position_uavs(
         &db.connection,
         db.connection.last_insert_rowid(),
@@ -697,7 +805,7 @@ pub fn update_position(
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
         )
         .ok();
-    db.connection.execute("UPDATE positions SET name=?1,position_type=?2,strip_name=?3,locality=?4,battle_order=?5,sector=?6,condition=?7,size=?8,mgrs=?9,suitable_uav_text=?10,is_active=?11,crew_id=?12,notes=?13 WHERE id=?14",rusqlite::params![draft.name.trim(),draft.position_type,draft.strip_name.trim(),draft.locality.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.condition.trim(),draft.size.trim(),mgrs,draft.suitable_uav_text.trim(),draft.is_active,draft.crew_id,draft.notes.trim(),position_id]).map_err(|_|"Не вдалося оновити позицію.".to_string())?;
+    db.connection.execute("UPDATE positions SET name=?1,position_type=?2,strip_name=?3,locality=?4,battle_order=?5,sector=?6,condition=?7,size=?8,mgrs=?9,suitable_uav_text=?10,is_active=?11,crew_id=?12,notes=?13,condition_level=?14,field_type=?15 WHERE id=?16",rusqlite::params![draft.name.trim(),draft.position_type,draft.strip_name.trim(),draft.locality.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.condition.trim(),draft.size.trim(),mgrs,draft.suitable_uav_text.trim(),draft.is_active,draft.crew_id,draft.notes.trim(),draft.condition_level.clamp(0,100),draft.field_type.trim(),position_id]).map_err(|_|"Не вдалося оновити позицію.".to_string())?;
     save_position_uavs(&db.connection, position_id, &draft.uav_ids)?;
     sync_active_position(
         &db.connection,
@@ -729,7 +837,7 @@ pub fn delete_position(state: tauri::State<AppState>, position_id: i64) -> Resul
 #[tauri::command]
 pub fn list_staffing_records(state: tauri::State<AppState>) -> Result<Vec<StaffingRecord>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
-    let mut statement=db.connection.prepare("SELECT p.id,trim(p.surname||' '||p.given_name||' '||p.patronymic),p.rank,p.position,c.id,c.name,COALESCE(c.platoon,''),COALESCE(c.company_name,''),COALESCE(c.unit_type,'Управління роти'),COALESCE(c.position_name,''),COALESCE(c.battle_order,''),COALESCE(c.sector,''),COALESCE(c.official_strength,0),COALESCE((SELECT COUNT(*) FROM crew_members x WHERE x.crew_id=c.id AND x.left_at IS NULL),0),COALESCE(c.status,''),COALESCE(c.uav_name,''),COALESCE(c.uav_type,''),COALESCE(NULLIF(p.functional_duties,''),c.functional_duties,''),COALESCE(NULLIF(p.current_location,''),c.current_location,''),COALESCE(p.bcs_status,''),COALESCE(NULLIF(p.bcs_notes,''),c.notes,''),COALESCE(a.acting_position,''),COALESCE((SELECT COUNT(*) FROM staff_recommendations sr WHERE sr.personnel_id=p.id),0) FROM personnel p LEFT JOIN crew_members cm ON cm.personnel_id=p.id AND cm.left_at IS NULL LEFT JOIN crews c ON c.id=cm.crew_id LEFT JOIN personnel_staff_assignments a ON a.personnel_id=p.id ORDER BY COALESCE(c.company_name,''),COALESCE(c.platoon,''),COALESCE(c.name,''),p.position,p.id").map_err(|_|"Не вдалося сформувати Штат та БЧС.".to_string())?;
+    let mut statement=db.connection.prepare("SELECT p.id,trim(p.surname||' '||p.given_name||' '||p.patronymic),p.rank,p.position,c.id,c.name,COALESCE(c.platoon,''),COALESCE(c.company_name,''),COALESCE(c.unit_type,'Екіпаж'),COALESCE(pos.name,''),COALESCE(pos.battle_order,''),COALESCE(c.sector,''),COALESCE(c.official_strength,0),COALESCE((SELECT COUNT(*) FROM crew_members x WHERE x.crew_id=c.id AND x.left_at IS NULL),0),COALESCE(c.status,''),COALESCE(c.uav_name,''),COALESCE(c.uav_type,''),COALESCE(NULLIF(p.functional_duties,''),c.functional_duties,''),COALESCE(p.current_location,''),COALESCE(p.bcs_status,''),COALESCE(NULLIF(p.bcs_notes,''),c.notes,''),COALESCE(a.acting_position,''),COALESCE((SELECT COUNT(*) FROM staff_recommendations sr WHERE sr.personnel_id=p.id),0),COALESCE(a.slot_id,''),COALESCE(a.acting_slot_id,''),COALESCE((SELECT COUNT(*) FROM crew_actual_members x WHERE x.crew_id=c.id),0) FROM personnel p LEFT JOIN crew_actual_members cam ON cam.personnel_id=p.id LEFT JOIN crews c ON c.id=cam.crew_id LEFT JOIN positions pos ON pos.id=c.position_id LEFT JOIN personnel_staff_assignments a ON a.personnel_id=p.id ORDER BY COALESCE(c.name,''),p.position,p.id").map_err(|_|"Не вдалося сформувати Штат та БЧС.".to_string())?;
     let result = statement
         .query_map([], |r| {
             Ok(StaffingRecord {
@@ -756,6 +864,9 @@ pub fn list_staffing_records(state: tauri::State<AppState>) -> Result<Vec<Staffi
                 notes: r.get(20)?,
                 acting_position: r.get(21)?,
                 recommendation_count: r.get(22)?,
+                working_strength: r.get(25)?,
+                staff_slot_id: r.get(23)?,
+                acting_slot_id: r.get(24)?,
             })
         })
         .map_err(|_| "Не вдалося сформувати Штат та БЧС.".to_string())?
@@ -771,13 +882,14 @@ pub fn update_staffing_personnel(
     position: String,
     acting_position: String,
     current_location: String,
+    functional_duties: String,
     notes: String,
 ) -> Result<(), String> {
     let db = state.0.lock().map_err(|_| busy())?;
     if position.trim().is_empty() {
         return Err("Вкажіть посаду для переміщення.".into());
     }
-    db.connection.execute("UPDATE personnel SET position=?1,current_location=?2,bcs_notes=?3,updated_at=CURRENT_TIMESTAMP WHERE id=?4", rusqlite::params![position.trim(), current_location.trim(), notes.trim(), personnel_id]).map_err(|_| "Не вдалося оновити кадрові дані.".to_string())?;
+    db.connection.execute("UPDATE personnel SET position=?1,current_location=?2,functional_duties=?3,bcs_notes=?4,updated_at=CURRENT_TIMESTAMP WHERE id=?5", rusqlite::params![position.trim(), current_location.trim(), functional_duties.trim(), notes.trim(), personnel_id]).map_err(|_| "Не вдалося оновити кадрові дані.".to_string())?;
     db.connection.execute("INSERT INTO personnel_staff_assignments(personnel_id,acting_position,updated_at) VALUES(?1,?2,CURRENT_TIMESTAMP) ON CONFLICT(personnel_id) DO UPDATE SET acting_position=excluded.acting_position,updated_at=CURRENT_TIMESTAMP", rusqlite::params![personnel_id, acting_position.trim()]).map_err(|_| "Не вдалося зберегти ТВО.".to_string())?;
     Ok(())
 }
@@ -786,41 +898,109 @@ pub fn update_staffing_personnel(
 pub fn transfer_staffing_chain(
     state: tauri::State<AppState>,
     assignments: Vec<StaffTransfer>,
+    acting_changes: Vec<ActingChange>,
 ) -> Result<(), String> {
-    if assignments.is_empty() {
-        return Err("Не вибрано жодного переміщення.".into());
-    }
-    let mut positions = std::collections::HashSet::new();
-    for assignment in &assignments {
-        if assignment.position.trim().is_empty() {
-            return Err("Для кожного військовослужбовця потрібно вказати посаду.".into());
-        }
-        if !positions.insert(assignment.position.trim().to_lowercase()) {
-            return Err(format!(
-                "Посада «{}» призначена двічі.",
-                assignment.position.trim()
-            ));
-        }
-    }
     let db = state.0.lock().map_err(|_| busy())?;
-    let transaction = db
-        .connection
+    apply_staff_transfers(&db.connection, &assignments, &acting_changes)
+}
+
+fn apply_staff_transfers(
+    connection: &rusqlite::Connection,
+    assignments: &[StaffTransfer],
+    acting_changes: &[ActingChange],
+) -> Result<(), String> {
+    use std::collections::HashSet;
+    if assignments.is_empty() && acting_changes.is_empty() {
+        return Err("Не вибрано жодної зміни.".into());
+    }
+    let transaction = connection
         .unchecked_transaction()
-        .map_err(|_| "Не вдалося розпочати переміщення.".to_string())?;
+        .map_err(|e| e.to_string())?;
+    let mut people = HashSet::new();
+    let mut targets = HashSet::new();
     for assignment in assignments {
-        let changed = transaction
+        if assignment.slot_id.is_empty()
+            || assignment.position.trim().is_empty()
+            || !people.insert(assignment.personnel_id)
+            || !targets.insert(&assignment.slot_id)
+        {
+            return Err("Людина або штатне місце призначені двічі, або місце не вказане.".into());
+        }
+        let current: String = transaction
+            .query_row(
+                "SELECT position FROM personnel WHERE id=?1",
+                [assignment.personnel_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| "Військовослужбовця не знайдено.")?;
+        if current != assignment.expected_position {
+            return Err("Штат змінився. Відкрийте переміщення повторно.".into());
+        }
+    }
+    for assignment in assignments {
+        let mut occupants = assignment.expected_occupant_ids.clone();
+        let mut query = transaction.prepare("SELECT p.id FROM personnel p LEFT JOIN personnel_staff_assignments a ON a.personnel_id=p.id WHERE a.slot_id=?1 OR (COALESCE(a.slot_id,'')='' AND p.position=?2)").map_err(|e| e.to_string())?;
+        occupants.extend(
+            query
+                .query_map(
+                    rusqlite::params![assignment.slot_id, assignment.position],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?,
+        );
+        if occupants
+            .iter()
+            .any(|id| *id != assignment.personnel_id && !people.contains(id))
+        {
+            return Err("Незавершений ланцюжок: перемістіть людину, що займає цю посаду.".into());
+        }
+        let mut acting_query = transaction.prepare("SELECT personnel_id FROM personnel_staff_assignments WHERE acting_slot_id=?1 OR (acting_slot_id='' AND acting_position=?2)").map_err(|e| e.to_string())?;
+        for id in acting_query
+            .query_map(
+                rusqlite::params![assignment.slot_id, assignment.position],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|e| e.to_string())?
+        {
+            let id = id.map_err(|e| e.to_string())?;
+            if !acting_changes
+                .iter()
+                .any(|change| change.personnel_id == id && change.slot_id.is_empty())
+            {
+                return Err("Підтвердіть зняття ТВО перед призначенням на цю посаду.".into());
+            }
+        }
+    }
+    for assignment in assignments {
+        transaction
             .execute(
                 "UPDATE personnel SET position=?1,updated_at=CURRENT_TIMESTAMP WHERE id=?2",
                 rusqlite::params![assignment.position.trim(), assignment.personnel_id],
             )
-            .map_err(|_| "Не вдалося перемістити військовослужбовця.".to_string())?;
-        if changed == 0 {
-            return Err("Військовослужбовець для переміщення не знайдений.".into());
-        }
+            .map_err(|e| e.to_string())?;
+        transaction.execute("INSERT INTO personnel_staff_assignments(personnel_id,slot_id) VALUES(?1,?2) ON CONFLICT(personnel_id) DO UPDATE SET slot_id=excluded.slot_id,updated_at=CURRENT_TIMESTAMP", rusqlite::params![assignment.personnel_id, assignment.slot_id]).map_err(|e| e.to_string())?;
     }
-    transaction
-        .commit()
-        .map_err(|_| "Не вдалося завершити переміщення.".to_string())
+    let mut acting_people = HashSet::new();
+    let mut acting_slots = HashSet::new();
+    for change in acting_changes {
+        if !acting_people.insert(change.personnel_id)
+            || (!change.slot_id.is_empty()
+                && (!acting_slots.insert(&change.slot_id) || change.position.is_empty()))
+        {
+            return Err("ТВО призначено двічі.".into());
+        }
+        if !change.slot_id.is_empty() {
+            let occupied: i64 = transaction.query_row("SELECT COUNT(*) FROM personnel p LEFT JOIN personnel_staff_assignments a ON a.personnel_id=p.id WHERE a.slot_id=?1 OR (COALESCE(a.slot_id,'')='' AND p.position=?2)", rusqlite::params![change.slot_id,change.position], |row| row.get(0)).map_err(|e| e.to_string())?;
+            let other_acting: i64 = transaction.query_row("SELECT COUNT(*) FROM personnel_staff_assignments WHERE acting_slot_id=?1 AND personnel_id<>?2", rusqlite::params![change.slot_id,change.personnel_id], |row| row.get(0)).map_err(|e| e.to_string())?;
+            if occupied > 0 || other_acting > 0 {
+                return Err("ТВО можна призначити лише на вільне місце без іншого ТВО.".into());
+            }
+        }
+        transaction.execute("INSERT INTO personnel_staff_assignments(personnel_id,acting_slot_id,acting_position) VALUES(?1,?2,?3) ON CONFLICT(personnel_id) DO UPDATE SET acting_slot_id=excluded.acting_slot_id,acting_position=excluded.acting_position,updated_at=CURRENT_TIMESTAMP", rusqlite::params![change.personnel_id,change.slot_id,change.position]).map_err(|e| e.to_string())?;
+    }
+    transaction.commit().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -866,6 +1046,7 @@ pub fn list_staff_recommendations(
 #[allow(clippy::too_many_arguments)] // Tauri exposes these form fields as separate command arguments.
 pub fn create_vacancy_recommendation(
     state: tauri::State<AppState>,
+    slot_id: Option<String>,
     position_name: String,
     full_name: String,
     phone: String,
@@ -881,8 +1062,8 @@ pub fn create_vacancy_recommendation(
     let db = state.0.lock().map_err(|_| busy())?;
     db.connection
         .execute(
-            "INSERT INTO staff_position_recommendations(position_name,full_name,phone,rank,birth_date,issued_at,notes) VALUES(?1,?2,?3,?4,?5,?6,?7)",
-            rusqlite::params![position_name.trim(), full_name.trim(), phone.trim(), rank.trim(), birth_date.trim(), issued_at.trim(), notes.trim()],
+            "INSERT INTO staff_position_recommendations(position_name,full_name,phone,rank,birth_date,issued_at,notes,slot_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+            rusqlite::params![position_name.trim(), full_name.trim(), phone.trim(), rank.trim(), birth_date.trim(), issued_at.trim(), notes.trim(), slot_id.unwrap_or_default()],
         )
         .map_err(|_| "Не вдалося зберегти рекомендаційний лист для вільної посади.".to_string())?;
     Ok(())
@@ -893,10 +1074,11 @@ pub fn list_vacancy_recommendations(
     state: tauri::State<AppState>,
 ) -> Result<Vec<VacancyRecommendation>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
-    let mut statement = db.connection.prepare("SELECT id,position_name,full_name,phone,rank,birth_date,issued_at,notes FROM staff_position_recommendations ORDER BY issued_at DESC,id DESC").map_err(|_| "Не вдалося прочитати рекомендації для вільних посад.".to_string())?;
+    let mut statement = db.connection.prepare("SELECT id,position_name,full_name,phone,rank,birth_date,issued_at,notes,slot_id FROM staff_position_recommendations ORDER BY issued_at DESC,id DESC").map_err(|_| "Не вдалося прочитати рекомендації для вільних посад.".to_string())?;
     let result = statement
         .query_map([], |row| {
             Ok(VacancyRecommendation {
+                slot_id: row.get(8)?,
                 id: row.get(0)?,
                 position_name: row.get(1)?,
                 full_name: row.get(2)?,
@@ -931,6 +1113,8 @@ mod position_tests {
             battle_order: "БР №1".into(),
             sector: "А".into(),
             condition: "Готова".into(),
+            condition_level: 75,
+            field_type: "Відкрите".into(),
             size: "20 × 30 м".into(),
             mgrs: mgrs.into(),
             suitable_uav_text: "Mavic".into(),
@@ -943,7 +1127,13 @@ mod position_tests {
 
     #[test]
     fn supports_every_position_kind_and_reduces_mgrs_precision() {
-        for kind in ["Основна", "Запасна", "В облаштуванні"] {
+        for kind in [
+            "Основна",
+            "Запасна",
+            "Облаштовується",
+            "Виявлена ворогом",
+            "Зайнята суміжниками",
+        ] {
             assert!(validate_position(&position(kind, false, None, "36U UV 12345 67890")).is_ok());
         }
         assert_eq!(
@@ -954,11 +1144,8 @@ mod position_tests {
     }
 
     #[test]
-    fn active_position_requires_a_crew() {
-        assert!(validate_position(&position("Основна", true, None, "36U UV 12000 67000")).is_err());
-        assert!(
-            validate_position(&position("Основна", true, Some(1), "36U UV 12000 67000")).is_ok()
-        );
+    fn position_can_be_used_by_multiple_crews() {
+        assert!(validate_position(&position("Основна", true, None, "36U UV 12000 67000")).is_ok());
     }
 
     #[test]
@@ -1115,4 +1302,137 @@ pub fn create_incident(state: tauri::State<AppState>, draft: IncidentDraft) -> R
     };
     db.connection.execute("INSERT INTO incidents(incident_type,occurred_at,crew_id,equipment_id,position_name,reconnaissance_area,crew_snapshot,description) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",rusqlite::params![draft.incident_type.trim(),draft.occurred_at.trim(),draft.crew_id,draft.equipment_id,position_name,reconnaissance_area,crew_snapshot,draft.description.trim()]).map_err(|_|"Не вдалося зберегти інцидент.".to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn update_bcs_crew_strength(
+    state: tauri::State<AppState>,
+    crew_id: i64,
+    value: i64,
+) -> Result<(), String> {
+    if value < 0 {
+        return Err("Кількість не може бути від’ємною.".into());
+    }
+    let db = state.0.lock().map_err(|_| busy())?;
+    if db
+        .connection
+        .execute(
+            "UPDATE crews SET working_strength=?1 WHERE id=?2",
+            rusqlite::params![value, crew_id],
+        )
+        .map_err(|e| e.to_string())?
+        != 1
+    {
+        return Err("Підгрупу не знайдено.".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod staff_transfer_tests {
+    use super::*;
+    fn db() -> rusqlite::Connection {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        crate::database::initialise(&db).unwrap();
+        for id in 1..=3 {
+            db.execute("INSERT INTO personnel(id,surname,given_name,patronymic,rank,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id) VALUES(?1,?2,'Іван','Тестович','солдат',?3,?4,'','','','','','','')",rusqlite::params![id,format!("Тест{id}"),format!("Посада {id}"),format!("ID{id}")]).unwrap();
+            db.execute(
+                "INSERT INTO personnel_staff_assignments(personnel_id,slot_id) VALUES(?1,?2)",
+                rusqlite::params![id, format!("slot-{id}")],
+            )
+            .unwrap();
+        }
+        db
+    }
+    fn movement(id: i64, target: i64) -> StaffTransfer {
+        StaffTransfer {
+            personnel_id: id,
+            position: format!("Посада {target}"),
+            slot_id: format!("slot-{target}"),
+            expected_position: format!("Посада {id}"),
+            expected_occupant_ids: vec![target],
+        }
+    }
+    #[test]
+    fn rejects_unresolved_chain_without_partial_changes() {
+        let db = db();
+        assert!(apply_staff_transfers(&db, &[movement(1, 2)], &[]).is_err());
+        assert_eq!(
+            db.query_row("SELECT position FROM personnel WHERE id=1", [], |r| r
+                .get::<_, String>(0))
+                .unwrap(),
+            "Посада 1"
+        );
+    }
+    #[test]
+    fn swaps_specific_slots_atomically() {
+        let db = db();
+        apply_staff_transfers(&db, &[movement(1, 2), movement(2, 1)], &[]).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT slot_id FROM personnel_staff_assignments WHERE personnel_id=1",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            "slot-2"
+        );
+    }
+    #[test]
+    fn same_title_on_different_slots_is_allowed() {
+        let db = db();
+        let mut a = movement(1, 4);
+        let mut b = movement(2, 5);
+        a.expected_occupant_ids.clear();
+        b.expected_occupant_ids.clear();
+        a.position = "Водій-електрик".into();
+        b.position = a.position.clone();
+        apply_staff_transfers(&db, &[a, b], &[]).unwrap();
+        assert_eq!(db.query_row("SELECT COUNT(DISTINCT slot_id) FROM personnel_staff_assignments WHERE personnel_id IN (1,2)",[],|r|r.get::<_,i64>(0)).unwrap(),2);
+    }
+    #[test]
+    fn clears_acting_only_when_confirmed_and_rolls_back_bad_acting() {
+        let db = db();
+        db.execute("UPDATE personnel_staff_assignments SET acting_slot_id='slot-4',acting_position='Посада 4' WHERE personnel_id=3",[]).unwrap();
+        let mut a = movement(1, 4);
+        a.expected_occupant_ids.clear();
+        assert!(apply_staff_transfers(&db, &[a.clone()], &[]).is_err());
+        apply_staff_transfers(
+            &db,
+            &[a],
+            &[ActingChange {
+                personnel_id: 3,
+                slot_id: String::new(),
+                position: String::new(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT acting_slot_id FROM personnel_staff_assignments WHERE personnel_id=3",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            ""
+        );
+        assert!(apply_staff_transfers(
+            &db,
+            &[],
+            &[ActingChange {
+                personnel_id: 3,
+                slot_id: "slot-4".into(),
+                position: "Посада 4".into()
+            }]
+        )
+        .is_err());
+    }
+    #[test]
+    fn detects_stale_source_and_duplicate_targets() {
+        let db = db();
+        let mut a = movement(1, 4);
+        a.expected_position = "Застаріла".into();
+        assert!(apply_staff_transfers(&db, &[a], &[]).is_err());
+        assert!(apply_staff_transfers(&db, &[movement(1, 4), movement(2, 4)], &[]).is_err());
+    }
 }

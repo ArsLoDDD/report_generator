@@ -1,0 +1,25 @@
+import { Fragment, type CSSProperties } from "react";
+import schema from "../../shared/bcs-schema.json";
+import { BCS_HEADERS, BCS_LOCATIONS, bcsGroups, bcsSummary, bcsFunctionalSummary, canonicalCrewStatus, crewWorkingStrength } from "./bcs-model";
+import type { StaffingRecord } from "./types";
+
+type BcsPatch = { currentLocation?: string; notes?: string; functionalDuties?: string };
+export function BcsTable({ records, authorized, zoom, onSave }: { records: StaffingRecord[]; authorized: number; zoom: number; onSave: (person: StaffingRecord, patch: BcsPatch) => Promise<void> }) {
+  const groups = bcsGroups(records);
+  const personnelRecords = records.filter((person)=>!person.isCrewPlaceholder);
+  const scaleStyle = { "--bcs-zoom": zoom / 100 } as CSSProperties;
+  const displayWidths = schema.widths.map((width, index) => {
+    if (index === 7) return 26;
+    if (index === 9) return 34;
+    if (index === 11) return 28;
+    if (index === 12) return 55;
+    if (index === 13) return 55;
+    return width;
+  });
+  return <div className="bcs-scale" style={scaleStyle}><section className="panel bcs-reference"><div className="bcs-reference__scroll"><table><colgroup>{displayWidths.map((width, index) => <col key={index} style={{ width: `${width * 5}px` }} />)}</colgroup><thead><tr>{BCS_HEADERS.map((title,index) => <th title={title.replace("\n"," ")} className={index===7?"bcs-reference__crew-status":index===9?"bcs-reference__uav-type":undefined} key={title}>{title.replace("\n"," ")}</th>)}</tr></thead><tbody>
+    {groups.map(({ key, people, section, colorKey }) => <Fragment key={key}>{people.map((person, index) => <tr key={person.personnelId} className={`bcs-reference__${colorKey} ${index === 0 ? "bcs-reference__group-start" : ""}`}>
+      {index === 0 && <><td rowSpan={people.length}>{section}</td><td rowSpan={people.length}>{section === "Екіпаж" ? person.crewPositionName : ""}</td><td rowSpan={people.length}>{section === "Екіпаж" ? person.battleOrder : ""}</td><td rowSpan={people.length}>{section === "Екіпаж" ? person.sector : ""}</td><td rowSpan={people.length}>{section === "Екіпаж" ? person.crewName : ""}</td><td rowSpan={people.length}>{section === "Екіпаж" ? crewWorkingStrength(records,person.crewId) : ""}</td><td rowSpan={people.length}>{section === "Екіпаж" ? person.actualStrength : people.length}</td><td className="bcs-reference__crew-status" title={canonicalCrewStatus(person.crewStatus)} rowSpan={people.length}>{section === "Екіпаж" ? canonicalCrewStatus(person.crewStatus) : ""}</td><td rowSpan={people.length}>{section === "Екіпаж" ? person.uavName : ""}</td><td className="bcs-reference__uav-type" title={person.uavType} rowSpan={people.length}>{section === "Екіпаж" ? person.uavType : ""}</td></>}
+      {person.isCrewPlaceholder ? <td colSpan={6} className="bcs-reference__empty-crew">Фактичний склад екіпажу не визначено</td> : <><td className="bcs-reference__staff-position" title={person.position}>{person.position}</td><td title={person.rank}>{person.rank}</td><td title={person.fullName}>{person.fullName}</td><td><textarea wrap="off" aria-label={`Функціональні обов’язки: ${person.fullName}`} key={`${person.personnelId}-${person.functionalDuties}`} defaultValue={person.functionalDuties} onBlur={(event) => { if (event.target.value !== person.functionalDuties) void onSave(person, { functionalDuties: event.target.value }); }} /></td><td><select aria-label={`Де знаходиться: ${person.fullName}`} value={person.currentLocation} onChange={(event) => void onSave(person, { currentLocation: event.target.value })}><option value="">Не вказано</option>{person.currentLocation && !BCS_LOCATIONS.includes(person.currentLocation) && <option value={person.currentLocation}>{person.currentLocation}</option>}{BCS_LOCATIONS.map((location) => <option key={location}>{location}</option>)}</select></td><td><textarea wrap="off" aria-label={`Примітка: ${person.fullName}`} key={`${person.personnelId}-${person.notes}`} defaultValue={person.notes} onBlur={(event) => { if (event.target.value !== person.notes) void onSave(person, { notes: event.target.value }); }} /></td></>}
+    </tr>)}</Fragment>)}
+  </tbody></table></div></section><section className="bcs-reference__summaries"><table><caption>БЧС підрозділу</caption><tbody>{bcsSummary(records, authorized).map(([label, count]) => <tr key={label}><th>{label}</th><td>{count}</td></tr>)}</tbody></table><table><caption>БЧС по функціоналу</caption><tbody>{bcsFunctionalSummary(records).map(([label, count]) => <tr key={label}><th>{label}</th><td>{count}</td></tr>)}</tbody></table><table><caption>Де знаходиться</caption><tbody>{BCS_LOCATIONS.map((location) => <tr key={location}><th>{location}</th><td>{personnelRecords.filter((person) => person.currentLocation === location).length}</td></tr>)}<tr><th>Не вказано / інше</th><td>{personnelRecords.filter((person) => !BCS_LOCATIONS.includes(person.currentLocation)).length}</td></tr><tr><th>Загалом</th><td>{personnelRecords.length}</td></tr></tbody></table></section></div>;
+}

@@ -310,7 +310,12 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         );
         CREATE INDEX IF NOT EXISTS staff_position_recommendations_position_idx ON staff_position_recommendations(position_name, issued_at DESC);"
     ).map_err(|_| "Не вдалося підготувати кадрові призначення.".to_string())?;
+    crate::temporary_personnel::prepare(connection)?;
     for statement in [
+        "ALTER TABLE personnel_staff_assignments ADD COLUMN slot_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE personnel_staff_assignments ADD COLUMN acting_slot_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE staff_position_recommendations ADD COLUMN slot_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE crews ADD COLUMN working_strength INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE crews ADD COLUMN unit_type TEXT NOT NULL DEFAULT 'Екіпаж'",
         "ALTER TABLE crews ADD COLUMN company_name TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE crews ADD COLUMN battle_order TEXT NOT NULL DEFAULT ''",
@@ -325,11 +330,12 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     ] {
         connection.execute(statement, []).ok();
     }
+    connection.execute_batch("CREATE TRIGGER IF NOT EXISTS clear_changed_staff_slot AFTER UPDATE OF position ON personnel WHEN OLD.position <> NEW.position BEGIN UPDATE personnel_staff_assignments SET slot_id='' WHERE personnel_id=NEW.id; END;").map_err(|e| e.to_string())?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS positions (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,
-            position_type TEXT NOT NULL DEFAULT 'Основна' CHECK(position_type IN ('Основна','Запасна','В облаштуванні')),
+            position_type TEXT NOT NULL DEFAULT 'Основна' CHECK(position_type IN ('Основна','Запасна','Облаштовується','Виявлена ворогом','Зайнята суміжниками')),
             strip_name TEXT NOT NULL DEFAULT '',
             locality TEXT NOT NULL DEFAULT '',
             battle_order TEXT NOT NULL DEFAULT '',
@@ -352,6 +358,57 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             PRIMARY KEY(position_id, equipment_id)
         );"
     ).map_err(|_| "Не вдалося підготувати таблицю позицій.".to_string())?;
+    let positions_sql: String = connection
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='positions'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_default();
+    if !positions_sql.contains("Виявлена ворогом") {
+        connection.execute_batch(
+            "CREATE TEMP TABLE position_uavs_backup AS SELECT position_id,equipment_id FROM position_uavs;
+             DROP TABLE position_uavs;
+             ALTER TABLE positions RENAME TO positions_legacy;
+             CREATE TABLE positions (
+               id INTEGER PRIMARY KEY,
+               name TEXT NOT NULL UNIQUE,
+               position_type TEXT NOT NULL DEFAULT 'Основна' CHECK(position_type IN ('Основна','Запасна','Облаштовується','Виявлена ворогом','Зайнята суміжниками')),
+               strip_name TEXT NOT NULL DEFAULT '', locality TEXT NOT NULL DEFAULT '', battle_order TEXT NOT NULL DEFAULT '',
+               sector TEXT NOT NULL DEFAULT '', condition TEXT NOT NULL DEFAULT '0', size TEXT NOT NULL DEFAULT '', mgrs TEXT NOT NULL DEFAULT '',
+               suitable_uav_text TEXT NOT NULL DEFAULT '', is_active INTEGER NOT NULL DEFAULT 0 CHECK(is_active IN (0,1)),
+               crew_id INTEGER REFERENCES crews(id) ON DELETE SET NULL, notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+               condition_level INTEGER NOT NULL DEFAULT 0, field_type TEXT NOT NULL DEFAULT ''
+             );
+             INSERT INTO positions(id,name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,crew_id,notes,created_at)
+               SELECT id,name,CASE WHEN position_type='В облаштуванні' THEN 'Облаштовується' ELSE position_type END,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,crew_id,notes,created_at FROM positions_legacy;
+             DROP TABLE positions_legacy;
+             CREATE TABLE position_uavs(position_id INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,PRIMARY KEY(position_id,equipment_id));
+             INSERT OR IGNORE INTO position_uavs SELECT position_id,equipment_id FROM position_uavs_backup;
+             DROP TABLE position_uavs_backup;
+             CREATE INDEX IF NOT EXISTS positions_type_idx ON positions(position_type);
+             CREATE INDEX IF NOT EXISTS positions_crew_idx ON positions(crew_id);"
+        ).map_err(|_| "Не вдалося оновити структуру позицій.".to_string())?;
+    }
+    for statement in [
+        "ALTER TABLE positions ADD COLUMN condition_level INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE positions ADD COLUMN field_type TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE crews ADD COLUMN position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL",
+    ] {
+        connection.execute(statement, []).ok();
+    }
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS crew_actual_members (
+           crew_id INTEGER NOT NULL REFERENCES crews(id) ON DELETE CASCADE,
+           personnel_id INTEGER NOT NULL UNIQUE REFERENCES personnel(id) ON DELETE CASCADE,
+           PRIMARY KEY(crew_id,personnel_id)
+         );
+         INSERT OR IGNORE INTO crew_actual_members(crew_id,personnel_id)
+           SELECT crew_id,personnel_id FROM crew_members WHERE left_at IS NULL;",
+        )
+        .map_err(|_| "Не вдалося підготувати фактичний склад екіпажів.".to_string())?;
+    connection.execute("UPDATE crews SET status=CASE WHEN trim(status) IN ('Активний','активний','Працює','працює','Робочий','робочий') THEN 'Працюючий' WHEN trim(status) LIKE 'Форм%' OR trim(status) LIKE 'форм%' THEN 'Формується' ELSE 'Не активний' END WHERE status NOT IN ('Працюючий','Формується','Не активний')", []).map_err(|_| "Не вдалося нормалізувати статуси екіпажів.".to_string())?;
     let existing_columns = connection
         .prepare("PRAGMA table_info(personnel)")
         .and_then(|mut statement| {
@@ -1141,8 +1198,12 @@ mod tests {
             "Основна",
             "Запасна",
             "Запасна",
-            "В облаштуванні",
-            "В облаштуванні",
+            "Облаштовується",
+            "Облаштовується",
+            "Виявлена ворогом",
+            "Виявлена ворогом",
+            "Зайнята суміжниками",
+            "Зайнята суміжниками",
         ]
         .into_iter()
         .enumerate()
@@ -1153,7 +1214,7 @@ mod tests {
             ).unwrap();
         }
         let counts = connection.prepare("SELECT position_type,COUNT(*) FROM positions GROUP BY position_type ORDER BY position_type").unwrap().query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
-        assert_eq!(counts.len(), 3);
+        assert_eq!(counts.len(), 5);
         assert!(counts.iter().all(|(_, count)| *count == 2));
     }
 }

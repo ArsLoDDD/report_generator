@@ -1,50 +1,61 @@
-import { Plus, Trash2, UsersRound, Wrench } from "lucide-react";
+import { Pencil, Plus, Trash2, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Person } from "../../shared/types/domain";
 import { Modal } from "../../shared/ui/Modal";
+import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { PageTitle } from "../../shared/ui/PageTitle";
 import { SearchInput } from "../../shared/ui/SearchInput";
 import { Select } from "../../shared/ui/Select";
+import { personnelService } from "../../shared/services/personnelService";
 import { operationsService } from "./services/operationsService";
-import type { Crew, CrewDraft } from "./types";
+import type { Crew, CrewDraft, Position } from "./types";
 
-const emptyDraft = (): CrewDraft => ({ name: "", platoon: "", positionName: "", reconnaissanceArea: "", unitType: "Екіпаж", companyName: "", battleOrder: "", sector: "", officialStrength: 4, status: "Формується", uavName: "", uavType: "", functionalDuties: "", currentLocation: "", notes: "", memberIds: [] });
-const statuses = ["Працює", "Формується", "Тимчасово не працює", "Ротація"];
-const bySearch = (query: string, ...values: string[]) => values.join(" ").toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"));
+const emptyDraft = (): CrewDraft => ({ name:"",platoon:"",positionName:"",reconnaissanceArea:"",unitType:"Екіпаж",companyName:"",battleOrder:"",sector:"",officialStrength:0,workingStrength:0,positionId:null,status:"Формується",uavName:"",uavType:"",functionalDuties:"",currentLocation:"",notes:"",memberIds:[],actualMemberIds:[] });
+const statuses = ["Працюючий", "Формується", "Не активний"];
+const uavTypes = ["Літаковий Ударний", "Літаковий Розвідувальний", "Коптер", "Бомбер", "ФПВ", "НРК", "ФПВ Перехоплювач"];
+const includes = (query:string,...values:(string|null|undefined)[]) => values.join(" ").toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"));
+async function allPersonnel(){const result:Person[]=[];let offset=0;while(true){const page=await personnelService.list(offset,500);result.push(...page.items);offset=result.length;if(offset>=page.totalCount||!page.items.length)return result;}}
 
 export function CrewsPage({ people }: { people: Person[] }) {
-  const [items, setItems] = useState<Crew[]>([]);
-  const [query, setQuery] = useState("");
-  const [editing, setEditing] = useState<Crew | null>(null);
-  const [draft, setDraft] = useState<CrewDraft>(emptyDraft);
-  const [editorOpen, setEditorOpen] = useState(false);
-  const { notify } = useNotifications();
-  const reload = useCallback(() => void operationsService.listCrews().then(setItems).catch(() => notify("Не вдалося завантажити екіпажі.", "error")), [notify]);
-  useEffect(reload, [reload]);
-  const grouped = useMemo(() => items.filter((crew) => bySearch(query, crew.name, crew.platoon, crew.companyName, crew.battleOrder, crew.sector, crew.positionName)).reduce<Record<string, Crew[]>>((groups, crew) => { (groups[crew.platoon || "Управління роти"] ??= []).push(crew); return groups; }, {}), [items, query]);
-  const close = () => { setEditorOpen(false); setEditing(null); setDraft(emptyDraft()); };
-  const open = (crew?: Crew) => { setEditing(crew ?? null); setDraft(crew ? { ...crew, memberIds: crew.members.map((member) => member.personnelId) } : emptyDraft()); setEditorOpen(true); };
-  const save = async () => { try { if (editing) await operationsService.updateCrew(editing.id, draft); else await operationsService.createCrew(draft); close(); reload(); notify("Екіпаж збережено.", "success"); } catch (error) { notify(typeof error === "string" ? error : "Не вдалося зберегти екіпаж.", "error"); } };
-  const remove = async (id: number) => { try { await operationsService.deleteCrew(id); reload(); notify("Екіпаж видалено.", "success"); } catch { notify("Не вдалося видалити екіпаж.", "error"); } };
-  const toggle = (id: number) => setDraft((current) => ({ ...current, memberIds: current.memberIds.includes(id) ? current.memberIds.filter((value) => value !== id) : [...current.memberIds, id] }));
-  return <PageFrame className="crews-page" header={<PageTitle title="Екіпажі" subtitle="Живий склад, БЧС, позиції та бойове застосування екіпажів" actions={<button className="button primary" onClick={() => open()}><Plus />Створити екіпаж</button>} />} tools={<div className="table-tools main-tools"><SearchInput placeholder="Пошук за екіпажем, взводом, БРО або сектором…" value={query} onChange={setQuery} /></div>}>
-    <div className="crews-board">{Object.entries(grouped).map(([platoon, crews]) => <section className="panel crew-platoon" key={platoon}><header><span>{platoon}</span><b>{crews.length} екіпаж(ів)</b></header><div>{crews.map((crew) => <article className="crew-card" key={crew.id}><header><div><h2>{crew.name}</h2><p>{crew.companyName || crew.unitType}</p></div><span>{crew.memberCount}/{crew.officialStrength}</span></header><div className="crew-card__tags"><span>{crew.status}</span>{crew.battleOrder && <span>{crew.battleOrder}</span>}{crew.sector && <span>{crew.sector}</span>}</div><p className="crew-card__area">{crew.positionName || "Позиція не вказана"} · {crew.currentLocation || crew.reconnaissanceArea || "місце не вказано"}</p><p>{crew.uavName || "БпАК не вказано"}{crew.uavType ? ` · ${crew.uavType}` : ""}</p><div className="crew-members">{crew.members.map((member) => <div key={member.personnelId}><b>{member.fullName}</b><small>{member.rank} · {member.position}</small></div>)}{!crew.members.length && <small>Склад ще не сформовано</small>}</div><footer><button className="button" onClick={() => open(crew)}><Wrench />Редагувати</button><button className="icon-button danger" title="Видалити екіпаж" onClick={() => void remove(crew.id)}><Trash2 /></button></footer></article>)}</div></section>)}{!Object.keys(grouped).length && <section className="panel personnel-state"><UsersRound /><b>Екіпажів поки немає</b><span>Створіть екіпаж і додайте до нього учасників.</span></section>}</div>
-    {editorOpen && <Modal title={editing ? "Редагування екіпажу" : "Новий екіпаж"} onClose={close} className="crew-editor"><div className="crew-editor__body"><div className="operation-editor__body">
-      <label className="form-field"><span>Тип підрозділу</span><Select ariaLabel="Тип підрозділу" value={draft.unitType} onChange={(unitType) => setDraft({ ...draft, unitType })} options={["Екіпаж", "Управління роти", "Управління взводу", "Відділення збору та обробки інформації", "Прикомандировані"].map((value) => ({ value, label: value }))} /></label>
-      <label className="form-field"><span>Назва екіпажу <b>*</b></span><input autoFocus value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
-      <label className="form-field"><span>Рота / окремий взвод</span><input value={draft.companyName} onChange={(event) => setDraft({ ...draft, companyName: event.target.value })} /></label>
-      <label className="form-field"><span>Взвод</span><input value={draft.platoon} onChange={(event) => setDraft({ ...draft, platoon: event.target.value })} placeholder="1 взвод" /></label>
-      <label className="form-field"><span>БРО</span><input value={draft.battleOrder} onChange={(event) => setDraft({ ...draft, battleOrder: event.target.value })} /></label>
-      <label className="form-field"><span>Сектор роботи</span><input value={draft.sector} onChange={(event) => setDraft({ ...draft, sector: event.target.value })} /></label>
-      <label className="form-field"><span>Штатна кількість в/с</span><input type="number" min="0" value={draft.officialStrength} onChange={(event) => setDraft({ ...draft, officialStrength: Number(event.target.value) })} /></label>
-      <label className="form-field"><span>Статус екіпажу</span><Select ariaLabel="Статус екіпажу" value={draft.status} onChange={(status) => setDraft({ ...draft, status })} options={statuses.map((value) => ({ value, label: value }))} /></label>
-      <label className="form-field"><span>Назва БпАК</span><input value={draft.uavName} onChange={(event) => setDraft({ ...draft, uavName: event.target.value })} /></label>
-      <label className="form-field"><span>Тип БпАК</span><input value={draft.uavType} onChange={(event) => setDraft({ ...draft, uavType: event.target.value })} /></label>
-      <label className="form-field"><span>Функціональні обов’язки</span><input value={draft.functionalDuties} onChange={(event) => setDraft({ ...draft, functionalDuties: event.target.value })} /></label>
-      <label className="form-field"><span>Де знаходиться</span><input value={draft.currentLocation} onChange={(event) => setDraft({ ...draft, currentLocation: event.target.value })} /></label>
-      <label className="form-field form-field--wide"><span>Примітка</span><textarea value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>
-    </div><section className="crew-editor__members"><header><h3>Фактичний склад</h3><span>Зараз {draft.memberIds.length}, за штатом {draft.officialStrength}. Зміни одразу потрапляють у БЧС.</span></header>{people.map((person) => <label key={person.id}><input type="checkbox" checked={draft.memberIds.includes(person.id)} onChange={() => toggle(person.id)} /><span><b>{person.fullName}</b><small>{person.rank} · {person.position}</small></span></label>)}</section></div><footer className="modal-actions"><button className="button" onClick={close}>Скасувати</button><button className="button primary" onClick={() => void save()}>Зберегти екіпаж</button></footer></Modal>}
-  </PageFrame>;
+  const [items,setItems]=useState<Crew[]>([]); const [positions,setPositions]=useState<Position[]>([]); const [query,setQuery]=useState("");
+  const [editing,setEditing]=useState<Crew|null>(null); const [draft,setDraft]=useState<CrewDraft>(emptyDraft); const [open,setOpen]=useState(false); const [memberTab,setMemberTab]=useState<"official"|"actual">("official");
+  const [availablePeople,setAvailablePeople]=useState<Person[]>(people); const [pickerOpen,setPickerOpen]=useState(false); const [pickerQuery,setPickerQuery]=useState("");
+  const [deleting,setDeleting]=useState<Crew|null>(null); const [deletingBusy,setDeletingBusy]=useState(false);
+  const {notify}=useNotifications();
+  const reload=useCallback(()=>void Promise.all([operationsService.listCrews(),operationsService.listPositions(),allPersonnel()]).then(([crews,nextPositions,nextPeople])=>{setItems(crews);setPositions(nextPositions);setAvailablePeople(nextPeople);}).catch(()=>notify("Не вдалося завантажити екіпажі.","error")),[notify]);
+  useEffect(reload,[reload]);
+  const filtered=useMemo(()=>items.filter((crew)=>includes(query,crew.name,crew.status,crew.sector,crew.uavName,crew.uavType,crew.positionName)),[items,query]);
+  const close=()=>{setOpen(false);setEditing(null);setDraft(emptyDraft());setMemberTab("official");setPickerOpen(false);};
+  const edit=(crew?:Crew)=>{setEditing(crew??null);setDraft(crew?{...crew,memberIds:crew.members.map((m)=>m.personnelId),actualMemberIds:crew.actualMembers.map((m)=>m.personnelId)}:emptyDraft());setOpen(true);};
+  const save=async()=>{try{const payload={...draft,officialStrength:draft.memberIds.length,workingStrength:draft.actualMemberIds.length};if(editing)await operationsService.updateCrew(editing.id,payload);else await operationsService.createCrew(payload);close();reload();notify("Екіпаж збережено.","success");}catch(error){notify(typeof error==="string"?error:"Не вдалося зберегти екіпаж.","error");}};
+  const remove=async()=>{if(!deleting)return;setDeletingBusy(true);try{await operationsService.deleteCrew(deleting.id);setDeleting(null);reload();notify("Екіпаж видалено.","success");}catch{notify("Не вдалося видалити екіпаж.","error");}finally{setDeletingBusy(false);}};
+  const memberIds=memberTab==="official"?draft.memberIds:draft.actualMemberIds;
+  const selectedPeople=memberIds.map((id)=>availablePeople.find((person)=>person.id===id)).filter((person):person is Person=>!!person);
+  const pickerPeople=availablePeople.filter((person)=>includes(pickerQuery,person.fullName,person.rank,person.position));
+  const assignment=(personId:number)=>items.find((crew)=>crew.id!==editing?.id&&(memberTab==="official"?crew.members:crew.actualMembers).some((member)=>member.personnelId===personId));
+  const toggle=(id:number)=>setDraft((current)=>{
+    if(memberTab==="actual") return {...current,actualMemberIds:current.actualMemberIds.includes(id)?current.actualMemberIds.filter((value)=>value!==id):[...current.actualMemberIds,id]};
+    if(current.memberIds.includes(id)) return {...current,memberIds:current.memberIds.filter((value)=>value!==id)};
+    return {...current,memberIds:[...current.memberIds,id],actualMemberIds:current.actualMemberIds.includes(id)?current.actualMemberIds:[...current.actualMemberIds,id]};
+  });
+  return <PageFrame className="crews-page" header={<PageTitle title="Екіпажі" subtitle="Єдиний облік екіпажів, позицій та складу для БЧС" actions={<button className="button primary" onClick={()=>edit()}><Plus/>Створити екіпаж</button>}/>} tools={<div className="table-tools main-tools"><SearchInput placeholder="Пошук за назвою, статусом, сектором, БпАК або позицією…" value={query} onChange={setQuery}/></div>}>
+    <div className="crews-grid">{filtered.map((crew)=><article className={`panel crew-card crew-card--${crew.status==="Працюючий"?"working":crew.status==="Формується"?"forming":"inactive"}`} key={crew.id}>
+      <header><div><span className="crew-card__status">{crew.status}</span><h2>{crew.name}</h2></div><strong title="Фактичний / офіційний склад">{crew.actualMembers.length}/{crew.members.length}</strong></header>
+      <div className="crew-card__facts"><div><small>Сектор роботи</small><b>{crew.sector||"Не вказано"}</b></div><div><small>Позиція</small><b>{crew.positionName||"Не обрана"}</b></div><div><small>БпАК</small><b>{crew.uavName||"Не вказано"}</b></div><div><small>Тип БпАК</small><b>{crew.uavType||"Не вказано"}</b></div></div>
+      <div className="crew-card__members"><div><span>Офіційний склад</span><b>{crew.members.length}</b></div><div><span>Фактичний склад</span><b>{crew.actualMembers.length}</b></div></div>
+      <footer><button className="button" onClick={()=>edit(crew)}><Pencil/>Редагувати</button><button className="icon-button danger" title="Видалити екіпаж" onClick={()=>setDeleting(crew)}><Trash2/></button></footer>
+    </article>)}{!filtered.length&&<section className="panel personnel-state"><UsersRound/><b>Екіпажів поки немає</b><span>Створіть екіпаж і сформуйте його склад.</span></section>}</div>
+    {open&&<Modal title={editing?"Редагування екіпажу":"Новий екіпаж"} onClose={close} className="crew-editor"><div className="crew-editor__body"><div className="operation-editor__body">
+      <label className="form-field"><span>Назва <b>*</b></span><input autoFocus value={draft.name} onChange={(e)=>setDraft({...draft,name:e.target.value})}/></label>
+      <label className="form-field"><span>Статус</span><Select ariaLabel="Статус екіпажу" value={draft.status} onChange={(status)=>setDraft({...draft,status})} options={statuses.map((value)=>({value,label:value}))}/></label>
+      <label className="form-field"><span>Сектор роботи</span><input value={draft.sector} onChange={(e)=>setDraft({...draft,sector:e.target.value})}/></label>
+      <label className="form-field"><span>Позиція</span><Select ariaLabel="Позиція екіпажу" value={draft.positionId?.toString()??""} onChange={(value)=>setDraft({...draft,positionId:value?Number(value):null})} options={[{value:"",label:"Не обрана"},...positions.map((position)=>({value:String(position.id),label:`${position.name} · ${position.positionType}`}))]}/><small>Одну позицію можуть використовувати декілька екіпажів.</small></label>
+      <label className="form-field"><span>Назва БпАК</span><input value={draft.uavName} onChange={(e)=>setDraft({...draft,uavName:e.target.value})}/></label>
+      <label className="form-field"><span>Тип БпАК</span><Select ariaLabel="Тип БпАК" value={draft.uavType} onChange={(uavType)=>setDraft({...draft,uavType})} options={[{value:"",label:"Не вказано"},...uavTypes.map((value)=>({value,label:value}))]}/></label>
+      <label className="form-field form-field--wide"><span>Коментар</span><textarea value={draft.notes} onChange={(e)=>setDraft({...draft,notes:e.target.value})}/></label>
+    </div><section className="crew-editor__members"><div className="crew-member-tabs"><button className={memberTab==="official"?"active":""} onClick={()=>setMemberTab("official")}>Офіційний склад <b>{draft.memberIds.length}</b></button><button className={memberTab==="actual"?"active":""} onClick={()=>setMemberTab("actual")}>Фактичний склад <b>{draft.actualMemberIds.length}</b></button></div><div className="crew-members-heading"><p>{memberTab==="official"?"Люди, офіційно закріплені за екіпажем.":"Люди, які зараз фактично виконують завдання у цьому екіпажі."}</p><button className="button" onClick={()=>setPickerOpen(true)}><Plus/>Додати людей</button></div><div className="crew-selected-members">{selectedPeople.map((person)=><article key={person.id}><div><b>{person.fullName}</b><small>{person.rank} · {person.position}</small></div><button className="icon-button danger" title="Прибрати зі складу" onClick={()=>toggle(person.id)}><Trash2/></button></article>)}{!selectedPeople.length&&<span>Склад ще не заповнений.</span>}</div></section></div><footer className="modal-actions"><button className="button" onClick={close}>Скасувати</button><button className="button primary" onClick={()=>void save()}>Зберегти екіпаж</button></footer></Modal>}
+    {pickerOpen&&<Modal title={memberTab==="official"?"Додати до офіційного складу":"Додати до фактичного складу"} onClose={()=>setPickerOpen(false)} className="crew-member-picker"><div className="crew-member-picker__body"><SearchInput placeholder="Пошук за ПІБ, званням або посадою…" value={pickerQuery} onChange={setPickerQuery}/><div className="crew-member-picker__list">{pickerPeople.map((person)=>{const current=assignment(person.id);return <label key={person.id} className={memberIds.includes(person.id)?"selected":""}><input type="checkbox" checked={memberIds.includes(person.id)} onChange={()=>toggle(person.id)}/><span><b>{person.fullName}</b><small>{person.rank} · {person.position}</small>{current&&<em>Зараз у «{current.name}» — буде переміщено</em>}</span></label>;})}</div></div><footer className="modal-actions"><button className="button primary" onClick={()=>setPickerOpen(false)}>Готово</button></footer></Modal>}
+    {deleting&&<ConfirmDialog title="Видалити екіпаж?" message={`Екіпаж «${deleting.name}» буде видалено. Прив’язки його офіційного та фактичного складу буде знято.`} confirmLabel="Видалити" onConfirm={()=>void remove()} onCancel={()=>setDeleting(null)} busy={deletingBusy}/>}  </PageFrame>;
 }

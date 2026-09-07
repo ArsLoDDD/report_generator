@@ -973,7 +973,7 @@ fn add_selected_crews(
     for (index, crew_id) in crew_ids.iter().enumerate() {
         let row: (String,String,String,String,String,String,String,String,i64,String,String,String,String,String,String) = connection
             .query_row(
-                "SELECT name,platoon,position_name,reconnaissance_area,unit_type,company_name,battle_order,sector,official_strength,status,uav_name,uav_type,functional_duties,current_location,notes FROM crews WHERE id=?1",
+                "SELECT c.name,c.platoon,COALESCE(p.name,c.position_name),COALESCE(p.locality,c.reconnaissance_area),c.unit_type,c.company_name,COALESCE(p.battle_order,c.battle_order),c.sector,(SELECT COUNT(*) FROM crew_members cm WHERE cm.crew_id=c.id AND cm.left_at IS NULL),c.status,c.uav_name,c.uav_type,c.functional_duties,c.current_location,c.notes FROM crews c LEFT JOIN positions p ON p.id=c.position_id WHERE c.id=?1",
                 [crew_id],
                 |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?,r.get(10)?,r.get(11)?,r.get(12)?,r.get(13)?,r.get(14)?)),
             )
@@ -982,6 +982,10 @@ fn add_selected_crews(
             .map_err(|_| "Не вдалося прочитати склад екіпажу.".to_string())?
             .query_map([crew_id], |row| row.get::<_, String>(0)).map_err(|_| "Не вдалося прочитати склад екіпажу.".to_string())?
             .collect::<Result<Vec<_>, _>>().map_err(|_| "Не вдалося прочитати склад екіпажу.".to_string())?.join(", ");
+        let actual_members = connection.prepare("SELECT trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) FROM crew_actual_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=?1 ORDER BY p.position,p.id")
+            .map_err(|_| "Не вдалося прочитати фактичний склад екіпажу.".to_string())?
+            .query_map([crew_id], |row| row.get::<_, String>(0)).map_err(|_| "Не вдалося прочитати фактичний склад екіпажу.".to_string())?
+            .collect::<Result<Vec<_>, _>>().map_err(|_| "Не вдалося прочитати фактичний склад екіпажу.".to_string())?.join(", ");
         let vehicles = connection.prepare("SELECT trim(name || ' ' || registration_number) FROM vehicles WHERE crew_id=?1 ORDER BY id")
             .map_err(|_| "Не вдалося прочитати автомобілі екіпажу.".to_string())?
             .query_map([crew_id], |row| row.get::<_, String>(0)).map_err(|_| "Не вдалося прочитати автомобілі екіпажу.".to_string())?
@@ -999,7 +1003,7 @@ fn add_selected_crews(
             ("official_strength", row.8.to_string()),
             (
                 "actual_strength",
-                members
+                actual_members
                     .split(", ")
                     .filter(|value| !value.is_empty())
                     .count()
@@ -1012,6 +1016,8 @@ fn add_selected_crews(
             ("current_location", row.13),
             ("notes", row.14),
             ("members", members.clone()),
+            ("official_members", members.clone()),
+            ("actual_members", actual_members.clone()),
             ("vehicles", vehicles.clone()),
         ]
         .into_iter()
@@ -1066,7 +1072,7 @@ fn add_selected_positions(
     values: &mut HashMap<String, Value>,
 ) -> Result<(), String> {
     for (index, id) in position_ids.iter().enumerate() {
-        let row:(String,String,String,String,String,String,String,String,String,String,String,String)=connection.query_row("SELECT p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.size,p.mgrs,trim(COALESCE((SELECT group_concat(e.name, ', ') FROM position_uavs pu JOIN equipment e ON e.id=pu.equipment_id WHERE pu.position_id=p.id),'') || CASE WHEN p.suitable_uav_text<>'' THEN CASE WHEN EXISTS(SELECT 1 FROM position_uavs pu WHERE pu.position_id=p.id) THEN ', ' ELSE '' END || p.suitable_uav_text ELSE '' END),COALESCE(c.name,''),p.notes FROM positions p LEFT JOIN crews c ON c.id=p.crew_id WHERE p.id=?1",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?,r.get(10)?,r.get(11)?))).map_err(|_|"Не вдалося прочитати вибрану позицію.".to_string())?;
+        let row:(String,String,String,String,String,String,String,String,String,String,String,String,String,String)=connection.query_row("SELECT p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.condition_level,p.field_type,p.size,p.mgrs,COALESCE(GROUP_CONCAT(c.name, ', '),''),p.notes,p.suitable_uav_text FROM positions p LEFT JOIN crews c ON c.position_id=p.id WHERE p.id=?1 GROUP BY p.id",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get::<_,i64>(7)?.to_string(),r.get(8)?,r.get(9)?,r.get(10)?,r.get(11)?,r.get(12)?,r.get(13)?))).map_err(|_|"Не вдалося прочитати вибрану позицію.".to_string())?;
         let data = [
             ("name", row.0),
             ("position_type", row.1),
@@ -1075,11 +1081,13 @@ fn add_selected_positions(
             ("battle_order", row.4),
             ("sector", row.5),
             ("condition", row.6),
-            ("size", row.7),
-            ("mgrs", row.8),
-            ("suitable_uavs", row.9),
-            ("crew_name", row.10),
-            ("notes", row.11),
+            ("condition_level", row.7),
+            ("field_type", row.8),
+            ("size", row.9),
+            ("mgrs", row.10),
+            ("crew_name", row.11),
+            ("notes", row.12),
+            ("suitable_uavs", row.13),
         ]
         .into_iter()
         .collect::<HashMap<_, _>>();

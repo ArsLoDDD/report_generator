@@ -78,6 +78,7 @@ pub const CREW_KEYS: &[&str] = &[
     "battle_order",
     "sector",
     "official_strength",
+    "working_strength",
     "status",
     "uav_name",
     "uav_type",
@@ -93,6 +94,8 @@ pub const POSITION_KEYS: &[&str] = &[
     "battle_order",
     "sector",
     "condition",
+    "condition_level",
+    "field_type",
     "size",
     "mgrs",
     "suitable_uav_text",
@@ -134,6 +137,7 @@ pub struct VehicleRow {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CrewRow {
+    pub working_strength: String,
     pub name: String,
     pub platoon: String,
     pub position_name: String,
@@ -151,8 +155,15 @@ pub struct CrewRow {
     pub notes: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BcsRow {
+    #[serde(default)]
+    pub is_temporary: bool,
+    #[serde(default)]
+    pub is_external: bool,
+    #[serde(default)]
+    pub color_key: String,
     pub section: String,
     pub position_name: String,
     pub battle_order: String,
@@ -180,6 +191,8 @@ pub struct PositionRow {
     pub battle_order: String,
     pub sector: String,
     pub condition: String,
+    pub condition_level: String,
+    pub field_type: String,
     pub size: String,
     pub mgrs: String,
     pub suitable_uav_text: String,
@@ -221,6 +234,7 @@ pub struct IncidentRow {
 }
 
 pub struct ImportData {
+    pub staffing: crate::staffing_exchange::ExtraSheets,
     pub personnel: Vec<PersonnelDraft>,
     pub vehicles: Vec<VehicleRow>,
     pub crews: Vec<CrewRow>,
@@ -352,6 +366,7 @@ fn crew_label(key: &str) -> &str {
         "company_name" => "Рота / окремий взвод",
         "battle_order" => "БРО",
         "sector" => "Сектор роботи",
+        "working_strength" => "Кількість в/с працює в екіпажах",
         "official_strength" => "Кількість в/с за штатом",
         "status" => "Статус екіпажу",
         "uav_name" => "Назва БпАК",
@@ -374,6 +389,8 @@ fn position_label(key: &str) -> &str {
         "battle_order" => "БРО",
         "sector" => "Сектор",
         "condition" => "Стан",
+        "condition_level" => "Стан, %",
+        "field_type" => "Тип поля",
         "size" => "Розмір",
         "mgrs" => "Приблизні координати MGRS",
         "suitable_uav_text" => "Під які БпЛА підходить",
@@ -458,6 +475,7 @@ fn worksheet_xml(headers: &[String], keys: &[String], rows: &[Vec<String>]) -> S
 
 /// The exported workbook is the canonical interchange format: one personnel sheet and one vehicle sheet.
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub fn export(
     path: &Path,
     people: &[Personnel],
@@ -471,6 +489,39 @@ pub fn export(
     equipment: &[EquipmentRow],
     incidents: &[IncidentRow],
     positions: &[PositionRow],
+) -> Result<(), String> {
+    export_with_staffing(
+        path,
+        people,
+        vehicles,
+        personnel_custom_maps,
+        personnel_custom_values,
+        vehicle_custom_maps,
+        vehicle_custom_values,
+        crews,
+        crew_members,
+        equipment,
+        incidents,
+        positions,
+        &Default::default(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn export_with_staffing(
+    path: &Path,
+    people: &[Personnel],
+    vehicles: &[VehicleRow],
+    personnel_custom_maps: &[CustomFieldMapRow],
+    personnel_custom_values: &[CustomValueRow],
+    vehicle_custom_maps: &[CustomFieldMapRow],
+    vehicle_custom_values: &[CustomValueRow],
+    crews: &[CrewRow],
+    crew_members: &[CrewMemberRow],
+    equipment: &[EquipmentRow],
+    incidents: &[IncidentRow],
+    positions: &[PositionRow],
+    staffing: &crate::staffing_exchange::ExtraSheets,
 ) -> Result<(), String> {
     let file = File::create(path).map_err(|_| "Не вдалося створити Excel-файл.".to_string())?;
     let mut archive = ZipWriter::new(file);
@@ -526,6 +577,7 @@ pub fn export(
                 crew.battle_order.clone(),
                 crew.sector.clone(),
                 crew.official_strength.clone(),
+                crew.working_strength.clone(),
                 crew.status.clone(),
                 crew.uav_name.clone(),
                 crew.uav_type.clone(),
@@ -546,6 +598,8 @@ pub fn export(
                 row.battle_order.clone(),
                 row.sector.clone(),
                 row.condition.clone(),
+                row.condition_level.clone(),
+                row.field_type.clone(),
                 row.size.clone(),
                 row.mgrs.clone(),
                 row.suitable_uav_text.clone(),
@@ -813,6 +867,20 @@ pub fn export(
             map_sheet(INCIDENT_KEYS, incident_export_label),
         ),
     ];
+    for (name, keys) in crate::staffing_exchange::SHEETS {
+        let keys = keys.iter().map(|key| key.to_string()).collect::<Vec<_>>();
+        let rows = staffing
+            .get(*name)
+            .into_iter()
+            .flatten()
+            .map(|row| {
+                keys.iter()
+                    .map(|key| row.get(key).cloned().unwrap_or_default())
+                    .collect()
+            })
+            .collect::<Vec<_>>();
+        sheets.push((name.to_string(), worksheet_xml(&keys, &keys, &rows)));
+    }
     let content_types = format!("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>{}</Types>", sheets.iter().enumerate().map(|(index, _)| format!("<Override PartName=\"/xl/worksheets/sheet{}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>", index + 1)).collect::<String>());
     let relationships = format!("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">{}</Relationships>", sheets.iter().enumerate().map(|(index, _)| format!("<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet{}.xml\"/>", index + 1, index + 1)).collect::<String>());
     let workbook = format!("<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>{}</sheets></workbook>", sheets.iter().enumerate().map(|(index, (name, _))| format!("<sheet name=\"{}\" sheetId=\"{}\" r:id=\"rId{}\"/>", esc(name), index + 1, index + 1)).collect::<String>());
@@ -848,138 +916,15 @@ pub fn export_bcs(
     authorized_strength: i64,
     rows: &[BcsRow],
 ) -> Result<(), String> {
-    let mut data_rows = Vec::<Vec<String>>::new();
-    for row in rows {
-        data_rows.push(vec![
-            row.section.clone(),
-            row.position_name.clone(),
-            row.battle_order.clone(),
-            row.sector.clone(),
-            row.crew_name.clone(),
-            row.crew_actual.clone(),
-            row.crew_official.clone(),
-            row.crew_status.clone(),
-            row.uav_name.clone(),
-            row.uav_type.clone(),
-            row.personnel_position.clone(),
-            row.rank.clone(),
-            row.full_name.clone(),
-            row.duties.clone(),
-            row.location.clone(),
-            row.notes.clone(),
-        ]);
-    }
-    let headers = [
-        "Підрозділи по типу",
-        "Назва позиції",
-        "БРО",
-        "Сектор роботи",
-        "Назва екіпажу",
-        "Кількість в/с\nпрацює в екіпажах",
-        "Кількість в/с",
-        "Статус Екіпажу",
-        "Назва БпАК",
-        "Тип БпАК",
-        "Посада по штату",
-        "Військове звання",
-        "П.І.Б.",
-        "Функціональні обов’язки, які виконує",
-        "Де знаходиться",
-        "Примітка",
-    ]
-    .iter()
-    .map(|value| value.to_string())
-    .collect::<Vec<_>>();
-    let mut sheet = String::from("<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetViews><sheetView workbookViewId=\"0\"><pane ySplit=\"4\" topLeftCell=\"A5\" activePane=\"bottomLeft\" state=\"frozen\"/></sheetView></sheetViews><sheetData>");
-    for row_index in 1..=3 {
-        sheet.push_str(&format!("<row r=\"{}\">", row_index));
-        if row_index == 1 {
-            sheet.push_str(&cell(0, row_index, &format!("БЧС {}", unit_name)));
-        } else if row_index == 2 {
-            sheet.push_str(&cell(
-                0,
-                row_index,
-                &format!("станом на 08:00 год {}", date),
-            ));
-        }
-        sheet.push_str("</row>");
-    }
-    sheet.push_str("<row r=\"4\">");
-    for (index, header) in headers.iter().enumerate() {
-        sheet.push_str(&cell(index, 4, header));
-    }
-    sheet.push_str("</row>");
-    for (index, values) in data_rows.iter().enumerate() {
-        sheet.push_str(&format!("<row r=\"{}\">", index + 5));
-        for (column, value) in values.iter().enumerate() {
-            sheet.push_str(&cell(column, index + 5, value));
-        }
-        sheet.push_str("</row>");
-    }
-    let summary_start = data_rows.len() + 7;
-    let totals = [
-        ("БЧС за штатом", authorized_strength.to_string()),
-        ("БЧС за списком", rows.len().to_string()),
-        (
-            "В екіпажах",
-            rows.iter()
-                .filter(|row| !row.crew_name.is_empty())
-                .count()
-                .to_string(),
-        ),
-    ];
-    let location_start = summary_start;
-    let locations = [
-        "ПУ",
-        "ШТАБ",
-        "УПР",
-        "КСП Роти",
-        "ЗАБ",
-        "ОХ",
-        "ГШР",
-        "На позиції",
-        "ЗБЗ",
-        "ПБЗ",
-        "ЗХВ",
-        "ВІДП",
-        "НАВЧ",
-        "ВІДР",
-        "ЛІК",
-        "Відкомандировані",
-        "ОХП",
-        "Прикомандирований",
-        "СЗЧ",
-        "ПТЗ Новостав",
-        "Реко та облаштування",
-        "Логістика на позиції",
-    ];
-    for (index, location) in locations.iter().enumerate() {
-        let row = location_start + index;
-        sheet.push_str(&format!("<row r=\"{}\">", row));
-        if let Some((label, value)) = totals.get(index) {
-            sheet.push_str(&cell(4, row, label));
-            sheet.push_str(&cell(5, row, value));
-        }
-        if index == 0 {
-            sheet.push_str(&cell(8, row, "БЧС по місцях"));
-        }
-        sheet.push_str(&cell(12, row, location));
-        sheet.push_str(&cell(
-            15,
-            row,
-            &rows
-                .iter()
-                .filter(|item| item.location == *location)
-                .count()
-                .to_string(),
-        ));
-        sheet.push_str("</row>");
-    }
-    sheet.push_str(&format!("</sheetData><mergeCells count=\"2\"><mergeCell ref=\"A1:P1\"/><mergeCell ref=\"A2:P2\"/></mergeCells><autoFilter ref=\"A4:P{}\"/><cols>{}</cols></worksheet>", data_rows.len() + 4, (1..=16).map(|index| format!("<col min=\"{0}\" max=\"{0}\" width=\"18\" customWidth=\"1\"/>", index)).collect::<String>()));
-    write_workbook(path, vec![("БЧС".into(), sheet)])
+    crate::bcs_export::export(path, unit_name, date, authorized_strength, rows)
 }
 
-fn write_workbook(path: &Path, mut sheets: Vec<(String, String)>) -> Result<(), String> {
+pub(crate) fn write_styled_workbook(
+    path: &Path,
+    mut sheets: Vec<(String, String)>,
+    styles: &str,
+    theme: &str,
+) -> Result<(), String> {
     let file = File::create(path).map_err(|_| "Не вдалося створити Excel-файл.".to_string())?;
     let mut archive = ZipWriter::new(file);
     let options = SimpleFileOptions::default();
@@ -987,6 +932,12 @@ fn write_workbook(path: &Path, mut sheets: Vec<(String, String)>) -> Result<(), 
     let relationships = format!("<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">{}</Relationships>", sheets.iter().enumerate().map(|(index, _)| format!("<Relationship Id=\"rId{}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet{}.xml\"/>", index + 1, index + 1)).collect::<String>());
     let workbook = format!("<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>{}</sheets></workbook>", sheets.iter().enumerate().map(|(index, (name, _))| format!("<sheet name=\"{}\" sheetId=\"{}\" r:id=\"rId{}\"/>", esc(name), index + 1, index + 1)).collect::<String>());
     let mut files = vec![("[Content_Types].xml".to_string(), content_types), ("_rels/.rels".to_string(), "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>".to_string()), ("xl/_rels/workbook.xml.rels".to_string(), relationships), ("xl/workbook.xml".to_string(), workbook)];
+    if !styles.is_empty() {
+        files[0].1 = files[0].1.replace("</Types>", r#"<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/xl/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/></Types>"#);
+        files[2].1 = files[2].1.replace("</Relationships>", r#"<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rIdTheme" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/></Relationships>"#);
+        files.push(("xl/styles.xml".into(), styles.into()));
+        files.push(("xl/theme/theme1.xml".into(), theme.into()));
+    }
     files.extend(
         sheets
             .drain(..)
@@ -1357,6 +1308,11 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
     let crews = optional_records(&mut archive, "Екіпажі", &shared)?
         .into_iter()
         .map(|row| CrewRow {
+            working_strength: row
+                .values
+                .get("working_strength")
+                .cloned()
+                .unwrap_or_else(|| "0".into()),
             name: row.values.get("name").cloned().unwrap_or_default(),
             platoon: row.values.get("platoon").cloned().unwrap_or_default(),
             position_name: row.values.get("position_name").cloned().unwrap_or_default(),
@@ -1404,6 +1360,12 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
             battle_order: row.values.get("battle_order").cloned().unwrap_or_default(),
             sector: row.values.get("sector").cloned().unwrap_or_default(),
             condition: row.values.get("condition").cloned().unwrap_or_default(),
+            condition_level: row
+                .values
+                .get("condition_level")
+                .cloned()
+                .unwrap_or_else(|| "0".into()),
+            field_type: row.values.get("field_type").cloned().unwrap_or_default(),
             size: row.values.get("size").cloned().unwrap_or_default(),
             mgrs: row.values.get("mgrs").cloned().unwrap_or_default(),
             suitable_uav_text: row
@@ -1504,7 +1466,20 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
         "registration_number",
         &shared,
     )?;
+    let mut staffing = crate::staffing_exchange::ExtraSheets::new();
+    for (name, _) in crate::staffing_exchange::SHEETS {
+        if worksheet_path_by_name(&mut archive, name)?.is_some() {
+            staffing.insert(
+                name.to_string(),
+                optional_records(&mut archive, name, &shared)?
+                    .into_iter()
+                    .map(|row| row.values)
+                    .collect(),
+            );
+        }
+    }
     Ok(ImportData {
+        staffing,
         personnel,
         vehicles,
         crews,
@@ -1702,6 +1677,8 @@ mod tests {
                 battle_order: "БР №1".into(),
                 sector: "Північ".into(),
                 condition: "Готова".into(),
+                condition_level: "80".into(),
+                field_type: "Відкрите".into(),
                 size: "20 × 30 м".into(),
                 mgrs: "36U UV 12000 67000".into(),
                 suitable_uav_text: "Mavic".into(),
@@ -1750,6 +1727,7 @@ mod tests {
         for sheet in [
             "Екіпажі",
             "Склад екіпажів",
+            "Фактичний склад екіпажів",
             "Генератори",
             "БпЛА",
             "Зв’язок",
@@ -1888,7 +1866,8 @@ mod tests {
             "16.08.2026",
             78,
             &[BcsRow {
-                section: "Екіпажі".into(),
+                section: "Екіпаж".into(),
+                color_key: "crew-working".into(),
                 crew_name: "Екіпаж ТЕСТ".into(),
                 crew_actual: "3".into(),
                 crew_official: "4".into(),
@@ -1914,7 +1893,17 @@ mod tests {
             .unwrap();
         assert!(sheet.contains("Підрозділи по типу"));
         assert!(sheet.contains("Логістика на позиції"));
-        assert!(sheet.contains("БЧС за штатом"));
+        assert!(sheet.contains("По штату"));
+        assert!(sheet.contains("s=\"171\""));
+        let mut styles = String::new();
+        archive
+            .by_name("xl/styles.xml")
+            .unwrap()
+            .read_to_string(&mut styles)
+            .unwrap();
+        assert!(styles.contains("<fills count=\"19\">"));
+        assert!(styles.contains("FFD7E48D"));
+        assert!(styles.contains("FFFCD5B4"));
         let _ = std::fs::remove_file(path);
     }
 }

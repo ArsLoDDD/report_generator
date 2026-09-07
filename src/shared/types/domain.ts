@@ -85,7 +85,8 @@ export type SignerSettings = {
 };
 
 export type SignerRole = { id: string; name: string; signer: SignerSettings };
-export type UnitSettings = { kind: "Рота" | "Окремий взвод"; shortName: string; authorizedStrength: number };
+export type UnitStructureNode = { id: string; parentId: string | null; kind: "group" | "position"; name: string; order: number };
+export type UnitSettings = { kind: "Рота" | "Окремий взвод" | "Інше"; shortName: string; fullName?: string; unitCode?: string; authorizedStrength: number; structure?: UnitStructureNode[] };
 
 export type AppSettings = {
   mainSigner: SignerSettings;

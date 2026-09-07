@@ -19,13 +19,29 @@ pub struct SignerRole {
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UnitStructureNode {
+    pub id: String,
+    pub parent_id: Option<String>,
+    pub kind: String,
+    pub name: String,
+    pub order: i64,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UnitSettings {
     #[serde(default = "default_unit_kind")]
     pub kind: String,
     #[serde(default)]
     pub short_name: String,
     #[serde(default)]
+    pub full_name: String,
+    #[serde(default)]
+    pub unit_code: String,
+    #[serde(default)]
     pub authorized_strength: i64,
+    #[serde(default)]
+    pub structure: Vec<UnitStructureNode>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -59,7 +75,10 @@ fn default_unit() -> UnitSettings {
     UnitSettings {
         kind: default_unit_kind(),
         short_name: String::new(),
+        full_name: String::new(),
+        unit_code: String::new(),
         authorized_strength: 0,
+        structure: Vec::new(),
     }
 }
 
@@ -162,20 +181,42 @@ pub fn defaults() -> AppSettings {
 
 pub fn update_unit_settings(root: &Path, unit: UnitSettings) -> Result<AppSettings, String> {
     let kind = unit.kind.trim();
-    if !matches!(kind, "Рота" | "Окремий взвод") {
-        return Err("Оберіть тип підрозділу: «Рота» або «Окремий взвод».".into());
+    if !matches!(kind, "Рота" | "Окремий взвод" | "Інше") {
+        return Err("Оберіть тип підрозділу: «Рота», «Окремий взвод» або «Інше».".into());
     }
     if unit.short_name.trim().is_empty() {
         return Err("Вкажіть коротку назву підрозділу, наприклад «РБАК».".into());
     }
+    let unit_code = unit.unit_code.trim().to_uppercase().replace('A', "А");
+    let unit_code_chars: Vec<char> = unit_code.chars().collect();
+    if !unit_code.is_empty()
+        && !(unit_code_chars.len() == 5
+            && unit_code_chars.first() == Some(&'А')
+            && unit_code_chars
+                .iter()
+                .skip(1)
+                .all(|symbol| symbol.is_ascii_digit()))
+    {
+        return Err("Номер військової частини має формат «А0000».".into());
+    }
     if unit.authorized_strength < 0 {
         return Err("Чисельність за штатом не може бути від’ємною.".into());
+    }
+    if unit.structure.iter().any(|item| {
+        item.id.trim().is_empty()
+            || item.name.trim().is_empty()
+            || !matches!(item.kind.as_str(), "group" | "position")
+    }) {
+        return Err("Структура підрозділу містить некоректний блок або посаду.".into());
     }
     let mut settings = load(root)?;
     settings.unit = UnitSettings {
         kind: kind.into(),
         short_name: unit.short_name.trim().into(),
+        full_name: unit.full_name.trim().into(),
+        unit_code,
         authorized_strength: unit.authorized_strength,
+        structure: unit.structure,
     };
     save(root, &settings)?;
     Ok(settings)
@@ -407,5 +448,18 @@ mod tests {
             .all(|role| role.signer.full_name.is_empty()
                 && role.signer.rank.is_empty()
                 && role.signer.position.is_empty()));
+    }
+
+    #[test]
+    fn saves_a_cyrillic_or_latin_unit_code_in_the_canonical_format() {
+        let root =
+            std::env::temp_dir().join(format!("shablonizator-unit-code-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let mut unit = default_unit();
+        unit.short_name = "РБАК".into();
+        unit.unit_code = "A0000".into();
+        let saved = update_unit_settings(&root, unit).unwrap();
+        assert_eq!(saved.unit.unit_code, "А0000");
+        let _ = fs::remove_dir_all(root);
     }
 }

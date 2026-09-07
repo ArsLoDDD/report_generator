@@ -12,6 +12,8 @@ export type Crew = {
   battleOrder: string;
   sector: string;
   officialStrength: number;
+  workingStrength: number;
+  positionId: number | null;
   status: string;
   uavName: string;
   uavType: string;
@@ -20,6 +22,7 @@ export type Crew = {
   notes: string;
   memberCount: number;
   members: CrewMember[];
+  actualMembers: CrewMember[];
 };
 export type CrewDraft = {
   name: string;
@@ -31,6 +34,8 @@ export type CrewDraft = {
   battleOrder: string;
   sector: string;
   officialStrength: number;
+  workingStrength: number;
+  positionId: number | null;
   status: string;
   uavName: string;
   uavType: string;
@@ -38,12 +43,14 @@ export type CrewDraft = {
   currentLocation: string;
   notes: string;
   memberIds: number[];
+  actualMemberIds: number[];
 };
-export type Position = { id: number; name: string; positionType: "Основна" | "Запасна" | "В облаштуванні"; stripName: string; locality: string; battleOrder: string; sector: string; condition: string; size: string; mgrs: string; suitableUavText: string; isActive: boolean; crewId: number | null; crewName: string | null; notes: string; uavIds: number[]; uavNames: string[] };
+export type Position = { id: number; name: string; positionType: "Основна" | "Запасна" | "Облаштовується" | "Виявлена ворогом" | "Зайнята суміжниками"; stripName: string; locality: string; battleOrder: string; sector: string; condition: string; conditionLevel: number; fieldType: string; size: string; mgrs: string; suitableUavText: string; isActive: boolean; crewId: number | null; crewName: string | null; notes: string; uavIds: number[]; uavNames: string[] };
 export type PositionDraft = Omit<Position, "id" | "crewName" | "uavNames">;
-export type StaffingRecord = { personnelId: number; fullName: string; rank: string; position: string; crewId: number | null; crewName: string | null; platoon: string; companyName: string; unitType: string; crewPositionName: string; battleOrder: string; sector: string; officialStrength: number; actualStrength: number; crewStatus: string; uavName: string; uavType: string; functionalDuties: string; currentLocation: string; bcsStatus: string; notes: string; actingPosition: string; recommendationCount: number };
+export type TemporaryPerson = { id: number; fullName: string; rank: string; duties: string; arrivedAt: string; currentLocation: string; notes: string; category: "Тимчасово прибулі" | "Прикомандировані" | "Інша підгрупа"; groupName: string };
+export type StaffingRecord = { isTemporary?: boolean; isExternal?: boolean; isCrewPlaceholder?: boolean; bcsGroupName?: string; bcsStructureKind?: string; bcsOrder?: number; personnelId: number; fullName: string; rank: string; position: string; workingStrength?: number; staffSlotId?: string; actingSlotId?: string; crewId: number | null; crewName: string | null; platoon: string; companyName: string; unitType: string; crewPositionName: string; battleOrder: string; sector: string; officialStrength: number; actualStrength: number; crewStatus: string; uavName: string; uavType: string; functionalDuties: string; currentLocation: string; bcsStatus: string; notes: string; actingPosition: string; recommendationCount: number };
 export type StaffRecommendation = { id: number; personnelId: number; fullName: string; positionName: string; issuedAt: string; notes: string };
-export type VacancyRecommendation = { id: number; positionName: string; fullName: string; phone: string; rank: string; birthDate: string; issuedAt: string; notes: string };
+export type VacancyRecommendation = { id: number; slotId?: string; positionName: string; fullName: string; phone: string; rank: string; birthDate: string; issuedAt: string; notes: string };
 export type Equipment = {
   id: number;
   category: EquipmentCategory;

@@ -79,7 +79,9 @@
     {"id":"обовязки","sourceKey":"functional_duties","name":"Функціональні обов’язки","kind":"text","example":"Аеророзвідка","cases":false},
     {"id":"місце","sourceKey":"current_location","name":"Де знаходиться","kind":"text","example":"На позиції","cases":false},
     {"id":"примітка","sourceKey":"notes","name":"Примітка","kind":"text","example":"Ротація","cases":false},
-    {"id":"склад","sourceKey":"members","name":"Склад екіпажу","kind":"text","example":"Іваненко Іван Іванович, …","cases":false,"description":"Поточний склад екіпажу."},
+    {"id":"склад","sourceKey":"members","name":"Офіційний склад екіпажу","kind":"text","example":"Іваненко Іван Іванович, …","cases":false,"description":"Люди, офіційно закріплені за екіпажем."},
+    {"id":"офіційний_склад","sourceKey":"official_members","name":"Офіційний склад екіпажу","kind":"text","example":"Іваненко Іван Іванович, …","cases":false},
+    {"id":"фактичний_склад","sourceKey":"actual_members","name":"Фактичний склад екіпажу","kind":"text","example":"Петренко Петро Петрович, …","cases":false},
     {"id":"автомобілі","sourceKey":"vehicles","name":"Автомобілі екіпажу","kind":"text","example":"Toyota Hilux АА 1234 АА","cases":false,"description":"Автомобілі, закріплені за екіпажем."}
   ],
   "positionFields": [
@@ -90,6 +92,8 @@
     {"id":"бро","sourceKey":"battle_order","name":"БРО","kind":"text","example":"БР №123","cases":false},
     {"id":"сектор","sourceKey":"sector","name":"Сектор","kind":"text","example":"Північ","cases":false},
     {"id":"стан","sourceKey":"condition","name":"Стан","kind":"text","example":"Готова","cases":false},
+    {"id":"стан_відсоток","sourceKey":"condition_level","name":"Стан позиції, %","kind":"number","example":"80","cases":false},
+    {"id":"тип_поля","sourceKey":"field_type","name":"Тип поля","kind":"text","example":"Відкрите","cases":false},
     {"id":"розмір","sourceKey":"size","name":"Розмір","kind":"text","example":"20 × 30 м","cases":false},
     {"id":"mgrs","sourceKey":"mgrs","name":"Координати MGRS","kind":"text","example":"36U UV 12000 67000","cases":false},
     {"id":"бпла","sourceKey":"suitable_uavs","name":"Сумісні БпЛА","kind":"text","example":"Mavic 3T, Matrice 30T","cases":false},

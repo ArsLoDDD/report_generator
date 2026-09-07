@@ -1,8 +1,11 @@
+mod bcs_export;
 mod database;
 mod operations;
 mod personnel;
 mod report_generation;
 mod settings;
+mod staffing_exchange;
+mod temporary_personnel;
 mod xlsx;
 use chrono::{DateTime, Local};
 use rusqlite::{Connection, OptionalExtension};
@@ -1448,7 +1451,7 @@ fn analyse_report_for_template(
         }
         let mut crew_statement = database
             .connection
-            .prepare("SELECT name,platoon,position_name,reconnaissance_area FROM crews")
+            .prepare("SELECT c.name,c.platoon,COALESCE(p.name,c.position_name),COALESCE(p.locality,c.reconnaissance_area) FROM crews c LEFT JOIN positions p ON p.id=c.position_id")
             .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?;
         let crews = crew_statement
             .query_map([], |row| {
@@ -1477,7 +1480,7 @@ fn analyse_report_for_template(
         }
         let mut position_statement = database
         .connection
-        .prepare("SELECT name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text FROM positions")
+        .prepare("SELECT name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,condition_level,field_type FROM positions")
         .map_err(|_| "Не вдалося прочитати позиції.".to_string())?;
         let positions = position_statement
             .query_map([], |row| {
@@ -1492,6 +1495,8 @@ fn analyse_report_for_template(
                     row.get::<_, String>(7)?,
                     row.get::<_, String>(8)?,
                     row.get::<_, String>(9)?,
+                    row.get::<_, i64>(10)?.to_string(),
+                    row.get::<_, String>(11)?,
                 ))
             })
             .map_err(|_| "Не вдалося прочитати позиції.".to_string())?
@@ -1508,6 +1513,8 @@ fn analyse_report_for_template(
             size,
             mgrs,
             suitable_uavs,
+            condition_level,
+            field_type,
         ) in positions
         {
             if whole_text_match_count(&text, &name) == 0 {
@@ -1525,6 +1532,12 @@ fn analyse_report_for_template(
                 (battle_order, "позиція_1_бро", "БРО позиції"),
                 (sector, "позиція_1_сектор", "Сектор позиції"),
                 (condition, "позиція_1_стан", "Стан позиції"),
+                (
+                    condition_level,
+                    "позиція_1_стан_відсоток",
+                    "Стан позиції у відсотках",
+                ),
+                (field_type, "позиція_1_тип_поля", "Тип поля позиції"),
                 (size, "позиція_1_розмір", "Розмір позиції"),
                 (mgrs, "позиція_1_mgrs", "MGRS позиції"),
                 (suitable_uavs, "позиція_1_бпла", "Сумісні БпЛА позиції"),
@@ -2082,37 +2095,34 @@ fn import_personnel_xlsx(
         };
         for crew in data.crews {
             db.connection.execute("INSERT OR IGNORE INTO crews(name,platoon,position_name,reconnaissance_area,unit_type,company_name,battle_order,sector,official_strength,status,uav_name,uav_type,functional_duties,current_location,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)", rusqlite::params![crew.name.trim(),crew.platoon.trim(),crew.position_name.trim(),crew.reconnaissance_area.trim(),crew.unit_type.trim(),crew.company_name.trim(),crew.battle_order.trim(),crew.sector.trim(),crew.official_strength.parse::<i64>().unwrap_or(4),crew.status.trim(),crew.uav_name.trim(),crew.uav_type.trim(),crew.functional_duties.trim(),crew.current_location.trim(),crew.notes.trim()]).map_err(|_| "Не вдалося імпортувати екіпаж.".to_string())?;
+            db.connection
+                .execute(
+                    "UPDATE crews SET working_strength=?1 WHERE name=?2",
+                    rusqlite::params![
+                        crew.working_strength
+                            .parse::<i64>()
+                            .map_err(|_| "Некоректна кількість в/с працює в екіпажах.")?,
+                        crew.name.trim()
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
             count += 1;
         }
         for position in data.positions {
-            let crew_id = if position.crew_name.trim().is_empty() {
-                None
-            } else {
-                db.connection
-                    .query_row(
-                        "SELECT id FROM crews WHERE name=?1",
-                        [position.crew_name.trim()],
-                        |row| row.get::<_, i64>(0),
-                    )
-                    .optional()
-                    .map_err(|_| "Не вдалося знайти екіпаж позиції.".to_string())?
+            let is_active = false;
+            let position_type = match position.position_type.trim() {
+                "" => "Основна",
+                "В облаштуванні" => "Облаштовується",
+                value => value,
             };
-            let is_active = matches!(
-                position.is_active.trim().to_lowercase().as_str(),
-                "так" | "yes" | "true" | "1"
-            );
-            if is_active && crew_id.is_none() {
-                return Err(format!(
-                    "Активна позиція «{}» не має коректного екіпажу.",
-                    position.name
-                ));
-            }
-            let position_type = if position.position_type.trim().is_empty() {
-                "Основна"
-            } else {
-                position.position_type.trim()
-            };
-            if !["Основна", "Запасна", "В облаштуванні"].contains(&position_type)
+            if ![
+                "Основна",
+                "Запасна",
+                "Облаштовується",
+                "Виявлена ворогом",
+                "Зайнята суміжниками",
+            ]
+            .contains(&position_type)
             {
                 return Err(format!(
                     "Для позиції «{}» вказано невідомий тип.",
@@ -2120,24 +2130,9 @@ fn import_personnel_xlsx(
                 ));
             }
             let mgrs = operations::normalise_mgrs(&position.mgrs)?;
-            db.connection.execute("INSERT OR IGNORE INTO positions(name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,crew_id,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",rusqlite::params![position.name.trim(),position_type,position.strip_name.trim(),position.locality.trim(),position.battle_order.trim(),position.sector.trim(),position.condition.trim(),position.size.trim(),mgrs,position.suitable_uav_text.trim(),is_active,crew_id,position.notes.trim()]).map_err(|_|"Не вдалося імпортувати позицію.".to_string())?;
+            db.connection.execute("INSERT INTO positions(name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,crew_id,notes,condition_level,field_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,NULL,?12,?13,?14) ON CONFLICT(name) DO UPDATE SET position_type=excluded.position_type,strip_name=excluded.strip_name,locality=excluded.locality,battle_order=excluded.battle_order,condition=excluded.condition,mgrs=excluded.mgrs,notes=excluded.notes,condition_level=excluded.condition_level,field_type=excluded.field_type",rusqlite::params![position.name.trim(),position_type,position.strip_name.trim(),position.locality.trim(),position.battle_order.trim(),position.sector.trim(),position.condition.trim(),position.size.trim(),mgrs,position.suitable_uav_text.trim(),is_active,position.notes.trim(),position.condition_level.parse::<i64>().unwrap_or(0).clamp(0,100),position.field_type.trim()]).map_err(|_|"Не вдалося імпортувати позицію.".to_string())?;
             count += 1;
-            if is_active {
-                if let Some(crew_id) = crew_id {
-                    db.connection
-                        .execute(
-                            "UPDATE crews SET position_name=?1,reconnaissance_area=?2 WHERE id=?3",
-                            rusqlite::params![
-                                position.name.trim(),
-                                position.locality.trim(),
-                                crew_id
-                            ],
-                        )
-                        .map_err(|_| {
-                            "Не вдалося оновити екіпаж після імпорту позиції.".to_string()
-                        })?;
-                }
-            }
+            db.connection.execute("UPDATE crews SET position_id=(SELECT id FROM positions WHERE name=?1) WHERE position_name=?1",[position.name.trim()]).map_err(|_|"Не вдалося відновити зв’язок екіпажів із позицією.".to_string())?;
         }
         for member in data.crew_members {
             let crew_id = db
@@ -2317,6 +2312,7 @@ fn import_personnel_xlsx(
                 db.connection.execute("INSERT INTO vehicle_custom_fields(vehicle_id,field_key,field_value) VALUES(?1,?2,?3) ON CONFLICT(vehicle_id,field_key) DO UPDATE SET field_value=excluded.field_value", rusqlite::params![vehicle_id,key,value]).map_err(|_| "Не вдалося зберегти кастомне поле автомобіля.".to_string())?;
             }
         }
+        staffing_exchange::import(&db.connection, &data.staffing, mode == "replace")?;
         Ok(count)
     })();
     match result {
@@ -2425,10 +2421,11 @@ fn export_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<
     let vehicle_custom_values = custom_rows("SELECT v.registration_number,c.field_key,c.field_value FROM vehicle_custom_fields c JOIN vehicles v ON v.id=c.vehicle_id")?;
     let crews = db
         .connection
-        .prepare("SELECT name,platoon,position_name,reconnaissance_area,unit_type,company_name,battle_order,sector,official_strength,status,uav_name,uav_type,functional_duties,current_location,notes FROM crews ORDER BY id")
+        .prepare("SELECT c.name,c.platoon,COALESCE(p.name,c.position_name),COALESCE(p.locality,c.reconnaissance_area),c.unit_type,c.company_name,COALESCE(p.battle_order,c.battle_order),c.sector,c.official_strength,c.status,c.uav_name,c.uav_type,c.functional_duties,c.current_location,c.notes,(SELECT COUNT(*) FROM crew_actual_members am WHERE am.crew_id=c.id) FROM crews c LEFT JOIN positions p ON p.id=c.position_id ORDER BY c.id")
         .map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?
         .query_map([], |row| {
             Ok(xlsx::CrewRow {
+                working_strength:row.get::<_,i64>(15)?.to_string(),
                 name: row.get(0)?,
                 platoon: row.get(1)?,
                 position_name: row.get(2)?,
@@ -2442,9 +2439,9 @@ fn export_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<
     let crew_members = db.connection.prepare("SELECT c.name,COALESCE(p.tax_id,''),trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) FROM crew_members cm JOIN crews c ON c.id=cm.crew_id JOIN personnel p ON p.id=cm.personnel_id WHERE cm.left_at IS NULL ORDER BY cm.id").map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?.query_map([], |row| Ok(xlsx::CrewMemberRow { crew_name:row.get(0)?,personnel_tax_id:row.get(1)?,personnel_full_name:row.get(2)? })).map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?;
     let equipment = db.connection.prepare("SELECT e.category,e.name,e.inventory_number,e.status,COALESCE(c.name,''),COALESCE(p.tax_id,''),COALESCE(trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic),''),e.notes FROM equipment e LEFT JOIN crews c ON c.id=e.crew_id LEFT JOIN personnel p ON p.id=e.personnel_id ORDER BY e.id").map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.query_map([], |row| Ok(xlsx::EquipmentRow { category:row.get(0)?,name:row.get(1)?,inventory_number:row.get(2)?,status:row.get(3)?,crew_name:row.get(4)?,holder_tax_id:row.get(5)?,holder_full_name:row.get(6)?,notes:row.get(7)? })).map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?;
     let incidents = db.connection.prepare("SELECT i.incident_type,i.occurred_at,COALESCE(c.name,''),COALESCE(e.category,''),COALESCE(e.inventory_number,''),COALESCE(e.name,''),i.position_name,i.reconnaissance_area,i.description FROM incidents i LEFT JOIN crews c ON c.id=i.crew_id LEFT JOIN equipment e ON e.id=i.equipment_id ORDER BY i.id").map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.query_map([], |row| Ok(xlsx::IncidentRow { incident_type:row.get(0)?,occurred_at:row.get(1)?,crew_name:row.get(2)?,equipment_category:row.get(3)?,equipment_inventory_number:row.get(4)?,equipment_name:row.get(5)?,position_name:row.get(6)?,reconnaissance_area:row.get(7)?,description:row.get(8)? })).map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?;
-    let positions=db.connection.prepare("SELECT p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.size,p.mgrs,trim(COALESCE((SELECT group_concat(e.name, ', ') FROM position_uavs pu JOIN equipment e ON e.id=pu.equipment_id WHERE pu.position_id=p.id),'') || CASE WHEN p.suitable_uav_text<>'' THEN CASE WHEN EXISTS(SELECT 1 FROM position_uavs pu WHERE pu.position_id=p.id) THEN ', ' ELSE '' END || p.suitable_uav_text ELSE '' END),p.is_active,COALESCE(c.name,''),p.notes FROM positions p LEFT JOIN crews c ON c.id=p.crew_id ORDER BY p.id").map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.query_map([],|row|Ok(xlsx::PositionRow{name:row.get(0)?,position_type:row.get(1)?,strip_name:row.get(2)?,locality:row.get(3)?,battle_order:row.get(4)?,sector:row.get(5)?,condition:row.get(6)?,size:row.get(7)?,mgrs:row.get(8)?,suitable_uav_text:row.get(9)?,is_active:if row.get::<_,bool>(10)?{"Так".into()}else{"Ні".into()},crew_name:row.get(11)?,notes:row.get(12)?})).map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?;
+    let positions=db.connection.prepare("SELECT p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.condition_level,p.field_type,p.size,p.mgrs,p.suitable_uav_text,p.is_active,COALESCE(GROUP_CONCAT(c.name, ', '),''),p.notes FROM positions p LEFT JOIN crews c ON c.position_id=p.id GROUP BY p.id ORDER BY p.id").map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.query_map([],|row|Ok(xlsx::PositionRow{name:row.get(0)?,position_type:row.get(1)?,strip_name:row.get(2)?,locality:row.get(3)?,battle_order:row.get(4)?,sector:row.get(5)?,condition:row.get(6)?,condition_level:row.get::<_,i64>(7)?.to_string(),field_type:row.get(8)?,size:row.get(9)?,mgrs:row.get(10)?,suitable_uav_text:row.get(11)?,is_active:if row.get::<_,bool>(12)?{"Так".into()}else{"Ні".into()},crew_name:row.get(13)?,notes:row.get(14)?})).map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?;
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        xlsx::export(
+        xlsx::export_with_staffing(
             &path,
             &people,
             &vehicles,
@@ -2457,6 +2454,7 @@ fn export_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<
             &equipment,
             &incidents,
             &positions,
+            &staffing_exchange::export(&db.connection)?,
         )
     }))
     .map_err(|_| "Не вдалося сформувати Excel-файл: внутрішня помилка архіву.".to_string())??;
@@ -2466,44 +2464,20 @@ fn export_personnel_xlsx(state: tauri::State<AppState>, path: String) -> Result<
 #[tauri::command]
 fn export_bcs_excel(
     app: tauri::AppHandle,
-    state: tauri::State<AppState>,
     path: String,
+    unit_name: String,
     date: String,
+    rows: Vec<xlsx::BcsRow>,
 ) -> Result<(), String> {
     let root = application_root(&app)?;
     let unit = settings::load(&root)?.unit;
-    let db = state
-        .0
-        .lock()
-        .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    let mut statement = db.connection.prepare("SELECT CASE WHEN p.current_location='Прикомандирований' THEN 'Прикомандировані' WHEN c.id IS NOT NULL OR lower(p.position) LIKE '%екіпаж%' THEN 'Екіпажі' WHEN lower(p.position) LIKE '%збору%' AND lower(p.position) LIKE '%оброб%' THEN 'Відділення збору та обробки інформації' WHEN lower(p.position) LIKE '%взводу%' OR COALESCE(c.platoon,'')<>'' THEN 'Управління взводів' ELSE 'Управління роти' END,COALESCE(c.position_name,''),COALESCE(c.battle_order,''),COALESCE(c.sector,''),COALESCE(c.name,''),COALESCE((SELECT COUNT(*) FROM crew_members x WHERE x.crew_id=c.id AND x.left_at IS NULL),0),COALESCE(c.official_strength,0),COALESCE(c.status,''),COALESCE(c.uav_name,''),COALESCE(c.uav_type,''),p.position,p.rank,trim(p.surname||' '||p.given_name||' '||p.patronymic),COALESCE(NULLIF(p.functional_duties,''),c.functional_duties,''),COALESCE(NULLIF(p.current_location,''),c.current_location,''),COALESCE(NULLIF(p.bcs_notes,''),c.notes,'') FROM personnel p LEFT JOIN crew_members cm ON cm.personnel_id=p.id AND cm.left_at IS NULL LEFT JOIN crews c ON c.id=cm.crew_id ORDER BY 1,COALESCE(c.platoon,''),COALESCE(c.name,''),p.position,p.id").map_err(|_| "Не вдалося сформувати БЧС.".to_string())?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok(xlsx::BcsRow {
-                section: row.get(0)?,
-                position_name: row.get(1)?,
-                battle_order: row.get(2)?,
-                sector: row.get(3)?,
-                crew_name: row.get(4)?,
-                crew_actual: row.get::<_, i64>(5)?.to_string(),
-                crew_official: row.get::<_, i64>(6)?.to_string(),
-                crew_status: row.get(7)?,
-                uav_name: row.get(8)?,
-                uav_type: row.get(9)?,
-                personnel_position: row.get(10)?,
-                rank: row.get(11)?,
-                full_name: row.get(12)?,
-                duties: row.get(13)?,
-                location: row.get(14)?,
-                notes: row.get(15)?,
-            })
-        })
-        .map_err(|_| "Не вдалося сформувати БЧС.".to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| "Не вдалося сформувати БЧС.".to_string())?;
     xlsx::export_bcs(
         Path::new(&path),
-        &unit.short_name,
+        if unit_name.trim().is_empty() {
+            &unit.short_name
+        } else {
+            unit_name.trim()
+        },
         &date,
         unit.authorized_strength,
         &rows,
@@ -3368,6 +3342,10 @@ fn main() {
             export_application_data,
             import_application_data,
             export_bcs_excel,
+            operations::update_bcs_crew_strength,
+            temporary_personnel::list_temporary_personnel,
+            temporary_personnel::save_temporary_personnel,
+            temporary_personnel::delete_temporary_personnel,
             list_generated_reports,
             operations::list_vehicles,
             operations::create_vehicle,
