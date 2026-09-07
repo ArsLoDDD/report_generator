@@ -1,6 +1,6 @@
 import { open, save } from "@tauri-apps/plugin-dialog"
-import { Archive, Building2, Download, FileSpreadsheet, FolderOpen, GripVertical, Pencil, Plus, Trash2, Upload, Users } from "lucide-react"
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { Archive, Building2, ChevronDown, ChevronRight, Download, FileSpreadsheet, FolderOpen, GripVertical, Pencil, Plus, Trash2, Upload, Users } from "lucide-react"
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { personnelService } from "../../shared/services/personnelService"
 import type { SignerRole, SignerSettings, UnitSettings, UnitStructureNode } from "../../shared/types/domain"
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog"
@@ -9,7 +9,7 @@ import { useNotifications } from "../../shared/ui/NotificationProvider"
 import { PageFrame } from "../../shared/ui/PageFrame"
 import { PageTitle } from "../../shared/ui/PageTitle"
 import { Select } from "../../shared/ui/Select"
-import { defaultUnitStructure, structureWithUnmappedPositions, usableUnitStructure } from "../../shared/unit-structure"
+import { defaultUnitStructure, structureWithUnmappedPositions, usableUnitStructure, type UnitStructureSource } from "../../shared/unit-structure"
 import { operationsService } from "../operations/services/operationsService"
 import { useAppSettings } from "./hooks/useAppSettings"
 import { settingsService } from "./services/settingsService"
@@ -42,23 +42,30 @@ function StructureEditor({ value, onChange }: { value: UnitStructureNode[]; onCh
   const [dragPoint, setDragPoint] = useState({ x: 0, y: 0 });
   const dropTargetRef = useRef<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set(value.filter((item) => item.kind === "group").map((item) => item.id)));
   const roots = value.filter((item) => item.kind === "group" && item.parentId === null).sort((left, right) => left.order - right.order);
   const update = (id: string, patch: Partial<UnitStructureNode>) => onChange(value.map((item) => item.id === id ? { ...item, ...patch } : item));
-  const remove = (id: string) => onChange(value.filter((item) => item.id !== id && item.parentId !== id));
+  const remove = (id: string) => {
+    const removed = new Set([id]);
+    let changed = true;
+    while (changed) { changed = false; value.forEach((item) => { if (item.parentId && removed.has(item.parentId) && !removed.has(item.id)) { removed.add(item.id); changed = true; } }); }
+    onChange(value.filter((item) => !removed.has(item.id)));
+  };
   const add = (parentId: string | null, kind: UnitStructureNode["kind"], name: string) => onChange([...value, { id: `${kind}-${Date.now()}-${value.length}`, parentId, kind, name, order: value.filter((item) => item.parentId === parentId).length }]);
-  const reorder = (sourceId: string | null, targetId: string) => {
+  const toggle = (id: string) => setCollapsedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const reorder = useCallback((sourceId: string | null, targetId: string) => {
     const finish = () => { setDraggedId(null); setDropTargetId(null); };
     if (!sourceId || sourceId === targetId) { finish(); return; }
     const dragged = value.find((item) => item.id === sourceId);
     const target = value.find((item) => item.id === targetId);
-    if (!dragged || !target || dragged.parentId !== target.parentId || dragged.kind !== "position") { finish(); return; }
-    const siblings = value.filter((item) => item.parentId === dragged.parentId && item.kind === "position").sort((left, right) => left.order - right.order);
+    if (!dragged || !target || dragged.parentId !== target.parentId || dragged.kind !== target.kind) { finish(); return; }
+    const siblings = value.filter((item) => item.parentId === dragged.parentId && item.kind === dragged.kind).sort((left, right) => left.order - right.order);
     const from = siblings.findIndex((item) => item.id === sourceId);
     const to = siblings.findIndex((item) => item.id === targetId);
     siblings.splice(to, 0, siblings.splice(from, 1)[0]);
     onChange(value.map((item) => { const index = siblings.findIndex((sibling) => sibling.id === item.id); return index < 0 ? item : { ...item, order: index }; }));
     finish();
-  };
+  }, [onChange, value]);
   const startDrag = (event: ReactPointerEvent<HTMLElement>, id: string) => {
     event.preventDefault();
     event.stopPropagation();
@@ -69,7 +76,7 @@ function StructureEditor({ value, onChange }: { value: UnitStructureNode[]; onCh
   };
   useEffect(() => {
     if (!draggedId) return;
-    const targetAt = (x: number, y: number) => document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-structure-position]")?.dataset.structurePosition ?? null;
+    const targetAt = (x: number, y: number) => document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-structure-node]")?.dataset.structureNode ?? null;
     const move = (event: PointerEvent) => {
       event.preventDefault();
       setDragPoint({ x: event.clientX, y: event.clientY });
@@ -87,28 +94,31 @@ function StructureEditor({ value, onChange }: { value: UnitStructureNode[]; onCh
     window.addEventListener("pointerup", finish, { once: true });
     window.addEventListener("pointercancel", finish, { once: true });
     return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", finish); };
-  }, [draggedId]);
+  }, [draggedId, reorder]);
   const draggedItem = value.find((item) => item.id === draggedId);
   return <section className="unit-structure-editor">
-    <header><div><b>Структура підрозділу</b><span>Тягніть елемент за маркер ліворуч, щоб змінити порядок у своєму блоці.</span></div><button type="button" className="button" onClick={() => add(null, "group", "Новий блок")}><Plus />Блок</button></header>
+    <header><div><b>Структура підрозділу</b><span>Згортайте блоки стрілкою. Тягніть маркер ліворуч, щоб змінювати порядок блоків або посад у них.</span></div><button type="button" className="button" onClick={() => add(null, "group", "Новий блок")}><Plus />Блок</button></header>
     <div className="unit-structure-editor__scroll">{roots.map((root) => {
       const groups = value.filter((item) => item.kind === "group" && item.parentId === root.id).sort((left, right) => left.order - right.order);
       const directPositions = value.filter((item) => item.kind === "position" && item.parentId === root.id).sort((left, right) => left.order - right.order);
       const blocks = [{ id: root.id, name: root.name, positions: directPositions }, ...groups.map((group) => ({ id: group.id, name: group.name, positions: value.filter((item) => item.kind === "position" && item.parentId === group.id).sort((left, right) => left.order - right.order) }))];
-      return <article key={root.id} className="unit-structure-root">
-        <div className="unit-structure-root__title"><input value={root.name} onFocus={() => setEditingId(root.id)} onBlur={() => setEditingId(null)} className={editingId === root.id ? "is-editing" : ""} onChange={(event) => update(root.id, { name: event.target.value })} /><button type="button" className="button icon-only danger" aria-label={`Видалити блок ${root.name}`} onClick={() => remove(root.id)}><Trash2 /></button></div>
-        {blocks.map((block) => <div className="unit-structure-block" key={block.id}>
-          {block.id !== root.id && <div className="unit-structure-block__title"><input value={block.name} onFocus={() => setEditingId(block.id)} onBlur={() => setEditingId(null)} className={editingId === block.id ? "is-editing" : ""} onChange={(event) => update(block.id, { name: event.target.value })} /><button type="button" className="button icon-only danger" aria-label={`Видалити ${block.name}`} onClick={() => remove(block.id)}><Trash2 /></button></div>}
-          <div className="unit-structure-positions">{block.positions.map((position) => <div key={position.id} data-structure-position={position.id} className={`unit-structure-position ${draggedId === position.id ? "is-dragging" : ""} ${dropTargetId === position.id && draggedId !== position.id ? "is-drop-target" : ""}`}><span className="unit-structure-position__handle" onPointerDown={(event)=>startDrag(event,position.id)} title="Перетягнути посаду"><GripVertical /></span><input value={position.name} onFocus={() => setEditingId(position.id)} onBlur={() => setEditingId(null)} className={editingId === position.id ? "is-editing" : ""} onChange={(event) => update(position.id, { name: event.target.value })} /><button type="button" className="button icon-only danger" aria-label={`Видалити ${position.name}`} onClick={() => remove(position.id)}><Trash2 /></button></div>)}</div>
-          <button type="button" className="unit-structure-add" onClick={() => add(block.id, "position", "Нова посада")}><Plus />Додати посаду</button>
-        </div>)}
-        <div className="unit-structure-actions"><button type="button" className="button" onClick={() => add(root.id, "group", "Нове відділення")}><Plus />Підблок / відділення</button></div>
+      const rootCollapsed = collapsedIds.has(root.id);
+      return <article key={root.id} data-structure-node={root.id} className={`unit-structure-root ${draggedId === root.id ? "is-dragging" : ""} ${dropTargetId === root.id && draggedId !== root.id ? "is-drop-target" : ""}`}>
+        <div className="unit-structure-root__title"><button type="button" className="unit-structure-collapse" aria-label={`${rootCollapsed ? "Розгорнути" : "Згорнути"} ${root.name}`} onClick={() => toggle(root.id)}>{rootCollapsed ? <ChevronRight /> : <ChevronDown />}</button><span className="unit-structure-position__handle" onPointerDown={(event)=>startDrag(event,root.id)} title="Перетягнути блок"><GripVertical /></span><input value={root.name} onFocus={() => setEditingId(root.id)} onBlur={() => setEditingId(null)} className={editingId === root.id ? "is-editing" : ""} onChange={(event) => update(root.id, { name: event.target.value })} /><button type="button" className="button icon-only danger" aria-label={`Видалити блок ${root.name}`} onClick={() => remove(root.id)}><Trash2 /></button></div>
+        {!rootCollapsed && <>{blocks.map((block) => {
+          const blockCollapsed = collapsedIds.has(block.id);
+          return <div data-structure-node={block.id} className={`unit-structure-block ${block.id !== root.id && draggedId === block.id ? "is-dragging" : ""} ${block.id !== root.id && dropTargetId === block.id && draggedId !== block.id ? "is-drop-target" : ""}`} key={block.id}>
+            {block.id !== root.id && <div className="unit-structure-block__title"><button type="button" className="unit-structure-collapse" aria-label={`${blockCollapsed ? "Розгорнути" : "Згорнути"} ${block.name}`} onClick={() => toggle(block.id)}>{blockCollapsed ? <ChevronRight /> : <ChevronDown />}</button><span className="unit-structure-position__handle" onPointerDown={(event)=>startDrag(event,block.id)} title="Перетягнути блок"><GripVertical /></span><input value={block.name} onFocus={() => setEditingId(block.id)} onBlur={() => setEditingId(null)} className={editingId === block.id ? "is-editing" : ""} onChange={(event) => update(block.id, { name: event.target.value })} /><button type="button" className="button icon-only danger" aria-label={`Видалити ${block.name}`} onClick={() => remove(block.id)}><Trash2 /></button></div>}
+            {!blockCollapsed && <><div className="unit-structure-positions">{block.positions.map((position) => <div key={position.id} data-structure-node={position.id} className={`unit-structure-position ${draggedId === position.id ? "is-dragging" : ""} ${dropTargetId === position.id && draggedId !== position.id ? "is-drop-target" : ""}`}><span className="unit-structure-position__handle" onPointerDown={(event)=>startDrag(event,position.id)} title="Перетягнути посаду"><GripVertical /></span><input value={position.name} onFocus={() => setEditingId(position.id)} onBlur={() => setEditingId(null)} className={editingId === position.id ? "is-editing" : ""} onChange={(event) => update(position.id, { name: event.target.value })} /><button type="button" className="button icon-only danger" aria-label={`Видалити ${position.name}`} onClick={() => remove(position.id)}><Trash2 /></button></div>)}</div>
+            <button type="button" className="unit-structure-add" onClick={() => add(block.id, "position", "Нова посада")}><Plus />Додати посаду</button></>}
+          </div>;
+        })}<div className="unit-structure-actions"><button type="button" className="button" onClick={() => add(root.id, "group", "Нове відділення")}><Plus />Підблок / відділення</button></div></>}
       </article>;
     })}</div>{draggedItem&&<div className="unit-structure-drag-preview" style={{left:dragPoint.x,top:dragPoint.y}}><GripVertical/><b>{draggedItem.name}</b></div>}
   </section>;
 }
 
-function UnitEditor({ initial, sourcePositions, onClose, onSave, busy }: { initial: UnitSettings; sourcePositions: string[]; onClose: () => void; onSave: (unit: UnitSettings) => Promise<void>; busy: boolean }) {
+function UnitEditor({ initial, sourcePositions, onClose, onSave, busy }: { initial: UnitSettings; sourcePositions: UnitStructureSource[]; onClose: () => void; onSave: (unit: UnitSettings) => Promise<void>; busy: boolean }) {
   const [unit, setUnit] = useState<UnitSettings>({ ...initial, structure: structureWithUnmappedPositions({ ...initial, structure: usableUnitStructure(initial) }, sourcePositions) });
   const changeKind = (kind: UnitSettings["kind"]) => setUnit((current) => ({ ...current, kind, structure: current.structure?.length ? current.structure : defaultUnitStructure(kind) }));
   return <Modal title="Параметри підрозділу" onClose={onClose} className="unit-editor-modal"><div className="operation-editor__body">
@@ -129,10 +139,10 @@ export function SettingsPage() {
   const [editor, setEditor] = useState<SignerRole | "new" | null>(null);
   const [deleting, setDeleting] = useState<SignerRole | null>(null);
   const [unitEditor, setUnitEditor] = useState(false);
-  const [sourcePositions, setSourcePositions] = useState<string[]>([]);
+  const [sourcePositions, setSourcePositions] = useState<UnitStructureSource[]>([]);
   const [options, setOptions] = useState({ database: true, settings: true, customVariables: true, templates: true, reports: false });
   useEffect(() => { if (errorMessage) notify(errorMessage, "error"); }, [errorMessage, notify]);
-  useEffect(() => { void operationsService.listStaffingRecords().then((records) => setSourcePositions(records.map((record) => record.position))).catch(() => setSourcePositions([])); }, []);
+  useEffect(() => { void operationsService.listStaffingRecords().then((records) => setSourcePositions(records.map((record) => ({ position: record.position, slotId: record.staffSlotId })))).catch(() => setSourcePositions([])); }, []);
   const createBackup = async () => { try { await settingsService.createDatabaseBackup(); notify("Резервну копію бази даних створено.", "success"); } catch { notify("Не вдалося створити резервну копію бази даних.", "error"); } };
   const importExcel = async (mode: "append" | "replace") => { try { const path = await open({ title: "Імпорт Excel-бази даних", filters: [{ name: "Таблиця Excel", extensions: ["xlsx"] }] }); if (!path || Array.isArray(path)) return; await personnelService.importExcel(path, mode); setExcelOpen(false); notify("Excel-базу імпортовано.", "success"); window.location.reload(); } catch (error) { notify(error instanceof Error ? error.message : "Не вдалося імпортувати Excel-базу даних.", "error"); } };
   const exportExcel = async () => { try { const path = await save({ title: "Експорт Excel-бази даних", defaultPath: "Excel-база.xlsx", filters: [{ name: "Таблиця Excel", extensions: ["xlsx"] }] }); if (!path) return; await personnelService.exportExcel(path.endsWith(".xlsx") ? path : `${path}.xlsx`); notify("Excel-базу експортовано.", "success"); } catch { notify("Не вдалося експортувати Excel-базу даних.", "error"); } };

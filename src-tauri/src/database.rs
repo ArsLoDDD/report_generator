@@ -2,6 +2,132 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 
+pub(crate) fn is_valid_bcs_location(value: &str) -> bool {
+    if value.trim().is_empty() {
+        return true;
+    }
+    let schema: serde_json::Value =
+        serde_json::from_str(include_str!("../../src/shared/bcs-schema.json"))
+            .expect("вбудований довідник БЧС має бути коректним JSON");
+    schema["locations"].as_array().is_some_and(|locations| {
+        locations
+            .iter()
+            .any(|item| item.as_str() == Some(value.trim()))
+    })
+}
+
+/// A штатна посада is assembled from several sources (Excel, structure and
+/// transfers). Keep a single canonical spelling so it remains comparable to
+/// the skeleton: lowercase text, "роти" in the unit descriptor and one
+/// occurrence of the military-unit suffix with an uppercase Ukrainian "А".
+fn canonical_unit_code(value: &str) -> Option<String> {
+    let chars = value.chars().collect::<Vec<_>>();
+    (chars.len() == 5
+        && matches!(chars.first(), Some('а') | Some('a'))
+        && chars
+            .iter()
+            .skip(1)
+            .all(|character| character.is_ascii_digit()))
+    .then(|| format!("А{}", chars.iter().skip(1).collect::<String>()))
+}
+
+pub(crate) fn canonical_staff_position(value: &str) -> String {
+    let words = value
+        .trim()
+        .to_lowercase()
+        .split_whitespace()
+        .map(|word| {
+            if word == "рота" {
+                "роти".to_string()
+            } else {
+                word.to_string()
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut normalized = Vec::new();
+    let mut has_unit_code = false;
+    let mut index = 0;
+    while index < words.len() {
+        let raw_code = if words.get(index).is_some_and(|word| word == "військової")
+            && words.get(index + 1).is_some_and(|word| word == "частини")
+        {
+            words.get(index + 2)
+        } else {
+            None
+        };
+        if let Some(raw_code) = raw_code {
+            if let Some(code) = canonical_unit_code(raw_code) {
+                if !has_unit_code {
+                    normalized.push("військової".into());
+                    normalized.push("частини".into());
+                    normalized.push(code);
+                    has_unit_code = true;
+                }
+                index += 3;
+                continue;
+            }
+        }
+        normalized.push(canonical_unit_code(&words[index]).unwrap_or_else(|| words[index].clone()));
+        index += 1;
+    }
+    normalized.join(" ")
+}
+
+pub(crate) fn normalize_staff_positions(connection: &Connection) -> Result<(), String> {
+    let rows = {
+        let mut statement = connection
+            .prepare("SELECT id, position FROM personnel")
+            .map_err(|e| e.to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        rows
+    };
+    for (id, position) in rows {
+        let normalized = canonical_staff_position(&position);
+        if normalized != position {
+            connection
+                .execute(
+                    "UPDATE personnel SET position=?1,updated_at=CURRENT_TIMESTAMP WHERE id=?2",
+                    params![normalized, id],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn normalize_bcs_locations(connection: &Connection) -> Result<(), String> {
+    for table in ["personnel", "temporary_personnel"] {
+        let query = format!(
+            "SELECT DISTINCT current_location FROM {table} WHERE trim(current_location)<>''"
+        );
+        let invalid = {
+            let mut statement = connection.prepare(&query).map_err(|e| e.to_string())?;
+            let values = statement
+                .query_map([], |row| row.get::<_, String>(0))
+                .map_err(|e| e.to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| e.to_string())?;
+            values
+                .into_iter()
+                .filter(|value| !is_valid_bcs_location(value))
+                .collect::<Vec<_>>()
+        };
+        let update = format!("UPDATE {table} SET current_location='' WHERE current_location=?1");
+        for value in invalid {
+            connection
+                .execute(&update, [value])
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomFieldDefinition {
@@ -493,6 +619,8 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
                 .map_err(|_| format!("Не вдалося додати основне поле «{field_key}»."))?;
         }
     }
+    normalize_bcs_locations(connection)?;
+    normalize_staff_positions(connection)?;
     Ok(())
 }
 
@@ -1045,6 +1173,14 @@ mod tests {
     }
 
     #[test]
+    fn canonicalizes_staff_position_once_with_the_unit_in_genitive() {
+        assert_eq!(
+            canonical_staff_position("Оператор 3 відділення 4 взводу Рота БпАК військової частини А0000 військової частини А0000"),
+            "оператор 3 відділення 4 взводу роти бпак військової частини А0000"
+        );
+    }
+
+    #[test]
     fn migrates_v1_personnel_with_an_empty_gender() {
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch("CREATE TABLE personnel (id INTEGER PRIMARY KEY, rank TEXT NOT NULL, surname TEXT NOT NULL, given_name TEXT NOT NULL, patronymic TEXT NOT NULL DEFAULT '', position TEXT NOT NULL, tax_id TEXT NOT NULL UNIQUE, birth_date TEXT NOT NULL, education_level TEXT NOT NULL, education_details TEXT NOT NULL, armed_forces_service_start_date TEXT NOT NULL, position_assigned_date TEXT NOT NULL, position_assignment_order TEXT NOT NULL, military_id TEXT NOT NULL, assigned_vehicle_name TEXT NOT NULL, assigned_vehicle_registration TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();
@@ -1216,5 +1352,26 @@ mod tests {
         let counts = connection.prepare("SELECT position_type,COUNT(*) FROM positions GROUP BY position_type ORDER BY position_type").unwrap().query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(counts.len(), 5);
         assert!(counts.iter().all(|(_, count)| *count == 2));
+    }
+
+    #[test]
+    fn bcs_location_is_limited_to_the_shared_reference() {
+        assert!(is_valid_bcs_location(""));
+        assert!(is_valid_bcs_location("На позиції"));
+        assert!(is_valid_bcs_location("Логістика на позиції"));
+        assert!(!is_valid_bcs_location("Довільне місце"));
+
+        let connection = Connection::open_in_memory().unwrap();
+        initialise(&connection).unwrap();
+        connection.execute("INSERT INTO temporary_personnel(full_name,arrived_at,current_location) VALUES('Тест','2026-09-07','Довільне місце')", []).unwrap();
+        initialise(&connection).unwrap();
+        let location: String = connection
+            .query_row(
+                "SELECT current_location FROM temporary_personnel",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(location.is_empty());
     }
 }

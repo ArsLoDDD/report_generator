@@ -37,6 +37,12 @@ describe("PersonnelPage CRUD", () => {
     expect(screen.getByTitle("Неповні дані")).toBeInTheDocument();
   });
 
+  it("loads every page when searching so a person outside the first page can be found", async () => {
+    const props = renderPage({ totalCount: 46, hasMore: true });
+    fireEvent.change(screen.getByPlaceholderText("Пошук за ПІБ, ІПН або посадою…"), { target: { value: "Струк" } });
+    await waitFor(() => expect(props.onLoadMore).toHaveBeenCalledTimes(1));
+  });
+
   it("creates a person through the shared editor form", async () => {
     const props = renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Додати військовослужбовця" }));

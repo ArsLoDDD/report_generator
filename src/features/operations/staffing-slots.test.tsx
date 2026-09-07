@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { buildStaffSlots, projectedOccupants, transferConflicts, type SlotTransfer } from "./staffing-slots";
+import { buildStaffSlots, canonicalStaffPosition, projectedOccupants, transferConflicts, type SlotTransfer } from "./staffing-slots";
 import { StaffTransferModal } from "./StaffTransferModal";
 import { buildStaffingHierarchy } from "./StaffingBcsPage";
 import { bcsExportRows, bcsGroups, bcsSummary, specializedStructuralGroup, temporaryStaffingRecord } from "./bcs-model";
 import type { StaffingRecord } from "./types";
 import type { UnitSettings } from "../../shared/types/domain";
-import { structureWithUnmappedPositions } from "../../shared/unit-structure";
+import { defaultUnitStructure, structureWithUnmappedPositions } from "../../shared/unit-structure";
 
 afterEach(cleanup);
 const unit: UnitSettings = { kind: "Рота", shortName: "Тест", authorizedStrength: 50 };
@@ -14,6 +14,9 @@ const person = (id: number, position: string): StaffingRecord => ({ personnelId:
 const move = (p: StaffingRecord, slotId: string): SlotTransfer => ({ personnelId:p.personnelId,position:"Водій-електрик",slotId,expectedPosition:p.position,expectedOccupantIds:[] });
 
 describe("Конкретні місця у штаті", () => {
+  it("збирає посаду в єдиному форматі без дубля номера частини", () => {
+    expect(canonicalStaffPosition(["Оператор","3 відділення","4 взводу","Рота БпАК військової частини А0000","військової частини А0000"])).toBe("оператор 3 відділення 4 взводу роти бпак військової частини А0000");
+  });
   it("розрізняє однакові назви між взводами та відділеннями", () => {
     const people=[person(1,"водій-електрик 1 відділення 1 взводу"),person(2,"водій-електрик 1 відділення 2 взводу")];
     const slots=buildStaffSlots(people,unit);
@@ -27,9 +30,25 @@ describe("Конкретні місця у штаті", () => {
     const p={...person(1,"водій-електрик 1 відділення 2 взводу"),platoon:"1 взвод",crewId:3};
     expect(buildStaffSlots([p],unit).find(s=>s.occupants.length)?.id).toBe("platoon-2-department-1-3");
   });
+  it("створює відсутній взвод зі штатним каркасом за посадою людини", () => {
+    const position="водій-електрик 1 відділення 4 взводу роти";
+    const structure=structureWithUnmappedPositions(unit,[position]);
+    expect(structure.find((item)=>item.parentId===null&&item.name==="4 взвод")).toBeDefined();
+    expect(structure.filter((item)=>item.parentId==="inferred-platoon-4"&&item.kind==="group").map((item)=>item.name)).toEqual(["Командування взводу","1 відділення","2 відділення","3 відділення"]);
+    const slots=buildStaffSlots([person(1,position)],{...unit,structure});
+    expect(slots.find((slot)=>slot.occupants[0]?.personnelId===1)).toMatchObject({name:"Водій-електрик",path:"4 взвод / 1 відділення"});
+    expect(slots.find((slot)=>slot.path==="4 взвод / 2 відділення"&&slot.name==="Оператор")?.occupants).toHaveLength(0);
+  });
+  it("повертає командира взводу зі старого 'Інші' у правильний взвод", () => {
+    const position="командир 3 взводу безпілотних авіаційних комплексів роти";
+    const legacy={id:"other-position-old-commander",parentId:"other",kind:"position" as const,name:position,order:0};
+    const structure=structureWithUnmappedPositions({...unit,structure:[...defaultUnitStructure("Рота"),{id:"other",parentId:null,kind:"group" as const,name:"Інші",order:99},legacy]},[{position,slotId:legacy.id}]);
+    expect(structure.some((item)=>item.id===legacy.id)).toBe(false);
+    expect(buildStaffSlots([{...person(1,position),staffSlotId:legacy.id}],{...unit,structure}).find((slot)=>slot.occupants[0]?.personnelId===1)?.id).toBe("platoon-3-commander");
+  });
   it("розрізняє два ідентичні місця навіть у тому самому блоці за ID", () => {
     const structure: UnitSettings["structure"]=[{id:"g",parentId:null,kind:"group",name:"Інші",order:0},{id:"a",parentId:"g",kind:"position",name:"Водій",order:0},{id:"b",parentId:"g",kind:"position",name:"Водій",order:1}];
-    expect(buildStaffSlots([person(1,"Водій")],{...unit,structure}).every(s=>!s.occupants.length)).toBe(true);
+    expect(buildStaffSlots([person(1,"Водій")],{...unit,structure}).map((slot)=>slot.occupants.length)).toEqual([1,0]);
     const slots=buildStaffSlots([{...person(1,"Водій"),staffSlotId:"b"}],{...unit,structure});
     expect(slots.map(s=>s.occupants.length)).toEqual([0,1]);
   });
@@ -77,8 +96,12 @@ describe("БЧС та тимчасово прибулі", () => {
     const transferred={...person(2,"оператор"),crewId:2,crewName:"Другий",actualStrength:3,currentLocation:"ЗБЗ"};
     const logistics={...person(3,"водій"),crewId:2,crewName:"Другий",actualStrength:3,currentLocation:"Логістика на позиції"};
     const rows=bcsExportRows([first,transferred,logistics]);
-    expect(rows.find((row)=>row.crewName==="Перший")).toMatchObject({crewActual:"0",crewOfficial:"4"});
-    expect(rows.find((row)=>row.crewName==="Другий")).toMatchObject({crewActual:"2",crewOfficial:"3"});
+    expect(rows.find((row)=>row.crewName==="ПЕРШИЙ")).toMatchObject({crewActual:"0",crewOfficial:"4"});
+    expect(rows.find((row)=>row.crewName==="ДРУГИЙ")).toMatchObject({crewActual:"2",crewOfficial:"3"});
+  });
+  it("форматує назви позиції, екіпажу та БпАК у БЧС великими літерами", () => {
+    const record={...person(1,"оператор"),crewId:7,crewName:"Мугай-Тай",crewPositionName:"позиція Сільпо",uavName:"Mavic 3 pro",actualStrength:1,currentLocation:"На позиції"};
+    expect(bcsExportRows([record])[0]).toMatchObject({positionName:"ПОЗИЦІЯ СІЛЬПО",crewName:"МУГАЙ-ТАЙ",uavName:"MAVIC 3 PRO"});
   });
   it("тимчасово прибулі не змінюють штат і рахуються окремо від місця перебування", () => {
     const arrival=temporaryStaffingRecord({id:1,fullName:"Прибула людина",rank:"",duties:"",arrivedAt:"2026-09-06",currentLocation:"УПР",notes:"",category:"Тимчасово прибулі",groupName:""});
@@ -121,6 +144,15 @@ describe("БЧС та тимчасово прибулі", () => {
     expect(structure.some((item)=>item.id==="legacy-position")).toBe(false);
     const slot=buildStaffSlots([person(1,position)],{...unit,structure}).find((item)=>item.occupants.length);
     expect(slot).toMatchObject({section:"Відділення збору та обробки інформації",name:"дешифрувальник розвідувальних матеріалів з безпілотних літальних апаратів"});
+  });
+  it("не зливає однойменні посади спеціального відділення в один айтем", () => {
+    const position="дешифрувальник відділення збору та обробки інформації роти";
+    const existing=Array.from({length:5},(_,index)=>({id:`existing-${index}`,parentId:"special-collection-processing",kind:"position" as const,name:"дешифрувальник",order:index}));
+    const records=Array.from({length:8},(_,index)=>person(index+1,position));
+    const structure=structureWithUnmappedPositions({...unit,structure:[{id:"special-collection-processing",parentId:null,kind:"group",name:"Відділення збору та обробки інформації",order:0},...existing]},records.map((record)=>({position:record.position,slotId:record.staffSlotId})));
+    const group=structure.find((item)=>item.kind==="group"&&item.name==="Відділення збору та обробки інформації");
+    expect(structure.filter((item)=>item.kind==="position"&&item.parentId===group?.id)).toHaveLength(8);
+    expect(buildStaffSlots(records,{...unit,structure}).filter((slot)=>slot.occupants.length).map((slot)=>slot.occupants[0].personnelId)).toEqual([1,2,3,4,5,6,7,8]);
   });
   it("сортує екіпажі за статусом та не зараховує рядові відділення до управління роти", () => {
     const inactive={...person(1,"оператор"),crewId:1,crewName:"А",crewStatus:"Не активний"};

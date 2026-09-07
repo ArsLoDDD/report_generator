@@ -65,6 +65,9 @@ pub fn save(connection: &rusqlite::Connection, person: &TemporaryPerson) -> Resu
     if person.full_name.trim().is_empty() || person.arrived_at.trim().is_empty() {
         return Err("Вкажіть ПІБ та дату прибуття.".into());
     }
+    if !crate::database::is_valid_bcs_location(&person.current_location) {
+        return Err("Оберіть значення «Де знаходиться» з довідника БЧС.".into());
+    }
     if person.id == 0 {
         connection.execute("INSERT INTO temporary_personnel(full_name,rank,duties,arrived_at,current_location,notes,category,group_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",rusqlite::params![person.full_name.trim(),person.rank,person.duties,person.arrived_at,person.current_location,person.notes,person.category,person.group_name]).map_err(|e|e.to_string())?;
     } else if connection.execute("UPDATE temporary_personnel SET full_name=?1,rank=?2,duties=?3,arrived_at=?4,current_location=?5,notes=?6,category=?7,group_name=?8 WHERE id=?9",rusqlite::params![person.full_name.trim(),person.rank,person.duties,person.arrived_at,person.current_location,person.notes,person.category,person.group_name,person.id]).map_err(|e|e.to_string())? != 1 { return Err("Запис БЧС не знайдено.".into()); }

@@ -63,6 +63,9 @@ export function PersonnelPage({ people, totalCount, hasMore, isLoading, isLoadin
   const selectedPerson = people.find((person) => person.id === selectedId) ?? null;
   useEffect(() => { const refresh = () => { void onRefresh(); }; window.addEventListener("personnel-refresh", refresh); return () => window.removeEventListener("personnel-refresh", refresh); }, [onRefresh]);
   useEffect(() => { void settingsService.get().then((settings) => setVisibleCoreColumns(settings.visiblePersonnelColumns ?? [])).catch(() => undefined); }, []);
+  // The register is loaded in pages, but search must cover the whole database.
+  // While a query is active, quietly fetch the remaining pages one by one.
+  useEffect(() => { if (query.trim() && hasMore && !isLoadingMore) void onLoadMore(); }, [query, hasMore, isLoadingMore, onLoadMore]);
   const ranks = useMemo(() => [...new Set(people.map((person) => person.rank))], [people]);
   const educationLevels = useMemo(() => [...new Set(people.map((person) => person.educationLevel).filter(Boolean))], [people]);
   const filteredPeople = people.filter((person) => (rank === "all" || person.rank === rank) && (education === "all" || person.educationLevel === education) && includesSearch(query, person.fullName, person.surname, person.givenName, person.taxId, person.position, person.rank, person.militaryId, ...Object.values(person.coreFields ?? {}), ...Object.values(person.customFields ?? {})));

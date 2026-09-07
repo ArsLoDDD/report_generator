@@ -1071,8 +1071,24 @@ fn add_selected_positions(
     position_ids: &[i64],
     values: &mut HashMap<String, Value>,
 ) -> Result<(), String> {
+    type PositionRow = (
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+    );
     for (index, id) in position_ids.iter().enumerate() {
-        let row:(String,String,String,String,String,String,String,String,String,String,String,String,String,String)=connection.query_row("SELECT p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.condition_level,p.field_type,p.size,p.mgrs,COALESCE(GROUP_CONCAT(c.name, ', '),''),p.notes,p.suitable_uav_text FROM positions p LEFT JOIN crews c ON c.position_id=p.id WHERE p.id=?1 GROUP BY p.id",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get::<_,i64>(7)?.to_string(),r.get(8)?,r.get(9)?,r.get(10)?,r.get(11)?,r.get(12)?,r.get(13)?))).map_err(|_|"Не вдалося прочитати вибрану позицію.".to_string())?;
+        let row: PositionRow=connection.query_row("SELECT p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.condition_level,p.field_type,p.size,p.mgrs,COALESCE(GROUP_CONCAT(c.name, ', '),''),p.notes,p.suitable_uav_text FROM positions p LEFT JOIN crews c ON c.position_id=p.id WHERE p.id=?1 GROUP BY p.id",[id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get::<_,i64>(7)?.to_string(),r.get(8)?,r.get(9)?,r.get(10)?,r.get(11)?,r.get(12)?,r.get(13)?))).map_err(|_|"Не вдалося прочитати вибрану позицію.".to_string())?;
         let data = [
             ("name", row.0),
             ("position_type", row.1),

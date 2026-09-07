@@ -191,7 +191,7 @@ pub fn create_import(connection: &Connection, draft: PersonnelDraft) -> Result<P
 }
 
 fn create_unchecked(connection: &Connection, draft: PersonnelDraft) -> Result<Personnel, String> {
-    connection.execute("INSERT INTO personnel (rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, gender) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)", params![draft.rank, draft.surname, draft.given_name, draft.patronymic, draft.position, draft.tax_id, draft.birth_date, draft.education_level, draft.education_details, draft.armed_forces_service_start_date, draft.position_assigned_date, draft.position_assignment_order, draft.military_id, draft.gender])
+    connection.execute("INSERT INTO personnel (rank, surname, given_name, patronymic, position, tax_id, birth_date, education_level, education_details, armed_forces_service_start_date, position_assigned_date, position_assignment_order, military_id, gender) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)", params![draft.rank, draft.surname, draft.given_name, draft.patronymic, crate::database::canonical_staff_position(&draft.position), draft.tax_id, draft.birth_date, draft.education_level, draft.education_details, draft.armed_forces_service_start_date, draft.position_assigned_date, draft.position_assignment_order, draft.military_id, draft.gender])
         .map_err(|_| "Не вдалося зберегти військовослужбовця. Перевірте унікальність ІПН.".to_string())?;
     let id = connection.last_insert_rowid();
     sync_vehicle(connection, id, &draft)?;
@@ -221,7 +221,7 @@ pub fn update(
     draft: PersonnelDraft,
 ) -> Result<Personnel, String> {
     validate(&draft)?;
-    let updated = connection.execute("UPDATE personnel SET rank=?1, surname=?2, given_name=?3, patronymic=?4, position=?5, tax_id=?6, birth_date=?7, education_level=?8, education_details=?9, armed_forces_service_start_date=?10, position_assigned_date=?11, position_assignment_order=?12, military_id=?13, gender=?14, updated_at=CURRENT_TIMESTAMP WHERE id=?15", params![draft.rank, draft.surname, draft.given_name, draft.patronymic, draft.position, draft.tax_id, draft.birth_date, draft.education_level, draft.education_details, draft.armed_forces_service_start_date, draft.position_assigned_date, draft.position_assignment_order, draft.military_id, draft.gender, id])
+    let updated = connection.execute("UPDATE personnel SET rank=?1, surname=?2, given_name=?3, patronymic=?4, position=?5, tax_id=?6, birth_date=?7, education_level=?8, education_details=?9, armed_forces_service_start_date=?10, position_assigned_date=?11, position_assignment_order=?12, military_id=?13, gender=?14, updated_at=CURRENT_TIMESTAMP WHERE id=?15", params![draft.rank, draft.surname, draft.given_name, draft.patronymic, crate::database::canonical_staff_position(&draft.position), draft.tax_id, draft.birth_date, draft.education_level, draft.education_details, draft.armed_forces_service_start_date, draft.position_assigned_date, draft.position_assignment_order, draft.military_id, draft.gender, id])
         .map_err(|_| "Не вдалося оновити військовослужбовця.".to_string())?;
     if updated == 0 {
         return Err(
@@ -358,7 +358,7 @@ mod tests {
             .core_fields
             .insert("passport_series".into(), "МС".into());
         let updated = update(&connection, saved.id, changed).unwrap();
-        assert_eq!(updated.position, "Командир відділення, в/ч А0000");
+        assert_eq!(updated.position, "командир відділення, в/ч А0000");
         assert_eq!(updated.core_fields["passport_series"], "МС");
         delete(&connection, saved.id).unwrap();
         assert!(list(&connection).unwrap().is_empty());

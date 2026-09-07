@@ -13,8 +13,8 @@
 		"tauri:build:simple": "tauri build --config src-tauri/tauri.simple.conf.json --bundles nsis",
 		"tauri:build:advanced": "tauri build --config src-tauri/tauri.advanced.conf.json --bundles nsis",
 		"test": "vitest run",
-		"lint": "eslint src",
-		"check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml",
+		"lint": "eslint src --max-warnings=0",
+		"check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
 		"test:full": "npm run lint && npm run test && npm run build && npm run check:rust && cargo test --manifest-path src-tauri/Cargo.toml"
 	},
 	"dependencies": {

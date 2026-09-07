@@ -330,8 +330,10 @@ pub fn export(
         sheet.push_str(&format!("<row r=\"{r}\" ht=\"24\" customHeight=\"1\">"));
         if let Some(label) = labels.get(index) {
             sheet.push_str(&text_cell(4, r, label, 3));
-            if let Some(value) = summary_values.get(index) {
-                sheet.push_str(&number_cell(5, r, *value, &summary_formulas[index], 3));
+            if let (Some(value), Some(formula)) =
+                (summary_values.get(index), summary_formulas.get(index))
+            {
+                sheet.push_str(&number_cell(5, r, *value, formula, 3));
             } else {
                 sheet.push_str(&text_cell(5, r, "", 3));
             }

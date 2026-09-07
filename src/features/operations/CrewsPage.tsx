@@ -17,14 +17,15 @@ const statuses = ["Працюючий", "Формується", "Не актив
 const uavTypes = ["Літаковий Ударний", "Літаковий Розвідувальний", "Коптер", "Бомбер", "ФПВ", "НРК", "ФПВ Перехоплювач"];
 const includes = (query:string,...values:(string|null|undefined)[]) => values.join(" ").toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"));
 async function allPersonnel(){const result:Person[]=[];let offset=0;while(true){const page=await personnelService.list(offset,500);result.push(...page.items);offset=result.length;if(offset>=page.totalCount||!page.items.length)return result;}}
+function CrewsLoadingSkeleton(){return <section className="crews-loading-skeleton" aria-label="Завантаження екіпажів">{Array.from({length:6},(_,index)=><article className="panel" key={index}><i className="skeleton-line skeleton-line--short"/><i className="skeleton-line skeleton-line--title"/><div>{Array.from({length:4},(__,fact)=><i className="skeleton-line" key={fact}/>)}</div><i className="skeleton-line skeleton-line--button"/></article>)}</section>;}
 
 export function CrewsPage({ people }: { people: Person[] }) {
-  const [items,setItems]=useState<Crew[]>([]); const [positions,setPositions]=useState<Position[]>([]); const [query,setQuery]=useState("");
+  const [items,setItems]=useState<Crew[]>([]); const [positions,setPositions]=useState<Position[]>([]); const [query,setQuery]=useState(""); const [isLoading,setIsLoading]=useState(true);
   const [editing,setEditing]=useState<Crew|null>(null); const [draft,setDraft]=useState<CrewDraft>(emptyDraft); const [open,setOpen]=useState(false); const [memberTab,setMemberTab]=useState<"official"|"actual">("official");
   const [availablePeople,setAvailablePeople]=useState<Person[]>(people); const [pickerOpen,setPickerOpen]=useState(false); const [pickerQuery,setPickerQuery]=useState("");
   const [deleting,setDeleting]=useState<Crew|null>(null); const [deletingBusy,setDeletingBusy]=useState(false);
   const {notify}=useNotifications();
-  const reload=useCallback(()=>void Promise.all([operationsService.listCrews(),operationsService.listPositions(),allPersonnel()]).then(([crews,nextPositions,nextPeople])=>{setItems(crews);setPositions(nextPositions);setAvailablePeople(nextPeople);}).catch(()=>notify("Не вдалося завантажити екіпажі.","error")),[notify]);
+  const reload=useCallback(()=>{setIsLoading(true);void Promise.all([operationsService.listCrews(),operationsService.listPositions(),allPersonnel()]).then(([crews,nextPositions,nextPeople])=>{setItems(crews);setPositions(nextPositions);setAvailablePeople(nextPeople);}).catch(()=>notify("Не вдалося завантажити екіпажі.","error")).finally(()=>setIsLoading(false));},[notify]);
   useEffect(reload,[reload]);
   const filtered=useMemo(()=>items.filter((crew)=>includes(query,crew.name,crew.status,crew.sector,crew.uavName,crew.uavType,crew.positionName)),[items,query]);
   const close=()=>{setOpen(false);setEditing(null);setDraft(emptyDraft());setMemberTab("official");setPickerOpen(false);};
@@ -47,6 +48,7 @@ export function CrewsPage({ people }: { people: Person[] }) {
       <div className="crew-card__members"><div><span>Офіційний склад</span><b>{crew.members.length}</b></div><div><span>Фактичний склад</span><b>{crew.actualMembers.length}</b></div></div>
       <footer><button className="button" onClick={()=>edit(crew)}><Pencil/>Редагувати</button><button className="icon-button danger" title="Видалити екіпаж" onClick={()=>setDeleting(crew)}><Trash2/></button></footer>
     </article>)}{!filtered.length&&<section className="panel personnel-state"><UsersRound/><b>Екіпажів поки немає</b><span>Створіть екіпаж і сформуйте його склад.</span></section>}</div>
+    {isLoading&&<div className="operations-loading-overlay"><CrewsLoadingSkeleton/></div>}
     {open&&<Modal title={editing?"Редагування екіпажу":"Новий екіпаж"} onClose={close} className="crew-editor"><div className="crew-editor__body"><div className="operation-editor__body">
       <label className="form-field"><span>Назва <b>*</b></span><input autoFocus value={draft.name} onChange={(e)=>setDraft({...draft,name:e.target.value})}/></label>
       <label className="form-field"><span>Статус</span><Select ariaLabel="Статус екіпажу" value={draft.status} onChange={(status)=>setDraft({...draft,status})} options={statuses.map((value)=>({value,label:value}))}/></label>
