@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { reportGenerationService, type GeneratedReport, type TemplateValidationResult } from "../services/reportGenerationService";
+import { invalidateGeneratedReports } from "../../generated-reports/hooks/useGeneratedReports";
 
 export function useReportGeneration() {
   const [validation, setValidation] = useState<TemplateValidationResult | null>(null);
@@ -36,7 +37,9 @@ export function useReportGeneration() {
       if (!result.isValid) {
         return;
       }
-      setGeneratedReport(await reportGenerationService.generateReport({ templatePath, personnelIds, vehicleIds, crewIds, equipmentIds, positionIds, parameters }));
+      const generated = await reportGenerationService.generateReport({ templatePath, personnelIds, vehicleIds, crewIds, equipmentIds, positionIds, parameters });
+      setGeneratedReport(generated);
+      invalidateGeneratedReports();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не вдалося створити рапорт. Спробуйте ще раз.");
     } finally {

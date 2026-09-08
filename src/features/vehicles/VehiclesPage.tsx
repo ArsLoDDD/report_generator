@@ -6,6 +6,7 @@ import { Modal } from "../../shared/ui/Modal";
 import { SearchInput } from "../../shared/ui/SearchInput";
 import { Select } from "../../shared/ui/Select";
 import { FilterButton } from "../../shared/ui/FilterButton";
+import { EntityTable, type EntityTableColumn } from "../../shared/ui/data-table/EntityTable";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import type { CustomFieldDefinition, Person } from "../../shared/types/domain";
 import { personnelService } from "../../shared/services/personnelService";
@@ -13,6 +14,7 @@ import { settingsService } from "../settings/services/settingsService";
 import { vehiclesService } from "./services/vehiclesService";
 import type { Vehicle } from "./types";
 import type { Crew } from "../operations/types";
+import { subscribeToAppDataEvent } from "../../shared/events/appEvents";
 
 const statuses = ["Справний", "Потребує ремонту", "Ремонтується", "Несправний"];
 const statusOptions = statuses.map((value) => ({ value, label: value }));
@@ -67,8 +69,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
       loadCustomFields();
     };
     loadCustomFields();
-    window.addEventListener("vehicles-refresh", refresh);
-    return () => window.removeEventListener("vehicles-refresh", refresh);
+    return subscribeToAppDataEvent("vehicles-refresh", refresh);
   }, [reload]);
 
   const drivers = useMemo(
@@ -97,7 +98,10 @@ export function VehiclesPage({ people }: { people: Person[] }) {
     ] as Array<[string, string]>,
     [customFields],
   );
-  const isVisible = (key: string) => visibleColumns.length === 0 || visibleColumns.includes(key);
+  const isVisible = useCallback(
+    (key: string) => visibleColumns.length === 0 || visibleColumns.includes(key),
+    [visibleColumns],
+  );
   const toggleColumn = (key: string) => {
     const all = tableColumns.map(([column]) => column);
     const current = visibleColumns.length === 0 ? all : visibleColumns;
@@ -165,6 +169,17 @@ export function VehiclesPage({ people }: { people: Person[] }) {
     }
   };
 
+  const visibleTableColumns = useMemo<EntityTableColumn<Vehicle>[]>(() => [
+    { key: "id", title: "№", render: (vehicle) => <div className="personnel-id">{vehicle.id}</div> },
+    ...(isVisible("name") ? [{ key: "name", title: "Автомобіль", render: (vehicle: Vehicle) => <b>{vehicle.name}</b> }] : []),
+    ...(isVisible("registrationNumber") ? [{ key: "registrationNumber", title: "Номер", render: (vehicle: Vehicle) => vehicle.registrationNumber }] : []),
+    ...(isVisible("status") ? [{ key: "status", title: "Стан", render: (vehicle: Vehicle) => <span className={`vehicle-badge ${statusClass(vehicle.status)}`}>{vehicle.status}</span> }] : []),
+    ...(isVisible("driverName") ? [{ key: "driverName", title: "Закріплений водій", render: (vehicle: Vehicle) => vehicle.driverName ?? vehicle.crewName ?? "Не закріплено" }] : []),
+    ...customFields
+      .filter((field) => isVisible(`custom:${field.fieldKey}`))
+      .map((field): EntityTableColumn<Vehicle> => ({ key: `custom:${field.fieldKey}`, title: field.displayName, render: () => field.initialValue || "—" })),
+  ], [customFields, isVisible]);
+
   return <PageFrame
     className="vehicles-page"
     header={<PageTitle title="Автомобілі" subtitle="Облік автомобілів та закріплених водіїв" customFieldsScope="vehicle" actions={<button className="button primary" onClick={() => setEditorOpen(true)}><UserPlus />Додати автомобіль</button>} />}
@@ -172,19 +187,15 @@ export function VehiclesPage({ people }: { people: Person[] }) {
   >
     <div className={`people-layout ${selected ? "with-details" : ""}`}>
       <section className="panel data-table">
-        <div className="data-table__scroll">
-          <table className="personnel-table vehicle-table">
-            <thead><tr><th>№</th>{isVisible("name") && <th>Автомобіль</th>}{isVisible("registrationNumber") && <th>Номер</th>}{isVisible("status") && <th>Стан</th>}{isVisible("driverName") && <th>Закріплений водій</th>}{customFields.filter((field) => isVisible(`custom:${field.fieldKey}`)).map((field) => <th key={field.fieldKey}>{field.displayName}</th>)}</tr></thead>
-            <tbody>{filtered.map((vehicle) => <tr key={vehicle.id} className={selected?.id === vehicle.id ? "selected" : ""} onClick={() => setSelected(vehicle)}>
-              <td><div className="personnel-id">{vehicle.id}</div></td>
-              {isVisible("name") && <td><b>{vehicle.name}</b></td>}{isVisible("registrationNumber") && <td>{vehicle.registrationNumber}</td>}
-              {isVisible("status") && <td><span className={`vehicle-badge ${statusClass(vehicle.status)}`}>{vehicle.status}</span></td>}
-              {isVisible("driverName") && <td>{vehicle.driverName ?? vehicle.crewName ?? "Не закріплено"}</td>}
-              {customFields.filter((field) => isVisible(`custom:${field.fieldKey}`)).map((field) => <td key={field.fieldKey}>{field.initialValue || "—"}</td>)}
-            </tr>)}</tbody>
-          </table>
-          {!filtered.length && <div className="personnel-state"><Car /><b>Автомобілі не знайдені</b><span>Додайте автомобіль або змініть пошук.</span></div>}
-        </div>
+        <EntityTable
+          className="personnel-table vehicle-table"
+          items={filtered}
+          columns={visibleTableColumns}
+          rowKey={(vehicle) => vehicle.id}
+          selectedKey={selected?.id}
+          onSelect={setSelected}
+          emptyState={<div className="personnel-state"><Car /><b>Автомобілі не знайдені</b><span>Додайте автомобіль або змініть пошук.</span></div>}
+        />
         <div className="pagination">Показано {filtered.length} із {items.length}</div>
       </section>
       {selected && <aside className="panel person-details vehicle-details">

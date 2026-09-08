@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { personnelService } from "../services/personnelService";
 import type { CustomFieldDefinition } from "../types/domain";
 import { useNotifications } from "./NotificationProvider";
+import { emitAppDataEvent } from "../events/appEvents";
 
 const emptyField = (): CustomFieldDefinition => ({ fieldKey: "", displayName: "", description: "", initialValue: "" });
 const fieldError = (error: unknown) => error instanceof Error ? error.message : typeof error === "string" ? error : "Не вдалося зберегти поле БД.";
@@ -42,7 +43,7 @@ export function PageTitle({ title, subtitle, actions, customFieldsScope }: { tit
       setFormOpen(false);
       setEditingFieldKey(null);
       setField(emptyField());
-      window.dispatchEvent(new Event(customFieldsScope === "vehicle" ? "vehicles-refresh" : "personnel-refresh"));
+      emitAppDataEvent(customFieldsScope === "vehicle" ? "vehicles-refresh" : "personnel-refresh");
       notify("Поле БД збережено.", "success");
     } catch (error) {
       notify(fieldError(error), "error");
@@ -52,7 +53,7 @@ export function PageTitle({ title, subtitle, actions, customFieldsScope }: { tit
     try {
       if (customFieldsScope === "vehicle") await personnelService.deleteVehicleCustomField(fieldKey); else await personnelService.deleteCustomField(fieldKey);
       setFields((current) => current.filter((item) => item.fieldKey !== fieldKey));
-      window.dispatchEvent(new Event(customFieldsScope === "vehicle" ? "vehicles-refresh" : "personnel-refresh"));
+      emitAppDataEvent(customFieldsScope === "vehicle" ? "vehicles-refresh" : "personnel-refresh");
       notify("Поле БД видалено.", "success");
     } catch (error) {
       notify(fieldError(error), "error");
