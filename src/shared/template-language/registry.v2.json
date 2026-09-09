@@ -10,6 +10,17 @@
     {"id":"посада","sourceKey":"position","name":"Посада","kind":"position","example":"командир відділення","cases":true,"description":"Повна назва посади."},
     {"id":"іпн","sourceKey":"tax_id","name":"ІПН","kind":"text","example":"7462389812","cases":false,"description":"ІПН вибраного військовослужбовця."},
     {"id":"екіпаж","sourceKey":"crew_name","name":"Екіпаж","kind":"text","example":"Екіпаж «Сокіл»","cases":false,"description":"Поточний екіпаж військовослужбовця."},
+    {"id":"екіпаж_позиція","sourceKey":"crew_position","name":"Позиція екіпажу","kind":"text","example":"СП ПІВНІЧ","cases":false,"description":"Поточна позиція екіпажу військовослужбовця."},
+    {"id":"екіпаж_статус","sourceKey":"crew_status","name":"Статус екіпажу","kind":"text","example":"Працюючий","cases":false,"description":"Поточний статус екіпажу військовослужбовця."},
+    {"id":"екіпаж_сектор","sourceKey":"crew_sector","name":"Сектор роботи екіпажу","kind":"text","example":"ПІВНІЧ","cases":false,"description":"Сектор роботи екіпажу військовослужбовця."},
+    {"id":"екіпаж_бпак","sourceKey":"crew_uav_name","name":"БпАК екіпажу","kind":"text","example":"MAVIC 3T","cases":false,"description":"Назва БпАК екіпажу військовослужбовця."},
+    {"id":"екіпаж_тип_бпак","sourceKey":"crew_uav_type","name":"Тип БпАК екіпажу","kind":"text","example":"Коптер","cases":false,"description":"Тип БпАК екіпажу військовослужбовця."},
+    {"id":"фактичний_екіпаж","sourceKey":"actual_crew_name","name":"Фактичний екіпаж","kind":"text","example":"СОКІЛ","cases":false,"description":"Екіпаж, у якому військовослужбовець фактично виконує завдання зараз."},
+    {"id":"фактичний_екіпаж_позиція","sourceKey":"actual_crew_position","name":"Позиція фактичного екіпажу","kind":"text","example":"СП ПІВНІЧ","cases":false,"description":"Поточна позиція фактичного екіпажу військовослужбовця."},
+    {"id":"фактичний_екіпаж_статус","sourceKey":"actual_crew_status","name":"Статус фактичного екіпажу","kind":"text","example":"Працюючий","cases":false,"description":"Поточний статус фактичного екіпажу військовослужбовця."},
+    {"id":"фактичний_екіпаж_сектор","sourceKey":"actual_crew_sector","name":"Сектор фактичного екіпажу","kind":"text","example":"ПІВНІЧ","cases":false,"description":"Сектор роботи фактичного екіпажу військовослужбовця."},
+    {"id":"фактичний_екіпаж_бпак","sourceKey":"actual_crew_uav_name","name":"БпАК фактичного екіпажу","kind":"text","example":"MAVIC 3T","cases":false,"description":"Назва БпАК фактичного екіпажу військовослужбовця."},
+    {"id":"фактичний_екіпаж_тип_бпак","sourceKey":"actual_crew_uav_type","name":"Тип БпАК фактичного екіпажу","kind":"text","example":"Коптер","cases":false,"description":"Тип БпАК фактичного екіпажу військовослужбовця."},
     {"id":"дата_народження","sourceKey":"birth_date","name":"Дата народження","kind":"date","example":"02.03.1999 року","cases":false,"description":"Дата народження у збереженому форматі."},
     {"id":"освіта","sourceKey":"education_level","name":"Рівень освіти","kind":"text","example":"вища","cases":false,"description":"Рівень або формат освіти."},
     {"id":"де_отримана_освіта","sourceKey":"education_details","name":"Де отримана освіта","kind":"text","example":"Львівська комерційна академія у 2002 р.","cases":false,"description":"Заклад і рік отримання освіти."},
@@ -60,7 +71,11 @@
   "vehicleFields": [
     {"id":"назва","sourceKey":"name","name":"Назва автомобіля","kind":"text","example":"Toyota Hilux","cases":false,"description":"Назва автомобіля, закріпленого за першим обраним військовослужбовцем."},
     {"id":"номер","sourceKey":"registration_number","name":"Державний номер","kind":"text","example":"АА 1234 АА","cases":false,"description":"Державний номер автомобіля."},
-    {"id":"статус","sourceKey":"status","name":"Статус автомобіля","kind":"text","example":"Справний","cases":false,"description":"Поточний статус автомобіля."}
+    {"id":"статус","sourceKey":"status","name":"Статус автомобіля","kind":"text","example":"Справний","cases":false,"description":"Поточний статус автомобіля."},
+    {"id":"водій_піб","sourceKey":"driver_full_name","name":"ПІБ водія","kind":"person-name","example":"ІВАНЕНКО Іван Іванович","cases":false,"description":"Військовослужбовець, відповідальний за автомобіль."},
+    {"id":"водій_звання","sourceKey":"driver_rank","name":"Звання водія","kind":"rank","example":"солдат","cases":false,"description":"Звання закріпленого водія."},
+    {"id":"водій_посада","sourceKey":"driver_position","name":"Посада водія","kind":"position","example":"водій-електрик","cases":false,"description":"Штатна посада закріпленого водія."},
+    {"id":"екіпаж","sourceKey":"crew_name","name":"Екіпаж автомобіля","kind":"text","example":"СОКІЛ","cases":false,"description":"Екіпаж, за яким закріплено автомобіль."}
   ],
   "crewFields": [
     {"id":"назва","sourceKey":"name","name":"Назва екіпажу","kind":"text","example":"Екіпаж «Сокіл»","cases":false,"description":"Назва вибраного екіпажу."},
@@ -82,7 +97,14 @@
     {"id":"склад","sourceKey":"members","name":"Офіційний склад екіпажу","kind":"text","example":"Іваненко Іван Іванович, …","cases":false,"description":"Люди, офіційно закріплені за екіпажем."},
     {"id":"офіційний_склад","sourceKey":"official_members","name":"Офіційний склад екіпажу","kind":"text","example":"Іваненко Іван Іванович, …","cases":false},
     {"id":"фактичний_склад","sourceKey":"actual_members","name":"Фактичний склад екіпажу","kind":"text","example":"Петренко Петро Петрович, …","cases":false},
-    {"id":"автомобілі","sourceKey":"vehicles","name":"Автомобілі екіпажу","kind":"text","example":"Toyota Hilux АА 1234 АА","cases":false,"description":"Автомобілі, закріплені за екіпажем."}
+    {"id":"автомобілі","sourceKey":"vehicles","name":"Автомобілі екіпажу","kind":"text","example":"Toyota Hilux АА 1234 АА","cases":false,"description":"Автомобілі, закріплені за екіпажем."},
+    {"id":"бпла","sourceKey":"uavs","name":"БпЛА екіпажу","kind":"text","example":"MAVIC 3T БПЛА-001","cases":false,"description":"Усі БпЛА, закріплені за екіпажем."},
+    {"id":"генератори","sourceKey":"generators","name":"Генератори екіпажу","kind":"text","example":"KÖNNER KS-01","cases":false,"description":"Усі генератори, закріплені за екіпажем."},
+    {"id":"засоби_звязку","sourceKey":"communications","name":"Засоби зв’язку екіпажу","kind":"text","example":"Motorola DP4801e","cases":false,"description":"Усі засоби зв’язку, закріплені за екіпажем."},
+    {"id":"зброя_та_бк","sourceKey":"weapons","name":"Зброя та БК екіпажу","kind":"text","example":"АК-74 №12345","cases":false,"description":"Уся зброя та боєкомплект, закріплені за екіпажем."},
+    {"id":"майно","sourceKey":"all_equipment","name":"Усе майно екіпажу","kind":"text","example":"MAVIC 3T, генератор KS-01","cases":false,"description":"Зведений перелік майна екіпажу."},
+    {"id":"командир_піб","sourceKey":"commander_name","name":"Командир екіпажу","kind":"person-name","example":"ІВАНЕНКО Іван Іванович","cases":false,"description":"Командир з офіційного або фактичного складу екіпажу."},
+    {"id":"водії","sourceKey":"drivers","name":"Водії екіпажу","kind":"text","example":"ПЕТРЕНКО Петро Петрович","cases":false,"description":"Військовослужбовці екіпажу, у штатній посаді яких зазначено водія."}
   ],
   "positionFields": [
     {"id":"назва","sourceKey":"name","name":"Назва позиції","kind":"text","example":"СП «Північ»","cases":false},
@@ -104,7 +126,10 @@
     {"id":"назва","sourceKey":"name","name":"Назва","kind":"text","example":"DJI Matrice 30T","cases":false,"description":"Назва вибраного запису майна."},
     {"id":"інвентарний_номер","sourceKey":"inventory_number","name":"Інвентарний номер","kind":"text","example":"БПЛА-001","cases":false,"description":"Інвентарний номер майна."},
     {"id":"статус","sourceKey":"status","name":"Статус","kind":"text","example":"Справний","cases":false,"description":"Поточний стан майна."},
-    {"id":"примітка","sourceKey":"notes","name":"Примітка","kind":"text","example":"Комплект із трьома АКБ","cases":false,"description":"Додаткова примітка до майна."}
+    {"id":"примітка","sourceKey":"notes","name":"Примітка","kind":"text","example":"Комплект із трьома АКБ","cases":false,"description":"Додаткова примітка до майна."},
+    {"id":"екіпаж","sourceKey":"crew_name","name":"Закріплений екіпаж","kind":"text","example":"СОКІЛ","cases":false,"description":"Екіпаж, за яким закріплено майно."},
+    {"id":"відповідальний_піб","sourceKey":"responsible_name","name":"Відповідальна особа","kind":"person-name","example":"ІВАНЕНКО Іван Іванович","cases":false,"description":"Військовослужбовець, за яким особисто закріплено майно, або командир екіпажу."},
+    {"id":"позиція","sourceKey":"position_name","name":"Позиція екіпажу","kind":"text","example":"СП ПІВНІЧ","cases":false,"description":"Поточна позиція екіпажу, за яким закріплено майно."}
   ],
   "signerRoles": [
     {"id":"основний_підписант","name":"Основний підписант","settingsKey":"mainSigner"},

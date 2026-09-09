@@ -81,12 +81,23 @@ pub fn export(
         let first = &rows[start];
         let mut end = start + 1;
         while end < rows.len()
-            && rows[end].section == first.section
-            && rows[end].crew_name == first.crew_name
+            && if first.group_key.is_empty() {
+                rows[end].section == first.section && rows[end].crew_name == first.crew_name
+            } else {
+                rows[end].group_key == first.group_key
+            }
         {
             end += 1;
         }
         group_starts.push(first);
+        if end - start > 1 {
+            let first_row = start + 7;
+            let last_row = end + 6;
+            for col in 0..10 {
+                let letter = (b'A' + col as u8) as char;
+                merges.push(format!("{letter}{first_row}:{letter}{last_row}"));
+            }
+        }
         for (index, row) in rows.iter().enumerate().take(end).skip(start) {
             let r = index + 7;
             let values = [
@@ -139,8 +150,13 @@ pub fn export(
                 _ => 177,
             };
             for (col, value) in values.iter().enumerate() {
-                if (col == 5 || col == 6) && !value.is_empty() {
-                    let number = value
+                let group_value: &str = if index > start && col < 10 {
+                    ""
+                } else {
+                    value.as_str()
+                };
+                if (col == 5 || col == 6) && !group_value.is_empty() {
+                    let number = group_value
                         .parse::<i64>()
                         .map_err(|_| "Кількість в/с має бути цілим числом.")?;
                     if number < 0 {
@@ -148,7 +164,7 @@ pub fn export(
                     }
                     sheet.push_str(&number_cell(col, r, number, "", style));
                 } else {
-                    sheet.push_str(&text_cell(col, r, value, style));
+                    sheet.push_str(&text_cell(col, r, group_value, style));
                 }
             }
             sheet.push_str("</row>");

@@ -508,6 +508,10 @@ fn creates_operational_control_templates() {
         "Контрольний рапорт — БпЛА.docx",
         "Контрольний рапорт — зв’язок.docx",
         "Контрольний рапорт — зброя та БК.docx",
+        "ТЕСТ 01 Військовослужбовець екіпаж і автомобіль.docx",
+        "ТЕСТ 02 Паспорт екіпажу та всього майна.docx",
+        "ТЕСТ 03 Автомобіль водій і екіпаж.docx",
+        "ТЕСТ 04 Майно екіпажі позиції відповідальні.docx",
     ] {
         let result = report_generation::inspect(root.join(name).to_str().unwrap());
         assert!(result.is_valid, "{name}: {:?}", result.errors);

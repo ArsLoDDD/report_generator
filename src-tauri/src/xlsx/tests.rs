@@ -368,16 +368,30 @@ fn exports_bcs_with_the_reference_columns_and_location_totals() {
         "РБАК",
         "16.08.2026",
         78,
-        &[BcsRow {
-            section: "Екіпаж".into(),
-            color_key: "crew-working".into(),
-            crew_name: "Екіпаж ТЕСТ".into(),
-            crew_actual: "3".into(),
-            crew_official: "4".into(),
-            full_name: "ТЕСТОВИЙ Тест Тестович".into(),
-            location: "На позиції".into(),
-            ..BcsRow::default()
-        }],
+        &[
+            BcsRow {
+                group_key: "crew-1".into(),
+                section: "Екіпаж".into(),
+                color_key: "crew-working".into(),
+                crew_name: "Екіпаж ТЕСТ".into(),
+                crew_actual: "3".into(),
+                crew_official: "4".into(),
+                full_name: "ТЕСТОВИЙ Тест Тестович".into(),
+                location: "На позиції".into(),
+                ..BcsRow::default()
+            },
+            BcsRow {
+                group_key: "crew-1".into(),
+                section: "Екіпаж".into(),
+                color_key: "crew-working".into(),
+                crew_name: "Екіпаж ТЕСТ".into(),
+                crew_actual: "3".into(),
+                crew_official: "4".into(),
+                full_name: "ДРУГИЙ Тест Тестович".into(),
+                location: "На позиції".into(),
+                ..BcsRow::default()
+            },
+        ],
     )
     .unwrap();
     let mut archive = ZipArchive::new(File::open(&path).unwrap()).unwrap();
@@ -398,6 +412,11 @@ fn exports_bcs_with_the_reference_columns_and_location_totals() {
     assert!(sheet.contains("Логістика на позиції"));
     assert!(sheet.contains("По штату"));
     assert!(sheet.contains("s=\"171\""));
+    assert!(sheet.contains("<mergeCell ref=\"A7:A8\"/>"));
+    assert!(sheet.contains("<mergeCell ref=\"J7:J8\"/>"));
+    assert_eq!(sheet.matches("Екіпаж ТЕСТ").count(), 1);
+    assert!(sheet.contains("ТЕСТОВИЙ Тест Тестович"));
+    assert!(sheet.contains("ДРУГИЙ Тест Тестович"));
     let mut styles = String::new();
     archive
         .by_name("xl/styles.xml")

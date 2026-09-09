@@ -43,6 +43,27 @@ describe("selection requirements", () => {
     expect(getVariable("позиція_1_населений_пункт")?.name).toBe("Район населеного пункту");
   });
 
+  it("derives only the explicitly selected subject for relational report fields", () => {
+    expect(getSelectionRequirements([
+      "військовий_1_піб",
+      "військовий_1_екіпаж",
+      "військовий_1_екіпаж_позиція",
+      "військовий_1_фактичний_екіпаж",
+      "військовий_1_автомобіль_1_водій_піб",
+    ])).toEqual([expect.objectContaining({ id: "personnel", count: 1 })]);
+
+    expect(getSelectionRequirements([
+      "екіпаж_1_офіційний_склад",
+      "екіпаж_1_бпла",
+      "екіпаж_1_командир_піб",
+    ])).toEqual([expect.objectContaining({ id: "crew", count: 1 })]);
+
+    expect(getSelectionRequirements([
+      "автомобіль_1_водій_піб",
+      "автомобіль_1_екіпаж",
+    ])).toEqual([expect.objectContaining({ id: "vehicle", count: 1 })]);
+  });
+
   it("applies the selection law to custom fields as well", () => {
     expect(getSelectionRequirements([
       "військовий_2_позивний",

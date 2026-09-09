@@ -4,16 +4,6 @@ import { templateService } from "../services/templateService";
 
 const pageSize = 20;
 let cachedTemplatesPage: { items: Template[]; totalCount: number } | null = null;
-let firstPageRequest: Promise<{ items: Template[]; totalCount: number }> | null = null;
-
-async function loadFirstTemplatesPage() {
-  if (!firstPageRequest) {
-    firstPageRequest = templateService.list(0, pageSize).finally(() => { firstPageRequest = null; });
-  }
-  const page = await firstPageRequest;
-  cachedTemplatesPage = page;
-  return page;
-}
 
 export function useTemplates() {
   const [templates, setTemplates] = useState<Template[]>(() => cachedTemplatesPage?.items ?? []);
@@ -23,7 +13,8 @@ export function useTemplates() {
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const page = await loadFirstTemplatesPage();
+      const page = await templateService.list(0, pageSize);
+      cachedTemplatesPage = page;
       setTemplates(page.items);
       setTotalCount(page.totalCount);
       return page.items;

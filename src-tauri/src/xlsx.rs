@@ -170,6 +170,8 @@ pub struct BcsRow {
     pub is_external: bool,
     #[serde(default)]
     pub color_key: String,
+    #[serde(default)]
+    pub group_key: String,
     pub section: String,
     pub position_name: String,
     pub battle_order: String,

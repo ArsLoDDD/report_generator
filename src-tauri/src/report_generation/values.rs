@@ -22,12 +22,72 @@ pub(super) fn values_for(
     for (i, p) in people.iter().enumerate() {
         let prefix = format!("військовий_{}", i + 1);
         let gender = detect_gender(&p.gender, &p.patronymic);
+        let crew: Option<(String, String, String, String, String, String)> = connection
+            .query_row(
+                "SELECT c.name,COALESCE(position.name,c.position_name),c.status,c.sector,c.uav_name,c.uav_type FROM crew_members member JOIN crews c ON c.id=member.crew_id LEFT JOIN positions position ON position.id=c.position_id WHERE member.personnel_id=?1 AND member.left_at IS NULL ORDER BY member.joined_at DESC LIMIT 1",
+                [p.id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            )
+            .ok();
+        let actual_crew: Option<(String, String, String, String, String, String)> = connection
+            .query_row(
+                "SELECT c.name,COALESCE(position.name,c.position_name),c.status,c.sector,c.uav_name,c.uav_type FROM crew_actual_members member JOIN crews c ON c.id=member.crew_id LEFT JOIN positions position ON position.id=c.position_id WHERE member.personnel_id=?1 LIMIT 1",
+                [p.id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            )
+            .ok();
         for field in &registry().person_fields {
             let source_key = field.source_key.as_deref().unwrap_or_default();
-            let text = if source_key == "crew_name" {
-                connection.query_row("SELECT c.name FROM crew_members cm JOIN crews c ON c.id=cm.crew_id WHERE cm.personnel_id=?1 AND cm.left_at IS NULL ORDER BY cm.joined_at DESC LIMIT 1", [p.id], |row| row.get(0)).unwrap_or_default()
-            } else {
-                person_value(p, source_key)
+            let text = match source_key {
+                "crew_name" => crew
+                    .as_ref()
+                    .map(|value| value.0.clone())
+                    .unwrap_or_default(),
+                "crew_position" => crew
+                    .as_ref()
+                    .map(|value| value.1.clone())
+                    .unwrap_or_default(),
+                "crew_status" => crew
+                    .as_ref()
+                    .map(|value| value.2.clone())
+                    .unwrap_or_default(),
+                "crew_sector" => crew
+                    .as_ref()
+                    .map(|value| value.3.clone())
+                    .unwrap_or_default(),
+                "crew_uav_name" => crew
+                    .as_ref()
+                    .map(|value| value.4.clone())
+                    .unwrap_or_default(),
+                "crew_uav_type" => crew
+                    .as_ref()
+                    .map(|value| value.5.clone())
+                    .unwrap_or_default(),
+                "actual_crew_name" => actual_crew
+                    .as_ref()
+                    .map(|value| value.0.clone())
+                    .unwrap_or_default(),
+                "actual_crew_position" => actual_crew
+                    .as_ref()
+                    .map(|value| value.1.clone())
+                    .unwrap_or_default(),
+                "actual_crew_status" => actual_crew
+                    .as_ref()
+                    .map(|value| value.2.clone())
+                    .unwrap_or_default(),
+                "actual_crew_sector" => actual_crew
+                    .as_ref()
+                    .map(|value| value.3.clone())
+                    .unwrap_or_default(),
+                "actual_crew_uav_name" => actual_crew
+                    .as_ref()
+                    .map(|value| value.4.clone())
+                    .unwrap_or_default(),
+                "actual_crew_uav_type" => actual_crew
+                    .as_ref()
+                    .map(|value| value.5.clone())
+                    .unwrap_or_default(),
+                _ => person_value(p, source_key),
             };
             map.insert(
                 format!("{prefix}_{}", field.id),
@@ -201,7 +261,7 @@ pub(super) fn add_person_vehicles(
     person_number: usize,
     map: &mut HashMap<String, Value>,
 ) -> Result<(), String> {
-    let mut statement = connection.prepare("SELECT id, name, registration_number, status FROM vehicles WHERE personnel_id=?1 ORDER BY id")
+    let mut statement = connection.prepare("SELECT vehicle.id,vehicle.name,vehicle.registration_number,vehicle.status,trim(person.surname || ' ' || person.given_name || ' ' || person.patronymic),person.rank,person.position,COALESCE(crew.name,'') FROM vehicles vehicle JOIN personnel person ON person.id=vehicle.personnel_id LEFT JOIN crews crew ON crew.id=vehicle.crew_id WHERE vehicle.personnel_id=?1 ORDER BY vehicle.id")
         .map_err(|_| "Не вдалося прочитати автомобілі військовослужбовця.".to_string())?;
     let vehicles = statement
         .query_map([personnel_id], |row| {
@@ -210,12 +270,17 @@ pub(super) fn add_person_vehicles(
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
             ))
         })
         .map_err(|_| "Не вдалося прочитати автомобілі військовослужбовця.".to_string())?;
     for (vehicle_number, vehicle) in vehicles.enumerate() {
-        let (id, name, registration, status) = vehicle
-            .map_err(|_| "Не вдалося прочитати автомобіль військовослужбовця.".to_string())?;
+        let (id, name, registration, status, driver_name, driver_rank, driver_position, crew_name) =
+            vehicle
+                .map_err(|_| "Не вдалося прочитати автомобіль військовослужбовця.".to_string())?;
         let prefix = format!(
             "військовий_{person_number}_автомобіль_{}",
             vehicle_number + 1
@@ -225,6 +290,10 @@ pub(super) fn add_person_vehicles(
                 Some("name") => name.clone(),
                 Some("registration_number") => registration.clone(),
                 Some("status") => status.clone(),
+                Some("driver_full_name") => driver_name.clone(),
+                Some("driver_rank") => driver_rank.clone(),
+                Some("driver_position") => driver_position.clone(),
+                Some("crew_name") => crew_name.clone(),
                 _ => String::new(),
             };
             map.insert(
@@ -251,6 +320,76 @@ pub(super) fn add_person_vehicles(
     Ok(())
 }
 
+fn crew_equipment_text(
+    connection: &Connection,
+    crew_id: i64,
+    category: &str,
+) -> Result<String, String> {
+    let mut statement = connection
+        .prepare(
+            "SELECT trim(e.name || CASE WHEN trim(e.inventory_number)='' THEN '' ELSE ' ' || e.inventory_number END)
+             FROM equipment e
+             WHERE (e.crew_id=?1 OR e.personnel_id IN (
+                 SELECT personnel_id FROM crew_members WHERE crew_id=?1 AND left_at IS NULL
+                 UNION
+                 SELECT personnel_id FROM crew_actual_members WHERE crew_id=?1
+             ))
+             AND (?2='' OR e.category=?2)
+             ORDER BY e.id",
+        )
+        .map_err(|_| "Не вдалося прочитати майно екіпажу.".to_string())?;
+    let rows = statement
+        .query_map(rusqlite::params![crew_id, category], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(|_| "Не вдалося прочитати майно екіпажу.".to_string())?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map(|items| items.join(", "))
+        .map_err(|_| "Не вдалося прочитати майно екіпажу.".to_string())
+}
+
+fn crew_members_for_position(
+    connection: &Connection,
+    crew_id: i64,
+    lower_pattern: &str,
+    title_pattern: &str,
+) -> String {
+    connection
+        .prepare(
+            "SELECT full_name FROM (
+                 SELECT trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) AS full_name,
+                        p.position AS position, 0 AS membership_priority, p.id AS personnel_id
+                 FROM crew_members member
+                 JOIN personnel p ON p.id=member.personnel_id
+                 WHERE member.crew_id=?1 AND member.left_at IS NULL
+                 UNION ALL
+                 SELECT trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic),
+                        p.position, 1, p.id
+                 FROM crew_actual_members member
+                 JOIN personnel p ON p.id=member.personnel_id
+                 WHERE member.crew_id=?1
+                   AND NOT EXISTS (
+                     SELECT 1 FROM crew_members official
+                     WHERE official.crew_id=?1
+                       AND official.personnel_id=member.personnel_id
+                       AND official.left_at IS NULL
+                   )
+             )
+             WHERE position LIKE ?2 OR position LIKE ?3
+             ORDER BY membership_priority,personnel_id",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_map(
+                    rusqlite::params![crew_id, lower_pattern, title_pattern],
+                    |row| row.get::<_, String>(0),
+                )?
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .map(|items| items.join(", "))
+        .unwrap_or_default()
+}
+
 #[allow(clippy::type_complexity)]
 pub(super) fn add_selected_crews(
     connection: &Connection,
@@ -273,10 +412,18 @@ pub(super) fn add_selected_crews(
             .map_err(|_| "Не вдалося прочитати фактичний склад екіпажу.".to_string())?
             .query_map([crew_id], |row| row.get::<_, String>(0)).map_err(|_| "Не вдалося прочитати фактичний склад екіпажу.".to_string())?
             .collect::<Result<Vec<_>, _>>().map_err(|_| "Не вдалося прочитати фактичний склад екіпажу.".to_string())?.join(", ");
-        let vehicles = connection.prepare("SELECT trim(name || ' ' || registration_number) FROM vehicles WHERE crew_id=?1 ORDER BY id")
+        let vehicles = connection.prepare("SELECT trim(v.name || ' ' || v.registration_number) FROM vehicles v WHERE v.crew_id=?1 OR v.personnel_id IN (SELECT personnel_id FROM crew_members WHERE crew_id=?1 AND left_at IS NULL UNION SELECT personnel_id FROM crew_actual_members WHERE crew_id=?1) ORDER BY v.id")
             .map_err(|_| "Не вдалося прочитати автомобілі екіпажу.".to_string())?
             .query_map([crew_id], |row| row.get::<_, String>(0)).map_err(|_| "Не вдалося прочитати автомобілі екіпажу.".to_string())?
             .collect::<Result<Vec<_>, _>>().map_err(|_| "Не вдалося прочитати автомобілі екіпажу.".to_string())?.join(", ");
+        let uavs = crew_equipment_text(connection, *crew_id, "uav")?;
+        let generators = crew_equipment_text(connection, *crew_id, "generator")?;
+        let communications = crew_equipment_text(connection, *crew_id, "communications")?;
+        let weapons = crew_equipment_text(connection, *crew_id, "weapon_ammo")?;
+        let all_equipment = crew_equipment_text(connection, *crew_id, "")?;
+        let commander_name =
+            crew_members_for_position(connection, *crew_id, "%командир%", "%Командир%");
+        let drivers = crew_members_for_position(connection, *crew_id, "%водій%", "%Водій%");
         let prefix = format!("екіпаж_{}", index + 1);
         let data = [
             ("name", row.0),
@@ -306,6 +453,13 @@ pub(super) fn add_selected_crews(
             ("official_members", members.clone()),
             ("actual_members", actual_members.clone()),
             ("vehicles", vehicles.clone()),
+            ("uavs", uavs),
+            ("generators", generators),
+            ("communications", communications),
+            ("weapons", weapons),
+            ("all_equipment", all_equipment),
+            ("commander_name", commander_name),
+            ("drivers", drivers),
         ]
         .into_iter()
         .collect::<HashMap<_, _>>();
@@ -329,11 +483,11 @@ pub(super) fn add_selected_vehicles(
     values: &mut HashMap<String, Value>,
 ) -> Result<(), String> {
     for (index, vehicle_id) in vehicle_ids.iter().enumerate() {
-        let (name, number, status): (String, String, String) = connection
+        let (name, number, status, driver_name, driver_rank, driver_position, crew_name): (String, String, String, String, String, String, String) = connection
             .query_row(
-                "SELECT name,registration_number,status FROM vehicles WHERE id=?1",
+                "SELECT vehicle.name,vehicle.registration_number,vehicle.status,COALESCE(trim(person.surname || ' ' || person.given_name || ' ' || person.patronymic),''),COALESCE(person.rank,''),COALESCE(person.position,''),COALESCE(crew.name,'') FROM vehicles vehicle LEFT JOIN personnel person ON person.id=vehicle.personnel_id LEFT JOIN crews crew ON crew.id=vehicle.crew_id WHERE vehicle.id=?1",
                 [vehicle_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
             )
             .map_err(|_| "Не вдалося прочитати вибраний автомобіль.".to_string())?;
         let prefix = format!("автомобіль_{}", index + 1);
@@ -342,6 +496,10 @@ pub(super) fn add_selected_vehicles(
                 Some("name") => name.clone(),
                 Some("registration_number") => number.clone(),
                 Some("status") => status.clone(),
+                Some("driver_full_name") => driver_name.clone(),
+                Some("driver_rank") => driver_rank.clone(),
+                Some("driver_position") => driver_position.clone(),
+                Some("crew_name") => crew_name.clone(),
                 _ => String::new(),
             };
             values.insert(
@@ -418,7 +576,10 @@ pub(super) fn add_selected_equipment(
 ) -> Result<(), String> {
     let mut category_indexes: HashMap<String, usize> = HashMap::new();
     for equipment_id in equipment_ids {
-        let (category, name, inventory_number, status, notes): (
+        let (category, name, inventory_number, status, notes, crew_name, responsible_name, position_name): (
+            String,
+            String,
+            String,
             String,
             String,
             String,
@@ -426,7 +587,7 @@ pub(super) fn add_selected_equipment(
             String,
         ) = connection
             .query_row(
-                "SELECT category,name,inventory_number,status,notes FROM equipment WHERE id=?1",
+                "SELECT equipment.category,equipment.name,equipment.inventory_number,equipment.status,equipment.notes,COALESCE(crew.name,''),COALESCE(trim(holder.surname || ' ' || holder.given_name || ' ' || holder.patronymic),(SELECT trim(member_person.surname || ' ' || member_person.given_name || ' ' || member_person.patronymic) FROM crew_members member JOIN personnel member_person ON member_person.id=member.personnel_id WHERE member.crew_id=equipment.crew_id AND member.left_at IS NULL AND (member_person.position LIKE '%командир%' OR member_person.position LIKE '%Командир%') ORDER BY member.joined_at,member_person.id LIMIT 1),''),COALESCE(position.name,crew.position_name,'') FROM equipment LEFT JOIN crews crew ON crew.id=equipment.crew_id LEFT JOIN personnel holder ON holder.id=equipment.personnel_id LEFT JOIN positions position ON position.id=crew.position_id WHERE equipment.id=?1",
                 [equipment_id],
                 |row| {
                     Ok((
@@ -435,6 +596,9 @@ pub(super) fn add_selected_equipment(
                         row.get(2)?,
                         row.get(3)?,
                         row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
                     ))
                 },
             )
@@ -457,6 +621,9 @@ pub(super) fn add_selected_equipment(
                 Some("inventory_number") => inventory_number.clone(),
                 Some("status") => status.clone(),
                 Some("notes") => notes.clone(),
+                Some("crew_name") => crew_name.clone(),
+                Some("responsible_name") => responsible_name.clone(),
+                Some("position_name") => position_name.clone(),
                 _ => String::new(),
             };
             values.insert(

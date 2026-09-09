@@ -89,6 +89,7 @@ describe("БЧС та тимчасово прибулі", () => {
     const records=[{...person(1,"водій"),crewId:1,crewName:"Тест",actualStrength:2,currentLocation:"На позиції"},{...person(2,"оператор"),crewId:1,crewName:"Тест",actualStrength:2,currentLocation:"ВІДП"}];
     const rows=bcsExportRows(records);
     expect(rows[0].crewActual).toBe("1"); expect(rows[0].crewOfficial).toBe("2");
+    expect(rows.map((row)=>row.groupKey)).toEqual(["crew-1","crew-1"]);
     expect(bcsGroups(records)).toHaveLength(1);
   });
   it("рахує фактичну роботу за місцем і за фактичним екіпажем, не змінюючи офіційну кількість", () => {

@@ -3,7 +3,7 @@ import type { StaffingRecord, TemporaryPerson } from "./types";
 
 export const BCS_HEADERS = schema.headers;
 export const BCS_LOCATIONS = schema.locations;
-export type BcsExportRow = { isTemporary: boolean; isExternal: boolean; section: string; colorKey: string; positionName: string; battleOrder: string; sector: string; crewName: string; crewActual: string; crewOfficial: string; crewStatus: string; uavName: string; uavType: string; personnelPosition: string; rank: string; fullName: string; duties: string; location: string; notes: string };
+export type BcsExportRow = { isTemporary: boolean; isExternal: boolean; groupKey: string; section: string; colorKey: string; positionName: string; battleOrder: string; sector: string; crewName: string; crewActual: string; crewOfficial: string; crewStatus: string; uavName: string; uavType: string; personnelPosition: string; rank: string; fullName: string; duties: string; location: string; notes: string };
 
 const normalize = (value: string) => value.toLocaleLowerCase("uk").replace(/[’']/g, "'").replace(/\s+/g, " ").trim();
 export const bcsCaps = (value: string | null | undefined) => (value ?? "").toLocaleUpperCase("uk");
@@ -88,9 +88,9 @@ export function bcsGroups(records: StaffingRecord[]) {
 }
 
 export function bcsExportRows(records: StaffingRecord[]): BcsExportRow[] {
-  return bcsGroups(records).flatMap(({ people, section, colorKey }) => {
+  return bcsGroups(records).flatMap(({ key, people, section, colorKey }) => {
     return people.map((person) => ({
-    isTemporary: !!person.isTemporary, isExternal: !!person.isExternal, section, colorKey, positionName: section === "Екіпаж" ? bcsCaps(person.crewPositionName) : "", battleOrder: section === "Екіпаж" ? person.battleOrder : "", sector: section === "Екіпаж" ? person.sector : "",
+    isTemporary: !!person.isTemporary, isExternal: !!person.isExternal, groupKey: key, section, colorKey, positionName: section === "Екіпаж" ? bcsCaps(person.crewPositionName) : "", battleOrder: section === "Екіпаж" ? person.battleOrder : "", sector: section === "Екіпаж" ? person.sector : "",
     crewName: section === "Екіпаж" ? bcsCaps(person.crewName) : "", crewActual: section === "Екіпаж" ? String(crewWorkingStrength(records, person.crewId)) : "",
     crewOfficial: String(section === "Екіпаж" ? person.actualStrength : people.length), crewStatus: section === "Екіпаж" ? canonicalCrewStatus(person.crewStatus) : "", uavName: section === "Екіпаж" ? bcsCaps(person.uavName) : "", uavType: section === "Екіпаж" ? person.uavType : "",
     personnelPosition: person.position, rank: person.rank, fullName: person.fullName, duties: person.functionalDuties, location: person.currentLocation, notes: person.notes,

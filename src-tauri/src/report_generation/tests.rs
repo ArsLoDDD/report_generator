@@ -200,11 +200,32 @@ fn derives_exact_counts_for_every_selected_subject_without_confusing_document_pa
 fn resolves_selected_crew_and_equipment_values() {
     let connection = Connection::open_in_memory().unwrap();
     crate::database::initialise(&connection).unwrap();
+    crate::database::seed_test_personnel(&connection).unwrap();
+    let member_id = personnel::list(&connection).unwrap().remove(0).id;
+    connection
+        .execute(
+            "UPDATE personnel SET position='Командир екіпажу' WHERE id=?1",
+            [member_id],
+        )
+        .unwrap();
     connection.execute("INSERT INTO crews(name,platoon,position_name,reconnaissance_area) VALUES('Екіпаж «Тест»','1 взвод','СП «Тест»','район Тестовий')", []).unwrap();
     let crew_id = connection.last_insert_rowid();
+    connection
+        .execute(
+            "INSERT INTO crew_members(crew_id,personnel_id) VALUES(?1,?2)",
+            rusqlite::params![crew_id, member_id],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT OR REPLACE INTO crew_actual_members(crew_id,personnel_id) VALUES(?1,?2)",
+            rusqlite::params![crew_id, member_id],
+        )
+        .unwrap();
     connection.execute("INSERT INTO vehicles(name,registration_number,status,crew_id) VALUES('Тест-авто','ТЕСТ 001','Справний',?1)", [crew_id]).unwrap();
     connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,notes) VALUES('uav','Тест-БпЛА','БПЛА-Т','Справний',?1,'Контрольний запис')", [crew_id]).unwrap();
     let equipment_id = connection.last_insert_rowid();
+    connection.execute("INSERT INTO equipment(category,name,inventory_number,status,personnel_id,notes) VALUES('weapon_ammo','АК-74','АБ 123','Справний',?1,'Особисто закріплено')", [member_id]).unwrap();
     connection.execute("INSERT INTO positions(name,position_type,locality,mgrs,is_active,crew_id) VALUES('СП «Тест»','Основна','н.п. Тестове','36U UV 12000 67000',1,?1)", [crew_id]).unwrap();
     let position_id = connection.last_insert_rowid();
     let mut values = HashMap::new();
@@ -213,9 +234,72 @@ fn resolves_selected_crew_and_equipment_values() {
     add_selected_positions(&connection, &[position_id], &mut values).unwrap();
     assert_eq!(values["екіпаж_1_назва"].text, "Екіпаж «Тест»");
     assert_eq!(values["екіпаж_1_автомобілі"].text, "Тест-авто ТЕСТ 001");
+    assert_eq!(values["екіпаж_1_бпла"].text, "Тест-БпЛА БПЛА-Т");
+    assert!(values["екіпаж_1_майно"].text.contains("Тест-БпЛА БПЛА-Т"));
+    assert!(values["екіпаж_1_майно"].text.contains("АК-74 АБ 123"));
+    assert_eq!(values["екіпаж_1_зброя_та_бк"].text, "АК-74 АБ 123");
+    assert_eq!(
+        values["екіпаж_1_командир_піб"].text,
+        "ВАСИЛЬОК Іван Аркадійович"
+    );
     assert_eq!(values["бпла_1_назва"].text, "Тест-БпЛА");
+    assert_eq!(values["бпла_1_екіпаж"].text, "Екіпаж «Тест»");
+    assert_eq!(values["бпла_1_позиція"].text, "СП «Тест»");
     assert_eq!(values["позиція_1_назва"].text, "СП «Тест»");
     assert_eq!(values["позиція_1_mgrs"].text, "36U UV 12000 67000");
+}
+
+#[test]
+fn keeps_official_and_actual_crew_relations_separate_for_a_person() {
+    let connection = Connection::open_in_memory().unwrap();
+    crate::database::initialise(&connection).unwrap();
+    crate::database::seed_test_personnel(&connection).unwrap();
+    let person = personnel::list(&connection).unwrap().remove(0);
+    connection
+        .execute("INSERT INTO crews(name) VALUES('ОФІЦІЙНИЙ')", [])
+        .unwrap();
+    let official_id = connection.last_insert_rowid();
+    connection
+        .execute("INSERT INTO crews(name) VALUES('ФАКТИЧНИЙ')", [])
+        .unwrap();
+    let actual_id = connection.last_insert_rowid();
+    connection
+        .execute(
+            "INSERT INTO crew_members(crew_id,personnel_id) VALUES(?1,?2)",
+            rusqlite::params![official_id, person.id],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT OR REPLACE INTO crew_actual_members(crew_id,personnel_id) VALUES(?1,?2)",
+            rusqlite::params![actual_id, person.id],
+        )
+        .unwrap();
+
+    let values = values_for(&connection, &[person], &settings::defaults(), None, None).unwrap();
+    assert_eq!(values["військовий_1_екіпаж"].text, "ОФІЦІЙНИЙ");
+    assert_eq!(values["військовий_1_фактичний_екіпаж"].text, "ФАКТИЧНИЙ");
+}
+
+#[test]
+fn resolves_driver_and_crew_from_a_selected_vehicle() {
+    let connection = Connection::open_in_memory().unwrap();
+    crate::database::initialise(&connection).unwrap();
+    crate::database::seed_test_personnel(&connection).unwrap();
+    let driver = personnel::list(&connection).unwrap().remove(0);
+    connection
+        .execute("INSERT INTO crews(name) VALUES('СОКІЛ')", [])
+        .unwrap();
+    let crew_id = connection.last_insert_rowid();
+    connection.execute("INSERT INTO vehicles(name,registration_number,status,personnel_id,crew_id) VALUES('HILUX','АА 0001 АА','Справний',?1,?2)", rusqlite::params![driver.id, crew_id]).unwrap();
+    let vehicle_id = connection.last_insert_rowid();
+    let mut values = HashMap::new();
+    add_selected_vehicles(&connection, &[vehicle_id], &mut values).unwrap();
+    assert_eq!(
+        values["автомобіль_1_водій_піб"].text,
+        "ВАСИЛЬОК Іван Аркадійович"
+    );
+    assert_eq!(values["автомобіль_1_екіпаж"].text, "СОКІЛ");
 }
 
 #[test]
@@ -560,5 +644,23 @@ fn every_shipped_docx_uses_valid_v2_tokens() {
                 result.errors
             );
         }
+    }
+}
+
+#[test]
+fn complex_relationship_templates_use_valid_v2_tokens() {
+    let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("Шаблони");
+    for name in [
+        "ТЕСТ 01 Військовослужбовець екіпаж і автомобіль.docx",
+        "ТЕСТ 02 Паспорт екіпажу та всього майна.docx",
+        "ТЕСТ 03 Автомобіль водій і екіпаж.docx",
+        "ТЕСТ 04 Майно екіпажі позиції відповідальні.docx",
+    ] {
+        let path = directory.join(name);
+        let result = inspect(path.to_str().unwrap());
+        assert!(result.is_valid, "{}: {:?}", path.display(), result.errors);
     }
 }
