@@ -370,6 +370,7 @@ fn exports_bcs_with_the_reference_columns_and_location_totals() {
         78,
         &[
             BcsRow {
+                actual_crew_member: true,
                 group_key: "crew-1".into(),
                 section: "Екіпаж".into(),
                 color_key: "crew-working".into(),
@@ -381,6 +382,7 @@ fn exports_bcs_with_the_reference_columns_and_location_totals() {
                 ..BcsRow::default()
             },
             BcsRow {
+                actual_crew_member: true,
                 group_key: "crew-1".into(),
                 section: "Екіпаж".into(),
                 color_key: "crew-working".into(),

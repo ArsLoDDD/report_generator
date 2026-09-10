@@ -744,3 +744,11 @@ body { overflow: hidden; }
 .sidebar-bottom button { transition: padding .42s cubic-bezier(.18, .78, .22, 1), gap .38s ease, background-color .16s ease; }
 .sidebar nav button svg,
 .sidebar-bottom button svg { flex: 0 0 23px; }
+.registry-toolbar { max-width: none; }
+.registry-toolbar__count { margin-left: auto; color: #91a0aa; white-space: nowrap; }
+.entity-editor-modal__body { min-height: 0; overflow: auto; }
+.entity-card-grid { min-width: 0; }
+.entity-table__selection { width: 44px; text-align: center; }
+.entity-table__selection .check { margin: auto; }
+.entity-table__sticky--end { position: sticky; right: 0; z-index: 2; background: #0d1820; box-shadow: -8px 0 12px #07101680; }
+.entity-table__sticky--start { position: sticky; left: 0; z-index: 2; background: #0d1820; box-shadow: 8px 0 12px #07101680; }

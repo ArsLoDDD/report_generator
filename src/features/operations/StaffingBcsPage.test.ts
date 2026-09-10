@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildStaffingHierarchy } from "./StaffingBcsPage";
+import { bcsFunctionalSummary, bcsSummary, temporaryStaffingRecord } from "./bcs-model";
 import type { StaffingRecord } from "./types";
 
 const record = (personnelId: number, position: string, platoon = "1 взвод"): StaffingRecord => ({
@@ -85,5 +86,30 @@ describe("Штат та БЧС", () => {
     expect(management?.items.slice(0, 6).map((item) => item.kind === "person" ? item.person.position : item.position)).toEqual([
       "Командир роти", "Заступник командира", "Заступник командира роти з психологічної підтримки персоналу", "Головний сержант", "Старший технік", "технік роти",
     ]);
+  });
+
+  it("рахує функціональні показники за фактичними екіпажами, типами та статусами", () => {
+    const rows = [
+      { ...record(1, "оператор"), crewId: 10, crewName: "А", uavType: "Коптер", crewStatus: "Працюючий", currentLocation: "На позиції" },
+      { ...record(2, "механік"), crewId: 10, crewName: "А", uavType: "Коптер", crewStatus: "Працюючий", currentLocation: "ВІДП" },
+      { ...record(3, "оператор"), crewId: 11, crewName: "Б", uavType: "ФПВ", crewStatus: "Формується", currentLocation: "ЗБЗ" },
+      { ...record(4, "командир взводу"), crewId: 10, crewName: "А", uavType: "Коптер", crewStatus: "Працюючий", currentLocation: "На позиції" },
+    ];
+    const summary = Object.fromEntries(bcsFunctionalSummary(rows));
+    expect(summary["Екіпажів (ос-загально)"]).toBe(4);
+    expect(summary["Екіпажів (загально)"]).toBe(2);
+    expect(summary["Екіпажів — Коптер"]).toBe(1);
+    expect(summary["Екіпажів — ФПВ"]).toBe(1);
+    expect(summary["Екіпажів — Працюючі"]).toBe(1);
+    expect(summary["Екіпажів — Формуються"]).toBe(1);
+  });
+
+  it("додає тимчасово прибулого з ТВО до списку, але не до наявності", () => {
+    const own = { ...record(1, "оператор"), crewId: null, crewName: null, currentLocation: "ПТЗ Новостав" };
+    const temporary = temporaryStaffingRecord({ id: 7, fullName: "ТЕСТОВИЙ Тимчасовий", rank: "солдат", position: "оператор", actingSlotId: "management-9", actingPosition: "Водій", duties: "", arrivedAt: "2026-09-10", currentLocation: "ПУ", notes: "", category: "Тимчасово прибулі", groupName: "" });
+    const summary = Object.fromEntries(bcsSummary([own, temporary], 72));
+    expect(summary["По штату"]).toBe(72);
+    expect(summary["По списку"]).toBe(2);
+    expect(summary["В наявності"]).toBe(0);
   });
 });

@@ -105,7 +105,7 @@ describe("БЧС та тимчасово прибулі", () => {
     expect(bcsExportRows([record])[0]).toMatchObject({positionName:"ПОЗИЦІЯ СІЛЬПО",crewName:"МУГАЙ-ТАЙ",uavName:"MAVIC 3 PRO"});
   });
   it("тимчасово прибулі не змінюють штат і рахуються окремо від місця перебування", () => {
-    const arrival=temporaryStaffingRecord({id:1,fullName:"Прибула людина",rank:"",duties:"",arrivedAt:"2026-09-06",currentLocation:"УПР",notes:"",category:"Тимчасово прибулі",groupName:""});
+    const arrival=temporaryStaffingRecord({id:1,fullName:"Прибула людина",rank:"",position:"",actingSlotId:"",actingPosition:"",duties:"",arrivedAt:"2026-09-06",currentLocation:"УПР",notes:"",category:"Тимчасово прибулі",groupName:""});
     expect(arrival.personnelId).toBe(-1);
     expect(bcsSummary([person(1,"водій"),arrival],10)).toContainEqual(["Тимчасово прибулі",1]);
     expect(bcsSummary([person(1,"водій"),arrival],10)).toContainEqual(["По списку",1]);
@@ -114,7 +114,7 @@ describe("БЧС та тимчасово прибулі", () => {
   it("зберігає порядок розділів і пріоритет командира взводу над екіпажем", () => {
     const crew={...person(1,"оператор 1 відділення 1 взводу"),crewId:1,crewName:"Альфа",crewStatus:"Працюючий",actualStrength:2};
     const commander={...person(2,"командир взводу 1 взводу"),crewId:1,crewName:"Альфа",crewStatus:"Працюючий",actualStrength:2};
-    const attached=temporaryStaffingRecord({id:2,fullName:"Прикомандирований",rank:"",duties:"",arrivedAt:"2026-09-06",currentLocation:"УПР",notes:"",category:"Прикомандировані",groupName:""});
+    const attached=temporaryStaffingRecord({id:2,fullName:"Прикомандирований",rank:"",position:"оператор",actingSlotId:"",actingPosition:"",duties:"",arrivedAt:"2026-09-06",currentLocation:"УПР",notes:"",category:"Прикомандировані",groupName:""});
     const groups=bcsGroups([attached,commander,crew]);
     expect(groups.map((group)=>group.section)).toEqual(["Екіпаж","Управління взводів","Прикомандировані"]);
     expect(groups.map((group)=>group.colorKey)).toEqual(["crew-working","platoon-management","attached"]);

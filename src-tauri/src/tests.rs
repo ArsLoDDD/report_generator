@@ -517,6 +517,29 @@ fn creates_operational_control_templates() {
         assert!(result.is_valid, "{name}: {:?}", result.errors);
         assert!(!result.variables.is_empty());
     }
+    fs::create_dir_all(root.join("Налаштування")).unwrap();
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    crate::database::initialise(&connection).unwrap();
+    crate::database::seed_test_personnel(&connection).unwrap();
+    let generated = report_generation::generate(
+        &connection,
+        &root,
+        report_generation::GenerateReportRequest {
+            template_path: root
+                .join("ТЕСТ 01 Військовослужбовець екіпаж і автомобіль.docx")
+                .to_string_lossy()
+                .into_owned(),
+            personnel_ids: vec![1],
+            report_date: None,
+            vehicle_ids: vec![],
+            crew_ids: vec![],
+            position_ids: vec![],
+            equipment_ids: vec![],
+            parameters: std::collections::HashMap::new(),
+        },
+    )
+    .expect("ТЕСТ 01 має створюватися навіть без закріпленого автомобіля");
+    assert!(std::path::Path::new(&generated.docx_path).exists());
     let _ = fs::remove_dir_all(root);
 }
 

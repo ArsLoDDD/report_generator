@@ -28,7 +28,7 @@ describe("VehiclesPage", () => {
   it("shows the connected driver as a fact and opens reassignment separately", async () => {
     renderPage();
     expect(await screen.findByRole("columnheader", { name: "№" })).toBeInTheDocument();
-    expect(screen.getByText("4", { selector: ".personnel-id" })).toBeInTheDocument();
+    expect(screen.getByText("1", { selector: ".personnel-id" })).toBeInTheDocument();
     expect(await screen.findByText(driver.fullName)).toBeInTheDocument();
     fireEvent.click(screen.getByText("Toyota Hilux"));
     expect(screen.getAllByText(driver.fullName)).toHaveLength(2);

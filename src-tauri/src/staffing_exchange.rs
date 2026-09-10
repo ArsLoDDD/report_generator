@@ -32,6 +32,9 @@ pub const SHEETS: &[(&str, &[&str])] = &[
             "group_name",
             "full_name",
             "rank",
+            "position",
+            "acting_slot_id",
+            "acting_position",
             "duties",
             "arrived_at",
             "current_location",
@@ -49,7 +52,7 @@ pub fn export(connection: &Connection) -> Result<ExtraSheets, String> {
     let queries = [
         "SELECT p.tax_id,trim(p.surname||' '||p.given_name||' '||p.patronymic),a.slot_id,a.acting_slot_id,a.acting_position FROM personnel_staff_assignments a JOIN personnel p ON p.id=a.personnel_id ORDER BY p.id",
         "SELECT slot_id,position_name,full_name,phone,rank,birth_date,issued_at,notes FROM staff_position_recommendations ORDER BY id",
-        "SELECT category,group_name,full_name,rank,duties,arrived_at,current_location,notes FROM temporary_personnel ORDER BY id",
+        "SELECT category,group_name,full_name,rank,position,acting_slot_id,acting_position,duties,arrived_at,current_location,notes FROM temporary_personnel ORDER BY id",
         "SELECT c.name,COALESCE(p.tax_id,''),trim(p.surname||' '||p.given_name||' '||p.patronymic) FROM crew_actual_members cm JOIN crews c ON c.id=cm.crew_id JOIN personnel p ON p.id=cm.personnel_id ORDER BY c.name,p.id",
     ];
     let mut sheets = ExtraSheets::new();
@@ -128,7 +131,7 @@ pub fn import(connection: &Connection, sheets: &ExtraSheets, replace: bool) -> R
                     } else {
                         get("category")
                     };
-                    connection.execute("INSERT INTO temporary_personnel(category,group_name,full_name,rank,duties,arrived_at,current_location,notes) SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE NOT EXISTS(SELECT 1 FROM temporary_personnel WHERE full_name=?3 AND arrived_at=?6 AND category=?1)",params![category,get("group_name"),get("full_name"),get("rank"),get("duties"),get("arrived_at"),get("current_location"),get("notes")]).map_err(|e|e.to_string())?;
+                    connection.execute("INSERT INTO temporary_personnel(category,group_name,full_name,rank,position,acting_slot_id,acting_position,duties,arrived_at,current_location,notes) SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11 WHERE NOT EXISTS(SELECT 1 FROM temporary_personnel WHERE full_name=?3 AND arrived_at=?9 AND category=?1)",params![category,get("group_name"),get("full_name"),get("rank"),get("position"),get("acting_slot_id"),get("acting_position"),get("duties"),get("arrived_at"),get("current_location"),get("notes")]).map_err(|e|e.to_string())?;
                 }
                 "Фактичний склад екіпажів" => {
                     let crew_id = connection

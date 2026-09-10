@@ -28,9 +28,9 @@ export function PersonnelTable({ people, selectedId, onSelect, onEdit, onDelete,
   const shownCustomColumns = customColumns.filter((key) => visible(`custom:${key}`));
   const value = (person: Person, key: typeof baseColumns[number][0]) => person[key] || "—";
   const columns: EntityTableColumn<Person>[] = [
-    { key: "id", title: "№", render: (person) => {
+    { key: "id", title: "№", render: (person, rowIndex) => {
       const complete = isPersonnelComplete(person);
-      return <div className="personnel-id">{person.id}{!complete && <span className="personnel-incomplete-badge" title="Неповні дані"><CircleAlert /><span>Неповні дані</span></span>}</div>;
+      return <div className="personnel-id">{rowIndex + 1}{!complete && <span className="personnel-incomplete-badge" title="Неповні дані"><CircleAlert /><span>Неповні дані</span></span>}</div>;
     } },
     ...shownBaseColumns.map(([key, label]) => ({ key, title: label, render: (person: Person) => value(person, key) })),
     ...coreColumns.map(([key, label]) => ({ key, title: label, render: (person: Person) => person.coreFields?.[key] || "—" })),

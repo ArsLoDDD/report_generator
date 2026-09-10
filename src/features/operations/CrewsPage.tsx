@@ -6,8 +6,11 @@ import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { PageTitle } from "../../shared/ui/PageTitle";
-import { SearchInput } from "../../shared/ui/SearchInput";
 import { Select } from "../../shared/ui/Select";
+import { RegistryToolbar } from "../../shared/ui/RegistryToolbar";
+import { CardGridSkeleton } from "../../shared/ui/entity-card/CardGridSkeleton";
+import { EntityCard, EntityCardGrid } from "../../shared/ui/entity-card/EntityCard";
+import { RecordPickerModal } from "../../shared/ui/record-picker/RecordPickerModal";
 import { personnelService } from "../../shared/services/personnelService";
 import { operationsService } from "./services/operationsService";
 import type { Crew, CrewDraft, Position } from "./types";
@@ -17,12 +20,11 @@ const statuses = ["Працюючий", "Формується", "Не актив
 const uavTypes = ["Літаковий Ударний", "Літаковий Розвідувальний", "Коптер", "Бомбер", "ФПВ", "НРК", "ФПВ Перехоплювач"];
 const includes = (query:string,...values:(string|null|undefined)[]) => values.join(" ").toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"));
 async function allPersonnel(){const result:Person[]=[];let offset=0;while(true){const page=await personnelService.list(offset,500);result.push(...page.items);offset=result.length;if(offset>=page.totalCount||!page.items.length)return result;}}
-function CrewsLoadingSkeleton(){return <section className="crews-loading-skeleton" aria-label="Завантаження екіпажів">{Array.from({length:6},(_,index)=><article className="panel" key={index}><i className="skeleton-line skeleton-line--short"/><i className="skeleton-line skeleton-line--title"/><div>{Array.from({length:4},(__,fact)=><i className="skeleton-line" key={fact}/>)}</div><i className="skeleton-line skeleton-line--button"/></article>)}</section>;}
 
 export function CrewsPage({ people }: { people: Person[] }) {
   const [items,setItems]=useState<Crew[]>([]); const [positions,setPositions]=useState<Position[]>([]); const [query,setQuery]=useState(""); const [isLoading,setIsLoading]=useState(true);
   const [editing,setEditing]=useState<Crew|null>(null); const [draft,setDraft]=useState<CrewDraft>(emptyDraft); const [open,setOpen]=useState(false); const [memberTab,setMemberTab]=useState<"official"|"actual">("official");
-  const [availablePeople,setAvailablePeople]=useState<Person[]>(people); const [pickerOpen,setPickerOpen]=useState(false); const [pickerQuery,setPickerQuery]=useState("");
+  const [availablePeople,setAvailablePeople]=useState<Person[]>(people); const [pickerOpen,setPickerOpen]=useState(false);
   const [deleting,setDeleting]=useState<Crew|null>(null); const [deletingBusy,setDeletingBusy]=useState(false);
   const {notify}=useNotifications();
   const reload=useCallback(()=>{setIsLoading(true);void Promise.all([operationsService.listCrews(),operationsService.listPositions(),allPersonnel()]).then(([crews,nextPositions,nextPeople])=>{setItems(crews);setPositions(nextPositions);setAvailablePeople(nextPeople);}).catch(()=>notify("Не вдалося завантажити екіпажі.","error")).finally(()=>setIsLoading(false));},[notify]);
@@ -34,21 +36,20 @@ export function CrewsPage({ people }: { people: Person[] }) {
   const remove=async()=>{if(!deleting)return;setDeletingBusy(true);try{await operationsService.deleteCrew(deleting.id);setDeleting(null);reload();notify("Екіпаж видалено.","success");}catch{notify("Не вдалося видалити екіпаж.","error");}finally{setDeletingBusy(false);}};
   const memberIds=memberTab==="official"?draft.memberIds:draft.actualMemberIds;
   const selectedPeople=memberIds.map((id)=>availablePeople.find((person)=>person.id===id)).filter((person):person is Person=>!!person);
-  const pickerPeople=availablePeople.filter((person)=>includes(pickerQuery,person.fullName,person.rank,person.position));
   const assignment=(personId:number)=>items.find((crew)=>crew.id!==editing?.id&&(memberTab==="official"?crew.members:crew.actualMembers).some((member)=>member.personnelId===personId));
   const toggle=(id:number)=>setDraft((current)=>{
     if(memberTab==="actual") return {...current,actualMemberIds:current.actualMemberIds.includes(id)?current.actualMemberIds.filter((value)=>value!==id):[...current.actualMemberIds,id]};
     if(current.memberIds.includes(id)) return {...current,memberIds:current.memberIds.filter((value)=>value!==id)};
     return {...current,memberIds:[...current.memberIds,id],actualMemberIds:current.actualMemberIds.includes(id)?current.actualMemberIds:[...current.actualMemberIds,id]};
   });
-  return <PageFrame className="crews-page" header={<PageTitle title="Екіпажі" subtitle="Єдиний облік екіпажів, позицій та складу для БЧС" actions={<button className="button primary" onClick={()=>edit()}><Plus/>Створити екіпаж</button>}/>} tools={<div className="table-tools main-tools"><SearchInput placeholder="Пошук за назвою, статусом, сектором, БпАК або позицією…" value={query} onChange={setQuery}/></div>}>
-    <div className="crews-grid">{filtered.map((crew)=><article className={`panel crew-card crew-card--${crew.status==="Працюючий"?"working":crew.status==="Формується"?"forming":"inactive"}`} key={crew.id}>
+  return <PageFrame className="crews-page" header={<PageTitle title="Екіпажі" subtitle="Єдиний облік екіпажів, позицій та складу для БЧС" actions={<button className="button primary" onClick={()=>edit()}><Plus/>Створити екіпаж</button>}/>} tools={<RegistryToolbar placeholder="Пошук за назвою, статусом, сектором, БпАК або позицією…" query={query} onQueryChange={setQuery} resultCount={filtered.length}/>}>
+    <EntityCardGrid className="crews-grid">{filtered.map((crew)=><EntityCard className={`crew-card crew-card--${crew.status==="Працюючий"?"working":crew.status==="Формується"?"forming":"inactive"}`} key={crew.id}>
       <header><div><span className="crew-card__status">{crew.status}</span><h2>{crew.name}</h2></div><strong title="Фактичний / офіційний склад">{crew.actualMembers.length}/{crew.members.length}</strong></header>
       <div className="crew-card__facts"><div><small>Сектор роботи</small><b>{crew.sector||"Не вказано"}</b></div><div><small>Позиція</small><b>{crew.positionName||"Не обрана"}</b></div><div><small>БпАК</small><b>{crew.uavName||"Не вказано"}</b></div><div><small>Тип БпАК</small><b>{crew.uavType||"Не вказано"}</b></div></div>
       <div className="crew-card__members"><div><span>Офіційний склад</span><b>{crew.members.length}</b></div><div><span>Фактичний склад</span><b>{crew.actualMembers.length}</b></div></div>
       <footer><button className="button" onClick={()=>edit(crew)}><Pencil/>Редагувати</button><button className="icon-button danger" title="Видалити екіпаж" onClick={()=>setDeleting(crew)}><Trash2/></button></footer>
-    </article>)}{!filtered.length&&<section className="panel personnel-state"><UsersRound/><b>Екіпажів поки немає</b><span>Створіть екіпаж і сформуйте його склад.</span></section>}</div>
-    {isLoading&&<div className="operations-loading-overlay"><CrewsLoadingSkeleton/></div>}
+    </EntityCard>)}{!filtered.length&&<section className="panel personnel-state"><UsersRound/><b>Екіпажів поки немає</b><span>Створіть екіпаж і сформуйте його склад.</span></section>}</EntityCardGrid>
+    {isLoading&&<div className="operations-loading-overlay"><CardGridSkeleton/></div>}
     {open&&<Modal title={editing?"Редагування екіпажу":"Новий екіпаж"} onClose={close} className="crew-editor"><div className="crew-editor__body"><div className="operation-editor__body">
       <label className="form-field"><span>Назва <b>*</b></span><input autoFocus value={draft.name} onChange={(e)=>setDraft({...draft,name:e.target.value})}/></label>
       <label className="form-field"><span>Статус</span><Select ariaLabel="Статус екіпажу" value={draft.status} onChange={(status)=>setDraft({...draft,status})} options={statuses.map((value)=>({value,label:value}))}/></label>
@@ -58,6 +59,6 @@ export function CrewsPage({ people }: { people: Person[] }) {
       <label className="form-field"><span>Тип БпАК</span><Select ariaLabel="Тип БпАК" value={draft.uavType} onChange={(uavType)=>setDraft({...draft,uavType})} options={[{value:"",label:"Не вказано"},...uavTypes.map((value)=>({value,label:value}))]}/></label>
       <label className="form-field form-field--wide"><span>Коментар</span><textarea value={draft.notes} onChange={(e)=>setDraft({...draft,notes:e.target.value})}/></label>
     </div><section className="crew-editor__members"><div className="crew-member-tabs"><button className={memberTab==="official"?"active":""} onClick={()=>setMemberTab("official")}>Офіційний склад <b>{draft.memberIds.length}</b></button><button className={memberTab==="actual"?"active":""} onClick={()=>setMemberTab("actual")}>Фактичний склад <b>{draft.actualMemberIds.length}</b></button></div><div className="crew-members-heading"><p>{memberTab==="official"?"Люди, офіційно закріплені за екіпажем.":"Люди, які зараз фактично виконують завдання у цьому екіпажі."}</p><button className="button" onClick={()=>setPickerOpen(true)}><Plus/>Додати людей</button></div><div className="crew-selected-members">{selectedPeople.map((person)=><article key={person.id}><div><b>{person.fullName}</b><small>{person.rank} · {person.position}</small></div><button className="icon-button danger" title="Прибрати зі складу" onClick={()=>toggle(person.id)}><Trash2/></button></article>)}{!selectedPeople.length&&<span>Склад ще не заповнений.</span>}</div></section></div><footer className="modal-actions"><button className="button" onClick={close}>Скасувати</button><button className="button primary" onClick={()=>void save()}>Зберегти екіпаж</button></footer></Modal>}
-    {pickerOpen&&<Modal title={memberTab==="official"?"Додати до офіційного складу":"Додати до фактичного складу"} onClose={()=>setPickerOpen(false)} className="crew-member-picker"><div className="crew-member-picker__body"><SearchInput placeholder="Пошук за ПІБ, званням або посадою…" value={pickerQuery} onChange={setPickerQuery}/><div className="crew-member-picker__list">{pickerPeople.map((person)=>{const current=assignment(person.id);return <label key={person.id} className={memberIds.includes(person.id)?"selected":""}><input type="checkbox" checked={memberIds.includes(person.id)} onChange={()=>toggle(person.id)}/><span><b>{person.fullName}</b><small>{person.rank} · {person.position}</small>{current&&<em>Зараз у «{current.name}» — буде переміщено</em>}</span></label>;})}</div></div><footer className="modal-actions"><button className="button primary" onClick={()=>setPickerOpen(false)}>Готово</button></footer></Modal>}
+    {pickerOpen&&<RecordPickerModal title={memberTab==="official"?"Додати до офіційного складу":"Додати до фактичного складу"} items={availablePeople.map((person)=>{const current=assignment(person.id);return{id:person.id,title:person.fullName,subtitle:`${person.rank} · ${person.position}`,owner:current?`Зараз у «${current.name}» — буде переміщено`:undefined};})} selectedIds={memberIds} onToggle={toggle} onClose={()=>setPickerOpen(false)}/>}
     {deleting&&<ConfirmDialog title="Видалити екіпаж?" message={`Екіпаж «${deleting.name}» буде видалено. Прив’язки його офіційного та фактичного складу буде знято.`} confirmLabel="Видалити" onConfirm={()=>void remove()} onCancel={()=>setDeleting(null)} busy={deletingBusy}/>}  </PageFrame>;
 }

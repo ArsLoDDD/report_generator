@@ -572,6 +572,17 @@ fn resolves_numbered_vehicles_of_the_selected_driver() {
     );
     assert!(validate_token("військовий_1_автомобіль_1_номер").is_empty());
 }
+
+#[test]
+fn keeps_related_vehicle_tokens_available_when_person_has_no_vehicle() {
+    let connection = Connection::open_in_memory().unwrap();
+    crate::database::initialise(&connection).unwrap();
+    crate::database::seed_test_personnel(&connection).unwrap();
+    let person = personnel::list(&connection).unwrap().remove(0);
+    let values = values_for(&connection, &[person], &settings::defaults(), None, None).unwrap();
+    assert_eq!(values["військовий_1_автомобіль_1_назва"].text, "");
+    assert_eq!(values["військовий_1_автомобіль_1_номер"].text, "");
+}
 #[test]
 fn rank_and_female_declensions() {
     assert_eq!(decline_rank("солдат", "орудний", "чоловіча"), "солдатом");

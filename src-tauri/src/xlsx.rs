@@ -169,6 +169,8 @@ pub struct BcsRow {
     #[serde(default)]
     pub is_external: bool,
     #[serde(default)]
+    pub actual_crew_member: bool,
+    #[serde(default)]
     pub color_key: String,
     #[serde(default)]
     pub group_key: String,

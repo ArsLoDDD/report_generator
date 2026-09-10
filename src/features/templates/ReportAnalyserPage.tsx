@@ -1,55 +1,18 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { renderAsync } from "docx-preview";
-import { Check, FileText, FolderOpen, LoaderCircle, Replace, SlidersHorizontal, Trash2, Undo2, WandSparkles, X } from "lucide-react";
+import { Check, FileText, FolderOpen, LoaderCircle, Replace, SlidersHorizontal, Trash2, Undo2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getVariable, modifierRegistry, tokenFor } from "../../shared/template-language/registry";
-import { Modal } from "../../shared/ui/Modal";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import type { TemplateAnalysis, TemplateAnalysisProposal, TemplateAnalysisReplacement } from "../../shared/types/domain";
 import { templateService } from "./services/templateService";
+import { AnalysisProposalList } from "./analysis/AnalysisProposalList";
+import { ModifierModal } from "./analysis/ModifierModal";
+import { analysisErrorMessage, defaultAnalysisSelection, normaliseAnalysisProposals, proposalKey, tokenSelectedInEditor, type ManualReplacement, type SelectedTemplateToken } from "./analysis/analysisModel";
 
-type ManualReplacement = { id: string; value: string; replacement: string; occurrence: number };
-
-function errorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error.trim()) return error;
-  return fallback;
-}
-
-function proposalKey(proposal: Pick<TemplateAnalysisProposal, "value" | "token">) { return `${proposal.value}\u0000${proposal.token}`; }
-
-type SelectedTemplateToken = { id: string; modifiers: string[] };
-
-/** Accepts both a complete {{token}} and the token body selected inside Word preview. */
-export function tokenSelectedInEditor(value: string): SelectedTemplateToken | null {
-  const selected = value.trim();
-  const body = selected.match(/^\{\{\s*([^{}]+?)\s*\}\}$/u)?.[1] ?? selected;
-  if (!/^[\p{L}][\p{L}\p{N}_]*(?::[\p{L}_]+)*$/u.test(body)) return null;
-  const [id, ...modifiers] = body.split(":");
-  return getVariable(id) ? { id, modifiers } : null;
-}
-
-export function normaliseAnalysisProposals(proposals: TemplateAnalysisProposal[]) {
-  return proposals.map((proposal) => {
-    if (proposal.token !== "екіпаж_1") return proposal;
-    return {
-      ...proposal,
-      token: "назва_екіпажу_1",
-      label: "Назва екіпажу в документі",
-      alternatives: [
-        { token: "екіпаж_1_назва", label: "Назва обраного екіпажу" },
-        { token: "військовий_1_екіпаж", label: "Екіпаж обраного військовослужбовця" },
-        ...(proposal.alternatives ?? []).filter((item) => item.token !== "екіпаж_1" && item.token !== "назва_екіпажу_1"),
-      ].filter((item, index, items) => items.findIndex((candidate) => candidate.token === item.token) === index),
-    };
-  });
-}
-
-export function defaultAnalysisSelection(proposals: TemplateAnalysisProposal[]) {
-  return proposals.filter((proposal) => proposal.autoSelect).map(proposalKey);
-}
+export { defaultAnalysisSelection, normaliseAnalysisProposals, tokenSelectedInEditor } from "./analysis/analysisModel";
 
 export function ReportAnalyserPage({ onCreated, onOpenConstructor }: { onCreated: (templatePath: string) => void; onOpenConstructor: () => void }) {
   const [path, setPath] = useState<string | null>(null);
@@ -115,7 +78,7 @@ export function ReportAnalyserPage({ onCreated, onOpenConstructor }: { onCreated
       const proposals = normaliseAnalysisProposals(result.proposals);
       setAnalysis({ ...result, proposals }); setSelected(defaultAnalysisSelection(proposals)); setManual([]); setSelectedText(""); setTokenOverrides({});
       notify(proposals.length ? `Знайдено пропозицій: ${proposals.length}.` : "Відомі дані в рапорті не знайдені.", proposals.length ? "success" : "info");
-    } catch (error) { notify(errorMessage(error, "Не вдалося проаналізувати рапорт."), "error"); }
+    } catch (error) { notify(analysisErrorMessage(error, "Не вдалося проаналізувати рапорт."), "error"); }
     finally { setIsAnalysing(false); }
   };
   const resetSource = () => {
@@ -157,7 +120,7 @@ export function ReportAnalyserPage({ onCreated, onOpenConstructor }: { onCreated
       const createdPath = await templateService.createFromAnalysis(path, templateName, replacements);
       notify("Новий шаблон створено в папці «Шаблони».", "success");
       onCreated(createdPath); setAnalysis(null); setSelected([]); setManual([]);
-    } catch (error) { notify(errorMessage(error, "Не вдалося створити шаблон."), "error"); }
+    } catch (error) { notify(analysisErrorMessage(error, "Не вдалося створити шаблон."), "error"); }
     finally { setIsCreating(false); }
   };
   const toggle = (proposal: TemplateAnalysisProposal) => {
@@ -217,7 +180,7 @@ export function ReportAnalyserPage({ onCreated, onOpenConstructor }: { onCreated
   return <PageFrame className="report-analyser-page" tools={<section className="panel analyser-source"><div><small>Вихідний рапорт</small><b title={path ?? ""}>{path?.split(/[\\/]/).pop() ?? "Файл ще не обрано"}</b></div>{path && <button className="icon-button" title="Скасувати вибір файлу" aria-label="Скасувати вибір файлу" disabled={isAnalysing} onClick={resetSource}><X /></button>}<button className="button primary" disabled={isAnalysing} onClick={() => void choose()}>{isAnalysing ? <LoaderCircle className="spin" /> : <FolderOpen />}{isAnalysing ? "Аналізуємо…" : "Обрати DOCX"}</button></section>}>
     {!analysis ? <section className={`panel analyser-empty ${isDraggingFile ? "analyser-empty--dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setIsDraggingFile(true); }} onDragLeave={() => setIsDraggingFile(false)} onDrop={(event) => { event.preventDefault(); setIsDraggingFile(false); }}><FileText /><h2>{isAnalysing ? "Аналізуємо рапорт…" : isDraggingFile ? "Відпустіть DOCX-файл" : "Оберіть готовий рапорт"}</h2><p>{isAnalysing ? "Визначаємо можливі змінні та готуємо точний перегляд документа." : "Перетягніть DOCX сюди або натисніть «Обрати DOCX». Після вибору файл буде проаналізовано."}</p></section> : <div className="analyser-layout">
       <section className="panel analyser-editor"><header><div><h2>Редактор шаблону</h2><p>Це точний локальний перегляд DOCX. Зміни, увімкнені праворуч, одразу відображаються у документі.</p></div><div className="analyser-editor__actions">{manual.length > 0 && <button className="icon-button" title="Скасувати останню ручну зміну" aria-label="Скасувати останню ручну зміну" onClick={() => setManual((current) => current.slice(0, -1))}><Undo2 /></button>}<b>{replacements.length} замін</b></div></header><div ref={editorRef} className="analyser-editor__text analyser-editor__document" onMouseUp={rememberSelection} onKeyUp={rememberSelection} aria-label="Текст документа для редагування"><div ref={previewRef} className="analyser-docx-preview" />{previewError && <p className="analyser-preview-error">{previewError}</p>}</div>{selectedText && <footer className="analyser-selection"><span>Виділено: <b>{selectedText}</b></span><input value={replacementInput} onChange={(event) => setReplacementInput(event.target.value)} placeholder="{{змінна}} або інший текст" aria-label="Нова заміна" />{editableToken && <button className="button analyser-modifier-button" onClick={openModifiers}><SlidersHorizontal />Модифікатори</button>}<button className="button primary" onClick={applyManualReplacement}><Replace />Застосувати</button><button className="icon-button danger" title="Видалити виділений текст" aria-label="Видалити виділений текст" onClick={deleteSelection}><Trash2 /></button></footer>}</section>
-      <aside className="panel analyser-sidebar"><section className="analyser-proposals"><header><div><h2>Запропоновані заміни</h2><p>Автоматично ввімкнені лише однозначні збіги. Решту підтвердьте вручну.</p></div><div className="analyser-proposals__actions"><button className="icon-button" title="Відкрити конструктор змінних" aria-label="Відкрити конструктор змінних" onClick={onOpenConstructor}><WandSparkles /></button><b>{selectedProposals.length} обрано</b></div></header><div className="analyser-proposals__scroll">{proposalGroups.map((group) => <section className={`analyser-proposal-group analyser-proposal-group--${group.confidence}`} key={group.confidence}><header><b>{group.title}</b><span>{group.items.length}</span></header>{group.items.map((proposal) => { const key = proposalKey(proposal); const activeToken = tokenOverrides[key] ?? proposal.token; return <div key={key} title={proposal.reason} className={selected.includes(key) ? "analyser-proposal analyser-proposal--selected" : "analyser-proposal"}><input type="checkbox" checked={selected.includes(key)} onChange={() => toggle(proposal)} /><div><span>{proposal.category}</span><b>{proposal.label}</b><code>{proposal.value}</code><small className="analyser-proposal__reason">{proposal.reason}</small>{proposal.alternatives?.length > 0 && <div className="analyser-proposal__alternatives">{[{ token: proposal.token, label: "Автоматично" }, ...proposal.alternatives].map((alternative) => <button key={alternative.token} className={activeToken === alternative.token ? "active" : ""} title={alternative.label} onClick={() => setTokenOverrides((current) => ({ ...current, [key]: alternative.token }))}>{`{{${alternative.token}}}`}</button>)}</div>}</div><aside><span className={`analyser-confidence analyser-confidence--${proposal.confidence}`}>{proposal.confidence === "high" ? "Надійна" : "Перевірте"}</span><code>{`{{${activeToken}}}`}</code><small>{proposal.occurrences} збіг{proposal.occurrences === 1 ? "" : "ів"}</small></aside></div>; })}</section>)}{analysis.proposals.length === 0 && <p className="analyser-no-proposals">Збігів із даними програми не знайдено. Виділіть текст у редакторі й додайте потрібну заміну вручну.</p>}</div></section><footer className="analyser-create"><label>Назва файлу<input value={templateName} onChange={(event) => setTemplateName(event.target.value)} /></label><p>Стиль, відступи та пробіли оригінального DOCX зберігаються; змінюється лише підтверджений текст.</p><button className="button primary" disabled={!templateName.trim() || isCreating} onClick={() => void create()}>{isCreating ? <LoaderCircle className="spin" /> : <Check />}Створити шаблон</button></footer></aside>
-    </div>}{modifierTarget && selectedVariable && <Modal title={`Модифікатори: ${selectedVariable.name}`} onClose={() => setModifierTarget(null)} className="analyser-modifier-modal"><p>Відмінок і регістр можна обрати лише по одному. Жирний шрифт і підкреслення можна комбінувати.</p><div className="analyser-modifier-groups">{(["case", "text", "style"] as const).map((group) => <section key={group}><h3>{group === "case" ? "Відмінок" : group === "text" ? "Регістр" : "Форматування"}</h3><div>{modifierRegistry.filter((modifier) => modifier.group === group).map((modifier) => { const unavailable = group === "case" && !selectedVariable.supportsCases; return <label key={modifier.id} className={unavailable ? "disabled" : ""}><input type={group === "case" || group === "text" ? "radio" : "checkbox"} name={group} disabled={unavailable} checked={selectedModifiers.includes(modifier.id)} onChange={() => toggleModifier(modifier.id)} />{modifier.name}</label>; })}</div></section>)}</div><footer className="modal-actions"><code>{tokenFor(modifierTarget.id, selectedModifiers)}</code><button className="button" onClick={() => setModifierTarget(null)}>Скасувати</button><button className="button primary" onClick={useModifiers}>Вставити змінну</button></footer></Modal>}
+      <aside className="panel analyser-sidebar"><AnalysisProposalList groups={proposalGroups} proposalCount={analysis.proposals.length} selected={selected} selectedCount={selectedProposals.length} tokenOverrides={tokenOverrides} onToggle={toggle} onOverride={(key, token) => setTokenOverrides((current) => ({ ...current, [key]: token }))} onOpenConstructor={onOpenConstructor} /><footer className="analyser-create"><label>Назва файлу<input value={templateName} onChange={(event) => setTemplateName(event.target.value)} /></label><p>Стиль, відступи та пробіли оригінального DOCX зберігаються; змінюється лише підтверджений текст.</p><button className="button primary" disabled={!templateName.trim() || isCreating} onClick={() => void create()}>{isCreating ? <LoaderCircle className="spin" /> : <Check />}Створити шаблон</button></footer></aside>
+    </div>}{modifierTarget && selectedVariable && <ModifierModal target={modifierTarget} variable={selectedVariable} selected={selectedModifiers} onToggle={toggleModifier} onClose={() => setModifierTarget(null)} onApply={useModifiers} />}
   </PageFrame>;
 }

@@ -3,11 +3,15 @@ import type { StaffingRecord, TemporaryPerson } from "./types";
 
 export const BCS_HEADERS = schema.headers;
 export const BCS_LOCATIONS = schema.locations;
-export type BcsExportRow = { isTemporary: boolean; isExternal: boolean; groupKey: string; section: string; colorKey: string; positionName: string; battleOrder: string; sector: string; crewName: string; crewActual: string; crewOfficial: string; crewStatus: string; uavName: string; uavType: string; personnelPosition: string; rank: string; fullName: string; duties: string; location: string; notes: string };
+export type BcsExportRow = { isTemporary: boolean; isExternal: boolean; actualCrewMember: boolean; groupKey: string; section: string; colorKey: string; positionName: string; battleOrder: string; sector: string; crewName: string; crewActual: string; crewOfficial: string; crewStatus: string; uavName: string; uavType: string; personnelPosition: string; rank: string; fullName: string; duties: string; location: string; notes: string };
 
 const normalize = (value: string) => value.toLocaleLowerCase("uk").replace(/[’']/g, "'").replace(/\s+/g, " ").trim();
 export const bcsCaps = (value: string | null | undefined) => (value ?? "").toLocaleUpperCase("uk");
 export const CREW_WORKING_LOCATIONS = ["На позиції", "ЗБЗ", "ПБЗ", "Реко та облаштування", "Логістика на позиції", "ГШР", "ОХ", "ЗАБ"] as const;
+export const BCS_ABSENCE_LOCATIONS = ["ВІДП", "ЛІК", "НАВЧ", "ВІДР", "Відкомандировані", "СЗЧ"] as const;
+export function isAvailableInUnit(value: string) {
+  return !BCS_ABSENCE_LOCATIONS.includes(value as typeof BCS_ABSENCE_LOCATIONS[number]) && value !== "ПТЗ Новостав";
+}
 export function isCrewWorkingLocation(value: string) {
   const location = normalize(value);
   return CREW_WORKING_LOCATIONS.some((item) => normalize(item) === location);
@@ -90,10 +94,10 @@ export function bcsGroups(records: StaffingRecord[]) {
 export function bcsExportRows(records: StaffingRecord[]): BcsExportRow[] {
   return bcsGroups(records).flatMap(({ key, people, section, colorKey }) => {
     return people.map((person) => ({
-    isTemporary: !!person.isTemporary, isExternal: !!person.isExternal, groupKey: key, section, colorKey, positionName: section === "Екіпаж" ? bcsCaps(person.crewPositionName) : "", battleOrder: section === "Екіпаж" ? person.battleOrder : "", sector: section === "Екіпаж" ? person.sector : "",
+    isTemporary: !!person.isTemporary, isExternal: !!person.isExternal, actualCrewMember: person.crewId != null && !person.isCrewPlaceholder, groupKey: key, section, colorKey, positionName: section === "Екіпаж" ? bcsCaps(person.crewPositionName) : "", battleOrder: section === "Екіпаж" ? person.battleOrder : "", sector: section === "Екіпаж" ? person.sector : "",
     crewName: section === "Екіпаж" ? bcsCaps(person.crewName) : "", crewActual: section === "Екіпаж" ? String(crewWorkingStrength(records, person.crewId)) : "",
     crewOfficial: String(section === "Екіпаж" ? person.actualStrength : people.length), crewStatus: section === "Екіпаж" ? canonicalCrewStatus(person.crewStatus) : "", uavName: section === "Екіпаж" ? bcsCaps(person.uavName) : "", uavType: section === "Екіпаж" ? person.uavType : "",
-    personnelPosition: person.position, rank: person.rank, fullName: person.fullName, duties: person.functionalDuties, location: person.currentLocation, notes: person.notes,
+    personnelPosition: [person.position, person.actingPosition && `ТВО: ${person.actingPosition}`].filter(Boolean).join(" · "), rank: person.rank, fullName: person.fullName, duties: person.functionalDuties, location: person.currentLocation, notes: person.notes,
     }));
   });
 }
@@ -102,9 +106,9 @@ export function bcsSummary(records: StaffingRecord[], authorized: number) {
   const people = [...new Map(records.filter((person)=>!person.isCrewPlaceholder).map((person) => [person.personnelId, person])).values()];
   const own = people.filter((person) => !person.isExternal);
   const count = (location: string) => people.filter((person) => person.currentLocation === location).length;
-  const absent = new Set(["ВІДП", "ЛІК", "НАВЧ", "ВІДР", "Відкомандировані", "СЗЧ"]);
+  const temporaryActing = people.filter((person) => person.isTemporary && person.actingPosition.trim()).length;
   return [
-    ["По штату", authorized], ["По списку", own.length], ["В наявності", own.filter((person) => !absent.has(person.currentLocation)).length],
+    ["По штату", authorized], ["По списку", own.length + temporaryActing], ["В наявності", own.filter((person) => isAvailableInUnit(person.currentLocation)).length],
     ["Відпустка", count("ВІДП")], ["Шпиталь", count("ЛІК")], ["Відрядження", count("НАВЧ") + count("ВІДР")],
     ["Відкомандировані", count("Відкомандировані")], ["Прикомандировані", people.filter((person) => person.isExternal && person.bcsGroupName === "Прикомандировані").length], ["ПТЗ Новостав", count("ПТЗ Новостав")], ["СЗЧ", count("СЗЧ")], ["Тимчасово прибулі", people.filter((person) => person.isTemporary).length],
   ] as const;
@@ -113,20 +117,24 @@ export function bcsSummary(records: StaffingRecord[], authorized: number) {
 export function bcsFunctionalSummary(records: StaffingRecord[]) {
   const groups = bcsGroups(records);
   const crews = groups.filter(({ section }) => section === "Екіпаж");
-  const wings = crews.filter(({ people }) => /крил|літак/iu.test(people[0].uavType));
-  const status = (pattern: RegExp) => crews.filter(({ people }) => pattern.test(people[0].crewStatus)).length;
-  const sectionCount = (name: string) => groups.filter((group) => group.section === name).reduce((sum, group) => sum + group.people.length, 0);
+  const actualPeople = new Set(records.filter((person) => person.crewId != null && !person.isCrewPlaceholder).map((person) => person.personnelId)).size;
+  const typeCounts = new Map<string, number>();
+  crews.forEach(({ people }) => { const type = people[0].uavType.trim(); if (type) typeCounts.set(type, (typeCounts.get(type) ?? 0) + 1); });
+  const statusCount = (status: string) => crews.filter(({ people }) => canonicalCrewStatus(people[0].crewStatus) === status).length;
+  const structuralSections = [...new Set(groups.filter(({ section, people }) => section && section !== "Екіпаж" && !people[0].isExternal).map(({ section }) => section))];
+  const sectionCount = (name: string) => groups.filter((group) => group.section === name).flatMap((group) => group.people).filter((person) => !person.isCrewPlaceholder && isAvailableInUnit(person.currentLocation)).length;
   return [
-    ["Екіпажі крил (ос-загальна)", wings.reduce((sum, group) => sum + group.people[0].actualStrength, 0)],
-    ["Екіпажі крил (ос-в задіяні)", wings.reduce((sum, group) => sum + crewWorkingStrength(records, group.people[0].crewId), 0)],
-    ["Екіпажі крил (екіпажі)", wings.length], ["Екіпажі - формуються", status(/^форм/iu)],
-    ["Екіпажі - працюючі", status(/^прац/iu)], ["Екіпажі - не активні", status(/^не.?актив/iu)],
-    ["Управління роти", sectionCount("Управління роти")], ["Управління взводів", sectionCount("Управління взводів")],
-    ["Відділення збору та обробки інформації", sectionCount("Відділення збору та обробки інформації")],
-  ] as const;
+    ["Екіпажів (ос-загально)", actualPeople],
+    ["Екіпажів (загально)", crews.length],
+    ...[...typeCounts].map(([type, count]) => [`Екіпажів — ${type}`, count] as const),
+    ["Екіпажів — Формуються", statusCount("Формується")],
+    ["Екіпажів — Працюючі", statusCount("Працюючий")],
+    ["Екіпажів — Не активні", statusCount("Не активний")],
+    ...structuralSections.map((section) => [section, sectionCount(section)] as const),
+  ] as ReadonlyArray<readonly [string, number]>;
 }
 
 export function temporaryStaffingRecord(person: TemporaryPerson): StaffingRecord {
   const section = person.category === "Інша підгрупа" ? person.groupName.trim() || "Інша підгрупа" : person.category;
-  return { isTemporary: person.category === "Тимчасово прибулі", isExternal: true, bcsGroupName: section, personnelId: -person.id, fullName: person.fullName, rank: person.rank, position: "", crewId: null, crewName: null, platoon: "", companyName: "", unitType: section, crewPositionName: "", battleOrder: "", sector: "", officialStrength: 0, actualStrength: 0, crewStatus: "", uavName: "", uavType: "", functionalDuties: person.duties, currentLocation: person.currentLocation, bcsStatus: "", notes: person.notes, actingPosition: "", recommendationCount: 0 };
+  return { isTemporary: person.category === "Тимчасово прибулі", isExternal: true, bcsGroupName: section, personnelId: -person.id, fullName: person.fullName, rank: person.rank, position: person.position, crewId: null, crewName: null, platoon: "", companyName: "", unitType: section, crewPositionName: "", battleOrder: "", sector: "", officialStrength: 0, actualStrength: 0, crewStatus: "", uavName: "", uavType: "", functionalDuties: person.duties, currentLocation: person.currentLocation, bcsStatus: "", notes: person.notes, actingPosition: person.actingPosition, recommendationCount: 0 };
 }

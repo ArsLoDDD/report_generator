@@ -8,9 +8,10 @@ import { Select } from "../../shared/ui/Select";
 import { EntityTable, type EntityTableColumn } from "../../shared/ui/data-table/EntityTable";
 import { operationsService } from "./services/operationsService";
 import type { Crew, Equipment, Incident } from "./types";
+import { useEntityCollection } from "../../shared/hooks/useEntityCollection";
 
 const incidentColumns: EntityTableColumn<Incident>[] = [
-  { key: "id", title: "№", render: (item) => item.id },
+  { key: "id", title: "№", render: (_item, rowIndex) => rowIndex + 1 },
   { key: "event", title: "Подія", render: (item) => <><b>{item.incidentType}</b><small>{item.description}</small></> },
   { key: "occurredAt", title: "Дата й час", render: (item) => item.occurredAt || "—" },
   { key: "crew", title: "Екіпаж", render: (item) => <>{item.crewName ?? "—"}<small>{item.crewSnapshot}</small></> },
@@ -20,20 +21,22 @@ const incidentColumns: EntityTableColumn<Incident>[] = [
 ];
 
 export function IncidentsPage() {
-  const [items, setItems] = useState<Incident[]>([]);
   const [crews, setCrews] = useState<Crew[]>([]);
   const [uavs, setUavs] = useState<Equipment[]>([]);
   const [open, setOpen] = useState(false);
   const { notify } = useNotifications();
   const [draft, setDraft] = useState({ incidentType: "Втрата БпЛА", occurredAt: new Date().toISOString().slice(0, 16), crewId: "", equipmentId: "", positionName: "", reconnaissanceArea: "", description: "" });
 
+  const loadIncidents = useCallback(() => operationsService.listIncidents(), []);
+  const onLoadError = useCallback(() => notify("Не вдалося завантажити інциденти.", "error"), [notify]);
+  const { items, reload: reloadItems } = useEntityCollection({ load: loadIncidents, onError: onLoadError });
   const reload = useCallback(() => {
-    void operationsService.listIncidents().then(setItems).catch(() => notify("Не вдалося завантажити інциденти.", "error"));
+    void reloadItems();
     void operationsService.listCrews().then(setCrews).catch(() => setCrews([]));
     void operationsService.listEquipment("uav").then(setUavs).catch(() => setUavs([]));
-  }, [notify]);
+  }, [reloadItems]);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => { void operationsService.listCrews().then(setCrews).catch(() => setCrews([])); void operationsService.listEquipment("uav").then(setUavs).catch(() => setUavs([])); }, []);
 
   const chooseCrew = (crewId: string) => {
     const crew = crews.find((item) => item.id === Number(crewId));
@@ -69,4 +72,3 @@ export function IncidentsPage() {
     </Modal>}
   </PageFrame>;
 }
-

@@ -180,10 +180,17 @@ pub fn export(
         .collect::<Vec<_>>();
     let own = personnel_rows.iter().filter(|row| !row.is_external).count() as i64;
     let absent = ["ВІДП", "ЛІК", "НАВЧ", "ВІДР", "Відкомандировані", "СЗЧ"];
-    let present = rows
+    let temporary_acting = personnel_rows
         .iter()
-        .filter(|row| !row.full_name.trim().is_empty())
-        .filter(|row| !row.is_external && !absent.contains(&row.location.as_str()))
+        .filter(|row| row.is_temporary && row.personnel_position.contains("ТВО:"))
+        .count() as i64;
+    let present = personnel_rows
+        .iter()
+        .filter(|row| {
+            !row.is_external
+                && !absent.contains(&row.location.as_str())
+                && row.location != "ПТЗ Новостав"
+        })
         .count() as i64;
     let labels = [
         "По штату",
@@ -200,7 +207,7 @@ pub fn export(
     ];
     let summary_values = [
         authorized,
-        own,
+        own + temporary_acting,
         present,
         count("ВІДП"),
         count("ЛІК"),
@@ -230,130 +237,103 @@ pub fn export(
     ];
     let crews: Vec<_> = group_starts
         .iter()
-        .filter(|row| !row.crew_name.is_empty())
+        .filter(|row| row.section == "Екіпаж" && !row.crew_name.is_empty())
         .collect();
-    let wings: Vec<_> = crews
-        .iter()
-        .filter(|row| {
-            let kind = row.uav_type.to_lowercase();
-            kind.contains("крил") || kind.contains("літак")
-        })
-        .collect();
-    let wing_formula = |col: &str| {
-        format!(
-            r#"SUMIF(J7:J{last},"*крил*",{col}7:{col}{last})+SUMIF(J7:J{last},"*літак*",{col}7:{col}{last})-SUMIFS({col}7:{col}{last},J7:J{last},"*крил*",J7:J{last},"*літак*")"#
-        )
-    };
-    let section_count = |name: &str| {
-        group_starts
-            .iter()
-            .filter(|row| row.section == name)
-            .map(|row| row.crew_official.parse::<i64>().unwrap_or(0))
-            .sum::<i64>()
-    };
-    let functional = [
+    let mut functional: Vec<(String, i64)> = vec![
         (
-            "Екіпажі крил (ос-загальна)",
-            wings
-                .iter()
-                .map(|row| row.crew_official.parse::<i64>().unwrap_or(0))
-                .sum(),
-            wing_formula("G"),
-        ),
-        (
-            "Екіпажі крил (ос-в задіяні)",
-            wings
-                .iter()
-                .map(|row| row.crew_actual.parse::<i64>().unwrap_or(0))
-                .sum(),
-            wing_formula("F"),
-        ),
-        (
-            "Екіпажі крил (екіпажі)",
-            wings.len() as i64,
-            format!(
-                r#"COUNTIF(J7:J{last},"*крил*")+COUNTIF(J7:J{last},"*літак*")-COUNTIFS(J7:J{last},"*крил*",J7:J{last},"*літак*")"#
-            ),
-        ),
-        (
-            "Екіпажі - формуються",
-            crews
-                .iter()
-                .filter(|row| row.crew_status.to_lowercase().starts_with("форм"))
+            "Екіпажів (ос-загально)".into(),
+            rows.iter()
+                .filter(|row| row.actual_crew_member && !row.full_name.trim().is_empty())
                 .count() as i64,
-            format!(r#"COUNTIFS(E7:E{last},"<>",H7:H{last},"форм*")"#),
         ),
-        (
-            "Екіпажі - працюючі",
-            crews
-                .iter()
-                .filter(|row| row.crew_status.to_lowercase().starts_with("прац"))
-                .count() as i64,
-            format!(r#"COUNTIFS(E7:E{last},"<>",H7:H{last},"прац*")"#),
-        ),
-        (
-            "Екіпажі - не активні",
-            crews
-                .iter()
-                .filter(|row| {
-                    row.crew_status
-                        .to_lowercase()
-                        .replace(' ', "")
-                        .starts_with("неактив")
-                })
-                .count() as i64,
-            format!(
-                r#"COUNTIFS(E7:E{last},"<>",H7:H{last},"неактив*")+COUNTIFS(E7:E{last},"<>",H7:H{last},"не актив*")"#
-            ),
-        ),
-        (
-            "Управління роти",
-            section_count("Управління роти"),
-            format!(r#"SUMIF(A7:A{last},"Управління роти",G7:G{last})"#),
-        ),
-        (
-            "Управління взводів",
-            section_count("Управління взводів"),
-            format!(r#"SUMIF(A7:A{last},"Управління взводів",G7:G{last})"#),
-        ),
-        (
-            "Відділення збору та обробки інформації",
-            section_count("Відділення збору та обробки інформації"),
-            format!(r#"SUMIF(A7:A{last},"Відділення збору та обробки інформації",G7:G{last})"#),
-        ),
+        ("Екіпажів (загально)".into(), crews.len() as i64),
     ];
+    let mut crew_types = std::collections::BTreeMap::<String, i64>::new();
+    for crew in &crews {
+        if !crew.uav_type.trim().is_empty() {
+            *crew_types
+                .entry(crew.uav_type.trim().to_string())
+                .or_default() += 1;
+        }
+    }
+    functional.extend(
+        crew_types
+            .into_iter()
+            .map(|(kind, count)| (format!("Екіпажів — {kind}"), count)),
+    );
+    for (label, prefix) in [
+        ("Екіпажів — Формуються", "форм"),
+        ("Екіпажів — Працюючі", "прац"),
+        ("Екіпажів — Не активні", "неактив"),
+    ] {
+        let count = crews
+            .iter()
+            .filter(|row| {
+                row.crew_status
+                    .to_lowercase()
+                    .replace(' ', "")
+                    .starts_with(prefix)
+            })
+            .count() as i64;
+        functional.push((label.into(), count));
+    }
+    let mut structural_sections = Vec::<String>::new();
+    for row in rows {
+        if !row.is_external
+            && !row.section.is_empty()
+            && row.section != "Екіпаж"
+            && !structural_sections.contains(&row.section)
+        {
+            structural_sections.push(row.section.clone());
+        }
+    }
+    for section in structural_sections {
+        let count = rows
+            .iter()
+            .filter(|row| {
+                row.section == section
+                    && !row.full_name.trim().is_empty()
+                    && !absent.contains(&row.location.as_str())
+                    && row.location != "ПТЗ Новостав"
+            })
+            .count() as i64;
+        functional.push((section, count));
+    }
     sheet.push_str(&format!(
         "<row r=\"{summary}\">{}{}{} </row>",
-        text_cell(4, summary, &format!("БЧС {unit}:"), 5),
+        text_cell(5, summary, &format!("БЧС {unit}:"), 5),
         text_cell(8, summary, "БЧС по функціоналу:", 5),
-        text_cell(12, summary, "Де знаходиться", 5)
+        text_cell(11, summary, "Де знаходиться", 5)
     ));
-    for index in 0..locations.len() + 2 {
+    let summary_row_count = (locations.len() + 2)
+        .max(functional.len())
+        .max(labels.len());
+    for index in 0..summary_row_count {
         let r = summary + index + 1;
         sheet.push_str(&format!("<row r=\"{r}\" ht=\"24\" customHeight=\"1\">"));
         if let Some(label) = labels.get(index) {
-            sheet.push_str(&text_cell(4, r, label, 3));
+            sheet.push_str(&text_cell(5, r, label, 3));
             if let (Some(value), Some(formula)) =
                 (summary_values.get(index), summary_formulas.get(index))
             {
-                sheet.push_str(&number_cell(5, r, *value, formula, 3));
+                sheet.push_str(&number_cell(6, r, *value, formula, 3));
             } else {
-                sheet.push_str(&text_cell(5, r, "", 3));
+                sheet.push_str(&text_cell(6, r, "", 3));
             }
         }
-        if let Some((label, value, formula)) = functional.get(index) {
+        if let Some((label, value)) = functional.get(index) {
             sheet.push_str(&text_cell(8, r, label, 3));
-            sheet.push_str(&number_cell(10, r, *value, formula, 3));
+            sheet.push_str(&number_cell(9, r, *value, "", 3));
         }
         if let Some(location) = locations.get(index).and_then(|value| value.as_str()) {
+            sheet.push_str(&text_cell(11, r, location, 3));
             sheet.push_str(&number_cell(
-                11,
+                12,
                 r,
                 count(location),
                 &location_formula(location),
                 3,
             ));
-            sheet.push_str(&text_cell(12, r, location, 3));
         } else if index == locations.len() {
             let unknown = rows
                 .iter()
@@ -364,23 +344,23 @@ pub fn export(
                         .any(|value| value.as_str() == Some(&row.location))
                 })
                 .count() as i64;
+            sheet.push_str(&text_cell(11, r, "Не вказано / інше", 3));
             sheet.push_str(&number_cell(
-                11,
+                12,
                 r,
                 unknown,
-                &format!("COUNTA(M7:M{last})-SUM(L{}:L{})", summary + 1, r - 1),
+                &format!("COUNTA(M7:M{last})-SUM(M{}:M{})", summary + 1, r - 1),
                 3,
             ));
-            sheet.push_str(&text_cell(12, r, "Не вказано / інше", 3));
-        } else {
+        } else if index == locations.len() + 1 {
+            sheet.push_str(&text_cell(11, r, "Загалом", 3));
             sheet.push_str(&number_cell(
-                11,
+                12,
                 r,
                 personnel_rows.len() as i64,
-                &format!("SUM(L{}:L{})", summary + 1, r - 1),
+                &format!("SUM(M{}:M{})", summary + 1, r - 1),
                 3,
             ));
-            sheet.push_str(&text_cell(12, r, "Загалом", 3));
         }
         sheet.push_str("</row>");
     }
@@ -392,4 +372,52 @@ pub fn export(
         &styles,
         include_str!("../resources/bcs-reference-theme.xml"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{fs::File, io::Read};
+    use zip::ZipArchive;
+
+    #[test]
+    fn places_summary_values_next_to_labels_and_location_counts_on_the_right() {
+        let path = std::env::temp_dir().join(format!("bcs-layout-{}.xlsx", std::process::id()));
+        let row = BcsRow {
+            is_temporary: false,
+            is_external: false,
+            actual_crew_member: true,
+            color_key: "crew-working".into(),
+            group_key: "crew-1".into(),
+            section: "Екіпаж".into(),
+            position_name: "ПОЗИЦІЯ".into(),
+            battle_order: "БРО".into(),
+            sector: "СЕКТОР".into(),
+            crew_name: "СОКІЛ".into(),
+            crew_actual: "1".into(),
+            crew_official: "1".into(),
+            crew_status: "Працюючий".into(),
+            uav_name: "MAVIC".into(),
+            uav_type: "Коптер".into(),
+            personnel_position: "оператор".into(),
+            rank: "солдат".into(),
+            full_name: "ТЕСТОВИЙ Тест Тестович".into(),
+            duties: String::new(),
+            location: "ПУ".into(),
+            notes: String::new(),
+        };
+        export(&path, "РБПАК", "10.09.2026", 72, &[row]).unwrap();
+        let mut archive = ZipArchive::new(File::open(&path).unwrap()).unwrap();
+        let mut xml = String::new();
+        archive
+            .by_name("xl/worksheets/sheet1.xml")
+            .unwrap()
+            .read_to_string(&mut xml)
+            .unwrap();
+        assert!(xml.contains("r=\"F10\"") && xml.contains("r=\"F11\""));
+        assert!(xml.contains("r=\"G11\"") && xml.contains("r=\"I11\""));
+        assert!(xml.contains("r=\"J11\"") && xml.contains("r=\"L11\""));
+        assert!(xml.contains("r=\"M11\""));
+        let _ = std::fs::remove_file(path);
+    }
 }

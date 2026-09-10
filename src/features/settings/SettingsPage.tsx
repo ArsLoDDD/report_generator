@@ -1,135 +1,23 @@
 import { open, save } from "@tauri-apps/plugin-dialog"
-import { Archive, Building2, ChevronDown, ChevronRight, ClipboardCopy, Download, FileSpreadsheet, FolderOpen, GripVertical, Pencil, Plus, Trash2, Upload, Users } from "lucide-react"
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { Archive, Building2, ClipboardCopy, Download, FileSpreadsheet, FolderOpen, Pencil, Plus, Trash2, Upload, Users } from "lucide-react"
+import { useEffect, useState } from "react"
 import { personnelService } from "../../shared/services/personnelService"
-import type { SignerRole, SignerSettings, UnitSettings, UnitStructureNode } from "../../shared/types/domain"
+import type { SignerRole, SignerSettings, UnitSettings } from "../../shared/types/domain"
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog"
 import { Modal } from "../../shared/ui/Modal"
 import { useNotifications } from "../../shared/ui/NotificationProvider"
 import { PageFrame } from "../../shared/ui/PageFrame"
 import { PageTitle } from "../../shared/ui/PageTitle"
-import { Select } from "../../shared/ui/Select"
-import { defaultUnitStructure, structureWithUnmappedPositions, usableUnitStructure, type UnitStructureSource } from "../../shared/unit-structure"
+import type { UnitStructureSource } from "../../shared/unit-structure"
 import { operationsService } from "../operations/services/operationsService"
 import { useAppSettings } from "./hooks/useAppSettings"
 import { settingsService } from "./services/settingsService"
+import { SignerEditorModal } from "./components/SignerEditorModal"
+import { UnitEditorModal } from "./components/UnitEditorModal"
 
-const emptySigner: SignerSettings = { fullName: "", rank: "", position: "" };
 const legacyRoles = (settings: { mainSigner: SignerSettings; commander: SignerSettings; chief: SignerSettings; deputyPpp: SignerSettings; deputyArmament: SignerSettings; deputyRear: SignerSettings; fuelChief: SignerSettings }): SignerRole[] => [
   ["основний_підписант", "Основний підписант", settings.mainSigner], ["командир", "Командир", settings.commander], ["начальник_штабу", "Начальник штабу", settings.chief], ["заступник_ппп", "Заступник командира з ППП", settings.deputyPpp], ["заступник_озброєння", "Заступник командира з озброєння", settings.deputyArmament], ["заступник_тилу", "Заступник командира з тилу", settings.deputyRear], ["начальник_пмм", "Начальник ПММ", settings.fuelChief]
 ].map(([id, name, signer]) => ({ id: id as string, name: name as string, signer: signer as SignerSettings }));
-
-function SignerEditor({ role, onClose, onSave, busy }: { role: SignerRole | "new"; onClose: () => void; onSave: (name: string, signer: SignerSettings) => Promise<void>; busy: boolean }) {
-  const [name, setName] = useState(role === "new" ? "" : role.name);
-  const [signer, setSigner] = useState(role === "new" ? emptySigner : role.signer);
-  const isNew = role === "new";
-  const update = (key: keyof SignerSettings, value: string) => setSigner((current) => ({ ...current, [key]: value }));
-  return <Modal title={isNew ? "Новий підписант" : `Редагування: ${role.name}`} onClose={onClose} className="signer-editor-modal">
-    <div className="signer-editor-fields">
-      <label>Назва ролі<input value={name} disabled={!isNew} onChange={(event) => setName(event.target.value)} placeholder="Наприклад: Черговий частини" /></label>
-      {isNew && <small>З назви буде автоматично створено змінні, наприклад: {"{{черговий_частини_піб}}"}.</small>}
-      <label>ПІБ<input value={signer.fullName} onChange={(event) => update("fullName", event.target.value)} /></label>
-      <label>Звання<input value={signer.rank} onChange={(event) => update("rank", event.target.value)} /></label>
-      <label>Посада<input value={signer.position} onChange={(event) => update("position", event.target.value)} /></label>
-    </div>
-    <footer className="modal-actions"><button className="button" onClick={onClose}>Скасувати</button><button className="button primary" disabled={busy} onClick={() => void onSave(name, signer)}>{isNew ? "Додати підписанта" : "Зберегти зміни"}</button></footer>
-  </Modal>;
-}
-
-function StructureEditor({ value, onChange }: { value: UnitStructureNode[]; onChange: (value: UnitStructureNode[]) => void }) {
-  const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-  const [dragPoint, setDragPoint] = useState({ x: 0, y: 0 });
-  const dropTargetRef = useRef<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set(value.filter((item) => item.kind === "group").map((item) => item.id)));
-  const roots = value.filter((item) => item.kind === "group" && item.parentId === null).sort((left, right) => left.order - right.order);
-  const update = (id: string, patch: Partial<UnitStructureNode>) => onChange(value.map((item) => item.id === id ? { ...item, ...patch } : item));
-  const remove = (id: string) => {
-    const removed = new Set([id]);
-    let changed = true;
-    while (changed) { changed = false; value.forEach((item) => { if (item.parentId && removed.has(item.parentId) && !removed.has(item.id)) { removed.add(item.id); changed = true; } }); }
-    onChange(value.filter((item) => !removed.has(item.id)));
-  };
-  const add = (parentId: string | null, kind: UnitStructureNode["kind"], name: string) => onChange([...value, { id: `${kind}-${Date.now()}-${value.length}`, parentId, kind, name, order: value.filter((item) => item.parentId === parentId).length }]);
-  const toggle = (id: string) => setCollapsedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  const reorder = useCallback((sourceId: string | null, targetId: string) => {
-    const finish = () => { setDraggedId(null); setDropTargetId(null); };
-    if (!sourceId || sourceId === targetId) { finish(); return; }
-    const dragged = value.find((item) => item.id === sourceId);
-    const target = value.find((item) => item.id === targetId);
-    if (!dragged || !target || dragged.parentId !== target.parentId || dragged.kind !== target.kind) { finish(); return; }
-    const siblings = value.filter((item) => item.parentId === dragged.parentId && item.kind === dragged.kind).sort((left, right) => left.order - right.order);
-    const from = siblings.findIndex((item) => item.id === sourceId);
-    const to = siblings.findIndex((item) => item.id === targetId);
-    siblings.splice(to, 0, siblings.splice(from, 1)[0]);
-    onChange(value.map((item) => { const index = siblings.findIndex((sibling) => sibling.id === item.id); return index < 0 ? item : { ...item, order: index }; }));
-    finish();
-  }, [onChange, value]);
-  const startDrag = (event: ReactPointerEvent<HTMLElement>, id: string) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setDraggedId(id);
-    setDropTargetId(id);
-    dropTargetRef.current = id;
-    setDragPoint({ x: event.clientX, y: event.clientY });
-  };
-  useEffect(() => {
-    if (!draggedId) return;
-    const targetAt = (x: number, y: number) => document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-structure-node]")?.dataset.structureNode ?? null;
-    const move = (event: PointerEvent) => {
-      event.preventDefault();
-      setDragPoint({ x: event.clientX, y: event.clientY });
-      const target = targetAt(event.clientX, event.clientY);
-      dropTargetRef.current = target;
-      setDropTargetId(target);
-    };
-    const finish = (event: PointerEvent) => {
-      const target = targetAt(event.clientX, event.clientY) ?? dropTargetRef.current;
-      if (target) reorder(draggedId, target);
-      else { setDraggedId(null); setDropTargetId(null); }
-      dropTargetRef.current = null;
-    };
-    window.addEventListener("pointermove", move, { passive: false });
-    window.addEventListener("pointerup", finish, { once: true });
-    window.addEventListener("pointercancel", finish, { once: true });
-    return () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", finish); };
-  }, [draggedId, reorder]);
-  const draggedItem = value.find((item) => item.id === draggedId);
-  return <section className="unit-structure-editor">
-    <header><div><b>Структура підрозділу</b><span>Згортайте блоки стрілкою. Тягніть маркер ліворуч, щоб змінювати порядок блоків або посад у них.</span></div><button type="button" className="button" onClick={() => add(null, "group", "Новий блок")}><Plus />Блок</button></header>
-    <div className="unit-structure-editor__scroll">{roots.map((root) => {
-      const groups = value.filter((item) => item.kind === "group" && item.parentId === root.id).sort((left, right) => left.order - right.order);
-      const directPositions = value.filter((item) => item.kind === "position" && item.parentId === root.id).sort((left, right) => left.order - right.order);
-      const blocks = [{ id: root.id, name: root.name, positions: directPositions }, ...groups.map((group) => ({ id: group.id, name: group.name, positions: value.filter((item) => item.kind === "position" && item.parentId === group.id).sort((left, right) => left.order - right.order) }))];
-      const rootCollapsed = collapsedIds.has(root.id);
-      return <article key={root.id} data-structure-node={root.id} className={`unit-structure-root ${draggedId === root.id ? "is-dragging" : ""} ${dropTargetId === root.id && draggedId !== root.id ? "is-drop-target" : ""}`}>
-        <div className="unit-structure-root__title"><button type="button" className="unit-structure-collapse" aria-label={`${rootCollapsed ? "Розгорнути" : "Згорнути"} ${root.name}`} onClick={() => toggle(root.id)}>{rootCollapsed ? <ChevronRight /> : <ChevronDown />}</button><span className="unit-structure-position__handle" onPointerDown={(event)=>startDrag(event,root.id)} title="Перетягнути блок"><GripVertical /></span><input value={root.name} onFocus={() => setEditingId(root.id)} onBlur={() => setEditingId(null)} className={editingId === root.id ? "is-editing" : ""} onChange={(event) => update(root.id, { name: event.target.value })} /><button type="button" className="button icon-only danger" aria-label={`Видалити блок ${root.name}`} onClick={() => remove(root.id)}><Trash2 /></button></div>
-        {!rootCollapsed && <>{blocks.map((block) => {
-          const blockCollapsed = collapsedIds.has(block.id);
-          return <div data-structure-node={block.id} className={`unit-structure-block ${block.id !== root.id && draggedId === block.id ? "is-dragging" : ""} ${block.id !== root.id && dropTargetId === block.id && draggedId !== block.id ? "is-drop-target" : ""}`} key={block.id}>
-            {block.id !== root.id && <div className="unit-structure-block__title"><button type="button" className="unit-structure-collapse" aria-label={`${blockCollapsed ? "Розгорнути" : "Згорнути"} ${block.name}`} onClick={() => toggle(block.id)}>{blockCollapsed ? <ChevronRight /> : <ChevronDown />}</button><span className="unit-structure-position__handle" onPointerDown={(event)=>startDrag(event,block.id)} title="Перетягнути блок"><GripVertical /></span><input value={block.name} onFocus={() => setEditingId(block.id)} onBlur={() => setEditingId(null)} className={editingId === block.id ? "is-editing" : ""} onChange={(event) => update(block.id, { name: event.target.value })} /><button type="button" className="button icon-only danger" aria-label={`Видалити ${block.name}`} onClick={() => remove(block.id)}><Trash2 /></button></div>}
-            {!blockCollapsed && <><div className="unit-structure-positions">{block.positions.map((position) => <div key={position.id} data-structure-node={position.id} className={`unit-structure-position ${draggedId === position.id ? "is-dragging" : ""} ${dropTargetId === position.id && draggedId !== position.id ? "is-drop-target" : ""}`}><span className="unit-structure-position__handle" onPointerDown={(event)=>startDrag(event,position.id)} title="Перетягнути посаду"><GripVertical /></span><input value={position.name} onFocus={() => setEditingId(position.id)} onBlur={() => setEditingId(null)} className={editingId === position.id ? "is-editing" : ""} onChange={(event) => update(position.id, { name: event.target.value })} /><button type="button" className="button icon-only danger" aria-label={`Видалити ${position.name}`} onClick={() => remove(position.id)}><Trash2 /></button></div>)}</div>
-            <button type="button" className="unit-structure-add" onClick={() => add(block.id, "position", "Нова посада")}><Plus />Додати посаду</button></>}
-          </div>;
-        })}<div className="unit-structure-actions"><button type="button" className="button" onClick={() => add(root.id, "group", "Нове відділення")}><Plus />Підблок / відділення</button></div></>}
-      </article>;
-    })}</div>{draggedItem&&<div className="unit-structure-drag-preview" style={{left:dragPoint.x,top:dragPoint.y}}><GripVertical/><b>{draggedItem.name}</b></div>}
-  </section>;
-}
-
-function UnitEditor({ initial, sourcePositions, onClose, onSave, busy }: { initial: UnitSettings; sourcePositions: UnitStructureSource[]; onClose: () => void; onSave: (unit: UnitSettings) => Promise<void>; busy: boolean }) {
-  const [unit, setUnit] = useState<UnitSettings>({ ...initial, structure: structureWithUnmappedPositions({ ...initial, structure: usableUnitStructure(initial) }, sourcePositions) });
-  const changeKind = (kind: UnitSettings["kind"]) => setUnit((current) => ({ ...current, kind, structure: current.structure?.length ? current.structure : defaultUnitStructure(kind) }));
-  return <Modal title="Параметри підрозділу" onClose={onClose} className="unit-editor-modal"><div className="operation-editor__body">
-    <label className="form-field"><span>Тип підрозділу</span><Select ariaLabel="Тип підрозділу" value={unit.kind} onChange={(kind) => changeKind(kind as UnitSettings["kind"])} options={[{ value: "Рота", label: "Рота" }, { value: "Окремий взвод", label: "Окремий взвод" }, { value: "Інше", label: "Інше" }]} /></label>
-    <label className="form-field"><span>Коротка назва</span><input autoFocus value={unit.shortName} onChange={(event) => setUnit((current) => ({ ...current, shortName: event.target.value }))} placeholder="РБАК" /></label>
-    <label className="form-field"><span>Повна назва підрозділу</span><input value={unit.fullName ?? ""} onChange={(event) => setUnit((current) => ({ ...current, fullName: event.target.value }))} placeholder="Рота безпілотних авіаційних комплексів" /></label>
-    <label className="form-field"><span>Номер військової частини</span><input value={unit.unitCode ?? ""} onChange={(event) => setUnit((current) => ({ ...current, unitCode: event.target.value.toUpperCase().replaceAll("A", "А") }))} placeholder="А0000" maxLength={5} /></label>
-    <label className="form-field form-field--wide"><span>Чисельність за штатом</span><input type="number" min="0" value={unit.authorizedStrength || ""} onChange={(event) => setUnit((current) => ({ ...current, authorizedStrength: Number(event.target.value) || 0 }))} /></label>
-    <StructureEditor value={unit.structure ?? []} onChange={(structure) => setUnit((current) => ({ ...current, structure }))} />
-  </div><footer className="modal-actions"><button className="button" onClick={onClose}>Скасувати</button><button className="button primary" disabled={busy} onClick={() => void onSave(unit)}>Зберегти</button></footer></Modal>;
-}
 
 export function SettingsPage() {
   const { settings, errorMessage, isSaving, updateSigner, addSigner, deleteSigner, updateUnit } = useAppSettings();
@@ -164,8 +52,8 @@ export function SettingsPage() {
       </section>
       <aside className="panel settings-actions"><button className="button" onClick={() => void settingsService.openApplicationDirectory()}><FolderOpen />Відкрити директорію</button><button className="button" onClick={() => void createBackup()}><Archive />Резервна копія БД</button><button className="button" onClick={() => setExcelOpen(true)}><FileSpreadsheet />Імпорт Excel-бази</button><button className="button" onClick={() => void exportExcel()}><FileSpreadsheet />Експорт Excel-бази</button><button className="button" onClick={() => setExportOpen(true)}><Download />Експортувати всі дані</button><button className="button" onClick={() => void importArchive()}><Upload />Імпортувати архів даних</button></aside>
     </section>
-    {editor && <SignerEditor role={editor} onClose={() => setEditor(null)} onSave={saveSigner} busy={isSaving} />}
-    {unitEditor && <UnitEditor initial={settings?.unit ?? { kind: "Рота", shortName: "", authorizedStrength: 0 }} sourcePositions={sourcePositions} onClose={() => setUnitEditor(false)} onSave={saveUnit} busy={isSaving} />}
+    {editor && <SignerEditorModal role={editor} onClose={() => setEditor(null)} onSave={saveSigner} busy={isSaving} />}
+    {unitEditor && <UnitEditorModal initial={settings?.unit ?? { kind: "Рота", shortName: "", authorizedStrength: 0 }} sourcePositions={sourcePositions} onClose={() => setUnitEditor(false)} onSave={saveUnit} busy={isSaving} />}
     {deleting && <ConfirmDialog title="Видалити підписанта?" message={`Підписант «${deleting.name}» і змінні з префіксом {{${deleting.id}_…}} стануть недоступними.`} confirmLabel="Видалити" onConfirm={() => void removeSigner()} onCancel={() => setDeleting(null)} busy={isSaving} />}
     {excelOpen && <Modal title="Імпорт Excel-бази" onClose={() => { setExcelOpen(false); setExcelImportError(""); }} className="personnel-import-modal"><div className="personnel-import-modal__body"><p>Оберіть, як застосувати дані з локального Excel-файлу.</p>{excelImportError && <div className="excel-import-error" role="alert"><b>Імпорт зупинено</b><span>{excelImportError}</span><button className="button" type="button" onClick={() => void navigator.clipboard.writeText(excelImportError).then(() => notify("Текст помилки скопійовано.", "success"))}><ClipboardCopy />Копіювати помилку</button></div>}<div className="personnel-import-options"><button className="personnel-import-option" onClick={() => void importExcel("append")}><b>Доповнити базу даних</b><span>Додати записи з файлу до наявних. Існуючі записи не видаляються.</span></button><button className="personnel-import-option personnel-import-option--danger" onClick={() => void importExcel("replace")}><b>Замінити базу даних</b><span>Очистити особовий склад і автомобілі, а потім завантажити записи з файлу.</span></button></div></div></Modal>}
     {exportOpen && <Modal title="Експорт усіх даних" onClose={() => setExportOpen(false)}><p>Оберіть складові архіву.</p>{Object.entries({ database: "База даних", settings: "Налаштування", customVariables: "Кастомні поля", templates: "Шаблони", reports: "Згенеровані рапорти" }).map(([key, label]) => <label key={key}><input type="checkbox" checked={options[key as keyof typeof options]} onChange={() => setOptions((current) => ({ ...current, [key]: !current[key as keyof typeof current] }))} /> {label}</label>)}<footer className="modal-actions"><button className="button" onClick={() => setExportOpen(false)}>Скасувати</button><button className="button primary" onClick={() => void exportArchive()}>Створити архів</button></footer></Modal>}

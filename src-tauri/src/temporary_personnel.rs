@@ -8,6 +8,12 @@ pub struct TemporaryPerson {
     pub id: i64,
     pub full_name: String,
     pub rank: String,
+    #[serde(default)]
+    pub position: String,
+    #[serde(default)]
+    pub acting_slot_id: String,
+    #[serde(default)]
+    pub acting_position: String,
     pub duties: String,
     pub arrived_at: String,
     pub current_location: String,
@@ -27,7 +33,8 @@ pub fn prepare(connection: &rusqlite::Connection) -> Result<(), String> {
         id INTEGER PRIMARY KEY, full_name TEXT NOT NULL, rank TEXT NOT NULL DEFAULT '',
         duties TEXT NOT NULL DEFAULT '', arrived_at TEXT NOT NULL, current_location TEXT NOT NULL DEFAULT '',
         notes TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT 'Тимчасово прибулі',
-        group_name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        group_name TEXT NOT NULL DEFAULT '', position TEXT NOT NULL DEFAULT '', acting_slot_id TEXT NOT NULL DEFAULT '',
+        acting_position TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );").map_err(|e| e.to_string())?;
     connection.execute("ALTER TABLE temporary_personnel ADD COLUMN category TEXT NOT NULL DEFAULT 'Тимчасово прибулі'", []).ok();
     connection
@@ -36,23 +43,44 @@ pub fn prepare(connection: &rusqlite::Connection) -> Result<(), String> {
             [],
         )
         .ok();
+    connection
+        .execute(
+            "ALTER TABLE temporary_personnel ADD COLUMN position TEXT NOT NULL DEFAULT ''",
+            [],
+        )
+        .ok();
+    connection
+        .execute(
+            "ALTER TABLE temporary_personnel ADD COLUMN acting_slot_id TEXT NOT NULL DEFAULT ''",
+            [],
+        )
+        .ok();
+    connection
+        .execute(
+            "ALTER TABLE temporary_personnel ADD COLUMN acting_position TEXT NOT NULL DEFAULT ''",
+            [],
+        )
+        .ok();
     Ok(())
 }
 
 pub fn list(connection: &rusqlite::Connection) -> Result<Vec<TemporaryPerson>, String> {
-    let mut query=connection.prepare("SELECT id,full_name,rank,duties,arrived_at,current_location,notes,category,group_name FROM temporary_personnel ORDER BY CASE category WHEN 'Прикомандировані' THEN 0 WHEN 'Тимчасово прибулі' THEN 1 ELSE 2 END,group_name,arrived_at,id").map_err(|e|e.to_string())?;
+    let mut query=connection.prepare("SELECT id,full_name,rank,position,acting_slot_id,acting_position,duties,arrived_at,current_location,notes,category,group_name FROM temporary_personnel ORDER BY CASE category WHEN 'Прикомандировані' THEN 0 WHEN 'Тимчасово прибулі' THEN 1 ELSE 2 END,group_name,arrived_at,id").map_err(|e|e.to_string())?;
     let rows = query
         .query_map([], |row| {
             Ok(TemporaryPerson {
                 id: row.get(0)?,
                 full_name: row.get(1)?,
                 rank: row.get(2)?,
-                duties: row.get(3)?,
-                arrived_at: row.get(4)?,
-                current_location: row.get(5)?,
-                notes: row.get(6)?,
-                category: row.get(7)?,
-                group_name: row.get(8)?,
+                position: row.get(3)?,
+                acting_slot_id: row.get(4)?,
+                acting_position: row.get(5)?,
+                duties: row.get(6)?,
+                arrived_at: row.get(7)?,
+                current_location: row.get(8)?,
+                notes: row.get(9)?,
+                category: row.get(10)?,
+                group_name: row.get(11)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -68,9 +96,21 @@ pub fn save(connection: &rusqlite::Connection, person: &TemporaryPerson) -> Resu
     if !crate::database::is_valid_bcs_location(&person.current_location) {
         return Err("Оберіть значення «Де знаходиться» з довідника БЧС.".into());
     }
+    if !person.acting_slot_id.is_empty() {
+        let occupied: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM temporary_personnel WHERE acting_slot_id=?1 AND id<>?2",
+                rusqlite::params![person.acting_slot_id, person.id],
+                |row| row.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        if occupied > 0 {
+            return Err("Ця штатна посада вже зайнята іншим тимчасово прибулим як ТВО.".into());
+        }
+    }
     if person.id == 0 {
-        connection.execute("INSERT INTO temporary_personnel(full_name,rank,duties,arrived_at,current_location,notes,category,group_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",rusqlite::params![person.full_name.trim(),person.rank,person.duties,person.arrived_at,person.current_location,person.notes,person.category,person.group_name]).map_err(|e|e.to_string())?;
-    } else if connection.execute("UPDATE temporary_personnel SET full_name=?1,rank=?2,duties=?3,arrived_at=?4,current_location=?5,notes=?6,category=?7,group_name=?8 WHERE id=?9",rusqlite::params![person.full_name.trim(),person.rank,person.duties,person.arrived_at,person.current_location,person.notes,person.category,person.group_name,person.id]).map_err(|e|e.to_string())? != 1 { return Err("Запис БЧС не знайдено.".into()); }
+        connection.execute("INSERT INTO temporary_personnel(full_name,rank,position,acting_slot_id,acting_position,duties,arrived_at,current_location,notes,category,group_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",rusqlite::params![person.full_name.trim(),person.rank,person.position,person.acting_slot_id,person.acting_position,person.duties,person.arrived_at,person.current_location,person.notes,person.category,person.group_name]).map_err(|e|e.to_string())?;
+    } else if connection.execute("UPDATE temporary_personnel SET full_name=?1,rank=?2,position=?3,acting_slot_id=?4,acting_position=?5,duties=?6,arrived_at=?7,current_location=?8,notes=?9,category=?10,group_name=?11 WHERE id=?12",rusqlite::params![person.full_name.trim(),person.rank,person.position,person.acting_slot_id,person.acting_position,person.duties,person.arrived_at,person.current_location,person.notes,person.category,person.group_name,person.id]).map_err(|e|e.to_string())? != 1 { return Err("Запис БЧС не знайдено.".into()); }
     Ok(())
 }
 

@@ -94,6 +94,15 @@ pub(super) fn values_for(
                 Value::new(text, &field.kind, gender),
             );
         }
+        // Related vehicle variables are valid even when the selected person
+        // does not currently have a vehicle assigned. Seed the first relation
+        // with empty values so templates such as TEST 01 still generate.
+        for field in &registry().vehicle_fields {
+            map.insert(
+                format!("{prefix}_автомобіль_1_{}", field.id),
+                Value::new(String::new(), &field.kind, None),
+            );
+        }
         add_person_vehicles(connection, p.id, i + 1, &mut map)?;
     }
     let vehicle_id = selected_vehicle_id.or_else(|| {
