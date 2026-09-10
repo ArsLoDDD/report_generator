@@ -6,7 +6,7 @@ import { FlightPlanningPage } from "./FlightPlanningPage";
 
 const { save } = vi.hoisted(() => ({ save: vi.fn().mockResolvedValue("/tmp/РБПАК_10.09.2026_План_польотів.xlsx") }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save }));
-vi.mock("./services/operationsService", () => ({ operationsService: { listCrews: vi.fn(), listEquipment: vi.fn(), exportFlightPlan: vi.fn() } }));
+vi.mock("./services/operationsService", () => ({ operationsService: { listCrews: vi.fn(), listEquipment: vi.fn(), exportFlightPlan: vi.fn(), syncFlightPlanLocations: vi.fn().mockResolvedValue(undefined) } }));
 vi.mock("../vehicles/services/vehiclesService", () => ({ vehiclesService: { list: vi.fn().mockResolvedValue([]) } }));
 vi.mock("../settings/services/settingsService", () => ({ settingsService: { get: vi.fn().mockResolvedValue({ unit: { shortName:"РБПАК",fullName:"",kind:"Рота",authorizedStrength:72 } }) } }));
 

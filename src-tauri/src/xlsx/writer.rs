@@ -105,6 +105,7 @@ fn crew_label(key: &str) -> &str {
         "status" => "Статус екіпажу",
         "uav_name" => "Назва БпАК",
         "uav_type" => "Тип БпАК",
+        "primary_uav_inventory_number" => "Основний БпЛА (інвентарний номер)",
         "functional_duties" => "Функціональні обов’язки",
         "current_location" => "Де знаходиться",
         "notes" => "Примітка",
@@ -125,6 +126,7 @@ fn equipment_label(key: &str) -> &str {
         "total_quantity" => "Кількість БпЛА загальна",
         "day_quantity" => "К-ть БпЛА денних",
         "night_quantity" => "К-ть БпЛА нічних",
+        "uav_type" => "Тип БпАК",
         "notes" => "Примітка",
         _ => key,
     }
@@ -318,6 +320,7 @@ pub fn export_with_staffing(
                 crew.status.clone(),
                 crew.uav_name.clone(),
                 crew.uav_type.clone(),
+                crew.primary_uav_inventory_number.clone(),
                 crew.functional_duties.clone(),
                 crew.current_location.clone(),
                 crew.notes.clone(),
@@ -371,6 +374,7 @@ pub fn export_with_staffing(
                     row.total_quantity.clone(),
                     row.day_quantity.clone(),
                     row.night_quantity.clone(),
+                    row.uav_type.clone(),
                     row.notes.clone(),
                 ]
             })

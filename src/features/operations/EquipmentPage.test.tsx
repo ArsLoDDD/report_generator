@@ -32,4 +32,21 @@ describe("EquipmentPage", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Видалити" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("delete_equipment", { equipmentId: 17 }));
   });
+
+  it("edits an existing equipment record from its details panel", async () => {
+    invoke.mockImplementation((command: string) => command === "list_equipment" ? Promise.resolve([generator]) : command === "list_crews" ? Promise.resolve([]) : Promise.resolve());
+    render(<NotificationProvider><EquipmentPage category="generator" people={[]} /></NotificationProvider>);
+    fireEvent.click(await screen.findByText(generator.name));
+    fireEvent.click(screen.getByRole("button", { name: "Редагувати" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Редагування: генератор" });
+    const name = within(dialog).getByDisplayValue(generator.name);
+    fireEvent.change(name, { target: { value: "GENPOWER 4.0" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Зберегти" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_equipment", expect.objectContaining({
+      equipmentId: 17,
+      draft: expect.objectContaining({ name: "GENPOWER 4.0" }),
+    })));
+  });
 });

@@ -36,6 +36,7 @@ pub struct Crew {
     pub status: String,
     pub uav_name: String,
     pub uav_type: String,
+    pub primary_uav_id: Option<i64>,
     pub functional_duties: String,
     pub current_location: String,
     pub notes: String,
@@ -81,6 +82,8 @@ pub struct CrewDraft {
     pub uav_name: String,
     #[serde(default)]
     pub uav_type: String,
+    #[serde(default)]
+    pub primary_uav_id: Option<i64>,
     #[serde(default)]
     pub functional_duties: String,
     #[serde(default)]
@@ -238,6 +241,7 @@ pub struct Equipment {
     pub total_quantity: i64,
     pub day_quantity: i64,
     pub night_quantity: i64,
+    pub uav_type: String,
     pub notes: String,
 }
 
@@ -253,6 +257,8 @@ pub struct EquipmentDraft {
     pub total_quantity: i64,
     pub day_quantity: i64,
     pub night_quantity: i64,
+    #[serde(default)]
+    pub uav_type: String,
     pub notes: String,
 }
 

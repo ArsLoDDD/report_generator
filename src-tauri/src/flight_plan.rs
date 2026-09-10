@@ -220,7 +220,7 @@ fn build_rows(
         let weather = &entry.weather;
         let weather_text = format!("Згідно прогнозу UAV Forecast {} С, вітер від {} до {} м/с, пориви від {} до {} м/с. Хмарність {} % {} м. Вірогідність опадів {} %", weather.temperature.trim(), weather.wind_from.trim(), weather.wind_to.trim(), weather.gust_from.trim(), weather.gust_to.trim(), weather.cloudiness.trim(), weather.cloud_height.trim(), weather.precipitation.trim());
         let crew = connection.query_row(
-            "SELECT c.name,c.uav_name,c.uav_type,COALESCE(p.name,c.position_name),COALESCE(p.battle_order,c.battle_order),COALESCE(p.locality,c.reconnaissance_area) FROM crews c LEFT JOIN positions p ON p.id=c.position_id WHERE c.id=?1",
+            "SELECT c.name,COALESCE(primary_uav.name,c.uav_name),COALESCE(primary_uav.inventory_number,''),COALESCE(p.name,c.position_name),COALESCE(p.battle_order,c.battle_order),COALESCE(p.locality,c.reconnaissance_area) FROM crews c LEFT JOIN positions p ON p.id=c.position_id LEFT JOIN equipment primary_uav ON primary_uav.id=c.primary_uav_id AND primary_uav.crew_id=c.id WHERE c.id=?1",
             [entry.crew_id], |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,String>(3)?,row.get::<_,String>(4)?,row.get::<_,String>(5)?)),
         ).optional().map_err(|e| e.to_string())?.ok_or_else(|| "Один з екіпажів плану більше не існує.".to_string())?;
         let actual = list_members(connection, entry.crew_id, true)?;
@@ -263,17 +263,11 @@ fn build_rows(
             uavs.push((row.0, row.1, day, night));
         }
         let vehicles = linked_assets(connection, entry.crew_id, "vehicles")?;
-        let uav_column = uavs
-            .iter()
-            .map(|(name, number, _, _)| {
-                [name.to_uppercase(), number.to_uppercase()]
-                    .into_iter()
-                    .filter(|item| !item.trim().is_empty())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
+        let uav_column = [crew.1.to_uppercase(), crew.2.to_uppercase()]
+            .into_iter()
+            .filter(|item| !item.trim().is_empty())
             .collect::<Vec<_>>()
-            .join("\n");
+            .join(" ");
         let day_uavs: i64 = uavs.iter().map(|(_, _, day, _)| day).sum();
         let night_uavs: i64 = uavs.iter().map(|(_, _, _, night)| night).sum();
         let total_uavs = day_uavs + night_uavs;

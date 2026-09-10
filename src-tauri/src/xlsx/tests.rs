@@ -132,6 +132,7 @@ fn round_trips_crews_equipment_incidents_and_custom_values() {
                 total_quantity: "1".into(),
                 day_quantity: "1".into(),
                 night_quantity: "0".into(),
+                uav_type: String::new(),
                 notes: String::new(),
             },
             EquipmentRow {
@@ -145,6 +146,7 @@ fn round_trips_crews_equipment_incidents_and_custom_values() {
                 total_quantity: "4".into(),
                 day_quantity: "2".into(),
                 night_quantity: "2".into(),
+                uav_type: "Коптер".into(),
                 notes: String::new(),
             },
             EquipmentRow {
@@ -158,6 +160,7 @@ fn round_trips_crews_equipment_incidents_and_custom_values() {
                 total_quantity: "1".into(),
                 day_quantity: "1".into(),
                 night_quantity: "0".into(),
+                uav_type: String::new(),
                 notes: String::new(),
             },
             EquipmentRow {
@@ -171,6 +174,7 @@ fn round_trips_crews_equipment_incidents_and_custom_values() {
                 total_quantity: "1".into(),
                 day_quantity: "1".into(),
                 night_quantity: "0".into(),
+                uav_type: String::new(),
                 notes: String::new(),
             },
         ],

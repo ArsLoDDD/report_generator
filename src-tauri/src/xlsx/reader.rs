@@ -410,6 +410,11 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
             status: row.values.get("status").cloned().unwrap_or_default(),
             uav_name: row.values.get("uav_name").cloned().unwrap_or_default(),
             uav_type: row.values.get("uav_type").cloned().unwrap_or_default(),
+            primary_uav_inventory_number: row
+                .values
+                .get("primary_uav_inventory_number")
+                .cloned()
+                .unwrap_or_default(),
             functional_duties: row
                 .values
                 .get("functional_duties")
@@ -498,16 +503,13 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
                         .get("total_quantity")
                         .cloned()
                         .unwrap_or_else(|| "1".into()),
-                    day_quantity: row
-                        .values
-                        .get("day_quantity")
-                        .cloned()
-                        .unwrap_or_else(|| "1".into()),
+                    day_quantity: row.values.get("day_quantity").cloned().unwrap_or_default(),
                     night_quantity: row
                         .values
                         .get("night_quantity")
                         .cloned()
                         .unwrap_or_default(),
+                    uav_type: row.values.get("uav_type").cloned().unwrap_or_default(),
                     notes: row.values.get("notes").cloned().unwrap_or_default(),
                 }),
         );

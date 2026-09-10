@@ -46,6 +46,24 @@ pub fn list_staffing_records(state: tauri::State<AppState>) -> Result<Vec<Staffi
 }
 
 #[tauri::command]
+pub fn sync_flight_plan_locations(
+    state: tauri::State<AppState>,
+    crew_ids: Vec<i64>,
+) -> Result<(), String> {
+    let db = state.0.lock().map_err(|_| busy())?;
+    db.connection
+        .execute(
+            "UPDATE personnel SET current_location='ОХ' WHERE current_location='На позиції'",
+            [],
+        )
+        .map_err(|_| "Не вдалося оновити місцезнаходження особового складу.".to_string())?;
+    for crew_id in crew_ids {
+        db.connection.execute("UPDATE personnel SET current_location='На позиції' WHERE id IN (SELECT personnel_id FROM crew_actual_members WHERE crew_id=?1)",[crew_id]).map_err(|_|"Не вдалося позначити склад екіпажу на позиції.".to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn update_staffing_personnel(
     state: tauri::State<AppState>,
     personnel_id: i64,

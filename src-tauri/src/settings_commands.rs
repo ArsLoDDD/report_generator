@@ -38,6 +38,30 @@ pub(crate) fn get_startup_warnings(state: tauri::State<AppState>) -> Vec<Startup
             message: format!("Заповніть поле «Позивний» в особовому складі: {preview}{tail}. Без цього план польотів не експортується."),
         });
     }
+    let missing_uav_types=database.connection.prepare("SELECT name,inventory_number FROM equipment WHERE category='uav' AND trim(COALESCE(uav_type,''))='' ORDER BY id").and_then(|mut statement|statement.query_map([],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?)))?.collect::<Result<Vec<_>,_>>()).unwrap_or_default();
+    if !missing_uav_types.is_empty() {
+        let names = missing_uav_types
+            .iter()
+            .take(8)
+            .map(|(name, number)| {
+                if number.trim().is_empty() {
+                    name.clone()
+                } else {
+                    format!("{name} ({number})")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        warnings.push(StartupWarning {
+            code: "uav-type-missing".into(),
+            title: format!("Не вказано тип БпАК: {}", missing_uav_types.len()),
+            message: format!("Заповніть поле «Тип БпАК» у картках: {names}."),
+        });
+    }
+    let missing_primary=database.connection.query_row("SELECT COUNT(*) FROM crews c WHERE EXISTS(SELECT 1 FROM equipment e WHERE e.crew_id=c.id AND e.category='uav') AND c.primary_uav_id IS NULL",[],|row|row.get::<_,i64>(0)).unwrap_or(0);
+    if missing_primary > 0 {
+        warnings.push(StartupWarning { code:"crew-primary-uav-missing".into(),title:format!("Не обрано основний БпЛА: {missing_primary}"),message:"У картках цих екіпажів оберіть основний борт серед закріплених БпЛА. Він використовується у БЧС і плані польотів.".into() });
+    }
     warnings
 }
 

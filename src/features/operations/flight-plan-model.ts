@@ -33,7 +33,7 @@ export function flightPlanPreviewRows(unitName: string, selected: number[], entr
     const crewUavs = uavs.filter((item) => item.crewId === crewId);
     const selectedUavs=entry.uavSelections.flatMap((selection)=>{const item=crewUavs.find((uav)=>uav.id===selection.equipmentId);return item?[{item,...selection}]:[];});
     const crewVehicles = vehicles.filter((item) => item.crewId === crewId);
-    const uavName = selectedUavs.length ? selectedUavs.map(({item}) => [caps(item.name),caps(item.inventoryNumber)].filter(Boolean).join(" ")).join("\n") : caps(crew.uavName);
+    const primaryUav=crewUavs.find((item)=>item.id===crew.primaryUavId);const uavName=primaryUav?[caps(primaryUav.name),caps(primaryUav.inventoryNumber)].filter(Boolean).join(" "):caps(crew.uavName);
     const dayUavs=selectedUavs.reduce((sum,item)=>sum+item.dayQuantity,0);const nightUavs=selectedUavs.reduce((sum,item)=>sum+item.nightQuantity,0);const totalUavs=dayUavs+nightUavs;
     const supportUavs=totalUavs?[`БпЛА ${dayUavs&&nightUavs?"денні/ніч":dayUavs?"денні":"ніч"} - ${totalUavs} шт`]:[];
     const support = [...supportUavs, ...crewVehicles.map((item) => [caps(item.name),caps(item.registrationNumber)].filter(Boolean).join("\n"))].filter(Boolean).join("\n");

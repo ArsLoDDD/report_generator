@@ -89,6 +89,7 @@ pub const CREW_KEYS: &[&str] = &[
     "status",
     "uav_name",
     "uav_type",
+    "primary_uav_inventory_number",
     "functional_duties",
     "current_location",
     "notes",
@@ -121,6 +122,7 @@ pub const EQUIPMENT_KEYS: &[&str] = &[
     "total_quantity",
     "day_quantity",
     "night_quantity",
+    "uav_type",
     "notes",
 ];
 pub const INCIDENT_KEYS: &[&str] = &[
@@ -160,6 +162,7 @@ pub struct CrewRow {
     pub status: String,
     pub uav_name: String,
     pub uav_type: String,
+    pub primary_uav_inventory_number: String,
     pub functional_duties: String,
     pub current_location: String,
     pub notes: String,
@@ -234,6 +237,7 @@ pub struct EquipmentRow {
     pub total_quantity: String,
     pub day_quantity: String,
     pub night_quantity: String,
+    pub uav_type: String,
     pub notes: String,
 }
 

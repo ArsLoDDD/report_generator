@@ -43,7 +43,7 @@ fn actual_crew_members(connection: &Connection, crew_id: i64) -> Result<Vec<Crew
 #[tauri::command]
 pub fn list_crews(state: tauri::State<AppState>) -> Result<Vec<Crew>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
-    let mut s=db.connection.prepare("SELECT c.id,c.name,c.platoon,COALESCE(p.name,c.position_name),COALESCE(p.locality,c.reconnaissance_area),c.unit_type,c.company_name,COALESCE(p.battle_order,c.battle_order),c.sector,c.official_strength,(SELECT COUNT(*) FROM crew_actual_members am WHERE am.crew_id=c.id),c.status,c.uav_name,c.uav_type,c.functional_duties,c.current_location,c.notes,COUNT(cm.id),c.position_id FROM crews c LEFT JOIN crew_members cm ON cm.crew_id=c.id AND cm.left_at IS NULL LEFT JOIN positions p ON p.id=c.position_id GROUP BY c.id ORDER BY c.platoon COLLATE NOCASE,c.name COLLATE NOCASE").map_err(|_|"Не вдалося прочитати екіпажі.".to_string())?;
+    let mut s=db.connection.prepare("SELECT c.id,c.name,c.platoon,COALESCE(p.name,c.position_name),COALESCE(p.locality,c.reconnaissance_area),c.unit_type,c.company_name,COALESCE(p.battle_order,c.battle_order),c.sector,c.official_strength,(SELECT COUNT(*) FROM crew_actual_members am WHERE am.crew_id=c.id),c.status,COALESCE(primary_uav.name,c.uav_name),COALESCE(primary_uav.uav_type,c.uav_type),c.functional_duties,c.current_location,c.notes,COUNT(cm.id),c.position_id,c.primary_uav_id FROM crews c LEFT JOIN crew_members cm ON cm.crew_id=c.id AND cm.left_at IS NULL LEFT JOIN positions p ON p.id=c.position_id LEFT JOIN equipment primary_uav ON primary_uav.id=c.primary_uav_id AND primary_uav.crew_id=c.id AND primary_uav.category='uav' GROUP BY c.id ORDER BY c.platoon COLLATE NOCASE,c.name COLLATE NOCASE").map_err(|_|"Не вдалося прочитати екіпажі.".to_string())?;
     let rows = s
         .query_map([], |r| {
             Ok((
@@ -66,6 +66,7 @@ pub fn list_crews(state: tauri::State<AppState>) -> Result<Vec<Crew>, String> {
                 r.get::<_, String>(16)?,
                 r.get::<_, i64>(17)?,
                 r.get::<_, Option<i64>>(18)?,
+                r.get::<_, Option<i64>>(19)?,
             ))
         })
         .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?
@@ -93,6 +94,7 @@ pub fn list_crews(state: tauri::State<AppState>) -> Result<Vec<Crew>, String> {
                 notes,
                 member_count,
                 position_id,
+                primary_uav_id,
             )| {
                 Ok(Crew {
                     id,
@@ -110,6 +112,7 @@ pub fn list_crews(state: tauri::State<AppState>) -> Result<Vec<Crew>, String> {
                     status,
                     uav_name,
                     uav_type,
+                    primary_uav_id,
                     functional_duties,
                     current_location,
                     notes,
@@ -136,7 +139,7 @@ pub fn create_crew(state: tauri::State<AppState>, draft: CrewDraft) -> Result<()
     let db = state.0.lock().map_err(|_| busy())?;
     db.connection
         .execute(
-            "INSERT INTO crews(name,platoon,position_name,reconnaissance_area,unit_type,company_name,battle_order,sector,official_strength,working_strength,status,uav_name,uav_type,functional_duties,current_location,notes,position_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+            "INSERT INTO crews(name,platoon,position_name,reconnaissance_area,unit_type,company_name,battle_order,sector,official_strength,working_strength,status,uav_name,uav_type,functional_duties,current_location,notes,position_id,primary_uav_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
             rusqlite::params![
                 draft.name.trim(),
                 draft.platoon.trim(),
@@ -145,7 +148,7 @@ pub fn create_crew(state: tauri::State<AppState>, draft: CrewDraft) -> Result<()
                 draft.battle_order.trim(), draft.sector.trim(), draft.official_strength.max(0), working_strength,
                 draft.status.trim(),
                 draft.uav_name.trim(), draft.uav_type.trim(), draft.functional_duties.trim(),
-                draft.current_location.trim(), draft.notes.trim(), draft.position_id
+                draft.current_location.trim(), draft.notes.trim(), draft.position_id, draft.primary_uav_id
             ],
         )
         .map_err(|_| "Не вдалося створити екіпаж. Перевірте унікальність назви.".to_string())?;
@@ -196,7 +199,22 @@ pub fn update_crew(
             actual_member_ids.push(*personnel_id);
         }
     }
-    db.connection.execute("UPDATE crews SET name=?1,platoon=?2,position_name=?3,reconnaissance_area=?4,unit_type=?5,company_name=?6,battle_order=?7,sector=?8,official_strength=?9,working_strength=?10,status=?11,uav_name=?12,uav_type=?13,functional_duties=?14,current_location=?15,notes=?16,position_id=?17 WHERE id=?18",rusqlite::params![draft.name.trim(),draft.platoon.trim(),draft.position_name.trim(),draft.reconnaissance_area.trim(),draft.unit_type.trim(),draft.company_name.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.official_strength.max(0),actual_member_ids.len() as i64,draft.status.trim(),draft.uav_name.trim(),draft.uav_type.trim(),draft.functional_duties.trim(),draft.current_location.trim(),draft.notes.trim(),draft.position_id,crew_id]).map_err(|_|"Не вдалося оновити екіпаж.".to_string())?;
+    if let Some(primary_uav_id) = draft.primary_uav_id {
+        let valid = db
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM equipment WHERE id=?1 AND crew_id=?2 AND category='uav'",
+                rusqlite::params![primary_uav_id, crew_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+        if !valid {
+            return Err("Основним можна обрати лише БпЛА, закріплений за цим екіпажем.".into());
+        }
+    }
+    db.connection.execute("UPDATE crews SET name=?1,platoon=?2,position_name=?3,reconnaissance_area=?4,unit_type=?5,company_name=?6,battle_order=?7,sector=?8,official_strength=?9,working_strength=?10,status=?11,uav_name=?12,uav_type=?13,functional_duties=?14,current_location=?15,notes=?16,position_id=?17,primary_uav_id=?18 WHERE id=?19",rusqlite::params![draft.name.trim(),draft.platoon.trim(),draft.position_name.trim(),draft.reconnaissance_area.trim(),draft.unit_type.trim(),draft.company_name.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.official_strength.max(0),actual_member_ids.len() as i64,draft.status.trim(),draft.uav_name.trim(),draft.uav_type.trim(),draft.functional_duties.trim(),draft.current_location.trim(),draft.notes.trim(),draft.position_id,draft.primary_uav_id,crew_id]).map_err(|_|"Не вдалося оновити екіпаж.".to_string())?;
+    db.connection.execute("UPDATE crews SET uav_name=COALESCE((SELECT name FROM equipment WHERE id=primary_uav_id),''),uav_type=COALESCE((SELECT uav_type FROM equipment WHERE id=primary_uav_id),'') WHERE id=?1",[crew_id]).map_err(|_|"Не вдалося оновити основний БпЛА екіпажу.".to_string())?;
     db.connection.execute("UPDATE crew_members SET left_at=CURRENT_TIMESTAMP WHERE crew_id=?1 AND left_at IS NULL",[crew_id]).map_err(|_|"Не вдалося оновити склад екіпажу.".to_string())?;
     for personnel_id in draft.member_ids {
         db.connection

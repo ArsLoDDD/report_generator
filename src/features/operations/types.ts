@@ -17,6 +17,7 @@ export type Crew = {
   status: string;
   uavName: string;
   uavType: string;
+  primaryUavId?: number | null;
   functionalDuties: string;
   currentLocation: string;
   notes: string;
@@ -39,6 +40,7 @@ export type CrewDraft = {
   status: string;
   uavName: string;
   uavType: string;
+  primaryUavId?: number | null;
   functionalDuties: string;
   currentLocation: string;
   notes: string;
@@ -64,6 +66,7 @@ export type Equipment = {
   totalQuantity: number;
   dayQuantity: number;
   nightQuantity: number;
+  uavType?: string;
   notes: string;
 };
 export type EquipmentDraft = Omit<Equipment, "id" | "crewName" | "holderName">;
