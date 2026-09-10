@@ -106,10 +106,13 @@ describe("Штат та БЧС", () => {
 
   it("додає тимчасово прибулого з ТВО до списку, але не до наявності", () => {
     const own = { ...record(1, "оператор"), crewId: null, crewName: null, currentLocation: "ПТЗ Новостав" };
-    const temporary = temporaryStaffingRecord({ id: 7, fullName: "ТЕСТОВИЙ Тимчасовий", rank: "солдат", position: "оператор", actingSlotId: "management-9", actingPosition: "Водій", duties: "", arrivedAt: "2026-09-10", currentLocation: "ПУ", notes: "", category: "Тимчасово прибулі", groupName: "" });
+    const temporary = temporaryStaffingRecord({ id: 7, fullName: "ТЕСТОВИЙ Тимчасовий", rank: "солдат", position: "оператор", actingSlotId: "management-9", actingPosition: "Водій", duties: "", arrivedAt: "2026-09-10", currentLocation: "ВІДП", notes: "", category: "Тимчасово прибулі", groupName: "" });
     const summary = Object.fromEntries(bcsSummary([own, temporary], 72));
     expect(summary["По штату"]).toBe(72);
     expect(summary["По списку"]).toBe(2);
     expect(summary["В наявності"]).toBe(0);
+    expect(summary["Тимчасово прибулі з ТВО"]).toBe(1);
+    expect(summary["Відпустка"]).toBe(0);
+    expect(temporary.notes).toBe("ТВО: Водій");
   });
 });

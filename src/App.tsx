@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStartupWarnings } from "./app/hooks/useStartupWarnings";
 import { ProgramGuidePage } from "./features/documentation/ProgramGuidePage";
 import { VariableConstructorPage } from "./features/documentation/DocumentationPage";
@@ -18,12 +18,14 @@ import { NotificationProvider } from "./shared/ui/NotificationProvider";
 import { Modal } from "./shared/ui/Modal";
 import { AppSidebar } from "./app/components/AppSidebar";
 import { isSimpleEdition } from "./app/navigation";
+import { WarningsPage } from "./app/components/WarningsPage";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("generator");
   const { personnel: people, totalCount: personnelTotalCount, hasMore: personnelHasMore, isLoading: personnelLoading, isLoadingMore: personnelLoadingMore, errorMessage: personnelError, refresh: refreshPersonnel, loadMore: loadMorePersonnel, createPersonnel, updatePersonnel, deletePersonnel } = usePersonnel();
   const { templates, totalCount: templatesTotalCount, hasMore: templatesHasMore, isRefreshing: templatesRefreshing, isLoadingMore: templatesLoadingMore, loadMore: loadMoreTemplates, refresh: refreshTemplates } = useTemplates();
-  const startupWarnings = useStartupWarnings().filter((warning) =>
+  const warningState = useStartupWarnings();
+  const startupWarnings = warningState.warnings.filter((warning) =>
     !["personnel-empty", "database-missing"].includes(warning.code) || people.length === 0,
   );
   const [selectedPeople, setSelectedPeople] = useState<number[]>([]);
@@ -32,6 +34,13 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("shablonizator.sidebarCollapsed") === "true");
   const [analyserVisited, setAnalyserVisited] = useState(false);
   const [constructorOpen, setConstructorOpen] = useState(false);
+  const startupRouteResolved = useRef(false);
+
+  useEffect(() => {
+    if (warningState.isLoading || startupRouteResolved.current) return;
+    startupRouteResolved.current = true;
+    if (startupWarnings.length) setScreen("warnings");
+  }, [startupWarnings, warningState.isLoading]);
 
   const togglePerson = (id: number) => setSelectedPeople((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   const toggleAllPeople = () => setSelectedPeople((current) => current.length === people.length ? [] : people.map((person) => person.id));
@@ -70,6 +79,7 @@ export default function App() {
   return <NotificationProvider><div className={`product-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <AppSidebar screen={screen} collapsed={sidebarCollapsed} warnings={startupWarnings} onToggleCollapsed={toggleSidebar} onNavigate={(next) => { if (next === "report-analyser") setAnalyserVisited(true); setScreen(next); }} />
     <main className="workspace">
+      {screen === "warnings" && <WarningsPage warnings={startupWarnings} isLoading={warningState.isLoading} onRefresh={() => void warningState.refresh()} onOpenPersonnel={() => setScreen("people")} />}
       {screen === "generator" && <ReportGenerationPage template={selectedTemplate} templates={templates} hasMoreTemplates={templatesHasMore} isLoadingMoreTemplates={templatesLoadingMore} onLoadMoreTemplates={loadMoreTemplates} people={people} hasMorePeople={personnelHasMore} isLoadingMorePeople={personnelLoadingMore} onLoadMorePeople={loadMorePersonnel} selected={selectedPeople} onToggle={togglePerson} onAll={toggleAllPeople} onClear={clearSelectedPeople} onChoose={toggleTemplate} />}
       {screen === "templates" && <TemplatesPage templates={templates} totalCount={templatesTotalCount} hasMore={templatesHasMore} isRefreshing={templatesRefreshing} isLoadingMore={templatesLoadingMore} onLoadMore={loadMoreTemplates} selected={templateInfo ?? templates[0] ?? null} onSelect={setTemplateInfo} onRefresh={refreshTemplates} />}
       {(screen === "report-analyser" || analyserVisited) && <div className="persistent-screen" hidden={screen !== "report-analyser"}><ReportAnalyserPage onOpenConstructor={() => setConstructorOpen(true)} onCreated={(createdPath) => { void refreshTemplates().then((items) => { setTemplateInfo(items.find((template) => template.sourcePath === createdPath) ?? null); setScreen("templates"); }); }} /></div>}

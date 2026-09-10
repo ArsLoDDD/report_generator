@@ -6,7 +6,7 @@ pub(crate) fn crew_members(
     connection: &Connection,
     crew_id: i64,
 ) -> Result<Vec<CrewMember>, String> {
-    let mut s=connection.prepare("SELECT p.id, trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic), p.rank, p.position FROM crew_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=?1 AND cm.left_at IS NULL ORDER BY cm.joined_at, p.id").map_err(|_|"Не вдалося прочитати склад екіпажу.".to_string())?;
+    let mut s=connection.prepare("SELECT p.id, trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic), p.rank, p.position, COALESCE(p.callsign,'') FROM crew_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=?1 AND cm.left_at IS NULL ORDER BY cm.joined_at, p.id").map_err(|_|"Не вдалося прочитати склад екіпажу.".to_string())?;
     let result = s
         .query_map([crew_id], |r| {
             Ok(CrewMember {
@@ -14,6 +14,7 @@ pub(crate) fn crew_members(
                 full_name: r.get(1)?,
                 rank: r.get(2)?,
                 position: r.get(3)?,
+                callsign: r.get(4)?,
             })
         })
         .map_err(|_| "Не вдалося прочитати склад екіпажу.".to_string())?
@@ -23,7 +24,7 @@ pub(crate) fn crew_members(
 }
 
 fn actual_crew_members(connection: &Connection, crew_id: i64) -> Result<Vec<CrewMember>, String> {
-    let mut statement=connection.prepare("SELECT p.id,trim(p.surname||' '||p.given_name||' '||p.patronymic),p.rank,p.position FROM crew_actual_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=?1 ORDER BY p.position,p.id").map_err(|_|"Не вдалося прочитати фактичний склад екіпажу.".to_string())?;
+    let mut statement=connection.prepare("SELECT p.id,trim(p.surname||' '||p.given_name||' '||p.patronymic),p.rank,p.position,COALESCE(p.callsign,'') FROM crew_actual_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=?1 ORDER BY p.position,p.id").map_err(|_|"Не вдалося прочитати фактичний склад екіпажу.".to_string())?;
     let members = statement
         .query_map([crew_id], |row| {
             Ok(CrewMember {
@@ -31,6 +32,7 @@ fn actual_crew_members(connection: &Connection, crew_id: i64) -> Result<Vec<Crew
                 full_name: row.get(1)?,
                 rank: row.get(2)?,
                 position: row.get(3)?,
+                callsign: row.get(4)?,
             })
         })
         .map_err(|_| "Не вдалося прочитати фактичний склад екіпажу.".to_string())?

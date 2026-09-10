@@ -150,6 +150,7 @@ fn personnel_scope() -> String {
 
 pub const STANDARD_EXTRA_FIELDS: &[(&str, &str)] = &[
     ("full_name", "ПІБ (повністю)"),
+    ("callsign", "Позивний"),
     ("passport_series", "Серія паспорту"),
     ("passport_number", "Номер паспорту"),
     ("passport_issued_by", "Ким виданий"),
@@ -459,9 +460,13 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         "ALTER TABLE crews ADD COLUMN functional_duties TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE crews ADD COLUMN current_location TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE crews ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE equipment ADD COLUMN total_quantity INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE equipment ADD COLUMN day_quantity INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE equipment ADD COLUMN night_quantity INTEGER NOT NULL DEFAULT 0",
     ] {
         connection.execute(statement, []).ok();
     }
+    connection.execute("INSERT INTO equipment(category,name,status,crew_id,total_quantity,day_quantity,night_quantity) SELECT 'uav',c.uav_name,'Справний',c.id,1,1,0 FROM crews c WHERE trim(c.uav_name)<>'' AND NOT EXISTS(SELECT 1 FROM equipment e WHERE e.category='uav' AND e.crew_id=c.id AND lower(trim(e.name))=lower(trim(c.uav_name)))",[]).map_err(|_|"Не вдалося перенести старі назви БпАК до реєстру БпЛА.".to_string())?;
     connection.execute_batch("CREATE TRIGGER IF NOT EXISTS clear_changed_staff_slot AFTER UPDATE OF position ON personnel WHEN OLD.position <> NEW.position BEGIN UPDATE personnel_staff_assignments SET slot_id='' WHERE personnel_id=NEW.id; END;").map_err(|e| e.to_string())?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS positions (

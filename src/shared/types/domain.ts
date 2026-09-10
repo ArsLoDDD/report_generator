@@ -103,9 +103,9 @@ export type AppSettings = {
 };
 
 export type StartupWarning = {
-  code: "database-missing" | "templates-missing" | "personnel-empty";
+  code: "database-missing" | "templates-missing" | "personnel-empty" | "crew-callsign-missing";
   title: string;
   message: string;
 };
 
-export type Screen = "generator" | "templates" | "report-analyser" | "people" | "staffing-bcs" | "flight-planning" | "positions" | "vehicles" | "generators" | "uavs" | "communications" | "weapons" | "crews" | "incidents" | "generated" | "settings" | "documentation" | "variable-constructor";
+export type Screen = "warnings" | "generator" | "templates" | "report-analyser" | "people" | "staffing-bcs" | "flight-planning" | "positions" | "vehicles" | "generators" | "uavs" | "communications" | "weapons" | "crews" | "incidents" | "generated" | "settings" | "documentation" | "variable-constructor";

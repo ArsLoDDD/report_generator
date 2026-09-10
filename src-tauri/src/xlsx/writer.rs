@@ -114,6 +114,21 @@ fn crew_label(key: &str) -> &str {
         _ => key,
     }
 }
+fn equipment_label(key: &str) -> &str {
+    match key {
+        "name" => "Назва",
+        "inventory_number" => "Інвентарний номер",
+        "status" => "Стан",
+        "crew_name" => "Екіпаж",
+        "holder_tax_id" => "ІПН відповідального",
+        "holder_full_name" => "ПІБ відповідального",
+        "total_quantity" => "Кількість БпЛА загальна",
+        "day_quantity" => "К-ть БпЛА денних",
+        "night_quantity" => "К-ть БпЛА нічних",
+        "notes" => "Примітка",
+        _ => key,
+    }
+}
 fn position_label(key: &str) -> &str {
     match key {
         "name" => "Назва позиції",
@@ -136,18 +151,6 @@ fn position_label(key: &str) -> &str {
 }
 fn position_export_label(key: &str) -> String {
     position_label(key).into()
-}
-fn equipment_label(key: &str) -> &str {
-    match key {
-        "name" => "Назва",
-        "inventory_number" => "Інвентарний номер",
-        "status" => "Статус",
-        "crew_name" => "Екіпаж",
-        "holder_tax_id" => "ІПН відповідального",
-        "holder_full_name" => "ПІБ відповідального",
-        "notes" => "Примітка",
-        _ => key,
-    }
 }
 fn incident_label(key: &str) -> &str {
     match key {
@@ -365,6 +368,9 @@ pub fn export_with_staffing(
                     row.crew_name.clone(),
                     row.holder_tax_id.clone(),
                     row.holder_full_name.clone(),
+                    row.total_quantity.clone(),
+                    row.day_quantity.clone(),
+                    row.night_quantity.clone(),
                     row.notes.clone(),
                 ]
             })

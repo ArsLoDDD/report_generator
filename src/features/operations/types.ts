@@ -1,6 +1,6 @@
 export type EquipmentCategory = "generator" | "uav" | "communications" | "weapon_ammo";
 
-export type CrewMember = { personnelId: number; fullName: string; rank: string; position: string };
+export type CrewMember = { personnelId: number; fullName: string; rank: string; position: string; callsign: string };
 export type Crew = {
   id: number;
   name: string;
@@ -61,6 +61,9 @@ export type Equipment = {
   crewName: string | null;
   personnelId: number | null;
   holderName: string | null;
+  totalQuantity: number;
+  dayQuantity: number;
+  nightQuantity: number;
   notes: string;
 };
 export type EquipmentDraft = Omit<Equipment, "id" | "crewName" | "holderName">;
@@ -79,3 +82,7 @@ export type Incident = {
   description: string;
 };
 export type IncidentDraft = Omit<Incident, "id" | "crewName" | "equipmentName" | "crewSnapshot" | "vehicleName">;
+export type FlightPlanWeather = { temperature: string; windFrom: string; windTo: string; gustFrom: string; gustTo: string; cloudiness: string; cloudHeight: string; precipitation: string };
+export type FlightPlanUavSelection = { equipmentId: number; dayQuantity: number; nightQuantity: number };
+export type FlightPlanEntry = { crewId: number; weather: FlightPlanWeather; routePoints: string[]; altitudeFrom: string; altitudeTo: string; areaPoints: string[]; task: string; startTime: string; endTime: string; uavSelections: FlightPlanUavSelection[] };
+export type FlightPlanRequest = { unitName: string; entries: FlightPlanEntry[] };

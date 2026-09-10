@@ -1,6 +1,7 @@
 mod bcs_export;
 mod database;
 mod document_commands;
+mod flight_plan;
 mod operations;
 mod personnel;
 mod personnel_commands;
@@ -573,6 +574,7 @@ fn main() {
             export_application_data,
             import_application_data,
             export_bcs_excel,
+            flight_plan::export_flight_plan_excel,
             operations::update_bcs_crew_strength,
             temporary_personnel::list_temporary_personnel,
             temporary_personnel::save_temporary_personnel,
@@ -600,6 +602,7 @@ fn main() {
             operations::delete_position,
             operations::list_equipment,
             operations::create_equipment,
+            operations::assign_equipment,
             operations::delete_equipment,
             operations::list_incidents,
             operations::create_incident,

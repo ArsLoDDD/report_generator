@@ -108,9 +108,17 @@ pub fn save(connection: &rusqlite::Connection, person: &TemporaryPerson) -> Resu
             return Err("Ця штатна посада вже зайнята іншим тимчасово прибулим як ТВО.".into());
         }
     }
+    let notes = if person.category == "Тимчасово прибулі"
+        && !person.acting_position.trim().is_empty()
+        && person.notes.trim().is_empty()
+    {
+        format!("ТВО: {}", person.acting_position.trim())
+    } else {
+        person.notes.clone()
+    };
     if person.id == 0 {
-        connection.execute("INSERT INTO temporary_personnel(full_name,rank,position,acting_slot_id,acting_position,duties,arrived_at,current_location,notes,category,group_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",rusqlite::params![person.full_name.trim(),person.rank,person.position,person.acting_slot_id,person.acting_position,person.duties,person.arrived_at,person.current_location,person.notes,person.category,person.group_name]).map_err(|e|e.to_string())?;
-    } else if connection.execute("UPDATE temporary_personnel SET full_name=?1,rank=?2,position=?3,acting_slot_id=?4,acting_position=?5,duties=?6,arrived_at=?7,current_location=?8,notes=?9,category=?10,group_name=?11 WHERE id=?12",rusqlite::params![person.full_name.trim(),person.rank,person.position,person.acting_slot_id,person.acting_position,person.duties,person.arrived_at,person.current_location,person.notes,person.category,person.group_name,person.id]).map_err(|e|e.to_string())? != 1 { return Err("Запис БЧС не знайдено.".into()); }
+        connection.execute("INSERT INTO temporary_personnel(full_name,rank,position,acting_slot_id,acting_position,duties,arrived_at,current_location,notes,category,group_name) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",rusqlite::params![person.full_name.trim(),person.rank,person.position,person.acting_slot_id,person.acting_position,person.duties,person.arrived_at,person.current_location,notes,person.category,person.group_name]).map_err(|e|e.to_string())?;
+    } else if connection.execute("UPDATE temporary_personnel SET full_name=?1,rank=?2,position=?3,acting_slot_id=?4,acting_position=?5,duties=?6,arrived_at=?7,current_location=?8,notes=?9,category=?10,group_name=?11 WHERE id=?12",rusqlite::params![person.full_name.trim(),person.rank,person.position,person.acting_slot_id,person.acting_position,person.duties,person.arrived_at,person.current_location,notes,person.category,person.group_name,person.id]).map_err(|e|e.to_string())? != 1 { return Err("Запис БЧС не знайдено.".into()); }
     Ok(())
 }
 

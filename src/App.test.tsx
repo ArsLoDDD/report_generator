@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { applicationService } from "./app/services/applicationService";
 import { templateService } from "./features/templates/services/templateService";
 
 vi.mock("./shared/services/personnelService", () => ({
@@ -11,7 +12,7 @@ vi.mock("./shared/services/personnelService", () => ({
 }));
 
 vi.mock("./app/services/applicationService", () => ({
-  applicationService: { getStartupWarnings: vi.fn().mockResolvedValue([{ code: "templates-missing", title: "Шаблони були відсутні", message: "Стартові шаблони відновлено." }]) }
+  applicationService: { getStartupWarnings: vi.fn().mockResolvedValue([]) }
 }));
 
 vi.mock("./features/generated-reports/services/generatedReportsService", () => ({
@@ -76,8 +77,10 @@ describe("navigation and report generation", () => {
   });
 
   it("shows startup diagnostics in the sidebar", async () => {
+    vi.mocked(applicationService.getStartupWarnings).mockResolvedValueOnce([{ code: "templates-missing", title: "Шаблони були відсутні", message: "Стартові шаблони відновлено." }]);
     render(<App />);
-    await waitFor(() => expect(screen.getByText("Шаблони були відсутні")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Попередження/u })).toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "Попередження" })).toBeInTheDocument();
   });
 
   it("collapses the sidebar to icons and restores it", () => {

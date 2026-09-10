@@ -160,16 +160,38 @@ fn records(rows: Vec<Vec<String>>, sheet: &str) -> Result<Vec<RowWithNumber>, St
         .into_iter()
         .skip(2)
         .filter_map(|row| {
-            let map = keys
+            let mut map = keys
                 .iter()
                 .enumerate()
                 .filter(|(_, key)| !key.trim().is_empty())
                 .map(|(index, key)| (key.clone(), row.get(index).cloned().unwrap_or_default()))
                 .collect::<HashMap<_, _>>();
+            if sheet == "Особовий склад" {
+                // The callsign became a standard field after the first database
+                // template release. Older workbooks stay importable and receive
+                // an explicitly empty value that users can complete later.
+                map.entry("callsign".into()).or_default();
+            }
             (!map.values().all(|value| value.trim().is_empty()))
                 .then_some(RowWithNumber { values: map })
         })
         .collect())
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn old_personnel_rows_without_callsign_receive_an_empty_value() {
+        let rows = vec![
+            vec!["Звання".into(), "Прізвище".into()],
+            vec!["rank".into(), "surname".into()],
+            vec!["солдат".into(), "ТЕСТОВИЙ".into()],
+        ];
+        let imported = records(rows, "Особовий склад").unwrap();
+        assert_eq!(imported[0].values.get("callsign"), Some(&String::new()));
+    }
 }
 fn optional_records(
     archive: &mut ZipArchive<File>,
@@ -469,6 +491,21 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
                     holder_full_name: row
                         .values
                         .get("holder_full_name")
+                        .cloned()
+                        .unwrap_or_default(),
+                    total_quantity: row
+                        .values
+                        .get("total_quantity")
+                        .cloned()
+                        .unwrap_or_else(|| "1".into()),
+                    day_quantity: row
+                        .values
+                        .get("day_quantity")
+                        .cloned()
+                        .unwrap_or_else(|| "1".into()),
+                    night_quantity: row
+                        .values
+                        .get("night_quantity")
                         .cloned()
                         .unwrap_or_default(),
                     notes: row.values.get("notes").cloned().unwrap_or_default(),

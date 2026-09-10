@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, Incident, IncidentDraft, Position, PositionDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation } from "../types";
+import type { Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightPlanRequest, Incident, IncidentDraft, Position, PositionDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation } from "../types";
 
 export const operationsService = {
   listCrews: () => invoke<Crew[]>("list_crews"),
@@ -18,12 +18,14 @@ export const operationsService = {
   listVacancyRecommendations: () => invoke<VacancyRecommendation[]>("list_vacancy_recommendations"),
   updateBcsCrewStrength: (crewId: number, value: number) => invoke<void>("update_bcs_crew_strength", { crewId, value }),
   exportBcs: (path: string, unitName: string, date: string, rows: import("../bcs-model").BcsExportRow[]) => invoke<void>("export_bcs_excel", { path, unitName, date, rows }),
+  exportFlightPlan: (path: string, request: FlightPlanRequest) => invoke<void>("export_flight_plan_excel", { path, request }),
   listPositions: () => invoke<Position[]>("list_positions"),
   createPosition: (draft: PositionDraft) => invoke<void>("create_position", { draft }),
   updatePosition: (positionId: number, draft: PositionDraft) => invoke<void>("update_position", { positionId, draft }),
   deletePosition: (positionId: number) => invoke<void>("delete_position", { positionId }),
   listEquipment: (category: EquipmentCategory) => invoke<Equipment[]>("list_equipment", { category }),
   createEquipment: (draft: EquipmentDraft) => invoke<void>("create_equipment", { draft }),
+  assignEquipment: (equipmentId: number, crewId: number | null) => invoke<void>("assign_equipment", { equipmentId, crewId }),
   deleteEquipment: (equipmentId: number) => invoke<void>("delete_equipment", { equipmentId }),
   listIncidents: () => invoke<Incident[]>("list_incidents"),
   createIncident: (draft: IncidentDraft) => invoke<void>("create_incident", { draft }),

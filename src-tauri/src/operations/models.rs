@@ -51,6 +51,7 @@ pub struct CrewMember {
     pub full_name: String,
     pub rank: String,
     pub position: String,
+    pub callsign: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -234,6 +235,9 @@ pub struct Equipment {
     pub crew_name: Option<String>,
     pub personnel_id: Option<i64>,
     pub holder_name: Option<String>,
+    pub total_quantity: i64,
+    pub day_quantity: i64,
+    pub night_quantity: i64,
     pub notes: String,
 }
 
@@ -246,6 +250,9 @@ pub struct EquipmentDraft {
     pub status: String,
     pub crew_id: Option<i64>,
     pub personnel_id: Option<i64>,
+    pub total_quantity: i64,
+    pub day_quantity: i64,
+    pub night_quantity: i64,
     pub notes: String,
 }
 

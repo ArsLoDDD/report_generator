@@ -29,6 +29,7 @@ pub const PERSONNEL_KEYS: &[&str] = &[
     "military_id",
     "gender",
     "full_name",
+    "callsign",
     "passport_series",
     "passport_number",
     "passport_issued_by",
@@ -117,6 +118,9 @@ pub const EQUIPMENT_KEYS: &[&str] = &[
     "crew_name",
     "holder_tax_id",
     "holder_full_name",
+    "total_quantity",
+    "day_quantity",
+    "night_quantity",
     "notes",
 ];
 pub const INCIDENT_KEYS: &[&str] = &[
@@ -227,6 +231,9 @@ pub struct EquipmentRow {
     pub crew_name: String,
     pub holder_tax_id: String,
     pub holder_full_name: String,
+    pub total_quantity: String,
+    pub day_quantity: String,
+    pub night_quantity: String,
     pub notes: String,
 }
 

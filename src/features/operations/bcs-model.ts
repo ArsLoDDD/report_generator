@@ -105,12 +105,12 @@ export function bcsExportRows(records: StaffingRecord[]): BcsExportRow[] {
 export function bcsSummary(records: StaffingRecord[], authorized: number) {
   const people = [...new Map(records.filter((person)=>!person.isCrewPlaceholder).map((person) => [person.personnelId, person])).values()];
   const own = people.filter((person) => !person.isExternal);
-  const count = (location: string) => people.filter((person) => person.currentLocation === location).length;
-  const temporaryActing = people.filter((person) => person.isTemporary && person.actingPosition.trim()).length;
+  const temporaryActing = people.filter((person) => person.isTemporary && !!person.actingPosition.trim()).length;
+  const count = (location: string) => own.filter((person) => person.currentLocation === location).length;
   return [
     ["По штату", authorized], ["По списку", own.length + temporaryActing], ["В наявності", own.filter((person) => isAvailableInUnit(person.currentLocation)).length],
     ["Відпустка", count("ВІДП")], ["Шпиталь", count("ЛІК")], ["Відрядження", count("НАВЧ") + count("ВІДР")],
-    ["Відкомандировані", count("Відкомандировані")], ["Прикомандировані", people.filter((person) => person.isExternal && person.bcsGroupName === "Прикомандировані").length], ["ПТЗ Новостав", count("ПТЗ Новостав")], ["СЗЧ", count("СЗЧ")], ["Тимчасово прибулі", people.filter((person) => person.isTemporary).length],
+    ["Відкомандировані", count("Відкомандировані")], ["Прикомандировані", people.filter((person) => person.isExternal && person.bcsGroupName === "Прикомандировані").length], ["ПТЗ Новостав", count("ПТЗ Новостав")], ["СЗЧ", count("СЗЧ")], ["Тимчасово прибулі", people.filter((person) => person.isTemporary).length], ["Тимчасово прибулі з ТВО", temporaryActing],
   ] as const;
 }
 
@@ -136,5 +136,5 @@ export function bcsFunctionalSummary(records: StaffingRecord[]) {
 
 export function temporaryStaffingRecord(person: TemporaryPerson): StaffingRecord {
   const section = person.category === "Інша підгрупа" ? person.groupName.trim() || "Інша підгрупа" : person.category;
-  return { isTemporary: person.category === "Тимчасово прибулі", isExternal: true, bcsGroupName: section, personnelId: -person.id, fullName: person.fullName, rank: person.rank, position: person.position, crewId: null, crewName: null, platoon: "", companyName: "", unitType: section, crewPositionName: "", battleOrder: "", sector: "", officialStrength: 0, actualStrength: 0, crewStatus: "", uavName: "", uavType: "", functionalDuties: person.duties, currentLocation: person.currentLocation, bcsStatus: "", notes: person.notes, actingPosition: person.actingPosition, recommendationCount: 0 };
+  return { isTemporary: person.category === "Тимчасово прибулі", isExternal: true, bcsGroupName: section, personnelId: -person.id, fullName: person.fullName, rank: person.rank, position: person.position, crewId: null, crewName: null, platoon: "", companyName: "", unitType: section, crewPositionName: "", battleOrder: "", sector: "", officialStrength: 0, actualStrength: 0, crewStatus: "", uavName: "", uavType: "", functionalDuties: person.duties, currentLocation: person.currentLocation, bcsStatus: "", notes: person.notes.trim() || (person.category === "Тимчасово прибулі" && person.actingPosition.trim() ? `ТВО: ${person.actingPosition.trim()}` : ""), actingPosition: person.actingPosition, recommendationCount: 0 };
 }

@@ -173,17 +173,22 @@ pub fn export(
     }
     let last = (rows.len() + 6).max(7);
     let summary = rows.len() + 9;
-    let count = |location: &str| rows.iter().filter(|row| row.location == location).count() as i64;
     let personnel_rows = rows
         .iter()
         .filter(|row| !row.full_name.trim().is_empty())
         .collect::<Vec<_>>();
     let own = personnel_rows.iter().filter(|row| !row.is_external).count() as i64;
-    let absent = ["ВІДП", "ЛІК", "НАВЧ", "ВІДР", "Відкомандировані", "СЗЧ"];
+    let count = |location: &str| {
+        personnel_rows
+            .iter()
+            .filter(|row| !row.is_external && row.location == location)
+            .count() as i64
+    };
     let temporary_acting = personnel_rows
         .iter()
         .filter(|row| row.is_temporary && row.personnel_position.contains("ТВО:"))
         .count() as i64;
+    let absent = ["ВІДП", "ЛІК", "НАВЧ", "ВІДР", "Відкомандировані", "СЗЧ"];
     let present = personnel_rows
         .iter()
         .filter(|row| {
@@ -204,6 +209,7 @@ pub fn export(
         "ПТЗ Новостав",
         "СЗЧ",
         "Тимчасово прибулі",
+        "Тимчасово прибулі з ТВО",
     ];
     let summary_values = [
         authorized,
@@ -219,6 +225,7 @@ pub fn export(
         count("ПТЗ Новостав"),
         count("СЗЧ"),
         rows.iter().filter(|row| row.is_temporary).count() as i64,
+        temporary_acting,
     ];
     let location_formula = |location: &str| format!("COUNTIF(O7:O{last},\"{location}\")");
     let temporary_formula = format!(r#"SUMIF(A7:A{last},"Тимчасово прибулі",G7:G{last})"#);
@@ -226,14 +233,15 @@ pub fn export(
         String::new(),
         String::new(),
         String::new(),
-        location_formula("ВІДП"),
-        location_formula("ЛІК"),
-        format!("{}+{}", location_formula("НАВЧ"), location_formula("ВІДР")),
-        location_formula("Відкомандировані"),
+        String::new(),
+        String::new(),
+        String::new(),
+        String::new(),
         format!(r#"SUMIF(A7:A{last},"Прикомандировані",G7:G{last})"#),
-        location_formula("ПТЗ Новостав"),
-        location_formula("СЗЧ"),
+        String::new(),
+        String::new(),
         temporary_formula,
+        format!(r#"COUNTIFS(A7:A{last},"Тимчасово прибулі",K7:K{last},"*ТВО:*")"#),
     ];
     let crews: Vec<_> = group_starts
         .iter()

@@ -241,7 +241,9 @@ body { overflow: hidden; }
 .form-field--wide { grid-column: 1 / -1; }
 .form-field span b { color: #f06060; }
 .form-field input { min-width: 0; width: 100%; height: 41px; border: 1px solid #2a3d48; border-radius: 6px; outline: none; background: #08141c; color: #e5edf1; padding: 0 11px; }
-.form-field input:focus { border-color: #3ba74a; box-shadow: 0 0 0 2px #2c8d3a25; }
+.form-field textarea { min-width:0; width:100%; box-sizing:border-box; border:1px solid #2a3d48; border-radius:6px; outline:none; background:#08141c; color:#e5edf1; padding:10px 11px; font:inherit; }
+.form-field .shared-select { display:block; width:100%; }
+.form-field input:focus,.form-field textarea:focus,.form-field .shared-select select:focus { border-color: #3ba74a; box-shadow: 0 0 0 2px #2c8d3a25; }
 .form-error { color: #ff7373; margin: 14px 0 0; }
 .excel-import-error {
   display: grid;

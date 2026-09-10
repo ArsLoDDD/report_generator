@@ -7,7 +7,7 @@ pub fn list_equipment(
     category: String,
 ) -> Result<Vec<Equipment>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
-    let mut s=db.connection.prepare("SELECT e.id,e.category,e.name,e.inventory_number,e.status,e.crew_id,c.name,e.personnel_id,CASE WHEN p.id IS NULL THEN NULL ELSE trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) END,e.notes FROM equipment e LEFT JOIN crews c ON c.id=e.crew_id LEFT JOIN personnel p ON p.id=e.personnel_id WHERE e.category=?1 ORDER BY e.id").map_err(|_|"Не вдалося прочитати майно.".to_string())?;
+    let mut s=db.connection.prepare("SELECT e.id,e.category,e.name,e.inventory_number,e.status,e.crew_id,c.name,e.personnel_id,CASE WHEN p.id IS NULL THEN NULL ELSE trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) END,e.notes,e.total_quantity,e.day_quantity,e.night_quantity FROM equipment e LEFT JOIN crews c ON c.id=e.crew_id LEFT JOIN personnel p ON p.id=e.personnel_id WHERE e.category=?1 ORDER BY e.id").map_err(|_|"Не вдалося прочитати майно.".to_string())?;
     let result = s
         .query_map([category], |r| {
             Ok(Equipment {
@@ -21,6 +21,9 @@ pub fn list_equipment(
                 personnel_id: r.get(7)?,
                 holder_name: r.get(8)?,
                 notes: r.get(9)?,
+                total_quantity: r.get(10)?,
+                day_quantity: r.get(11)?,
+                night_quantity: r.get(12)?,
             })
         })
         .map_err(|_| "Не вдалося прочитати майно.".to_string())?
@@ -43,7 +46,33 @@ pub fn create_equipment(
         return Err("Зброю та БК потрібно закріпити за військовослужбовцем.".into());
     }
     let db = state.0.lock().map_err(|_| busy())?;
-    db.connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,personnel_id,notes) VALUES(?1,?2,?3,?4,?5,?6,?7)",rusqlite::params![draft.category,draft.name.trim(),draft.inventory_number.trim(),draft.status,draft.crew_id,draft.personnel_id,draft.notes.trim()]).map_err(|_|"Не вдалося додати запис майна.".to_string())?;
+    let day = draft.day_quantity.max(0);
+    let night = draft.night_quantity.max(0);
+    let total = draft.total_quantity.max(1);
+    if draft.category == "uav" && day + night > total {
+        return Err("Сума денних і нічних БпЛА не може перевищувати загальну кількість.".into());
+    }
+    db.connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,personnel_id,notes,total_quantity,day_quantity,night_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",rusqlite::params![draft.category,draft.name.trim(),draft.inventory_number.trim(),draft.status,draft.crew_id,draft.personnel_id,draft.notes.trim(),total,day,night]).map_err(|_|"Не вдалося додати запис майна.".to_string())?;
+    Ok(())
+}
+#[tauri::command]
+pub fn assign_equipment(
+    state: tauri::State<AppState>,
+    equipment_id: i64,
+    crew_id: Option<i64>,
+) -> Result<(), String> {
+    let db = state.0.lock().map_err(|_| busy())?;
+    if db
+        .connection
+        .execute(
+            "UPDATE equipment SET crew_id=?1 WHERE id=?2 AND category='uav'",
+            rusqlite::params![crew_id, equipment_id],
+        )
+        .map_err(|_| "Не вдалося перепризначити БпЛА.".to_string())?
+        != 1
+    {
+        return Err("БпЛА не знайдено.".into());
+    }
     Ok(())
 }
 #[tauri::command]

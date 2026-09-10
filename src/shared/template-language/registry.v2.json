@@ -8,6 +8,7 @@
     {"id":"піб","sourceKey":"full_name","name":"ПІБ","kind":"person-name","example":"ШЕВЧЕНКО Іван Аркадійович","cases":true,"description":"Повне ім’я: прізвище, ім’я та по батькові."},
     {"id":"звання","sourceKey":"rank","name":"Звання","kind":"rank","example":"старший солдат","cases":true,"description":"Військове звання."},
     {"id":"посада","sourceKey":"position","name":"Посада","kind":"position","example":"командир відділення","cases":true,"description":"Повна назва посади."},
+    {"id":"позивний","sourceKey":"callsign","name":"Позивний","kind":"text","example":"СОКІЛ","cases":false,"description":"Позивний військовослужбовця. Обов’язковий для офіційного та фактичного складу екіпажів."},
     {"id":"іпн","sourceKey":"tax_id","name":"ІПН","kind":"text","example":"7462389812","cases":false,"description":"ІПН вибраного військовослужбовця."},
     {"id":"екіпаж","sourceKey":"crew_name","name":"Екіпаж","kind":"text","example":"Екіпаж «Сокіл»","cases":false,"description":"Поточний екіпаж військовослужбовця."},
     {"id":"екіпаж_позиція","sourceKey":"crew_position","name":"Позиція екіпажу","kind":"text","example":"СП ПІВНІЧ","cases":false,"description":"Поточна позиція екіпажу військовослужбовця."},
