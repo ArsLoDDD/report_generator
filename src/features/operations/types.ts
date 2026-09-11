@@ -67,6 +67,9 @@ export type Equipment = {
   dayQuantity: number;
   nightQuantity: number;
   uavType?: string;
+  assetKind: "aircraft" | "complex";
+  componentsJson: string;
+  assignedQuantity: number;
   notes: string;
 };
 export type EquipmentDraft = Omit<Equipment, "id" | "crewName" | "holderName">;

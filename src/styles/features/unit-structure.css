@@ -1,0 +1,271 @@
+.unit-editor-modal {
+	width: min(1040px, calc(100vw - 36px));
+	max-height: calc(100vh - 36px);
+}
+.unit-editor-modal .operation-editor__body {
+	max-height: calc(100vh - 200px);
+	overflow: auto;
+}
+.unit-structure-editor {
+	display: grid;
+	gap: 12px;
+	grid-column: 1 / -1;
+	margin-top: 6px;
+	padding-top: 16px;
+	border-top: 1px solid var(--line);
+}
+.unit-structure-editor > header,
+.unit-structure-root__title,
+.unit-structure-block__title,
+.unit-structure-actions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+}
+.unit-structure-editor > header > div {
+	display: grid;
+	gap: 3px;
+}
+.unit-structure-editor > header span {
+	color: var(--muted);
+	font-size: 12px;
+}
+.unit-structure-editor__scroll {
+	display: grid;
+	gap: 12px;
+	max-height: 430px;
+	overflow: auto;
+	padding-right: 4px;
+}
+.unit-structure-root {
+	display: grid;
+	gap: 9px;
+	padding: 13px;
+	border: 1px solid rgba(69, 113, 128, 0.7);
+	border-radius: 12px;
+	background: rgba(8, 21, 29, 0.64);
+	transition:
+		border-color 0.16s ease,
+		background 0.16s ease,
+		transform 0.16s ease;
+}
+.unit-structure-root__title input,
+.unit-structure-block__title input,
+.unit-structure-position input {
+	width: 100%;
+	min-width: 0;
+	padding: 5px 8px;
+	border: 1px solid transparent;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--text);
+	font: inherit;
+	font-weight: 800;
+	outline: none;
+	transition:
+		border-color 0.16s ease,
+		background 0.16s ease;
+}
+.unit-structure-root__title input.is-editing,
+.unit-structure-block__title input.is-editing,
+.unit-structure-position input.is-editing {
+	border-color: rgba(78, 211, 93, 0.8);
+	background: rgba(42, 190, 70, 0.1);
+	box-shadow: 0 0 0 3px rgba(42, 190, 70, 0.09);
+}
+.unit-structure-root__title input {
+	font-size: 15px;
+}
+.unit-structure-block {
+	display: grid;
+	gap: 7px;
+	padding: 10px 11px;
+	border-left: 2px solid var(--green);
+	background: rgba(255, 255, 255, 0.018);
+}
+.unit-structure-block__title {
+	min-height: 28px;
+	color: #d9e6ea;
+}
+.unit-structure-positions {
+	display: grid;
+	gap: 4px;
+}
+.unit-structure-position {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 46px;
+	padding: 3px 9px 3px 10px;
+	border: 1px solid rgba(74, 103, 116, 0.65);
+	border-radius: 7px;
+	background: rgba(4, 14, 20, 0.5);
+	transition:
+		transform 0.16s ease,
+		border-color 0.16s ease,
+		background 0.16s ease;
+}
+.unit-structure-position svg {
+	width: 15px;
+	flex: 0 0 auto;
+	color: var(--muted);
+	cursor: grab;
+}
+.unit-structure-position .button {
+	flex: 0 0 auto;
+	margin-left: 8px;
+}
+.unit-structure-position .button.icon-only {
+	min-width: 40px;
+	width: 40px;
+	height: 40px;
+	padding: 0 !important;
+}
+.unit-structure-position.is-dragging {
+	opacity: 0.45;
+	transform: scale(0.985);
+}
+.unit-structure-position.is-drop-target {
+	border-color: var(--green);
+	background: rgba(42, 190, 70, 0.13);
+	box-shadow: inset 0 3px 0 var(--green);
+}
+.unit-structure-add {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	justify-self: start;
+	min-height: 34px;
+	padding: 6px 11px;
+	border: 1px dashed rgba(78, 211, 93, 0.52);
+	border-radius: 8px;
+	background: rgba(42, 190, 70, 0.08);
+	color: var(--green);
+	font: inherit;
+	font-size: 12px;
+	font-weight: 750;
+	cursor: pointer;
+	transition:
+		background 0.16s ease,
+		border-color 0.16s ease;
+}
+.unit-structure-add:hover {
+	border-color: var(--green);
+	background: rgba(42, 190, 70, 0.16);
+}
+.unit-structure-add svg {
+	width: 15px;
+}
+.unit-structure-actions {
+	justify-content: flex-start;
+}
+.unit-structure-position__handle {
+	display: grid;
+	place-items: center;
+	align-self: stretch;
+	min-width: 28px;
+	margin-left: -6px;
+	border-radius: 5px;
+	cursor: grab;
+	user-select: none;
+	-webkit-user-select: none;
+	touch-action: none;
+}
+.unit-structure-position__handle:hover {
+	background: rgba(78, 211, 93, 0.12);
+}
+.unit-structure-position__handle:active {
+	cursor: grabbing;
+}
+.unit-structure-collapse {
+	display: grid;
+	place-items: center;
+	flex: 0 0 28px;
+	width: 28px;
+	height: 28px;
+	margin-left: -5px;
+	padding: 0;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: #a9bdc7;
+	cursor: pointer;
+}
+.unit-structure-collapse:hover {
+	background: rgba(78, 211, 93, 0.12);
+	color: #e5f2ea;
+}
+.unit-structure-collapse svg {
+	width: 17px;
+	height: 17px;
+}
+.unit-structure-root
+	> .unit-structure-root__title
+	> .unit-structure-position__handle,
+.unit-structure-block__title > .unit-structure-position__handle {
+	flex: 0 0 26px;
+	min-width: 26px;
+	min-height: 30px;
+	margin: 0 -3px 0 -8px;
+}
+.unit-structure-root.is-dragging,
+.unit-structure-block.is-dragging {
+	opacity: 0.42;
+	border-style: dashed;
+}
+.unit-structure-root.is-drop-target,
+.unit-structure-block.is-drop-target {
+	border-color: var(--green);
+	background: rgba(42, 190, 70, 0.11);
+	box-shadow:
+		inset 0 4px 0 var(--green),
+		0 -6px 14px rgba(42, 190, 70, 0.12);
+	transform: translateY(3px);
+}
+.unit-structure-position.is-dragging {
+	opacity: 0.28;
+	border-style: dashed;
+}
+.unit-structure-position.is-drop-target {
+	transform: translateY(3px);
+	box-shadow:
+		inset 0 4px 0 var(--green),
+		0 -6px 14px rgba(42, 190, 70, 0.12);
+}
+.unit-structure-drag-preview {
+	position: fixed;
+	z-index: 10000;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: min(430px, calc(100vw - 32px));
+	min-height: 48px;
+	padding: 9px 14px;
+	border: 1px solid #55d162;
+	border-radius: 9px;
+	background: #10271b;
+	color: #f2f8f3;
+	box-shadow:
+		0 16px 38px rgba(0, 0, 0, 0.48),
+		0 0 0 3px rgba(62, 205, 78, 0.14);
+	transform: translate(14px, -50%);
+	pointer-events: none;
+	user-select: none;
+}
+.unit-structure-drag-preview svg {
+	width: 17px;
+	color: #65df70;
+	flex: 0 0 auto;
+}
+.unit-structure-drag-preview b {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.bcs-reference__staff-position {
+	max-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap !important;
+}

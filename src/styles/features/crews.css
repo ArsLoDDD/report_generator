@@ -1,0 +1,192 @@
+.crews-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+	gap: 16px;
+}
+.crew-card {
+	display: grid;
+	gap: 16px;
+	padding: 20px;
+	border-top: 3px solid var(--line);
+}
+.crew-card--working {
+	border-top-color: #9cac42;
+}
+.crew-card--forming {
+	border-top-color: #d8a079;
+}
+.crew-card--inactive {
+	border-top-color: #b86666;
+}
+.crew-card > header,
+.crew-card > footer,
+.crew-card__members {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+.crew-card > header h2 {
+	margin: 4px 0 0;
+}
+.crew-card > header strong {
+	font-size: 24px;
+}
+.crew-card__status {
+	color: var(--muted);
+	font-size: 13px;
+}
+.crew-card__facts {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 10px;
+}
+.crew-card__facts > div,
+.crew-card__members > div {
+	display: grid;
+	gap: 4px;
+	padding: 10px 12px;
+	border-radius: 10px;
+	background: rgba(255, 255, 255, 0.025);
+}
+.crew-card__facts small,
+.crew-card__members span {
+	color: var(--muted);
+}
+.crew-card__members > div {
+	flex: 1;
+	grid-template-columns: 1fr auto;
+	align-items: center;
+}
+.crew-member-tabs {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 6px;
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	padding-bottom: 10px;
+	background: var(--panel);
+}
+.crew-member-tabs button {
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	padding: 11px 14px;
+	background: transparent;
+	color: var(--muted);
+}
+.crew-member-tabs button.active {
+	border-color: var(--green);
+	background: rgba(42, 190, 70, 0.12);
+	color: var(--text);
+}
+.crew-members-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	margin: 12px 0;
+}
+.crew-members-heading p {
+	margin: 0;
+	color: var(--muted);
+}
+.crew-selected-members {
+	display: grid;
+	gap: 8px;
+	min-height: 78px;
+	padding: 10px;
+	border: 1px solid var(--line);
+	border-radius: 12px;
+	background: rgba(0, 0, 0, 0.12);
+}
+.crew-selected-members > article {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 12px;
+	border: 1px solid rgba(255, 255, 255, 0.07);
+	border-radius: 10px;
+	background: var(--panel-soft);
+}
+.crew-selected-members > article > div {
+	display: grid;
+	gap: 4px;
+	min-width: 0;
+}
+.crew-selected-members > article b,
+.crew-selected-members > article small {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.crew-selected-members > article small,
+.crew-selected-members > span {
+	color: var(--muted);
+}
+.crew-selected-members > span {
+	align-self: center;
+	justify-self: center;
+	padding: 16px;
+}
+.crew-member-picker {
+	width: min(760px, calc(100vw - 32px));
+	z-index: 30;
+}
+.crew-member-picker__body {
+	display: grid;
+	gap: 14px;
+	min-height: 0;
+	padding: 20px;
+}
+.crew-member-picker__list {
+	display: grid;
+	gap: 8px;
+	max-height: min(58vh, 620px);
+	overflow: auto;
+	padding-right: 5px;
+}
+.crew-member-picker__list > label {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 12px 14px;
+	border: 1px solid var(--line);
+	border-radius: 11px;
+	background: var(--panel-soft);
+	cursor: pointer;
+}
+.crew-member-picker__list > button { display:flex; align-items:flex-start; width:100%; gap:12px; padding:12px 14px; border:1px solid var(--line); border-radius:11px; background:var(--panel-soft); color:var(--text); font:inherit; text-align:left; cursor:pointer; }
+.crew-member-picker__list > button:hover { border-color:rgba(74,205,89,.55); background:rgba(74,205,89,.07); }
+.crew-member-picker__list > button.selected { border-color:var(--green); background:rgba(42,190,70,.1); }
+.crew-member-picker__list > button span { display:grid; gap:4px; min-width:0; }
+.crew-member-picker__list > button small { color:var(--muted); }
+.crew-member-picker__list > button em { color:#e4ba55; font-size:12px; font-style:normal; }
+.crew-member-picker__list > label.selected {
+	border-color: var(--green);
+	background: rgba(42, 190, 70, 0.1);
+}
+.crew-member-picker__list input {
+	width: 18px;
+	height: 18px;
+	margin-top: 2px;
+	accent-color: var(--green);
+}
+.crew-member-picker__list span {
+	display: grid;
+	gap: 4px;
+	min-width: 0;
+}
+.crew-member-picker__list small {
+	color: var(--muted);
+}
+.crew-member-picker__list em {
+	color: #e4ba55;
+	font-size: 12px;
+	font-style: normal;
+}
+.bcs-reference__empty-crew {
+	color: #555;
+	font-style: italic;
+}

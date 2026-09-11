@@ -1,0 +1,29 @@
+/* Real three-zone layout: fixed header, scrolling body, fixed footer. */
+.workspace { overflow: hidden; }
+
+.screen-frame {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
+}
+
+.screen-header,
+.screen-footer { min-width: 0; }
+
+.screen-header .page-title {
+  margin-bottom: 16px;
+  padding-top: 7px;
+}
+
+.screen-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 3px 18px;
+}
+
+.screen-footer .statbar {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+

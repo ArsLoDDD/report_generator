@@ -1,0 +1,19 @@
+/* Templates: fixed header and filters, separate list/detail scrolling. */
+.templates-page .templates-layout { height: 100%; min-height: 0; }
+.templates-page .template-list { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }
+.templates-page .template-list__scroll, .templates-page .template-details__scroll { min-height: 0; overflow: auto; }
+.templates-page .template-details { min-height: 0; overflow: hidden; padding: 0; }
+.templates-page .template-details__scroll { height: 100%; padding: 23px; }
+.templates-page .template-details__scroll > h2 { overflow-wrap: anywhere; word-break: break-word; }
+.templates-page { grid-template-rows: minmax(0, 1fr); }
+.templates-page > .page-frame__content { grid-row: 1; }
+.templates-page .template-list__footer { justify-content: space-between; gap: 12px; border-top: 1px solid #20323d; padding: 12px 2px 0; }
+.templates-page .template-list__footer > span { margin-left: 0; }
+.templates-page .template-list__footer > div { display: flex; gap: 8px; margin-left: auto; }
+.templates-page .template-list__footer .button { min-height: 34px; padding: 0 10px; font-size: 11px; }
+.templates-page .template-empty-page { height: 100%; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; padding: 13px; }
+.templates-page .template-empty-page > div:first-child { display: grid; place-content: center; justify-items: center; text-align: center; color: #aeb8c1; }
+.templates-page .template-empty-page > div:first-child > svg { width: 42px; height: 42px; color: #7f8e98; }
+.templates-page .template-empty-page h2 { margin: 14px 0 7px; color: #e7edf3; }
+.templates-page .template-empty-page p { margin: 0; }
+

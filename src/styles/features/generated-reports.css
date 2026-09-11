@@ -1,0 +1,13 @@
+/* Generated reports use the full work area; filters stay static above the only scrollable table. */
+.generated-page { grid-template-rows: auto minmax(0, 1fr); }
+.generated-page .page-frame__tools { grid-row: 1; }
+.generated-page .page-frame__content { grid-row: 2; display: grid; min-height: 0; }
+.generated-page .data-table { height: 100%; }
+.generated-tools { display: grid; grid-template-columns: minmax(260px, 1fr) 180px auto; gap: 12px; align-items: center; padding: 12px; }
+.generated-page .data-table__scroll th:last-child,
+.generated-page .data-table__scroll td:last-child { position: sticky; right: 0; }
+.generated-page .data-table__scroll th:last-child { z-index: 6; background: #0d1922; }
+.generated-page .data-table__scroll td:last-child { z-index: 5; min-width: 148px; background: #0e1922; white-space: nowrap; }
+.generated-page .data-table__scroll .icon-button { margin-right: 4px; }
+.generated-page .data-table__scroll .icon-button:last-child { margin-right: 0; }
+

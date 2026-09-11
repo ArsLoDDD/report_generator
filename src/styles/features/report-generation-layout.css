@@ -1,0 +1,64 @@
+/* Report generation fills the viewport; its two working panes scroll alone. */
+.screen-body:has(.generation-layout) {
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.screen-body:has(.generation-layout) .generation-layout {
+  height: 100%;
+  min-height: 0;
+}
+
+.screen-body:has(.generation-layout) .template-picker,
+.screen-body:has(.generation-layout) .people-select {
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.screen-body:has(.generation-layout) .template-picker {
+  align-self: stretch;
+  max-height: none;
+}
+
+.screen-body:has(.generation-layout) .selection-column {
+  min-height: 0;
+}
+
+.screen-body:has(.generation-layout) .people-select {
+  flex: 1 1 auto;
+}
+
+.screen-body:has(.generation-layout) .template-picker__scroll,
+.screen-body:has(.generation-layout) .people-select__scroll {
+  min-height: 0;
+  overflow: auto;
+}
+
+.template-card b,
+.template-row b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-card p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.template-card small,
+.template-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.button svg,
+.sidebar nav button svg,
+.product-logo > svg { flex: 0 0 auto; }
+

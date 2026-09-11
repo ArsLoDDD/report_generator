@@ -1,0 +1,123 @@
+.positions-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+	gap: 16px;
+}
+.position-card {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 15px;
+	padding: 20px;
+	overflow: hidden;
+}
+.position-card:before {
+	content: '';
+	position: absolute;
+	inset: 0 auto 0 0;
+	width: 4px;
+	background: #668;
+}
+.position-card--primary:before {
+	background: #3bd452;
+}
+.position-card--reserve:before {
+	background: #3f8cff;
+}
+.position-card--building:before {
+	background: #f6b73c;
+}
+.position-card > header {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+.position-card__icon {
+	display: grid;
+	place-items: center;
+	width: 44px;
+	height: 44px;
+	border-radius: 13px;
+	background: rgba(61, 212, 82, 0.12);
+	color: var(--green);
+}
+.position-card h2 {
+	margin: 2px 0 0;
+}
+.position-card small {
+	color: var(--muted);
+}
+.position-active {
+	margin-left: auto;
+	padding: 6px 10px;
+	border-radius: 999px;
+	background: rgba(61, 212, 82, 0.15);
+	color: var(--green);
+}
+.position-tags,
+.crew-card__tags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 7px;
+}
+.position-tags span,
+.crew-card__tags span {
+	padding: 5px 9px;
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	color: var(--muted);
+	font-size: 12px;
+}
+.position-card dl {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 12px;
+	margin: 0;
+}
+.position-card dl div {
+	padding: 10px;
+	border-radius: 12px;
+	background: var(--panel-soft);
+}
+.position-card dt {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--muted);
+	font-size: 12px;
+}
+.position-card dt svg {
+	width: 14px;
+}
+.position-card dd {
+	margin: 5px 0 0;
+	font-weight: 700;
+}
+.position-notes {
+	color: var(--muted);
+}
+.position-card footer {
+	display: flex;
+	gap: 8px;
+	margin-top: auto;
+}
+.position-editor {
+	width: min(980px, calc(100vw - 40px));
+}
+.position-editor .modal-body {
+	max-height: calc(100vh - 170px);
+	overflow: auto;
+}
+.position-uav-options {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+.position-uav-options label {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	padding: 8px 10px;
+	border: 1px solid var(--line);
+	border-radius: 10px;
+}

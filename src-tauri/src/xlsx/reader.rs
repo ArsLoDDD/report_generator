@@ -510,6 +510,21 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
                         .cloned()
                         .unwrap_or_default(),
                     uav_type: row.values.get("uav_type").cloned().unwrap_or_default(),
+                    asset_kind: row
+                        .values
+                        .get("asset_kind")
+                        .cloned()
+                        .unwrap_or_else(|| "aircraft".into()),
+                    components_json: row
+                        .values
+                        .get("components_json")
+                        .cloned()
+                        .unwrap_or_default(),
+                    assigned_quantity: row
+                        .values
+                        .get("assigned_quantity")
+                        .cloned()
+                        .unwrap_or_default(),
                     notes: row.values.get("notes").cloned().unwrap_or_default(),
                 }),
         );

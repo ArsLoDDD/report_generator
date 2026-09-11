@@ -242,6 +242,9 @@ pub struct Equipment {
     pub day_quantity: i64,
     pub night_quantity: i64,
     pub uav_type: String,
+    pub asset_kind: String,
+    pub components_json: String,
+    pub assigned_quantity: i64,
     pub notes: String,
 }
 
@@ -259,7 +262,17 @@ pub struct EquipmentDraft {
     pub night_quantity: i64,
     #[serde(default)]
     pub uav_type: String,
+    #[serde(default = "default_asset_kind")]
+    pub asset_kind: String,
+    #[serde(default)]
+    pub components_json: String,
+    #[serde(default)]
+    pub assigned_quantity: i64,
     pub notes: String,
+}
+
+fn default_asset_kind() -> String {
+    "aircraft".into()
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -1,0 +1,485 @@
+.flight-plan-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	width: 100%;
+}
+.flight-plan-toolbar > span {
+	color: var(--muted);
+}
+.flight-plan-toolbar b {
+	color: var(--green);
+}
+.flight-plan-scale {
+	--flight-plan-zoom: 1;
+	width: calc(100% / var(--flight-plan-zoom));
+	height: calc(100% / var(--flight-plan-zoom));
+	transform: scale(var(--flight-plan-zoom));
+	transform-origin: top left;
+	color: #111;
+}
+.flight-plan-preview {
+	overflow: hidden;
+	padding: 0;
+	border-color: #6f7980;
+	border-radius: 0;
+	background: #fff;
+	color: #000;
+}
+.flight-plan-preview__scroll {
+	overflow: auto;
+	height: 100%;
+	max-height: none;
+}
+.flight-plan-preview table {
+	width: 100%;
+	min-width: 2900px;
+	min-height: 100%;
+	border-collapse: collapse;
+	table-layout: fixed;
+	font-family: 'Times New Roman', serif;
+	font-size: 17px;
+}
+.flight-plan-preview th,
+.flight-plan-preview td {
+	border: 2px solid #161616;
+	padding: 9px 10px;
+	color: #000;
+	text-align: center;
+	vertical-align: middle;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.flight-plan-preview thead th {
+	position: sticky;
+	top: 0;
+	z-index: 3;
+	height: 104px;
+	background: #fff;
+	font-weight: 700;
+}
+.flight-plan-preview__numbers td { height:30px; min-height:30px; padding:2px; border:2px solid #161616; background:#fff; font-weight:700; }
+.flight-plan-preview tbody td {
+	min-height: 90px;
+	height: 90px;
+}
+.flight-plan-preview th:nth-child(1),
+.flight-plan-preview td:nth-child(1) {
+	width: 70px;
+}
+.flight-plan-preview th:nth-child(2),
+.flight-plan-preview td:nth-child(2) {
+	width: 140px;
+}
+.flight-plan-preview th:nth-child(3),
+.flight-plan-preview td:nth-child(3) {
+	width: 285px;
+}
+.flight-plan-preview th:nth-child(4),
+.flight-plan-preview td:nth-child(4) {
+	width: 205px;
+}
+.flight-plan-preview th:nth-child(5),
+.flight-plan-preview td:nth-child(5) {
+	width: 180px;
+}
+.flight-plan-preview th:nth-child(6),
+.flight-plan-preview td:nth-child(6) {
+	width: 395px;
+}
+.flight-plan-preview th:nth-child(7),
+.flight-plan-preview td:nth-child(7) {
+	width: 465px;
+}
+.flight-plan-preview th:nth-child(8),
+.flight-plan-preview td:nth-child(8) {
+	width: 345px;
+}
+.flight-plan-preview th:nth-child(9),
+.flight-plan-preview td:nth-child(9) {
+	width: 325px;
+}
+.flight-plan-preview th:nth-child(10),
+.flight-plan-preview td:nth-child(10) {
+	width: 385px;
+}
+.flight-plan-preview th:nth-child(11),
+.flight-plan-preview td:nth-child(11) {
+	width: 290px;
+}
+.flight-plan-preview th:nth-child(12),
+.flight-plan-preview td:nth-child(12) {
+	width: 320px;
+}
+.flight-plan-preview th:nth-child(13),
+.flight-plan-preview td:nth-child(13) {
+	width: 170px;
+}
+.flight-plan-preview th:nth-child(14),
+.flight-plan-preview td:nth-child(14) {
+	width: 185px;
+}
+.flight-plan-preview__empty {
+	display: grid;
+	place-items: center;
+	min-height: 220px;
+	border-top: 2px solid #111;
+	background: #fff;
+	color: #555;
+	font-family: 'Times New Roman', serif;
+	font-size: 20px;
+}
+.flight-plan-parameters-modal {
+	width: min(1240px, calc(100vw - 36px));
+	max-height: calc(100vh - 32px);
+}
+.flight-plan-parameters {
+	min-height: 0;
+	overflow: auto;
+	padding: 20px;
+}
+.flight-plan-parameters__general {
+	display: grid;
+	grid-template-columns: 1fr 220px 1fr;
+	gap: 12px;
+	padding-bottom: 18px;
+	border-bottom: 1px solid var(--line);
+}
+.flight-planning-page .page-frame__content {
+	min-height: 0;
+	overflow: hidden;
+}
+.flight-planning-layout {
+	display: grid;
+	grid-template-rows: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+	height: 100%;
+	min-height: 0;
+}
+.flight-planning-layout__preview,
+.flight-planning-layout__settings {
+	min-height: 0;
+}
+.flight-planning-layout__preview {
+	overflow: hidden;
+}
+.flight-planning-layout__settings {
+	overflow: auto;
+}
+.flight-planning-layout__preview > .flight-plan-scale {
+	height: 100%;
+}
+.flight-planning-layout__preview .flight-plan-preview {
+	height: 100%;
+}
+.flight-plan-parameters-panel {
+	min-height: 100%;
+	padding: 0;
+	overflow: hidden;
+}
+.flight-plan-parameters-panel .flight-plan-parameters {
+	min-height: 100%;
+	padding: 0;
+}
+.flight-plan-parameters-panel .flight-plan-modal-warning {
+	margin: 12px;
+}
+.flight-plan-parameters-panel .flight-plan-parameters__crews {
+	margin: 0;
+	padding: 0;
+}
+.flight-plan-general-modal {
+	padding: 20px;
+}
+.flight-plan-general-modal .modal-actions {
+	margin: 20px -20px -20px;
+}
+.flight-plan-modal-warning {
+	display: flex;
+	gap: 10px;
+	margin: 16px 0;
+	padding: 12px 14px;
+	border: 1px solid rgba(225, 177, 67, 0.5);
+	border-radius: 11px;
+	background: rgba(202, 147, 25, 0.08);
+	color: #e7c466;
+}
+.flight-plan-modal-warning svg {
+	flex: 0 0 20px;
+}
+.flight-plan-parameters__crews {
+	display: grid;
+	gap: 10px;
+	margin-top: 18px;
+}
+.flight-plan-parameters__crews > header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 12px;
+}
+.flight-plan-parameters__crews h3,
+.flight-plan-parameters__crews p {
+	margin: 0;
+}
+.flight-plan-parameters__crews p {
+	margin-top: 4px;
+	color: var(--muted);
+}
+.flight-plan-parameters__crews > header > b {
+	color: var(--green);
+}
+.flight-plan-editor {
+	overflow: hidden;
+	border: 1px solid var(--line);
+	border-radius: 16px;
+	background: linear-gradient(
+		145deg,
+		rgba(17, 34, 43, 0.98),
+		rgba(8, 20, 28, 0.98)
+	);
+	box-shadow: 0 10px 26px rgba(0, 0, 0, 0.14);
+}
+.flight-plan-editor.is-selected {
+	border-color: rgba(74, 205, 89, 0.55);
+	box-shadow:
+		inset 3px 0 0 var(--green),
+		0 10px 26px rgba(0, 0, 0, 0.18);
+}
+.flight-plan-editor__header {
+	display: grid;
+	grid-template-columns: minmax(220px, 0.8fr) minmax(430px, 1.3fr) auto;
+	align-items: center;
+	gap: 18px;
+	padding: 16px 18px;
+}
+.flight-plan-editor__select {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	align-items: center;
+	gap: 13px;
+	cursor: pointer;
+}
+.flight-plan-editor__select input {
+	width: 19px;
+	height: 19px;
+	accent-color: var(--green);
+}
+.flight-plan-editor__select span {
+	display: grid;
+	gap: 4px;
+	min-width: 0;
+}
+.flight-plan-editor__select b {
+	font-size: 17px;
+}
+.flight-plan-editor__select small {
+	overflow: hidden;
+	color: var(--muted);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.flight-plan-editor__facts {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+.flight-plan-editor__facts span,
+.flight-plan-editor__facts em {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 30px;
+	padding: 5px 9px;
+	border: 1px solid rgba(121, 148, 162, 0.2);
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.035);
+	color: var(--muted);
+	font-size: 11px;
+	font-style: normal;
+}
+.flight-plan-editor__facts em {
+	border-color: rgba(74, 205, 89, 0.35);
+	background: rgba(74, 205, 89, 0.09);
+	color: #7be184;
+	font-weight: 800;
+}
+.flight-plan-editor__facts svg {
+	width: 14px;
+	height: 14px;
+	color: var(--green);
+}
+.flight-plan-editor__expand {
+	display: grid;
+	place-items: center;
+	width: 38px;
+	height: 38px;
+	padding: 0;
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	background: rgba(255, 255, 255, 0.025);
+	color: var(--text);
+	cursor: pointer;
+}
+.flight-plan-editor__expand svg {
+	width: 19px;
+	transition: transform 0.2s ease;
+}
+.flight-plan-editor__expand.is-open svg {
+	transform: rotate(180deg);
+}
+.flight-plan-editor__fields {
+	display: grid;
+	gap: 14px;
+	padding: 18px;
+	border-top: 1px solid var(--line);
+	background: rgba(0, 0, 0, 0.14);
+}
+.flight-plan-editor__fields fieldset {
+	margin: 0;
+	padding: 14px;
+	border: 1px solid var(--line);
+	border-radius: 12px;
+}
+.flight-plan-editor__fields legend {
+	padding: 0 7px;
+	color: var(--muted);
+	font-size: 12px;
+	font-weight: 800;
+}
+.flight-weather__grid {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(130px, 1fr));
+	gap: 10px;
+}
+.flight-plan-editor__route {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 12px;
+}
+.flight-plan-editor__route .flight-point-field {
+	grid-column: span 2;
+}
+.flight-point-input {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 41px;
+	gap: 7px;
+}
+.flight-point-input .icon-button {
+	width: 41px;
+	height: 41px;
+	color: var(--green);
+}
+.flight-point-tags {
+	display: flex;
+	align-content: flex-start;
+	gap: 7px;
+	flex-wrap: wrap;
+	min-height: 47px;
+	padding: 9px;
+	border: 1px solid rgba(121, 148, 162, 0.2);
+	border-radius: 10px;
+	background: rgba(0, 0, 0, 0.12);
+}
+.flight-point-tags > span {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 28px;
+	padding: 4px 6px 4px 10px;
+	border: 1px solid rgba(74, 205, 89, 0.38);
+	border-radius: 8px;
+	background: rgba(74, 205, 89, 0.1);
+	color: #dff5e2;
+	font-size: 12px;
+	font-weight: 800;
+}
+.flight-point-tags button {
+	display: grid;
+	place-items: center;
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	border: 0;
+	border-radius: 5px;
+	background: transparent;
+	color: var(--muted);
+	cursor: pointer;
+}
+.flight-point-tags button:hover {
+	background: rgba(255, 255, 255, 0.08);
+	color: #fff;
+}
+.flight-point-tags svg {
+	width: 13px;
+}
+.flight-point-tags small {
+	align-self: center;
+	color: var(--muted);
+}
+.flight-uav-selector {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+	gap: 9px;
+}
+.flight-uav-selector > article {
+	display: grid;
+	gap: 10px;
+	padding: 11px;
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	background: rgba(255, 255, 255, 0.02);
+}
+.flight-uav-selector > article.selected {
+	border-color: rgba(74, 205, 89, 0.48);
+	background: rgba(74, 205, 89, 0.07);
+}
+.flight-uav-selector > article > label {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	cursor: pointer;
+}
+.flight-uav-selector > article > label > input {
+	width: 18px;
+	height: 18px;
+	accent-color: var(--green);
+}
+.flight-uav-selector > article span {
+	display: grid;
+	gap: 3px;
+}
+.flight-uav-selector small,
+.flight-uav-selector > p {
+	color: var(--muted);
+}
+.flight-uav-selector > article > div {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+}
+.crew-editor__uavs {
+	display: grid;
+	gap: 12px;
+	padding: 16px 20px;
+	border-top: 1px solid var(--line);
+	border-bottom: 1px solid var(--line);
+}
+.flight-crew__links {
+	grid-column: 1/-1;
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 9px 18px;
+	padding: 10px 12px;
+	border-radius: 9px;
+	background: rgba(255, 255, 255, 0.025);
+	color: var(--muted);
+}
+.flight-crew__links svg {
+	width: 17px;
+	color: var(--green);
+}

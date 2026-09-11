@@ -1,0 +1,63 @@
+/* Operational registers: crews, equipment and incidents share a compact data surface. */
+.operations-page .page-frame__content,
+.incidents-page .page-frame__content {
+	min-height: 0;
+	overflow: hidden;
+}
+.operation-table {
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
+}
+.operations-page .people-layout {
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
+}
+.operation-table > .data-table__scroll {
+	height: 100%;
+	min-height: 0;
+	overflow: auto;
+	overscroll-behavior: contain;
+}
+.operation-table__scroll {
+	height: 100%;
+	overflow: auto;
+	overscroll-behavior: contain;
+}
+.operation-table table {
+	min-width: 780px;
+}
+.operation-table thead {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	background: #0d1922;
+}
+.operation-table td small {
+	display: block;
+	max-width: 230px;
+	margin-top: 4px;
+	overflow: hidden;
+	color: #91a2ac;
+	font-size: 10px;
+	line-height: 1.35;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.operation-editor {
+	width: min(680px, 100%);
+}
+.operation-editor__body {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 14px;
+	padding: 21px;
+}
+.operation-editor__body .form-field--wide {
+	grid-column: 1 / -1;
+}
+.operation-editor__body textarea {
+	min-height: 84px;
+	resize: vertical;
+}

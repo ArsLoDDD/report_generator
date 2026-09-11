@@ -39,7 +39,8 @@ describe("Склад екіпажу",()=>{
   it("видаляє екіпаж лише після підтвердження",async()=>{
     invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve([crew]):command==="list_positions"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):Promise.resolve());
     render(<NotificationProvider><CrewsPage people={[first,last]}/></NotificationProvider>);
-    fireEvent.click(await screen.findByTitle("Видалити екіпаж"));
+    fireEvent.click(await screen.findByText("Сокіл"));
+    fireEvent.click(screen.getByRole("button",{name:"Видалити екіпаж"}));
     expect(invoke).not.toHaveBeenCalledWith("delete_crew",expect.anything());
     const confirmation=screen.getByRole("dialog",{name:"Видалити екіпаж?"});
     fireEvent.click(within(confirmation).getByRole("button",{name:"Видалити"}));

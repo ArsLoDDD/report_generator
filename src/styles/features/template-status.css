@@ -1,0 +1,49 @@
+/* Template state is a compact, anchored indicator instead of inline text. */
+.template-row .status-pill {
+  position: absolute;
+  top: 14px;
+  right: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.template-row .status-pill::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.template-row .status-pill.ready { background: #12381e; border-color: #276737; }
+.template-row .status-pill.warning { background: #382b13; border-color: #755e27; }
+.template-row .status-pill.error { background: #371819; border-color: #743536; }
+.template-row b { padding-right: 112px; }
+
+.validation {
+  display: grid;
+  padding: 14px 18px;
+}
+
+.validation-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.validation-summary h3 {
+  margin: 0;
+  color: #9eafb9;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+

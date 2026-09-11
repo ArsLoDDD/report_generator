@@ -1,0 +1,114 @@
+/* Keep every navigation row and icon in one fixed grid column while labels fade.
+   This prevents menu items from shifting as the sidebar expands. */
+.sidebar nav .nav-group__items button,
+.sidebar-bottom button {
+	display: grid;
+	grid-template-columns: 23px minmax(0, 1fr);
+	column-gap: 18px;
+	align-items: center;
+	min-height: 52px;
+}
+.sidebar nav .nav-group__items button > span,
+.sidebar-bottom button > span {
+	min-width: 0;
+	transition:
+		opacity 0.24s ease 0.1s,
+		transform 0.32s cubic-bezier(0.18, 0.78, 0.22, 1);
+}
+.sidebar-bottom .sidebar-warning-link {
+	position: relative;
+	color: #e7c466;
+}
+.sidebar-warning-link > b {
+	display: grid;
+	place-items: center;
+	min-width: 20px;
+	height: 20px;
+	margin-left: auto;
+	padding: 0 5px;
+	border-radius: 999px;
+	background: #b78116;
+	color: #fff;
+	font-size: 11px;
+}
+.sidebar-collapsed .sidebar-warning-link > b {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	min-width: 16px;
+	height: 16px;
+	padding: 0 3px;
+	font-size: 9px;
+}
+.sidebar-collapsed .sidebar {
+	padding-inline: 10px;
+}
+.sidebar-collapsed .product-logo {
+	margin-left: 0;
+	margin-right: 0;
+}
+.sidebar-collapsed .product-logo > div,
+.sidebar-collapsed .sidebar nav button > span,
+.sidebar-collapsed .sidebar-bottom button > span,
+.sidebar-collapsed .sidebar-warnings article > div {
+	opacity: 0;
+	transform: translateX(-12px);
+	visibility: hidden;
+	transition:
+		opacity 0.16s ease,
+		transform 0.26s ease,
+		visibility 0s linear 0.16s;
+}
+.sidebar-collapsed .sidebar-top {
+	justify-content: flex-start;
+}
+.sidebar-collapsed .product-logo > div {
+	flex-basis: 144px;
+	width: 144px;
+}
+.sidebar-collapsed .sidebar-toggle--rail {
+	right: -15px;
+}
+.sidebar-collapsed .sidebar nav .nav-group__items button,
+.sidebar-collapsed .sidebar-bottom button {
+	justify-content: center;
+	width: 52px !important;
+	min-width: 52px;
+	max-width: 52px;
+	height: 52px;
+	min-height: 52px;
+	margin-inline: auto;
+	padding: 0 !important;
+	gap: 0;
+}
+.sidebar-collapsed .sidebar nav .nav-group__items button,
+.sidebar-collapsed .sidebar-bottom button {
+	display: grid;
+	grid-template-columns: 23px;
+	place-content: center;
+	column-gap: 0;
+}
+.sidebar-collapsed .sidebar nav button svg,
+.sidebar-collapsed .sidebar-bottom button svg {
+	margin: 0;
+}
+.sidebar-collapsed .sidebar-warnings article {
+	padding: 10px;
+	justify-content: center;
+}
+
+/* The header uses the same mark as the installed application. */
+.product-logo > img {
+	width: 46px;
+	height: 46px;
+	flex: 0 0 46px;
+	object-fit: contain;
+}
+@media (max-width: 680px) {
+	.signer-editor-fields {
+		grid-template-columns: 1fr;
+	}
+	.signer-editor-fields label {
+		grid-column: auto !important;
+	}
+}

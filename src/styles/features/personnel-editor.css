@@ -1,0 +1,93 @@
+/* Personnel is a nested work area: controls never move with either pane. */
+.screen-body:has(.people-layout) {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 14px;
+  overflow: hidden;
+}
+
+.screen-body:has(.people-layout) .main-tools,
+.screen-body:has(.people-layout) .filter-bar {
+  margin: 0;
+}
+
+.screen-body:has(.people-layout) .filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 12px;
+  min-width: 0;
+}
+
+.screen-body:has(.people-layout) .filter-bar span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.screen-body:has(.people-layout) .filter-bar .select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 40px;
+  line-height: 1;
+}
+
+.screen-body:has(.people-layout) .filter-bar .select svg {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.screen-body:has(.people-layout) .filter-bar .reset {
+  width: 38px;
+  min-height: 38px;
+  margin-left: auto;
+  padding: 0;
+  font-size: 0;
+  white-space: nowrap;
+}
+
+.screen-body:has(.people-layout) .filter-bar .reset svg { width: 19px; height: 19px; }
+
+.screen-body:has(.people-layout) .people-layout {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.screen-body:has(.people-layout) .data-table,
+.screen-body:has(.people-layout) .person-details {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}
+
+.screen-body:has(.people-layout) .data-table {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.screen-body:has(.people-layout) .data-table table {
+  display: block;
+  min-height: 0;
+  overflow: auto;
+}
+
+.screen-body:has(.people-layout) .data-table .pagination {
+  align-self: stretch;
+  margin: 0;
+  padding: 16px;
+  border-top: 1px solid #20323d;
+  background: #0c1821;
+}
+
+.screen-body:has(.people-layout) .data-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #0d1922;
+}
+

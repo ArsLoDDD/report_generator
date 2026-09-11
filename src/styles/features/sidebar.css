@@ -1,0 +1,21 @@
+/* Application diagnostics use the otherwise empty lower part of the static sidebar. */
+.sidebar-menu { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.nav-group { display: grid; gap: 4px; margin-bottom: 12px; }
+.sidebar .nav-group__title { width: 100%; min-height: 30px; padding: 0 13px; display: flex; align-items: center; justify-content: space-between; border: 0; background: transparent; color: #82939d; font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+.sidebar .nav-group__title:hover { color: #b9c7cf; }
+.nav-group__title svg { width: 14px; height: 14px; transition: transform .18s ease; }
+.nav-group__chevron--closed { transform: rotate(-90deg); }
+.nav-group__items { display: grid; gap: 5px; }
+.sidebar .nav-group__items button { width: 100%; }
+.sidebar-collapsed .nav-group { margin-bottom: 0; }
+.sidebar .nav-group__title { transition: opacity .2s ease .16s, color .16s ease; }
+.sidebar-collapsed .nav-group__title { min-height: 30px; height: 30px; padding: 0 13px; overflow: hidden; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .14s ease, visibility 0s linear .14s; }
+.sidebar-collapsed .nav-group__title::after { display: none; }
+.sidebar-middle { min-height: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.sidebar-warnings { width: calc(100% - 14px); margin: 0 7px; display: grid; gap: 7px; min-height: 0; max-height: 100%; overflow: auto; }
+.sidebar-warnings article { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 9px; padding: 10px; border: 1px solid #4f431f; border-radius: 7px; background: #211c0f; }
+.sidebar-warnings svg { width: 18px; color: #f2b72c; }
+.sidebar-warnings b { display: block; font-size: 12px; color: #f1d58d; }
+.sidebar-warnings span { display: -webkit-box; margin-top: 4px; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: #bcae87; font-size: 10px; line-height: 1.35; }
+.sidebar-warnings + .version { margin-top: 12px; }
+

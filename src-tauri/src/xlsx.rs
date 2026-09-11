@@ -123,6 +123,9 @@ pub const EQUIPMENT_KEYS: &[&str] = &[
     "day_quantity",
     "night_quantity",
     "uav_type",
+    "asset_kind",
+    "components_json",
+    "assigned_quantity",
     "notes",
 ];
 pub const INCIDENT_KEYS: &[&str] = &[
@@ -238,6 +241,9 @@ pub struct EquipmentRow {
     pub day_quantity: String,
     pub night_quantity: String,
     pub uav_type: String,
+    pub asset_kind: String,
+    pub components_json: String,
+    pub assigned_quantity: String,
     pub notes: String,
 }
 

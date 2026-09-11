@@ -1,0 +1,419 @@
+/* Staffing is one continuous roster: section changes are visible, without turning
+   every level of the hierarchy into a separate, heavy panel. */
+.staff-structure {
+	overflow: hidden;
+	border: 1px solid rgba(65, 94, 108, 0.7);
+	border-radius: 13px;
+	background: rgba(7, 16, 22, 0.56);
+}
+.staff-company {
+	margin: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+}
+.staff-company + .staff-company {
+	border-top: 1px solid rgba(76, 107, 121, 0.72);
+}
+.staff-company > header {
+	min-height: 54px;
+	padding: 13px 18px;
+	background: linear-gradient(
+		90deg,
+		rgba(38, 118, 58, 0.15),
+		rgba(14, 30, 39, 0.18) 55%,
+		transparent
+	);
+}
+.staff-company > header h2 {
+	font-size: 16px;
+}
+.staff-platoons {
+	padding: 0;
+}
+.staff-platoons > article {
+	padding: 13px 18px 16px;
+	border-left: 0;
+	border-bottom: 1px solid rgba(65, 94, 108, 0.46);
+}
+.staff-platoons > article:last-child {
+	padding-bottom: 22px;
+	border-bottom: 0;
+}
+.staff-platoons > article::before {
+	display: none;
+}
+.staff-platoons h3 {
+	margin: 0 0 9px;
+	padding-left: 0;
+	color: #c9d9df;
+}
+.staff-people {
+	gap: 4px;
+}
+.staff-person-card {
+	grid-template-columns: minmax(150px, 0.62fr) minmax(0, 1.38fr);
+	min-height: 58px;
+	padding: 10px 14px;
+	border-radius: 8px;
+}
+.staff-vacancy-card {
+	display: grid;
+	align-items: center;
+	gap: 14px;
+	border: 1px dashed rgba(225, 178, 64, 0.64);
+	background: linear-gradient(
+		90deg,
+		rgba(115, 82, 20, 0.18),
+		rgba(18, 28, 31, 0.56)
+	);
+}
+.staff-vacancy-card > div {
+	display: grid;
+	min-width: 0;
+	gap: 4px;
+}
+.staff-vacancy-card {
+	grid-template-columns: minmax(150px, 0.62fr) minmax(0, 1.38fr) auto;
+	min-height: 62px;
+	padding: 10px 14px;
+	border-radius: 8px;
+}
+.staff-vacancy-card__status {
+	align-self: center;
+	justify-self: center;
+	padding-left: 14px;
+	border-left: 1px solid rgba(225, 178, 64, 0.23);
+}
+.staff-vacancy-card span {
+	color: #e7ba57;
+	font-size: 11px;
+	font-weight: 800;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+.staff-vacancy-card b {
+	overflow-wrap: anywhere;
+	color: #f3dfac;
+}
+.staff-vacancy-card small {
+	color: #b9ae8a;
+	font-size: 11px;
+}
+.staff-vacancy-card__acting {
+	color: #77d983 !important;
+	font-weight: 750;
+}
+.staff-vacancy-card .button {
+	justify-self: end;
+	margin-right: 8px;
+	min-height: 34px;
+	padding-inline: 10px;
+	border-color: rgba(225, 178, 64, 0.6);
+	background: rgba(117, 85, 19, 0.18);
+	color: #f0ca71;
+	font-size: 12px;
+}
+.staff-vacancy-card .button:hover {
+	background: rgba(142, 103, 23, 0.3);
+}
+@media (max-width: 760px) {
+	.staff-person-card,
+	.staff-vacancy-card {
+		grid-template-columns: 1fr;
+		gap: 7px;
+	}
+	.staff-vacancy-card .button {
+		justify-self: start;
+	}
+}
+.transfer-acting-toggle {
+	margin-top: 12px;
+	padding: 10px 12px;
+	border: 1px solid rgba(75, 190, 92, 0.34);
+	border-radius: 10px;
+	background: rgba(42, 190, 70, 0.07);
+	color: #d5e8d8;
+}
+.transfer-current small {
+	color: #83db8b;
+	font-size: 12px;
+}
+.transfer-summary--warning {
+	max-width: 52%;
+	color: #f0ca71;
+	font-size: 12px;
+	line-height: 1.35;
+}
+.staff-transfer-modal .position-choice b small {
+	display: block;
+	margin-top: 6px;
+	color: var(--muted);
+	font-size: 12px;
+	font-weight: 400;
+}
+.staff-transfer-modal .modal-actions {
+	align-items: center;
+	gap: 14px;
+}
+.staff-transfer-modal .modal-actions .button {
+	flex-shrink: 0;
+	align-self: center;
+}
+.staff-transfer-modal .transfer-summary {
+	max-height: 100px;
+	overflow: auto;
+}
+.staffing-page .staff-vacancy-card {
+	grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(140px, 1.6fr);
+	padding: 14px 22px;
+}
+.staffing-page .staff-vacancy-card__status {
+	justify-self: stretch;
+	text-align: center;
+}
+.staffing-page .staff-vacancy-card > .button {
+	margin-right: 8px;
+}
+.staffing-actions {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.staff-parameters-modal {
+	width: min(480px, calc(100vw - 32px));
+}
+.staff-parameters-modal__body {
+	padding: 20px;
+}
+.staff-settings-toggle {
+	display: grid;
+	grid-template-columns: 42px minmax(0, 1fr);
+	align-items: center;
+	gap: 13px;
+	min-height: 72px;
+	padding: 13px;
+	border: 1px solid #284451;
+	border-radius: 12px;
+	background: #0a1821;
+	cursor: pointer;
+}
+.staff-settings-toggle input {
+	position: absolute;
+	inline-size: 1px;
+	block-size: 1px;
+	opacity: 0;
+	pointer-events: none;
+}
+.staff-settings-toggle__switch {
+	position: relative;
+	width: 42px;
+	height: 24px;
+	border-radius: 999px;
+	background: #344752;
+	box-shadow: inset 0 0 0 1px #46616c;
+	transition: background 0.2s ease;
+}
+.staff-settings-toggle__switch::after {
+	content: '';
+	position: absolute;
+	top: 3px;
+	left: 3px;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: #dce8ec;
+	box-shadow: 0 1px 4px #0008;
+	transition: transform 0.2s ease;
+}
+.staff-settings-toggle input:checked + .staff-settings-toggle__switch {
+	background: #35a947;
+	box-shadow: inset 0 0 0 1px #62dd6d;
+}
+.staff-settings-toggle input:checked + .staff-settings-toggle__switch::after {
+	transform: translateX(18px);
+	background: white;
+}
+.staff-settings-toggle b,
+.staff-settings-toggle small {
+	display: block;
+}
+.staff-settings-toggle b {
+	color: #e6f0f3;
+	font-size: 14px;
+}
+.staff-settings-toggle small {
+	margin-top: 4px;
+	color: #9eb0b9;
+	font-size: 12px;
+	line-height: 1.35;
+}
+.staff-block-toggle {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	gap: 8px;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+.staff-block-toggle:hover h2,
+.staff-block-toggle:hover span {
+	color: #eff8fa;
+}
+.staff-block-toggle svg {
+	width: 17px;
+	height: 17px;
+	flex: 0 0 auto;
+	color: #64d36c;
+	transition: transform 0.16s ease;
+}
+.staff-company > header .staff-block-toggle {
+	width: 100%;
+}
+.staff-company > header .staff-block-toggle > div {
+	display: grid;
+	gap: 2px;
+}
+.staff-platoons h3 .staff-block-toggle {
+	gap: 5px;
+	color: #c9d9df;
+	font-size: inherit;
+	font-weight: inherit;
+}
+.staff-platoons h3 .staff-block-toggle svg {
+	width: 15px;
+	height: 15px;
+}
+.staffing-page .staff-person-card {
+	grid-template-columns: minmax(145px, 0.56fr) minmax(230px, 0.95fr) minmax(
+			0,
+			1.49fr
+		);
+	grid-auto-rows: auto;
+	align-items: center;
+	gap: 14px 18px;
+	cursor: copy;
+}
+.staffing-page .staff-person-card:focus-visible {
+	outline: 2px solid #58d362;
+	outline-offset: 2px;
+}
+.staffing-page .staff-person-card__head {
+	grid-column: 1;
+	grid-row: 1;
+	display: block;
+	color: #dce7eb;
+	font-size: 13px;
+	font-weight: 800;
+}
+.staffing-page .staff-person-card__name {
+	grid-column: 2;
+	grid-row: 1;
+	min-width: 0;
+	color: #f0f6f8;
+	line-height: 1.32;
+}
+.staffing-page .staff-person-card__position {
+	grid-column: 3;
+	grid-row: 1;
+	min-width: 0;
+	margin: 0;
+	color: #bccbd2;
+	font-size: 13px;
+	line-height: 1.32;
+}
+.staffing-page .staff-person-card__acting {
+	grid-column: 2 / -1;
+	display: flex !important;
+	align-items: baseline;
+	gap: 10px;
+	min-width: 0;
+	padding: 7px 10px;
+	border-left: 2px solid #e6b949;
+	border-radius: 0 7px 7px 0;
+	background: linear-gradient(90deg, rgba(143, 103, 25, 0.18), transparent);
+}
+.staffing-page .staff-person-card__acting span {
+	flex: 0 0 auto;
+	color: #e6b949;
+	font-size: 10px;
+	font-weight: 850;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+.staffing-page .staff-person-card__acting b {
+	min-width: 0;
+	color: #f1ca67;
+	line-height: 1.35;
+}
+.staffing-page .staff-vacancy-card {
+	grid-template-columns: minmax(145px, 0.56fr) minmax(230px, 0.95fr) minmax(
+			0,
+			1.49fr
+		);
+	align-items: center;
+	gap: 14px 18px;
+	padding: 12px 18px;
+}
+.staffing-page .staff-vacancy-card__position {
+	grid-column: 1;
+}
+.staffing-page .staff-vacancy-card__status {
+	grid-column: 2;
+	justify-self: start;
+	min-width: 0;
+	padding-left: 0;
+	text-align: left;
+}
+.staffing-page .staff-vacancy-card > .button {
+	grid-column: 3;
+	justify-self: center;
+	margin: 0;
+}
+.staff-platoons > .staff-group--direct {
+	padding-top: 0;
+}
+@media (max-width: 900px) {
+	.staffing-page .staff-person-card,
+	.staffing-page .staff-vacancy-card {
+		grid-template-columns: minmax(125px, 0.58fr) minmax(0, 1fr);
+	}
+	.staffing-page .staff-person-card__position,
+	.staffing-page .staff-vacancy-card > .button {
+		grid-column: 2;
+		grid-row: 2;
+		justify-self: start;
+	}
+	.staffing-page .staff-person-card__acting {
+		grid-column: 2;
+	}
+	.staffing-page .staff-vacancy-card__status {
+		grid-column: 2;
+	}
+}
+@media (max-width: 620px) {
+	.staffing-actions {
+		align-items: stretch;
+		flex-direction: column;
+	}
+	.staffing-page .staff-person-card,
+	.staffing-page .staff-vacancy-card {
+		grid-template-columns: 1fr;
+	}
+	.staffing-page .staff-person-card__head,
+	.staffing-page .staff-person-card__name,
+	.staffing-page .staff-person-card__position,
+	.staffing-page .staff-person-card__acting,
+	.staffing-page .staff-vacancy-card__position,
+	.staffing-page .staff-vacancy-card__status,
+	.staffing-page .staff-vacancy-card > .button {
+		grid-column: 1;
+		grid-row: auto;
+	}
+}
