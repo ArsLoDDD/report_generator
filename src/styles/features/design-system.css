@@ -157,6 +157,21 @@ td {
 	background: #1d2118;
 }
 
+.entity-table__row--interactive {
+	cursor: pointer;
+}
+
+.vehicles-page .vehicle-table .entity-table__row--interactive {
+	cursor: default;
+}
+
+.vehicles-page .data-table__scroll thead,
+.vehicles-page .vehicle-table th,
+.vehicles-page .vehicle-table th:last-child {
+	background: #171a14;
+	cursor: default;
+}
+
 .data-table tr.selected-row,
 .data-table tr.is-selected {
 	outline-color: var(--accent);
@@ -198,6 +213,13 @@ td {
 .entity-tabs button.active { background: var(--accent-soft); box-shadow: inset 2px 0 var(--accent); }
 .entity-tabs button:disabled { cursor: not-allowed; opacity: .42; }
 .entity-tabs button b { min-width: 20px; padding: 2px 6px; border-radius: 999px; background: rgb(255 255 255 / 6%); font-size: 11px; }
+
+.crew-editor__tabs {
+	width: fit-content;
+	max-width: calc(100% - 24px);
+	margin-inline: auto;
+	padding-inline: 6px;
+}
 
 .tabs button,
 .settings-tabs button,

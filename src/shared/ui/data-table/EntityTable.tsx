@@ -64,7 +64,7 @@ export function EntityTable<T>({
         const key = rowKey(item);
         return <tr
           key={key}
-          className={[selectedKey === key ? "selected selected-row" : "", rowClassName?.(item) ?? ""].filter(Boolean).join(" ")}
+          className={[onSelect ? "entity-table__row--interactive" : "", selectedKey === key ? "selected selected-row" : "", rowClassName?.(item) ?? ""].filter(Boolean).join(" ")}
           onClick={onSelect ? () => onSelect(item) : undefined}
         >
           {selectable && <td className="entity-table__selection" onClick={(event) => event.stopPropagation()}><CheckBox checked={selectedKeys?.has(key) ?? false} onChange={() => onToggleSelection?.(item)} /></td>}

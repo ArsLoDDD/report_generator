@@ -14,7 +14,7 @@ describe("EntityTable", () => {
 
     expect(screen.getAllByRole("row")[1]).toHaveTextContent("Два");
     expect(screen.getAllByRole("row")[1].querySelector("td")).toHaveTextContent("1");
-    expect(screen.getAllByRole("row")[1]).toHaveClass("selected", "selected-row");
+    expect(screen.getAllByRole("row")[1]).toHaveClass("entity-table__row--interactive", "selected", "selected-row");
     fireEvent.click(screen.getByText("Десять"));
     expect(onSelect).toHaveBeenCalledWith({ id: 10, name: "Десять" });
   });
@@ -23,6 +23,7 @@ describe("EntityTable", () => {
     render(<EntityTable items={[{ id: 10, name: "Новий" }, { id: 2, name: "Старий" }]} columns={columns} rowKey={(item) => item.id} numberBy={false} footer={<span>Ще завантажується</span>} />);
 
     expect(screen.getAllByRole("row")[1]).toHaveTextContent("Новий");
+    expect(screen.getAllByRole("row")[1]).not.toHaveClass("entity-table__row--interactive");
     expect(screen.getByText("Ще завантажується")).toBeInTheDocument();
   });
 
