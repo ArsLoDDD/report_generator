@@ -1,7 +1,6 @@
 .positions-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(340px, 430px));
-	justify-content: start;
+	grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
 	align-items: start;
 	gap: 16px;
 }
@@ -87,8 +86,7 @@
 .position-card__meta,.position-card__crews { min-height: 34px; max-height: 36px; overflow: hidden; flex-wrap: nowrap; }
 .position-card__chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; min-height: 34px; max-width: 100%; padding: 6px 10px; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: rgba(0,0,0,.12); color: var(--muted); font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .position-card__chip svg { width: 14px; height: 14px; flex: 0 0 auto; }
-.position-card__meta .position-card__chip:last-child { flex: 1; }
-.position-card__crews .position-card__crew { flex: 1 1 0; }
+.position-card__meta .position-card__chip,.position-card__crews .position-card__crew { flex: 0 1 auto; }
 .position-card__crew.is-on-position { border-color: #7d8d43; background: rgba(151,164,76,.16); color: #dfeba0; box-shadow: inset 3px 0 #a7ba58; }
 .position-card__crew.is-empty { opacity: .68; font-weight: 600; }
 .position-card__more { flex: 0 0 auto; color: var(--accent); }
@@ -149,8 +147,8 @@
 .position-relation-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 62px; padding: 10px 2px; border-bottom: 1px solid rgba(143,153,104,.16); }
 .position-relation-item:last-child { border-bottom: 0; }
 .position-relation-item > div { display: grid; gap: 5px; min-width: 0; }
-.position-relation-item b,.position-relation-item small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.position-relation-item small { color: var(--muted); font-size: 11px; }
+.position-relation-item b,.position-relation-item small,.position-relation-item em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.position-relation-item small,.position-relation-item em { color: var(--muted); font-size: 11px; font-style: normal; }
 .position-relation-item.is-on-position { color: #dce99a; }
 .position-relation-empty { padding: 32px 10px; color: var(--muted); line-height: 1.45; text-align: center; }
 .position-history { display: grid; gap: 10px; padding-top: 20px; }

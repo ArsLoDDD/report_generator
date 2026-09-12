@@ -47,6 +47,17 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+.incident-details { width: min(760px, calc(100vw - 40px)); }
+.incident-details__body { min-height: 0; overflow-y: auto; padding: 22px 26px 26px; }
+.incident-details__facts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.incident-details__facts article { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: rgba(4,15,21,.34); }
+.incident-details__facts svg { width: 18px; flex: 0 0 auto; color: var(--accent); }
+.incident-details__facts span { display: grid; gap: 5px; min-width: 0; color: var(--muted); font-size: 11px; }
+.incident-details__facts b { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.incident-details__body > section { margin-top: 12px; padding: 13px; border: 1px solid var(--line); border-radius: 11px; }
+.incident-details__body > section span { color: var(--muted); font-size: 11px; }
+.incident-details__body > section p { margin: 7px 0 0; line-height: 1.45; white-space: pre-wrap; }
+@media (max-width: 620px) { .incident-details__facts { grid-template-columns: 1fr; } }
 .assets-hub__content .page-title .header-actions > .button { min-width: 180px; min-height: 52px; justify-content: center; }
 .assets-hub__content .registry-toolbar { width: 100%; }
 

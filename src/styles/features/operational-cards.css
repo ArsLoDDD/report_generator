@@ -6,8 +6,7 @@
 }
 .positions-grid {
 	align-items: start;
-	grid-template-columns: repeat(auto-fill, minmax(340px, 430px));
-	justify-content: start;
+	grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
 	gap: 14px;
 }
 .crew-card,

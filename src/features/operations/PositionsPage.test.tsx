@@ -7,7 +7,7 @@ const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 const position = { id: 3, name: "БУРЕВІЙ", positionType: "Запасна", stripName: "СМУГА ПІВНІЧ", locality: "НОВОСЕЛІВКА", battleOrder: "БРО-01", sector: "", condition: "", conditionLevel: 0, fieldType: "", size: "", mgrs: "36U UV 12000 67000", suitableUavText: "", isActive: false, crewId: null, crewName: "СОКІЛ", notes: "Тестова позиція", uavIds: [8], uavNames: ["SHARK"] };
-const crew = { id: 9, name: "СОКІЛ", positionId: 3, status: "Працюючий", workingStrength: 3, officialStrength: 4 };
+const crew = { id: 9, name: "СОКІЛ", positionId: 3, status: "Працюючий", workingStrength: 3, officialStrength: 4, primaryUavId: 8, uavName: "SHARK", sector: "СМУГА ПІВНІЧ" };
 const linkedEquipment = { id: 8, category: "uav", name: "SHARK", inventoryNumber: "UAV-008", status: "Справний", crewId: 9, crewName: "СОКІЛ", personnelId: null, holderName: null, totalQuantity: 1, dayQuantity: 1, nightQuantity: 0, assetKind: "aircraft", componentsJson: "[]", assignedQuantity: 1, notes: "" };
 const availableEquipment = { ...linkedEquipment, id: 18, category: "generator", name: "EcoFlow Delta", inventoryNumber: "GEN-018", crewId: null, crewName: null };
 
@@ -26,6 +26,7 @@ describe("Картка позиції", () => {
     expect(screen.getAllByText("НОВОСЕЛІВКА")).toHaveLength(1);
     expect(screen.queryByText("Інциденти")).not.toBeInTheDocument();
     expect(screen.queryByText("Відкрити")).not.toBeInTheDocument();
+    expect(screen.queryByText("СМУГА ПІВНІЧ")).not.toBeInTheDocument();
   });
 
   it("показує по 20 карток, підвантажує наступні та шукає серед ще не показаних", async () => {
@@ -40,7 +41,7 @@ describe("Картка позиції", () => {
     fireEvent.scroll(content);
     await waitFor(() => expect(screen.getByText("Показано 25 із 25")).toBeInTheDocument());
 
-    fireEvent.change(screen.getByPlaceholderText("Пошук за назвою, смугою, районом, БРО або екіпажем…"), { target: { value: "ПОЗИЦІЯ 25" } });
+    fireEvent.change(screen.getByPlaceholderText("Пошук за назвою, районом, БРО або екіпажем…"), { target: { value: "ПОЗИЦІЯ 25" } });
     expect(screen.getByText("ПОЗИЦІЯ 25")).toBeInTheDocument();
     expect(screen.getByText("Показано 1 із 1")).toBeInTheDocument();
   });
@@ -58,7 +59,8 @@ describe("Картка позиції", () => {
 
     fireEvent.click((await screen.findByText("БУРЕВІЙ")).closest("article")!);
     fireEvent.click(screen.getByRole("button", { name: "Екіпаж і майно" }));
-    expect(screen.getByText("Працюючий · фактично 3 із 4")).toBeInTheDocument();
+    expect(screen.getByText("Статус: Працюючий")).toBeInTheDocument();
+    expect(screen.getByText("Основний БпЛА: SHARK · Смуга: СМУГА ПІВНІЧ")).toBeInTheDocument();
     expect(screen.getByText("БпЛА та БпАК · UAV-008 · Справний")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Додати майно" }));
