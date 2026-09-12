@@ -7,7 +7,9 @@ const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 const position = { id: 3, name: "БУРЕВІЙ", positionType: "Запасна", stripName: "СМУГА ПІВНІЧ", locality: "НОВОСЕЛІВКА", battleOrder: "БРО-01", sector: "", condition: "", conditionLevel: 0, fieldType: "", size: "", mgrs: "36U UV 12000 67000", suitableUavText: "", isActive: false, crewId: null, crewName: "СОКІЛ", notes: "Тестова позиція", uavIds: [8], uavNames: ["SHARK"] };
-const crew = { id: 9, name: "СОКІЛ", positionId: 3 };
+const crew = { id: 9, name: "СОКІЛ", positionId: 3, status: "Працюючий", workingStrength: 3, officialStrength: 4 };
+const linkedEquipment = { id: 8, category: "uav", name: "SHARK", inventoryNumber: "UAV-008", status: "Справний", crewId: 9, crewName: "СОКІЛ", personnelId: null, holderName: null, totalQuantity: 1, dayQuantity: 1, nightQuantity: 0, assetKind: "aircraft", componentsJson: "[]", assignedQuantity: 1, notes: "" };
+const availableEquipment = { ...linkedEquipment, id: 18, category: "generator", name: "EcoFlow Delta", inventoryNumber: "GEN-018", crewId: null, crewName: null };
 
 afterEach(() => { cleanup(); localStorage.clear(); vi.clearAllMocks(); });
 
@@ -41,5 +43,31 @@ describe("Картка позиції", () => {
     fireEvent.change(screen.getByPlaceholderText("Пошук за назвою, смугою, районом, БРО або екіпажем…"), { target: { value: "ПОЗИЦІЯ 25" } });
     expect(screen.getByText("ПОЗИЦІЯ 25")).toBeInTheDocument();
     expect(screen.getByText("Показано 1 із 1")).toBeInTheDocument();
+  });
+
+  it("показує екіпажі окремими записами та дозволяє закріпити за позицією майно будь-якої категорії", async () => {
+    localStorage.setItem("flight-plan-draft-v2", JSON.stringify({ selected: [9] }));
+    invoke.mockImplementation((command: string, args?: { category?: string }) => {
+      if (command === "list_positions") return Promise.resolve([position]);
+      if (command === "list_crews") return Promise.resolve([crew]);
+      if (command === "list_incidents") return Promise.resolve([]);
+      if (command === "list_equipment") return Promise.resolve(args?.category === "uav" ? [linkedEquipment] : args?.category === "generator" ? [availableEquipment] : []);
+      return Promise.resolve();
+    });
+    render(<NotificationProvider><PositionsPage /></NotificationProvider>);
+
+    fireEvent.click((await screen.findByText("БУРЕВІЙ")).closest("article")!);
+    fireEvent.click(screen.getByRole("button", { name: "Екіпаж і майно" }));
+    expect(screen.getByText("Працюючий · фактично 3 із 4")).toBeInTheDocument();
+    expect(screen.getByText("БпЛА та БпАК · UAV-008 · Справний")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Додати майно" }));
+    expect(screen.getByRole("heading", { name: "Майно позиції" })).toBeInTheDocument();
+    fireEvent.click(screen.getByText("EcoFlow Delta"));
+    fireEvent.click(screen.getByRole("button", { name: "Готово" }));
+    expect(screen.getByText("Генератори · GEN-018 · Справний")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти позицію" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_position", expect.objectContaining({ positionId: 3, draft: expect.objectContaining({ uavIds: [8, 18] }) })));
   });
 });

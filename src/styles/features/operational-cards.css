@@ -115,6 +115,7 @@
 }
 .position-card {
 	overflow: hidden;
+	height: 200px;
 	min-height: 0;
 	gap: 13px;
 	padding: 18px;

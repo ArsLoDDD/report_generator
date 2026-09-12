@@ -34,12 +34,12 @@ fn position_uavs(
     connection: &Connection,
     position_id: i64,
 ) -> Result<(Vec<i64>, Vec<String>), String> {
-    let mut statement = connection.prepare("SELECT e.id,e.name FROM position_uavs pu JOIN equipment e ON e.id=pu.equipment_id WHERE pu.position_id=?1 ORDER BY e.name COLLATE NOCASE").map_err(|_| "Не вдалося прочитати БпЛА позиції.".to_string())?;
+    let mut statement = connection.prepare("SELECT e.id,e.name FROM position_uavs pu JOIN equipment e ON e.id=pu.equipment_id WHERE pu.position_id=?1 ORDER BY e.name COLLATE NOCASE").map_err(|_| "Не вдалося прочитати майно позиції.".to_string())?;
     let rows = statement
         .query_map([position_id], |row| Ok((row.get(0)?, row.get(1)?)))
-        .map_err(|_| "Не вдалося прочитати БпЛА позиції.".to_string())?
+        .map_err(|_| "Не вдалося прочитати майно позиції.".to_string())?
         .collect::<Result<Vec<(i64, String)>, _>>()
-        .map_err(|_| "Не вдалося прочитати БпЛА позиції.".to_string())?;
+        .map_err(|_| "Не вдалося прочитати майно позиції.".to_string())?;
     Ok(rows.into_iter().unzip())
 }
 
@@ -130,9 +130,9 @@ fn save_position_uavs(
             "DELETE FROM position_uavs WHERE position_id=?1",
             [position_id],
         )
-        .map_err(|_| "Не вдалося оновити БпЛА позиції.".to_string())?;
+        .map_err(|_| "Не вдалося оновити майно позиції.".to_string())?;
     for equipment_id in uav_ids {
-        connection.execute("INSERT OR IGNORE INTO position_uavs(position_id,equipment_id) SELECT ?1,id FROM equipment WHERE id=?2 AND category='uav'", rusqlite::params![position_id,equipment_id]).map_err(|_| "Не вдалося закріпити БпЛА за позицією.".to_string())?;
+        connection.execute("INSERT OR IGNORE INTO position_uavs(position_id,equipment_id) SELECT ?1,id FROM equipment WHERE id=?2", rusqlite::params![position_id,equipment_id]).map_err(|_| "Не вдалося закріпити майно за позицією.".to_string())?;
     }
     Ok(())
 }
@@ -328,5 +328,33 @@ mod position_tests {
             })
             .unwrap();
         assert!(cleared.is_empty());
+    }
+
+    #[test]
+    fn position_accepts_equipment_from_every_category() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO positions(name) VALUES('СП Майно')", [])
+            .unwrap();
+        let position_id = connection.last_insert_rowid();
+        connection
+            .execute(
+                "INSERT INTO equipment(category,name) VALUES('generator','EcoFlow Delta')",
+                [],
+            )
+            .unwrap();
+        let equipment_id = connection.last_insert_rowid();
+
+        save_position_uavs(&connection, position_id, &[equipment_id]).unwrap();
+
+        let linked_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM position_uavs WHERE position_id=?1 AND equipment_id=?2",
+                rusqlite::params![position_id, equipment_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(linked_count, 1);
     }
 }
