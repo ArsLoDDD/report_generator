@@ -399,9 +399,29 @@
 	font-weight: 800;
 	cursor: grab;
 	user-select: none;
+	touch-action: none;
 }
 .flight-point-tags > span:active,
 .flight-point-tags > span.is-dragging { cursor: grabbing; opacity: .62; }
+.flight-point-tags > span.is-drop-target {
+	border-color: var(--accent);
+	background: rgba(169, 182, 107, .24);
+	box-shadow: 0 0 0 2px rgba(169, 182, 107, .16);
+}
+.flight-point-drag-preview {
+	position: fixed;
+	z-index: 1000;
+	pointer-events: none;
+	transform: translate(12px, 12px);
+	padding: 7px 11px;
+	border: 1px solid var(--accent);
+	border-radius: 8px;
+	background: #172015;
+	color: #e8f2d5;
+	font-size: 12px;
+	font-weight: 800;
+	box-shadow: 0 10px 28px rgb(0 0 0 / 38%);
+}
 .flight-point-tags button {
 	display: grid;
 	place-items: center;
