@@ -19,6 +19,7 @@ import { Modal } from "./shared/ui/Modal";
 import { AppSidebar } from "./app/components/AppSidebar";
 import { isSimpleEdition } from "./app/navigation";
 import { WarningsPage } from "./app/components/WarningsPage";
+import { AssetsPage } from "./features/assets/AssetsPage";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("generator");
@@ -87,6 +88,7 @@ export default function App() {
       {!isSimpleEdition && screen === "staffing-bcs" && <StaffingBcsPage />}
       {!isSimpleEdition && screen === "flight-planning" && <FlightPlanningPage />}
       {!isSimpleEdition && screen === "positions" && <PositionsPage />}
+      {!isSimpleEdition && screen === "assets" && <AssetsPage people={people} />}
       {!isSimpleEdition && screen === "vehicles" && <VehiclesPage people={people} />}
       {!isSimpleEdition && screen === "generators" && <EquipmentPage category="generator" people={people} />}
       {!isSimpleEdition && screen === "uavs" && <EquipmentPage category="uav" people={people} />}

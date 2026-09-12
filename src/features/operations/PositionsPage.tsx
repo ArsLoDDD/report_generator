@@ -1,36 +1,60 @@
-import { Crosshair, MapPin, Pencil, Plus, Radar, Trash2 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { Clock3, Crosshair, MapPin, Plus, Radar, Trash2, UsersRound } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEntityCollection } from "../../shared/hooks/useEntityCollection";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
+import { CardGridSkeleton } from "../../shared/ui/entity-card/CardGridSkeleton";
+import { EntityCard, EntityCardGrid } from "../../shared/ui/entity-card/EntityCard";
 import { Modal } from "../../shared/ui/Modal";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { PageTitle } from "../../shared/ui/PageTitle";
-import { Select } from "../../shared/ui/Select";
 import { RegistryToolbar } from "../../shared/ui/RegistryToolbar";
-import { CardGridSkeleton } from "../../shared/ui/entity-card/CardGridSkeleton";
-import { EntityCard, EntityCardGrid } from "../../shared/ui/entity-card/EntityCard";
-import { useEntityCollection } from "../../shared/hooks/useEntityCollection";
 import { operationsService } from "./services/operationsService";
-import type { Position, PositionDraft } from "./types";
+import type { Incident, Position, PositionDraft } from "./types";
 
-const positionTypes: Position["positionType"][] = ["Основна", "Запасна", "Облаштовується", "Виявлена ворогом", "Зайнята суміжниками"];
+type PositionTab = "overview" | "relations" | "history";
 const emptyDraft = (): PositionDraft => ({ name: "", positionType: "Основна", stripName: "", locality: "", battleOrder: "", sector: "", condition: "", conditionLevel: 0, fieldType: "", size: "", mgrs: "", suitableUavText: "", isActive: false, crewId: null, notes: "", uavIds: [] });
-const typeClass = (type: Position["positionType"]) => type === "Основна" ? "primary" : type === "Запасна" ? "reserve" : type === "Облаштовується" ? "building" : type === "Виявлена ворогом" ? "exposed" : "allied";
+const includes = (query: string, ...values: (string | null | undefined)[]) => values.join(" ").toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"));
 
 export function PositionsPage() {
-  const [query, setQuery] = useState(""); const [type, setType] = useState("Усі"); const [editing, setEditing] = useState<Position | null>(null); const [open, setOpen] = useState(false); const [draft, setDraft] = useState<PositionDraft>(emptyDraft); const [deleting, setDeleting] = useState<Position | null>(null); const [deletingBusy, setDeletingBusy] = useState(false); const { notify } = useNotifications();
+  const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState<Position | null>(null);
+  const [open, setOpen] = useState(false);
+  const [editorTab, setEditorTab] = useState<PositionTab>("overview");
+  const [draft, setDraft] = useState<PositionDraft>(emptyDraft);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [deleting, setDeleting] = useState<Position | null>(null);
+  const [deletingBusy, setDeletingBusy] = useState(false);
+  const { notify } = useNotifications();
   const loadPositions = useCallback(() => operationsService.listPositions(), []);
   const onLoadError = useCallback(() => notify("Не вдалося завантажити позиції.", "error"), [notify]);
   const { items, isLoading, reload: reloadItems } = useEntityCollection({ load: loadPositions, onError: onLoadError });
   const reload = useCallback(() => { void reloadItems(); }, [reloadItems]);
-  const filtered = useMemo(() => items.filter((item) => (type === "Усі" || item.positionType === type) && [item.name, item.positionType, item.stripName, item.locality, item.battleOrder, item.fieldType, item.crewName].join(" ").toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"))), [items, query, type]);
-  const edit = (item?: Position) => { setEditing(item ?? null); setDraft(item ? { ...item } : emptyDraft()); setOpen(true); }; const close = () => { setOpen(false); setEditing(null); setDraft(emptyDraft()); };
+
+  useEffect(() => { void operationsService.listIncidents().then(setIncidents).catch(() => setIncidents([])); }, []);
+
+  const filtered = useMemo(() => items.filter((item) => includes(query, item.name, item.stripName, item.locality, item.battleOrder, item.notes, item.condition, item.crewName)), [items, query]);
+  const positionIncidents = useMemo(() => editing ? incidents.filter((incident) => incident.positionName === editing.name) : [], [editing, incidents]);
+  const edit = (item?: Position) => { setEditing(item ?? null); setDraft(item ? { ...item } : emptyDraft()); setEditorTab("overview"); setOpen(true); };
+  const close = () => { setOpen(false); setEditing(null); setDraft(emptyDraft()); setEditorTab("overview"); };
   const savePosition = async () => { try { if (editing) await operationsService.updatePosition(editing.id, draft); else await operationsService.createPosition(draft); close(); reload(); notify("Позицію збережено.", "success"); } catch (error) { notify(typeof error === "string" ? error : "Не вдалося зберегти позицію.", "error"); } };
   const remove = async () => { if (!deleting) return; setDeletingBusy(true); try { await operationsService.deletePosition(deleting.id); setDeleting(null); reload(); notify("Позицію видалено.", "success"); } catch { notify("Не вдалося видалити позицію.", "error"); } finally { setDeletingBusy(false); } };
-  return <PageFrame className="positions-page" header={<PageTitle title="Позиції" subtitle="Позиції підрозділу та їхній поточний стан" actions={<button className="button primary" onClick={() => edit()}><Plus />Додати позицію</button>} />} tools={<RegistryToolbar placeholder="Пошук за назвою, смугою, районом, БРО або екіпажем…" query={query} onQueryChange={setQuery} resultCount={filtered.length}><Select ariaLabel="Тип позиції" value={type} onChange={setType} options={["Усі", ...positionTypes].map((value) => ({ value, label: value }))} /></RegistryToolbar>}>
-    <EntityCardGrid className="positions-grid">{filtered.map((item) => <EntityCard className={`position-card position-card--${typeClass(item.positionType)}`} key={item.id}><header><span className="position-card__icon"><Crosshair /></span><div><span className="position-card__type">{item.positionType}</span><h2>{item.name}</h2></div><b className="position-condition">{item.conditionLevel}%<small>готовність</small></b></header><div className="position-tags">{item.stripName && <span>Смуга: {item.stripName}</span>}{item.battleOrder && <span>{item.battleOrder}</span>}{item.fieldType && <span>Поле: {item.fieldType}</span>}</div><div className="position-condition-scale"><i style={{ width: `${item.conditionLevel}%` }} /></div><dl><div><dt><MapPin />Район</dt><dd>{item.locality || "Не вказано"}</dd></div><div><dt><Radar />MGRS</dt><dd>{item.mgrs || "Не вказано"}</dd></div><div><dt>Екіпажі</dt><dd>{item.crewName || "Не використовується"}</dd></div><div><dt>Стан</dt><dd>{item.condition || "Без опису"}</dd></div></dl>{item.notes && <p className="position-notes">{item.notes}</p>}<footer><button className="button" onClick={() => edit(item)}><Pencil />Редагувати</button><button className="icon-button danger" title="Видалити позицію" onClick={() => setDeleting(item)}><Trash2 /></button></footer></EntityCard>)}</EntityCardGrid>
+
+  return <PageFrame className="positions-page" header={<PageTitle title="Позиції" subtitle="Робочі райони, прив’язані екіпажі та історія подій" actions={<button className="button primary" onClick={() => edit()}><Plus />Додати позицію</button>} />} tools={<RegistryToolbar placeholder="Пошук за назвою, смугою, районом, БРО або екіпажем…" query={query} onQueryChange={setQuery} resultCount={filtered.length} />}>
+    <EntityCardGrid className="positions-grid">{filtered.map((item) => <EntityCard className="position-card" key={item.id} onClick={() => edit(item)}>
+      <header><span className="position-card__icon"><Crosshair /></span><div><small>{item.stripName || "Смуга не вказана"}</small><h2>{item.name}</h2></div><span className="position-card__open">Відкрити</span></header>
+      <div className="position-tags">{item.battleOrder && <span>{item.battleOrder}</span>}{item.locality && <span>{item.locality}</span>}</div>
+      <dl><div><dt><MapPin />Район</dt><dd>{item.locality || "Не вказано"}</dd></div><div><dt><Radar />MGRS</dt><dd>{item.mgrs || "Не вказано"}</dd></div><div><dt><UsersRound />Екіпаж</dt><dd>{item.crewName || "Не закріплений"}</dd></div><div><dt><Clock3 />Інциденти</dt><dd>{incidents.filter((incident) => incident.positionName === item.name).length}</dd></div></dl>
+      <p className="position-notes">{item.notes || item.condition || "Опис позиції не заповнено."}</p>
+    </EntityCard>)}</EntityCardGrid>
     {isLoading && <div className="operations-loading-overlay"><CardGridSkeleton variant="position" /></div>}
-    {open && <Modal title={editing ? "Редагування позиції" : "Нова позиція"} onClose={close} className="position-editor"><div className="operation-editor__body"><label className="form-field"><span>Назва <b>*</b></span><input autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label><label className="form-field"><span>Тип</span><Select ariaLabel="Тип" value={draft.positionType} onChange={(positionType) => setDraft({ ...draft, positionType: positionType as Position["positionType"] })} options={positionTypes.map((value) => ({ value, label: value }))} /></label><label className="form-field"><span>Смуга</span><input value={draft.stripName} onChange={(e) => setDraft({ ...draft, stripName: e.target.value })} /></label><label className="form-field"><span>БРО</span><input value={draft.battleOrder} onChange={(e) => setDraft({ ...draft, battleOrder: e.target.value })} /></label><label className="form-field form-field--wide"><span>Стан · {draft.conditionLevel}%</span><input className="position-condition-input" type="range" min="0" max="100" step="5" value={draft.conditionLevel} onChange={(e) => setDraft({ ...draft, conditionLevel: Number(e.target.value) })} /><input value={draft.condition} onChange={(e) => setDraft({ ...draft, condition: e.target.value })} placeholder="Короткий опис стану" /></label><label className="form-field"><span>Район</span><input value={draft.locality} onChange={(e) => setDraft({ ...draft, locality: e.target.value })} /></label><label className="form-field form-field--wide"><span>Орієнтовні координати MGRS</span><input value={draft.mgrs} onChange={(e) => setDraft({ ...draft, mgrs: e.target.value })} placeholder="36U UV 12000 67000" /><small>Останні три цифри двох п’ятизначних груп зберігаються як 000.</small></label><label className="form-field"><span>Тип поля</span><input value={draft.fieldType} onChange={(e) => setDraft({ ...draft, fieldType: e.target.value })} /></label><label className="form-field form-field--wide"><span>Коментар</span><textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></label></div><footer className="modal-actions"><button className="button" onClick={close}>Скасувати</button><button className="button primary" onClick={() => void savePosition()}>Зберегти позицію</button></footer></Modal>}
+
+    {open && <Modal title={editing ? editing.name : "Нова позиція"} subtitle={editing ? `${editing.stripName || "Смуга не вказана"} · ${editing.locality || "район не вказано"}` : "Створення нової позиції"} onClose={close} className="position-editor"><div className="position-editor__body">
+      <nav className="entity-tabs" aria-label="Розділи картки позиції"><button className={editorTab === "overview" ? "active" : ""} onClick={() => setEditorTab("overview")}>Огляд</button><button className={editorTab === "relations" ? "active" : ""} disabled={!editing} onClick={() => setEditorTab("relations")}>Екіпаж і майно</button><button className={editorTab === "history" ? "active" : ""} disabled={!editing} onClick={() => setEditorTab("history")}>Історія <b>{positionIncidents.length}</b></button></nav>
+      {editorTab === "overview" && <div className="operation-editor__body position-editor__form"><label className="form-field"><span>Назва <b>*</b></span><input autoFocus value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label className="form-field"><span>Смуга роботи</span><input value={draft.stripName} onChange={(event) => setDraft({ ...draft, stripName: event.target.value })} /></label><label className="form-field"><span>БРО</span><input value={draft.battleOrder} onChange={(event) => setDraft({ ...draft, battleOrder: event.target.value })} /></label><label className="form-field"><span>Населений пункт / район</span><input value={draft.locality} onChange={(event) => setDraft({ ...draft, locality: event.target.value })} /></label><label className="form-field form-field--wide"><span>Орієнтовні координати MGRS</span><input value={draft.mgrs} onChange={(event) => setDraft({ ...draft, mgrs: event.target.value })} placeholder="36U UV 12000 67000" /><small>Останні три цифри двох п’ятизначних груп зберігаються як 000.</small></label><label className="form-field form-field--wide"><span>Опис позиції</span><textarea value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Особливості позиції, під’їзду, маскування та роботи…" /></label></div>}
+      {editorTab === "relations" && <section className="position-relations"><article><UsersRound /><div><small>Закріплений екіпаж</small><b>{editing?.crewName || "Екіпаж не закріплений"}</b><span>Прив’язка змінюється у картці екіпажу.</span></div></article><article><Radar /><div><small>БпЛА та БпАК на позиції</small><b>{editing?.uavNames.length ? editing.uavNames.join(" · ") : "Майно не закріплене"}</b><span>Склад формується з майна закріпленого екіпажу.</span></div></article></section>}
+      {editorTab === "history" && <section className="position-history">{positionIncidents.length ? positionIncidents.map((incident) => <article key={incident.id}><Clock3 /><div><b>{incident.incidentType}</b><span>{incident.occurredAt} · {incident.crewName || "екіпаж не вказано"}</span><p>{incident.description || "Без опису"}</p></div></article>) : <div className="position-history__empty"><Clock3 /><b>Історія порожня</b><span>Інциденти на цій позиції з’являться тут автоматично.</span></div>}</section>}
+    </div><footer className="modal-actions position-editor__actions">{editing && <button className="button danger" onClick={() => { setDeleting(editing); setOpen(false); }}><Trash2 />Видалити позицію</button>}<button className="button" onClick={close}>Скасувати</button><button className="button primary" onClick={() => void savePosition()}>Зберегти позицію</button></footer></Modal>}
     {deleting && <ConfirmDialog title="Видалити позицію?" message={`Позицію «${deleting.name}» буде видалено. Екіпажі, які її використовують, залишаться без обраної позиції.`} confirmLabel="Видалити" onConfirm={() => void remove()} onCancel={() => setDeleting(null)} busy={deletingBusy} />}
   </PageFrame>;
 }

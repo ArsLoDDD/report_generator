@@ -1,14 +1,14 @@
-.crew-card { cursor: pointer; gap: 10px; min-height: 260px; padding: 24px; background: #111813; }
+.crew-card { cursor: pointer; gap: 14px; min-height: 260px; padding: 24px; background: #111813; transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease; }
+.crew-card:hover { border-color: #57613b; transform: translateY(-2px); box-shadow: 0 16px 34px rgb(0 0 0 / 28%); }
 .crew-card > header { display: grid; grid-template-columns: 44px minmax(0,1fr) auto; align-items: center; }
 .crew-card > header h2 { margin: 0; }
 .crew-card > header span:not(.crew-card__status) { color: var(--muted); font-size: 12px; }
 .crew-card__mark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: rgba(156,172,66,.1); color: #aab96a; }
 .crew-card__mark svg { width: 20px; }
-.crew-card__position,.crew-card__aircraft { margin: 0; color: var(--muted); }
-.crew-card__position b { color: var(--text); }
-.crew-card__aircraft { min-height: 20px; color: #bdc6a0; font-family: ui-monospace,SFMono-Regular,Menlo,monospace; }
-.crew-card__roster { display: grid; gap: 9px; margin-top: auto; padding-top: 14px; border-top: 1px solid rgba(151,164,102,.16); }
-.crew-card__roster > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.crew-card__context { display: grid; gap: 8px; }
+.crew-card__context span { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: 13px; }
+.crew-card__context svg { width: 16px; height: 16px; flex: 0 0 auto; color: #a8b563; }
+.crew-card__roster { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 7px; margin-top: auto; padding-top: 14px; border-top: 1px solid rgba(151,164,102,.16); }
 .crew-card__roster b { padding: 6px 9px; border: 1px solid rgba(151,164,102,.28); border-radius: 8px; background: rgba(151,164,102,.08); color: #e6e9de; font-size: 12px; }
 .crew-card__roster em { color: var(--muted); font-size: 12px; font-style: normal; }
 .crew-editor__actions .danger { margin-right: auto; }
@@ -58,12 +58,23 @@
 .crew-editor__summary small { color: var(--muted); }
 .crew-editor__summary b { font-size: 20px; }
 .crew-editor__summary span { color: #aeb99a; }
+.crew-summary-action { justify-self: start; display: inline-flex; align-items: center; gap: 6px; margin-top: 5px; padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; }
+.crew-summary-action svg { width: 15px; height: 15px; }
 .crew-editor__section-title { margin: 0 0 14px; color: #dfe6dc; font-size: 15px; }
-.crew-editor__uavs,.crew-editor__members { margin-top: 24px; padding: 18px; border: 1px solid rgba(143,153,104,.22); border-radius: 13px; background: rgba(0,0,0,.1); }
+.crew-editor__overview,.crew-editor__uavs,.crew-editor__members,.crew-history { margin-top: 20px; }
+.crew-editor__uavs,.crew-editor__members { padding: 18px; border: 1px solid rgba(143,153,104,.22); border-radius: 13px; background: rgba(0,0,0,.1); }
 .crew-editor .crew-selected-members { border-color: rgba(143,153,104,.2); background: #0e130f; }
-.crew-editor .crew-selected-members > article { border: 0; border-bottom: 1px solid rgba(143,153,104,.14); border-radius: 0; background: transparent; }
+.crew-editor .crew-selected-members > article { display: grid; grid-template-columns: minmax(0,1fr) auto auto; border: 0; border-bottom: 1px solid rgba(143,153,104,.14); border-radius: 0; background: transparent; }
 .crew-editor .crew-selected-members > article:last-child { border-bottom: 0; }
 .crew-editor__actions { position: sticky; bottom: 0; z-index: 2; background: #111512; }
+.crew-asset-primary { padding: 5px 8px; border: 1px solid #697842; border-radius: 999px; color: #cbdc86; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.crew-history { display: grid; gap: 10px; }
+.crew-history > article { display: grid; grid-template-columns: 38px minmax(0,1fr); gap: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 11px; background: #0e130f; }
+.crew-history > article > svg { width: 19px; color: var(--accent); }
+.crew-history > article div { display: grid; gap: 5px; }
+.crew-history span,.crew-history p { margin: 0; color: var(--muted); }
+.crew-history__empty { display: grid; justify-items: center; gap: 8px; padding: 48px 20px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); text-align: center; }
+.crew-history__empty svg { color: var(--accent); }
 
 .asset-editor { width: min(760px,calc(100vw - 32px)); max-height: calc(100vh - 36px); grid-template-rows: auto minmax(0,1fr) auto; overflow: hidden; background: #111512; }
 .asset-editor .modal-header { min-height: 96px; }

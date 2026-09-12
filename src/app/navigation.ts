@@ -1,4 +1,4 @@
-import { AlertTriangle, BatteryCharging, Car, Crosshair, FileSearch, FileText, Folder, Home, MapPinned, Network, PlaneTakeoff, Radio, Shield, Users, UsersRound, WandSparkles, type LucideIcon } from "lucide-react";
+import { AlertTriangle, FileSearch, FileText, Folder, Home, MapPinned, Network, PackageOpen, PlaneTakeoff, Users, UsersRound, WandSparkles, type LucideIcon } from "lucide-react";
 import type { Screen } from "../shared/types/domain";
 
 export type NavigationItem = readonly [Screen, string, LucideIcon];
@@ -12,7 +12,7 @@ const basicNavigationGroups: NavigationGroup[] = [
 const advancedNavigationGroups: NavigationGroup[] = [
   { label: "Особовий склад — розширено", items: [["staffing-bcs", "Штат та БЧС", Network], ["flight-planning", "Планування польотів", PlaneTakeoff], ["crews", "Екіпажі", UsersRound]] },
   { label: "Бойова робота", items: [["positions", "Позиції", MapPinned], ["incidents", "Інциденти", AlertTriangle]] },
-  { label: "Техніка та майно", items: [["vehicles", "Автомобілі", Car], ["generators", "Генератори", BatteryCharging], ["uavs", "БпЛА", Crosshair], ["communications", "Зв’язок", Radio], ["weapons", "Зброя та БК", Shield]] },
+  { label: "Техніка та майно", items: [["assets", "Майно", PackageOpen]] },
 ];
 
 export const isSimpleEdition = import.meta.env.VITE_APP_EDITION === "simple";

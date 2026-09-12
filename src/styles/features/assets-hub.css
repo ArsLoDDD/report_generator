@@ -1,0 +1,58 @@
+.assets-hub {
+	height: 100%;
+	min-height: 0;
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+	gap: 14px;
+}
+
+.assets-hub__tabs {
+	display: flex;
+	min-width: 0;
+	overflow-x: auto;
+	padding: 5px;
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	background: var(--panel);
+	box-shadow: 0 10px 26px rgb(0 0 0 / 18%);
+}
+
+.assets-hub__tabs button {
+	min-height: 42px;
+	display: inline-flex;
+	align-items: center;
+	gap: 9px;
+	padding: 0 16px;
+	border: 0;
+	border-radius: 7px;
+	background: transparent;
+	color: var(--muted);
+	font-weight: 700;
+	white-space: nowrap;
+	cursor: pointer;
+}
+
+.assets-hub__tabs button:hover {
+	background: var(--panel-soft);
+	color: var(--text);
+}
+
+.assets-hub__tabs button.active {
+	background: var(--accent-soft);
+	color: var(--accent-text);
+	box-shadow: inset 2px 0 var(--accent);
+}
+
+.assets-hub__tabs svg {
+	width: 17px;
+	height: 17px;
+}
+
+.assets-hub__content {
+	min-height: 0;
+	overflow: hidden;
+}
+
+.assets-hub__content > .page-frame {
+	height: 100%;
+}
