@@ -65,4 +65,22 @@ describe("PersonnelPage CRUD", () => {
     fireEvent.click(within(screen.getByRole("dialog", { name: "Видалити запис?" })).getByRole("button", { name: "Видалити" }));
     await waitFor(() => expect(props.onDelete).toHaveBeenCalledWith(1));
   });
+
+  it("keeps detail actions outside the scroll area and groups assigned property", async () => {
+    renderPage();
+    fireEvent.click(screen.getByText(person.surname));
+    await screen.findByText("Деталі військовослужбовця");
+    const details = document.querySelector(".person-details--personnel");
+    expect(details).toBeInTheDocument();
+    if (!details) throw new Error("Personnel details panel is missing");
+    const content = details.querySelector(".entity-details__content");
+    const actions = details.querySelector(".entity-details__actions");
+    expect(content).toBeInTheDocument();
+    expect(actions).toBeInTheDocument();
+    expect(content).not.toContainElement(actions);
+    fireEvent.click(within(details).getByRole("button", { name: "Майно" }));
+    expect(within(details).getByText("Автомобіль")).toBeInTheDocument();
+    expect(within(details).getByText("Назва автомобіля")).toBeInTheDocument();
+    expect(within(details).getByText("Номер автомобіля")).toBeInTheDocument();
+  });
 });

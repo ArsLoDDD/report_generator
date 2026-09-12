@@ -221,3 +221,7 @@ td {
 	--text: #111;
 	--muted: #555;
 }
+
+.flight-plan-preview { background: #fff; border-color: #161616; }
+.flight-plan-preview thead th,
+.flight-plan-preview tbody td { background: #fff !important; color: #000 !important; }

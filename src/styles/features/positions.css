@@ -108,6 +108,7 @@
 }
 .position-editor {
 	width: min(980px, calc(100vw - 40px));
+	height: min(760px, calc(100vh - 36px));
 	max-height: calc(100vh - 36px);
 	grid-template-rows: auto minmax(0, 1fr) auto;
 	overflow: hidden;

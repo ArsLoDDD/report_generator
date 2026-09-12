@@ -129,3 +129,14 @@
   color: var(--muted);
   text-align: center;
 }
+
+.person-assets { display: grid; gap: 12px; }
+.person-assets > article { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #10130f; }
+.person-assets > article > header { display: flex; align-items: center; gap: 8px; padding: 11px 12px; border-bottom: 1px solid var(--line); background: #191d15; color: var(--accent-text); }
+.person-assets > article > header svg { width: 17px; height: 17px; color: var(--accent); }
+.person-assets > article > div { display: grid; gap: 4px; padding: 10px 12px; }
+.person-assets > article > div + div { border-top: 1px solid #292d25; }
+.person-assets > article span { color: var(--muted); font-size: 11px; }
+.person-assets > article b { overflow-wrap: anywhere; font-size: 12px; line-height: 1.4; }
+.person-assets__empty { display: grid; justify-items: center; gap: 9px; padding: 42px 14px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); text-align: center; }
+.person-assets__empty svg { color: var(--accent); }

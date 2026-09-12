@@ -1,7 +1,8 @@
 /* Personnel and generated reports: table and details pan independently. */
 .personnel-page .people-layout, .vehicles-page .people-layout, .generated-page .generated-layout { height: 100%; min-height: 0; }
 .personnel-page .data-table, .vehicles-page .data-table, .generated-page .data-table { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; overflow: hidden; }
-.personnel-page .data-table__scroll, .personnel-page .person-details, .vehicles-page .data-table__scroll, .vehicles-page .person-details, .generated-page .data-table__scroll, .generated-page .report-details { min-height: 0; overflow: auto; }
+.personnel-page .data-table__scroll, .vehicles-page .data-table__scroll, .generated-page .data-table__scroll, .generated-page .report-details { min-height: 0; overflow: auto; }
+.personnel-page .person-details, .vehicles-page .person-details { min-height: 0; overflow: hidden; }
 .personnel-page .data-table__scroll table, .vehicles-page .data-table__scroll table, .generated-page .data-table__scroll table { display: table; min-height: auto; overflow: visible; }
 .personnel-page .data-table__scroll thead, .vehicles-page .data-table__scroll thead, .generated-page .data-table__scroll thead { position: sticky; top: 0; z-index: 1; background: #0d1922; }
 .personnel-page .data-table__scroll, .vehicles-page .data-table__scroll { overflow: auto; }
@@ -22,4 +23,3 @@
 .personnel-table th:last-child { z-index: 6; background: #0d1922; text-align: left; }
 .personnel-table td:nth-child(6), .personnel-table td:nth-child(10) { max-width: 310px; overflow: hidden; text-overflow: ellipsis; }
 .infinite-loading { padding: 12px 16px; color: #9caab4; font-size: 12px; text-align: center; }
-
