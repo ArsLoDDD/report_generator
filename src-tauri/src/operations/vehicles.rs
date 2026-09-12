@@ -46,7 +46,7 @@ pub fn assign_vehicle(
     state: tauri::State<AppState>,
     vehicle_id: i64,
     personnel_id: Option<i64>,
-    crew_id: Option<i64>,
+    _crew_id: Option<i64>,
 ) -> Result<(), String> {
     let db = state.0.lock().map_err(|_| busy())?;
     if let Some(id) = personnel_id {
@@ -60,6 +60,9 @@ pub fn assign_vehicle(
             return Err("Автомобіль можна закріпити лише за водієм.".into());
         }
     }
+    let crew_id = personnel_id.and_then(|id| db.connection.query_row(
+        "SELECT crew_id FROM crew_actual_members WHERE personnel_id=?1 UNION SELECT crew_id FROM crew_members WHERE personnel_id=?1 AND left_at IS NULL LIMIT 1",
+        [id], |r| r.get::<_, i64>(0)).ok());
     db.connection
         .execute(
             "UPDATE vehicles SET personnel_id=?1, crew_id=?2 WHERE id=?3",

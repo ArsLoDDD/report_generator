@@ -1,5 +1,5 @@
 import { Car, Pencil, RefreshCw, Trash2, UserPlus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type UIEventHandler } from "react";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { PageTitle } from "../../shared/ui/PageTitle";
 import { Modal } from "../../shared/ui/Modal";
@@ -8,12 +8,10 @@ import { Select } from "../../shared/ui/Select";
 import { FilterButton } from "../../shared/ui/FilterButton";
 import { EntityTable, type EntityTableColumn } from "../../shared/ui/data-table/EntityTable";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
-import type { CustomFieldDefinition, Person } from "../../shared/types/domain";
-import { personnelService } from "../../shared/services/personnelService";
+import type { Person } from "../../shared/types/domain";
 import { settingsService } from "../settings/services/settingsService";
 import { vehiclesService } from "./services/vehiclesService";
 import type { Vehicle } from "./types";
-import type { Crew } from "../operations/types";
 import { subscribeToAppDataEvent } from "../../shared/events/appEvents";
 import { useEntityCollection } from "../../shared/hooks/useEntityCollection";
 import { VehicleEditorModal } from "./components/VehicleEditorModal";
@@ -37,32 +35,20 @@ export function VehiclesPage({ people }: { people: Person[] }) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [assignmentOpen, setAssignmentOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
-  const [crews, setCrews] = useState<Crew[]>([]);
-  const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
+  const [visibleLimit, setVisibleLimit] = useState(20);
   const { notify } = useNotifications();
 
   const loadVehicles = useCallback(() => vehiclesService.list(), []);
   const onLoadError = useCallback(() => notify("Не вдалося завантажити автомобілі.", "error"), [notify]);
   const { items, reload: reloadItems } = useEntityCollection({ load: loadVehicles, onError: onLoadError });
   const reload = useCallback(() => { void reloadItems().then((rows) => setSelected((current) => current && rows ? rows.find((item) => item.id === current.id) ?? null : current)); }, [reloadItems]);
-  useEffect(() => { void vehiclesService.listCrews().then((items) => setCrews(Array.isArray(items) ? items : [])).catch(() => setCrews([])); }, []);
   useEffect(() => {
     void settingsService.get()
       .then((settings) => setVisibleColumns(settings.visibleVehicleColumns ?? []))
       .catch(() => setVisibleColumns([]));
   }, [reload]);
   useEffect(() => {
-    const loadCustomFields = () => {
-      void personnelService
-        .listVehicleCustomFields()
-        .then((fields) => setCustomFields(fields ?? []))
-        .catch(() => setCustomFields([]));
-    };
-    const refresh = () => {
-      reload();
-      loadCustomFields();
-    };
-    loadCustomFields();
+    const refresh = () => reload();
     return subscribeToAppDataEvent("vehicles-refresh", refresh);
   }, [reload]);
 
@@ -82,16 +68,12 @@ export function VehiclesPage({ people }: { people: Person[] }) {
       .includes(query.toLocaleLowerCase("uk")),
   ), [items, query, statusFilter, driverFilter]);
 
-  const tableColumns = useMemo(
-    () => [
+  const tableColumns = useMemo(() => [
       ["name", "Автомобіль"],
       ["registrationNumber", "Номер"],
       ["status", "Стан"],
       ["driverName", "Закріплений водій"],
-      ...customFields.map((field) => [`custom:${field.fieldKey}`, field.displayName]),
-    ] as Array<[string, string]>,
-    [customFields],
-  );
+    ] as Array<[string, string]>, []);
   const isVisible = useCallback(
     (key: string) => visibleColumns.length === 0 || visibleColumns.includes(key),
     [visibleColumns],
@@ -165,28 +147,29 @@ export function VehiclesPage({ people }: { people: Person[] }) {
     ...(isVisible("registrationNumber") ? [{ key: "registrationNumber", title: "Номер", render: (vehicle: Vehicle) => vehicle.registrationNumber }] : []),
     ...(isVisible("status") ? [{ key: "status", title: "Стан", render: (vehicle: Vehicle) => <span className={`vehicle-badge ${statusClass(vehicle.status)}`}>{vehicle.status}</span> }] : []),
     ...(isVisible("driverName") ? [{ key: "driverName", title: "Закріплений водій", render: (vehicle: Vehicle) => vehicle.driverName ?? vehicle.crewName ?? "Не закріплено" }] : []),
-    ...customFields
-      .filter((field) => isVisible(`custom:${field.fieldKey}`))
-      .map((field): EntityTableColumn<Vehicle> => ({ key: `custom:${field.fieldKey}`, title: field.displayName, render: () => field.initialValue || "—" })),
-  ], [customFields, isVisible]);
+  ], [isVisible]);
+  useEffect(() => setVisibleLimit(20), [query, statusFilter, driverFilter]);
+  const visibleItems = filtered.slice(0, visibleLimit);
+  const onTableScroll: UIEventHandler<HTMLDivElement> = (event) => { const el=event.currentTarget; if(el.scrollHeight-el.scrollTop-el.clientHeight<100)setVisibleLimit((n)=>Math.min(n+20,filtered.length)); };
 
   return <PageFrame
     className="vehicles-page"
-    header={<PageTitle title="Автомобілі" subtitle="Облік автомобілів та закріплених водіїв" customFieldsScope="vehicle" actions={<button className="button primary" onClick={() => setEditorOpen(true)}><UserPlus />Додати автомобіль</button>} />}
+    header={<PageTitle title="Автомобілі" subtitle="Облік автомобілів та закріплених водіїв" actions={<button className="button primary" onClick={() => setEditorOpen(true)}><UserPlus />Додати автомобіль</button>} />}
     tools={<div className="table-tools main-tools"><SearchInput placeholder="Пошук за назвою, номером, статусом або водієм…" value={query} onChange={setQuery} /><FilterButton active={filtersOpen} onClick={() => setFiltersOpen(true)} label="Додаткові фільтри" /></div>}
   >
     <div className={`people-layout ${selected ? "with-details" : ""}`}>
       <section className="panel data-table">
         <EntityTable
           className="personnel-table vehicle-table"
-          items={filtered}
+          items={visibleItems}
+          onScroll={onTableScroll}
           columns={visibleTableColumns}
           rowKey={(vehicle) => vehicle.id}
           selectedKey={selected?.id}
           onSelect={setSelected}
           emptyState={<div className="personnel-state"><Car /><b>Автомобілі не знайдені</b><span>Додайте автомобіль або змініть пошук.</span></div>}
         />
-        <div className="pagination">Показано {filtered.length} із {items.length}</div>
+        <div className="pagination">Показано {visibleItems.length} із {filtered.length}</div>
       </section>
       {selected && <EntityDetailsPanel className="vehicle-details" title="Деталі автомобіля" onClose={() => setSelected(null)} identity={<div className="identity"><div className="avatar"><Car /></div><div><b>{selected.name}</b><p>{selected.registrationNumber}</p></div></div>} actions={<><button className="button" onClick={() => setAssignmentOpen(true)}><Pencil />Перезакріпити</button><button className="button danger" onClick={() => setRemoving(true)}><Trash2 />Видалити</button></>}>
           <div className="person-detail"><span>Статус автомобіля</span><Select ariaLabel="Статус автомобіля" value={selected.status} options={statusOptions} onChange={(value) => void updateStatus(value)} /></div>
@@ -201,7 +184,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
       <footer className="modal-actions"><button className="button" onClick={resetFilters}><RefreshCw />Скинути фільтри</button><button className="button primary" onClick={() => setFiltersOpen(false)}>Готово</button></footer>
     </Modal>}
     {editorOpen && <VehicleEditorModal statuses={statuses} onClose={() => setEditorOpen(false)} onSave={save} />}
-    {assignmentOpen && selected && <VehicleAssignmentModal vehicle={selected} drivers={drivers} crews={crews} onClose={() => setAssignmentOpen(false)} onSave={reassign} />}
+    {assignmentOpen && selected && <VehicleAssignmentModal vehicle={selected} drivers={drivers} onClose={() => setAssignmentOpen(false)} onSave={reassign} />}
     {removing && <Modal title="Видалити автомобіль?" onClose={() => setRemoving(false)} className="vehicle-delete-modal"><div className="vehicle-delete-modal__body"><Trash2 /><p>Автомобіль буде видалений, а закріплений водій — автоматично відкріплений.</p></div><footer className="modal-actions"><button className="button" onClick={() => setRemoving(false)}>Скасувати</button><button className="button danger" onClick={() => void remove()}>Видалити</button></footer></Modal>}
   </PageFrame>;
 }

@@ -9,6 +9,8 @@
 	min-height: 0;
 	overflow: hidden;
 }
+.operation-table.data-table { display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+.operation-table.data-table .pagination { margin: 0; padding: 14px 16px; border-top: 1px solid var(--line); }
 .operations-page .people-layout {
 	height: 100%;
 	min-height: 0;

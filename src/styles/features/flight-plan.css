@@ -396,7 +396,11 @@
 	color: #dff5e2;
 	font-size: 12px;
 	font-weight: 800;
+	cursor: grab;
+	user-select: none;
 }
+.flight-point-tags > span:active,
+.flight-point-tags > span.is-dragging { cursor: grabbing; opacity: .62; }
 .flight-point-tags button {
 	display: grid;
 	place-items: center;

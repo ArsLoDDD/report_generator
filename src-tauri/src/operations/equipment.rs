@@ -1,12 +1,19 @@
 use super::{busy, Equipment, EquipmentDraft};
 use crate::AppState;
 
+fn crew_commander(connection: &rusqlite::Connection, crew_id: Option<i64>) -> Option<i64> {
+    crew_id.and_then(|id| connection.query_row(
+        "SELECT personnel_id FROM (SELECT am.personnel_id,p.position,0 priority FROM crew_actual_members am JOIN personnel p ON p.id=am.personnel_id WHERE am.crew_id=?1 UNION ALL SELECT cm.personnel_id,p.position,1 priority FROM crew_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=?1 AND cm.left_at IS NULL) ORDER BY CASE WHEN lower(position) LIKE '%командир%' THEN 0 ELSE 1 END,priority,personnel_id LIMIT 1",
+        [id], |row| row.get::<_, i64>(0)).ok())
+}
+
 #[tauri::command]
 pub fn list_equipment(
     state: tauri::State<AppState>,
     category: String,
 ) -> Result<Vec<Equipment>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
+    db.connection.execute("UPDATE equipment SET personnel_id=(SELECT personnel_id FROM (SELECT am.personnel_id,p.position,0 priority FROM crew_actual_members am JOIN personnel p ON p.id=am.personnel_id WHERE am.crew_id=equipment.crew_id UNION ALL SELECT cm.personnel_id,p.position,1 priority FROM crew_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=equipment.crew_id AND cm.left_at IS NULL) ORDER BY CASE WHEN lower(position) LIKE '%командир%' THEN 0 ELSE 1 END,priority,personnel_id LIMIT 1) WHERE category<>'weapon_ammo' AND crew_id IS NOT NULL", []).map_err(|_|"Не вдалося оновити відповідальних за майно.".to_string())?;
     let mut s=db.connection.prepare("SELECT e.id,e.category,e.name,e.inventory_number,e.status,e.crew_id,c.name,e.personnel_id,CASE WHEN p.id IS NULL THEN NULL ELSE trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) END,e.notes,e.total_quantity,e.day_quantity,e.night_quantity,e.uav_type,e.asset_kind,e.components_json,e.assigned_quantity FROM equipment e LEFT JOIN crews c ON c.id=e.crew_id LEFT JOIN personnel p ON p.id=e.personnel_id WHERE e.category=?1 ORDER BY e.id").map_err(|_|"Не вдалося прочитати майно.".to_string())?;
     let result = s
         .query_map([category], |r| {
@@ -62,7 +69,12 @@ pub fn create_equipment(
     if draft.category == "uav" && day + night > total {
         return Err("Сума денних і нічних БпЛА не може перевищувати загальну кількість.".into());
     }
-    db.connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,personnel_id,notes,total_quantity,day_quantity,night_quantity,uav_type,asset_kind,components_json,assigned_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",rusqlite::params![draft.category,draft.name.trim(),draft.inventory_number.trim(),draft.status,draft.crew_id,draft.personnel_id,draft.notes.trim(),total,day,night,draft.uav_type.trim(),draft.asset_kind,draft.components_json,draft.assigned_quantity.max(0).min(total)]).map_err(|_|"Не вдалося додати запис майна.".to_string())?;
+    let responsible = if draft.category == "weapon_ammo" {
+        draft.personnel_id
+    } else {
+        crew_commander(&db.connection, draft.crew_id)
+    };
+    db.connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,personnel_id,notes,total_quantity,day_quantity,night_quantity,uav_type,asset_kind,components_json,assigned_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",rusqlite::params![draft.category,draft.name.trim(),draft.inventory_number.trim(),draft.status,draft.crew_id,responsible,draft.notes.trim(),total,day,night,draft.uav_type.trim(),draft.asset_kind,draft.components_json,draft.assigned_quantity.max(0).min(total)]).map_err(|_|"Не вдалося додати запис майна.".to_string())?;
     let equipment_id = db.connection.last_insert_rowid();
     if draft.category == "uav"
         && draft.asset_kind != "complex"
@@ -124,7 +136,12 @@ pub fn update_equipment(
     {
         return Err("Для комплексу БпАК обов’язково вкажіть серійний номер.".into());
     }
-    let changed=db.connection.execute("UPDATE equipment SET name=?1,inventory_number=?2,status=?3,crew_id=?4,personnel_id=?5,notes=?6,total_quantity=?7,day_quantity=?8,night_quantity=?9,uav_type=?10,asset_kind=?13,components_json=?14,assigned_quantity=?15 WHERE id=?11 AND category=?12",rusqlite::params![draft.name.trim(),draft.inventory_number.trim(),draft.status.trim(),draft.crew_id,draft.personnel_id,draft.notes.trim(),total,day,night,draft.uav_type.trim(),equipment_id,draft.category,draft.asset_kind,draft.components_json,draft.assigned_quantity.max(0).min(total)]).map_err(|_|"Не вдалося оновити запис майна.".to_string())?;
+    let responsible = if draft.category == "weapon_ammo" {
+        draft.personnel_id
+    } else {
+        crew_commander(&db.connection, draft.crew_id)
+    };
+    let changed=db.connection.execute("UPDATE equipment SET name=?1,inventory_number=?2,status=?3,crew_id=?4,personnel_id=?5,notes=?6,total_quantity=?7,day_quantity=?8,night_quantity=?9,uav_type=?10,asset_kind=?13,components_json=?14,assigned_quantity=?15 WHERE id=?11 AND category=?12",rusqlite::params![draft.name.trim(),draft.inventory_number.trim(),draft.status.trim(),draft.crew_id,responsible,draft.notes.trim(),total,day,night,draft.uav_type.trim(),equipment_id,draft.category,draft.asset_kind,draft.components_json,draft.assigned_quantity.max(0).min(total)]).map_err(|_|"Не вдалося оновити запис майна.".to_string())?;
     if changed != 1 {
         return Err("Запис майна не знайдено.".into());
     }
@@ -165,8 +182,8 @@ pub fn assign_equipment(
     if db
         .connection
         .execute(
-            "UPDATE equipment SET crew_id=?1,assigned_quantity=CASE WHEN ?1 IS NULL THEN 0 ELSE min(total_quantity,max(1,?3)) END WHERE id=?2 AND category='uav'",
-            rusqlite::params![crew_id, equipment_id, quantity.unwrap_or(i64::MAX)],
+            "UPDATE equipment SET crew_id=?1,personnel_id=?4,assigned_quantity=CASE WHEN ?1 IS NULL THEN 0 ELSE min(total_quantity,max(1,?3)) END WHERE id=?2 AND category='uav'",
+            rusqlite::params![crew_id, equipment_id, quantity.unwrap_or(i64::MAX), crew_commander(&db.connection, crew_id)],
         )
         .map_err(|_| "Не вдалося перепризначити БпЛА.".to_string())?
         != 1

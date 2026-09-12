@@ -7,6 +7,9 @@
 }
 
 .assets-hub__tabs {
+  width: fit-content;
+  max-width: calc(100% - 32px);
+  margin-inline: auto;
 	display: flex;
 	min-width: 0;
 	overflow-x: auto;
