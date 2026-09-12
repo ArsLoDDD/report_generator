@@ -27,6 +27,10 @@ pub struct FlightPlanWeather {
 #[serde(rename_all = "camelCase")]
 pub struct FlightPlanEntry {
     crew_id: i64,
+    #[serde(default)]
+    actual_commander_id: Option<i64>,
+    #[serde(default)]
+    actual_vehicle_id: Option<i64>,
     weather: FlightPlanWeather,
     route_points: Vec<String>,
     altitude_from: String,
@@ -56,6 +60,7 @@ pub struct FlightPlanRequest {
 
 #[derive(Debug, Clone)]
 struct PersonLine {
+    id: i64,
     full_name: String,
     rank: String,
     position: String,
@@ -163,16 +168,17 @@ fn list_members(
     } else {
         " AND membership.left_at IS NULL"
     };
-    let query = format!("SELECT trim(p.surname||' '||p.given_name||' '||p.patronymic),p.rank,p.position,COALESCE(p.callsign,'') FROM {source} membership JOIN personnel p ON p.id=membership.personnel_id WHERE membership.crew_id=?1{active} ORDER BY CASE WHEN lower(p.position) LIKE '%командир%' THEN 0 ELSE 1 END,p.id");
+    let query = format!("SELECT p.id,trim(p.surname||' '||p.given_name||' '||p.patronymic),p.rank,p.position,COALESCE(p.callsign,'') FROM {source} membership JOIN personnel p ON p.id=membership.personnel_id WHERE membership.crew_id=?1{active} ORDER BY CASE WHEN lower(p.position) LIKE '%командир%' THEN 0 ELSE 1 END,p.id");
     connection
         .prepare(&query)
         .map_err(|e| e.to_string())?
         .query_map([crew_id], |row| {
             Ok(PersonLine {
-                full_name: row.get(0)?,
-                rank: row.get(1)?,
-                position: row.get(2)?,
-                callsign: row.get(3)?,
+                id: row.get(0)?,
+                full_name: row.get(1)?,
+                rank: row.get(2)?,
+                position: row.get(3)?,
+                callsign: row.get(4)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -243,12 +249,15 @@ fn build_rows(
                 missing.join(", ")
             ));
         }
-        let commander = actual
-            .iter()
-            .chain(official.iter())
-            .find(|member| member.position.to_lowercase().contains("командир"))
-            .or_else(|| actual.first())
-            .or_else(|| official.first());
+        let commander = entry
+            .actual_commander_id
+            .and_then(|id| actual.iter().find(|member| member.id == id))
+            .or_else(|| {
+                actual
+                    .iter()
+                    .find(|member| member.position.to_lowercase().contains("командир"))
+                    .or_else(|| actual.first())
+            });
         let mut uavs = Vec::<(String, String, i64, i64)>::new();
         for selected in &entry.uav_selections {
             let row=connection.query_row("SELECT name,inventory_number,total_quantity FROM equipment WHERE id=?1 AND crew_id=?2 AND category='uav'",rusqlite::params![selected.equipment_id,entry.crew_id],|row|Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,i64>(2)?))).optional().map_err(|e|e.to_string())?.ok_or_else(||"Один з вибраних БпЛА більше не закріплений за цим екіпажем.".to_string())?;
@@ -262,7 +271,23 @@ fn build_rows(
             }
             uavs.push((row.0, row.1, day, night));
         }
-        let vehicles = linked_assets(connection, entry.crew_id, "vehicles")?;
+        let mut vehicles = linked_assets(connection, entry.crew_id, "vehicles")?;
+        if vehicles.len() > 1 {
+            let selected_id = entry
+                .actual_vehicle_id
+                .ok_or_else(|| format!("Оберіть фактичний автомобіль екіпажу «{}».", crew.0))?;
+            vehicles = connection
+                .query_row(
+                    "SELECT name,registration_number FROM vehicles WHERE id=?1 AND crew_id=?2",
+                    rusqlite::params![selected_id, entry.crew_id],
+                    |row| Ok(vec![(row.get(0)?, row.get(1)?)]),
+                )
+                .optional()
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| {
+                    "Вибраний автомобіль більше не закріплений за екіпажем.".to_string()
+                })?;
+        }
         let uav_column = [crew.1.to_uppercase(), crew.2.to_uppercase()]
             .into_iter()
             .filter(|item| !item.trim().is_empty())
@@ -494,6 +519,8 @@ mod tests {
             unit_name: "РБПАК".into(),
             entries: vec![FlightPlanEntry {
                 crew_id: 1,
+                actual_commander_id: Some(1),
+                actual_vehicle_id: None,
                 weather: FlightPlanWeather {
                     temperature: "20".into(),
                     wind_from: "2".into(),

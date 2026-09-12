@@ -29,12 +29,13 @@ pub fn create_vehicle(
     name: String,
     registration_number: String,
     status: String,
+    personnel_id: Option<i64>,
 ) -> Result<(), String> {
     let db = state.0.lock().map_err(|_| busy())?;
     db.connection
         .execute(
-            "INSERT INTO vehicles(name,registration_number,status) VALUES (?1,?2,?3)",
-            rusqlite::params![name.trim(), registration_number.trim(), status],
+            "INSERT INTO vehicles(name,registration_number,status,personnel_id,crew_id) VALUES (?1,?2,?3,?4,(SELECT crew_id FROM crew_actual_members WHERE personnel_id=?4 UNION SELECT crew_id FROM crew_members WHERE personnel_id=?4 AND left_at IS NULL LIMIT 1))",
+            rusqlite::params![name.trim(), registration_number.trim(), status, personnel_id],
         )
         .map_err(|_| "Не вдалося додати автомобіль.".to_string())?;
     let id = db.connection.last_insert_rowid();
@@ -50,15 +51,11 @@ pub fn assign_vehicle(
 ) -> Result<(), String> {
     let db = state.0.lock().map_err(|_| busy())?;
     if let Some(id) = personnel_id {
-        let position: String = db
-            .connection
-            .query_row("SELECT position FROM personnel WHERE id=?1", [id], |r| {
-                r.get(0)
+        db.connection
+            .query_row("SELECT id FROM personnel WHERE id=?1", [id], |r| {
+                r.get::<_, i64>(0)
             })
-            .map_err(|_| "Водія не знайдено.".to_string())?;
-        if !position.to_lowercase().contains("водій") {
-            return Err("Автомобіль можна закріпити лише за водієм.".into());
-        }
+            .map_err(|_| "Військовослужбовця не знайдено.".to_string())?;
     }
     let crew_id = personnel_id.and_then(|id| db.connection.query_row(
         "SELECT crew_id FROM crew_actual_members WHERE personnel_id=?1 UNION SELECT crew_id FROM crew_members WHERE personnel_id=?1 AND left_at IS NULL LIMIT 1",

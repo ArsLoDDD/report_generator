@@ -1,8 +1,7 @@
 /* Reusable search filters: the native control keeps full keyboard accessibility. */
 .shared-select { position: relative; display: inline-flex; align-items: center; min-width: 160px; }
 .shared-select select { width: 100%; min-height: 42px; appearance: none; border: 1px solid #2a3b46; border-radius: 6px; background: #0c171f; color: #e5ebef; padding: 0 37px 0 12px; outline: none; cursor: pointer; }
-.shared-select svg { position: absolute; right: 11px; width: 17px; pointer-events: none; }
+.shared-select svg { position: absolute; top: 50%; right: 11px; width: 17px; transform: translateY(-50%); pointer-events: none; }
 .filter-button--active { border-color: #43ad4c; color: #63dc5e; }
 .inline-filters { display: flex; gap: 10px; align-items: center; padding: 10px 0; flex-wrap: wrap; }
 .functional-filter-bar { padding: 10px 14px; }
-

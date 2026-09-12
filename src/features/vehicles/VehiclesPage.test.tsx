@@ -34,7 +34,7 @@ describe("VehiclesPage", () => {
     expect(screen.getAllByText(driver.fullName)).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Перезакріпити" }));
     expect(screen.getByRole("dialog", { name: "Перезакріпити автомобіль" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Водій автомобіля")).toHaveValue("7");
+    expect(screen.getByLabelText("Військовослужбовець автомобіля")).toHaveValue("7");
   });
 
   it("opens a filter with vehicle-specific filters and column visibility", async () => {
@@ -42,7 +42,7 @@ describe("VehiclesPage", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Додаткові фільтри" }));
     const dialog = screen.getByRole("dialog", { name: "Фільтр і видимість колонок" });
     expect(within(dialog).getByLabelText("Фільтр за станом")).toBeInTheDocument();
-    expect(within(dialog).getByLabelText("Фільтр за водієм")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Фільтр за відповідальним")).toBeInTheDocument();
     expect(within(dialog).getByText("Автомобіль")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("checkbox", { name: "Номер" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_visible_vehicle_columns", expect.objectContaining({ columns: expect.any(Array) })));

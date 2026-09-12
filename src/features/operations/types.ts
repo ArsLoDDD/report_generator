@@ -90,5 +90,5 @@ export type Incident = {
 export type IncidentDraft = Omit<Incident, "id" | "crewName" | "equipmentName" | "crewSnapshot" | "vehicleName">;
 export type FlightPlanWeather = { temperature: string; windFrom: string; windTo: string; gustFrom: string; gustTo: string; cloudiness: string; cloudHeight: string; precipitation: string };
 export type FlightPlanUavSelection = { equipmentId: number; dayQuantity: number; nightQuantity: number };
-export type FlightPlanEntry = { crewId: number; weather: FlightPlanWeather; routePoints: string[]; altitudeFrom: string; altitudeTo: string; areaPoints: string[]; task: string; startTime: string; endTime: string; uavSelections: FlightPlanUavSelection[] };
+export type FlightPlanEntry = { crewId: number; actualCommanderId: number | null; actualVehicleId: number | null; weather: FlightPlanWeather; routePoints: string[]; altitudeFrom: string; altitudeTo: string; areaPoints: string[]; task: string; startTime: string; endTime: string; uavSelections: FlightPlanUavSelection[] };
 export type FlightPlanRequest = { unitName: string; entries: FlightPlanEntry[] };

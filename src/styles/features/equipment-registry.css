@@ -47,6 +47,8 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+.assets-hub__content .page-title .header-actions > .button { min-width: 218px; min-height: 52px; justify-content: center; }
+.assets-hub__content .registry-toolbar { width: 100%; }
 .operation-editor {
 	width: min(680px, 100%);
 }

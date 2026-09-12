@@ -175,6 +175,7 @@ pub fn create_crew(state: tauri::State<AppState>, draft: CrewDraft) -> Result<()
             )
             .map_err(|_| "Не вдалося додати фактичного учасника екіпажу.".to_string())?;
     }
+    db.connection.execute("UPDATE vehicles SET crew_id=(SELECT crew_id FROM crew_actual_members WHERE personnel_id=vehicles.personnel_id UNION SELECT crew_id FROM crew_members WHERE personnel_id=vehicles.personnel_id AND left_at IS NULL LIMIT 1) WHERE personnel_id IS NOT NULL", []).map_err(|_|"Не вдалося синхронізувати автомобілі екіпажу.".to_string())?;
     Ok(())
 }
 #[tauri::command]
@@ -244,6 +245,7 @@ pub fn update_crew(
             )
             .map_err(|_| "Не вдалося оновити фактичний склад екіпажу.".to_string())?;
     }
+    db.connection.execute("UPDATE vehicles SET crew_id=(SELECT crew_id FROM crew_actual_members WHERE personnel_id=vehicles.personnel_id UNION SELECT crew_id FROM crew_members WHERE personnel_id=vehicles.personnel_id AND left_at IS NULL LIMIT 1) WHERE personnel_id IS NOT NULL", []).map_err(|_|"Не вдалося синхронізувати автомобілі екіпажу.".to_string())?;
     Ok(())
 }
 #[tauri::command]
