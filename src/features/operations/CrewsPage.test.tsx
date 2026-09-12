@@ -46,13 +46,15 @@ describe("Склад екіпажу",()=>{
     fireEvent.click(within(confirmation).getByRole("button",{name:"Видалити"}));
     await waitFor(()=>expect(invoke).toHaveBeenCalledWith("delete_crew",{crewId:9}));
   });
-  it("показує компактний огляд і вкладку ОС",async()=>{
+  it("показує вкладку ОС, прибирає зведений блок і розділяє майно за категоріями",async()=>{
     invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve([crew]):command==="list_positions"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):command==="list_equipment"?Promise.resolve([]):command==="list_vehicles"?Promise.resolve([]):Promise.resolve());
     render(<NotificationProvider><CrewsPage people={[first,last]}/></NotificationProvider>);
     fireEvent.click(await screen.findByText("Сокіл"));
     const editor=screen.getByRole("dialog",{name:"Сокіл"});
     expect(within(editor).getByRole("button",{name:/^ОС/})).toBeInTheDocument();
     expect(within(editor).queryByText("Склад екіпажу")).not.toBeInTheDocument();
-    expect(within(editor).getByText(/^Майно 0$/)).toBeInTheDocument();
+    fireEvent.click(within(editor).getByRole("button",{name:/^Майно/}));
+    const categories=within(editor).getByRole("navigation",{name:"Категорії майна екіпажу"});
+    ["БпЛА та БпАК","Автомобілі","Генератори","Зв’язок","Зброя та БК"].forEach((label)=>expect(within(categories).getByRole("button",{name:new RegExp(`^${label}`)})).toBeInTheDocument());
   });
 });
