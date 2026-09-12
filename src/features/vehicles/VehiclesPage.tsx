@@ -1,4 +1,4 @@
-import { Car, Pencil, RefreshCw, Trash2, UserPlus } from "lucide-react";
+import { Car, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type UIEventHandler } from "react";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { PageTitle } from "../../shared/ui/PageTitle";
@@ -150,12 +150,12 @@ export function VehiclesPage({ people }: { people: Person[] }) {
   const onTableScroll: UIEventHandler<HTMLDivElement> = (event) => { const el=event.currentTarget; if(el.scrollHeight-el.scrollTop-el.clientHeight<100)setVisibleLimit((n)=>Math.min(n+20,filtered.length)); };
 
   return <PageFrame
-    className="vehicles-page"
-    header={<PageTitle title="Автомобілі" subtitle="Облік автомобілів та відповідальних військовослужбовців" actions={<button className="button primary" onClick={() => setEditorOpen(true)}><UserPlus />Додати автомобіль</button>} />}
-    tools={<div className="table-tools main-tools"><SearchInput placeholder="Пошук за назвою, номером, статусом або відповідальним…" value={query} onChange={setQuery} /><FilterButton active={filtersOpen} onClick={() => setFiltersOpen(true)} label="Додаткові фільтри" /></div>}
+    className="vehicles-page asset-registry-page"
+    header={<PageTitle title="Автомобілі" subtitle="Облік автомобілів та відповідальних військовослужбовців" actions={<button className="button primary asset-registry-page__add" onClick={() => setEditorOpen(true)}><Plus />Додати</button>} />}
+    tools={<div className="table-tools main-tools asset-registry-toolbar"><SearchInput placeholder="Пошук за назвою, номером, статусом або відповідальним…" value={query} onChange={setQuery} /><FilterButton active={filtersOpen} onClick={() => setFiltersOpen(true)} label="Додаткові фільтри" /></div>}
   >
     <div className={`people-layout ${selected ? "with-details" : ""}`}>
-      <section className="panel data-table">
+      <section className="panel data-table asset-registry-table">
         <EntityTable
           className="personnel-table vehicle-table"
           items={visibleItems}

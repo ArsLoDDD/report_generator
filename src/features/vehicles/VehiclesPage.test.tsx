@@ -50,7 +50,7 @@ describe("VehiclesPage", () => {
 
   it("creates a vehicle with the personnel-style editor", async () => {
     renderPage();
-    fireEvent.click(screen.getByRole("button", { name: "Додати автомобіль" }));
+    fireEvent.click(screen.getByRole("button", { name: "Додати" }));
     fireEvent.change(screen.getByPlaceholderText("Наприклад, Toyota Hilux"), { target: { value: "Ford Ranger" } });
     fireEvent.change(screen.getByPlaceholderText("Наприклад, АА 1234 АА"), { target: { value: "КА 9999 КА" } });
     fireEvent.click(within(screen.getByRole("dialog", { name: "Новий автомобіль" })).getByRole("button", { name: "Додати автомобіль" }));
