@@ -582,6 +582,7 @@ fn main() {
             list_generated_reports,
             operations::list_vehicles,
             operations::create_vehicle,
+            operations::update_vehicle,
             operations::assign_vehicle,
             operations::update_vehicle_status,
             operations::delete_vehicle,

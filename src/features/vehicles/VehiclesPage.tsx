@@ -15,7 +15,6 @@ import type { Vehicle } from "./types";
 import { subscribeToAppDataEvent } from "../../shared/events/appEvents";
 import { useEntityCollection } from "../../shared/hooks/useEntityCollection";
 import { VehicleEditorModal } from "./components/VehicleEditorModal";
-import { VehicleAssignmentModal } from "./components/VehicleAssignmentModal";
 import { EntityDetailsPanel } from "../../shared/ui/EntityDetailsPanel";
 
 const statuses = ["Справний", "Потребує ремонту", "Ремонтується", "Несправний"];
@@ -33,7 +32,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
   const [driverFilter, setDriverFilter] = useState("all");
   const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
   const [editorOpen, setEditorOpen] = useState(false);
-  const [assignmentOpen, setAssignmentOpen] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [removing, setRemoving] = useState(false);
   const [visibleLimit, setVisibleLimit] = useState(20);
   const { notify } = useNotifications();
@@ -94,35 +93,14 @@ export function VehiclesPage({ people }: { people: Person[] }) {
       return false;
     }
     try {
-      await vehiclesService.create(name.trim(), registrationNumber.trim(), status, personnelId);
+      if (editingVehicle) await vehiclesService.update(editingVehicle.id, name.trim(), registrationNumber.trim(), status, personnelId);
+      else await vehiclesService.create(name.trim(), registrationNumber.trim(), status, personnelId);
       reload();
-      notify("Автомобіль додано.", "success");
+      notify(editingVehicle ? "Автомобіль оновлено." : "Автомобіль додано.", "success");
       return true;
     } catch {
       notify("Перевірте назву та унікальність номера.", "error");
       return false;
-    }
-  };
-  const reassign = async (driverId: number | null, crewId: number | null) => {
-    if (!selected) return false;
-    try {
-      await vehiclesService.assign(selected.id, driverId, crewId);
-      reload();
-      notify("Закріплення автомобіля оновлено.", "success");
-      return true;
-    } catch {
-      notify("Не вдалося оновити закріплення автомобіля.", "error");
-      return false;
-    }
-  };
-  const updateStatus = async (nextStatus: string) => {
-    if (!selected) return;
-    try {
-      await vehiclesService.updateStatus(selected.id, nextStatus);
-      reload();
-      notify("Статус автомобіля оновлено.", "success");
-    } catch {
-      notify("Не вдалося оновити статус автомобіля.", "error");
     }
   };
   const remove = async () => {
@@ -151,7 +129,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
 
   return <PageFrame
     className="vehicles-page operations-page asset-registry-page"
-    header={<PageTitle title="Автомобілі" subtitle="Облік автомобілів та відповідальних військовослужбовців" actions={<button className="button primary asset-registry-page__add" onClick={() => setEditorOpen(true)}><Plus />Додати</button>} />}
+    header={<PageTitle title="Автомобілі" subtitle="Облік автомобілів та відповідальних військовослужбовців" actions={<button className="button primary asset-registry-page__add" onClick={() => { setEditingVehicle(null); setEditorOpen(true); }}><Plus />Додати</button>} />}
     tools={<div className="table-tools main-tools asset-registry-toolbar"><SearchInput placeholder="Пошук за назвою, номером, статусом або відповідальним…" value={query} onChange={setQuery} /><FilterButton active={filtersOpen} onClick={() => setFiltersOpen(true)} label="Додаткові фільтри" /></div>}
   >
     <div className={`people-layout ${selected ? "with-details" : ""}`}>
@@ -168,8 +146,8 @@ export function VehiclesPage({ people }: { people: Person[] }) {
         />
         <div className="pagination">Показано {visibleItems.length} із {filtered.length}</div>
       </section>
-      {selected && <EntityDetailsPanel className="vehicle-details" title="Деталі автомобіля" onClose={() => setSelected(null)} identity={<div className="identity"><div className="avatar"><Car /></div><div><b>{selected.name}</b><p>{selected.registrationNumber}</p></div></div>} actions={<><button className="button" onClick={() => setAssignmentOpen(true)}><Pencil />Перезакріпити</button><button className="button danger" onClick={() => setRemoving(true)}><Trash2 />Видалити</button></>}>
-          <div className="person-detail"><span>Статус автомобіля</span><Select ariaLabel="Статус автомобіля" value={selected.status} options={statusOptions} onChange={(value) => void updateStatus(value)} /></div>
+      {selected && <EntityDetailsPanel className="vehicle-details" title="Деталі автомобіля" onClose={() => setSelected(null)} identity={<div className="identity"><div className="avatar"><Car /></div><div><b>{selected.name}</b><p>{selected.registrationNumber}</p></div></div>} actions={<><button className="button" onClick={() => { setEditingVehicle(selected); setEditorOpen(true); }}><Pencil />Редагувати</button><button className="button danger" onClick={() => setRemoving(true)}><Trash2 />Видалити</button></>}>
+          <div className="person-detail"><span>Статус автомобіля</span><b>{selected.status}</b></div>
           <div className="person-detail"><span>Закріплено за</span><b>{selected.driverName ?? "Не закріплено"}</b></div><div className="person-detail"><span>Екіпаж відповідального</span><b>{selected.crewName ?? "Не закріплено"}</b></div>
       </EntityDetailsPanel>}
     </div>
@@ -180,8 +158,7 @@ export function VehiclesPage({ people }: { people: Person[] }) {
       </div>
       <footer className="modal-actions"><button className="button" onClick={resetFilters}><RefreshCw />Скинути фільтри</button><button className="button primary" onClick={() => setFiltersOpen(false)}>Готово</button></footer>
     </Modal>}
-    {editorOpen && <VehicleEditorModal statuses={statuses} people={people} onClose={() => setEditorOpen(false)} onSave={save} />}
-    {assignmentOpen && selected && <VehicleAssignmentModal vehicle={selected} drivers={drivers} onClose={() => setAssignmentOpen(false)} onSave={reassign} />}
+    {editorOpen && <VehicleEditorModal key={editingVehicle?.id ?? "new"} statuses={statuses} people={people} vehicle={editingVehicle} onClose={() => { setEditorOpen(false); setEditingVehicle(null); }} onSave={save} />}
     {removing && <Modal title="Видалити автомобіль?" onClose={() => setRemoving(false)} className="vehicle-delete-modal"><div className="vehicle-delete-modal__body"><Trash2 /><p>Автомобіль буде видалений, а закріплений водій — автоматично відкріплений.</p></div><footer className="modal-actions"><button className="button" onClick={() => setRemoving(false)}>Скасувати</button><button className="button danger" onClick={() => void remove()}>Видалити</button></footer></Modal>}
   </PageFrame>;
 }

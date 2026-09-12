@@ -161,10 +161,6 @@ td {
 	cursor: pointer;
 }
 
-.vehicles-page .vehicle-table .entity-table__row--interactive {
-	cursor: default;
-}
-
 .vehicles-page .data-table__scroll thead,
 .vehicles-page .vehicle-table th,
 .vehicles-page .vehicle-table th:last-child {

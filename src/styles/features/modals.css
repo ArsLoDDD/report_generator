@@ -76,7 +76,7 @@
 .personnel-state > svg { width: 34px; height: 34px; }
 .personnel-state b { color: #e4ebef; font-size: 16px; }
 .personnel-state--error svg { color: #f16f6f; }
-.person-details__fields { display: grid; gap: 0; }
+.person-details__fields { display: grid; align-content: start; grid-auto-rows: max-content; gap: 0; }
 .person-detail { display: grid; gap: 5px; padding: 10px 0; border-top: 1px solid #21343f; }
 .person-detail span { color: #91a0aa; font-size: 11px; }
 .person-detail b { overflow-wrap: anywhere; font-size: 12px; font-weight: 500; line-height: 1.4; }

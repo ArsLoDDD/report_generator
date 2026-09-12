@@ -43,6 +43,34 @@ pub fn create_vehicle(
     Ok(())
 }
 #[tauri::command]
+pub fn update_vehicle(
+    state: tauri::State<AppState>,
+    vehicle_id: i64,
+    name: String,
+    registration_number: String,
+    status: String,
+    personnel_id: Option<i64>,
+) -> Result<(), String> {
+    let db = state.0.lock().map_err(|_| busy())?;
+    if let Some(id) = personnel_id {
+        db.connection
+            .query_row("SELECT id FROM personnel WHERE id=?1", [id], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map_err(|_| "Військовослужбовця не знайдено.".to_string())?;
+    }
+    let crew_id = personnel_id.and_then(|id| db.connection.query_row(
+        "SELECT crew_id FROM crew_actual_members WHERE personnel_id=?1 UNION SELECT crew_id FROM crew_members WHERE personnel_id=?1 AND left_at IS NULL LIMIT 1",
+        [id], |row| row.get::<_, i64>(0)).ok());
+    db.connection
+        .execute(
+            "UPDATE vehicles SET name=?1, registration_number=?2, status=?3, personnel_id=?4, crew_id=?5 WHERE id=?6",
+            rusqlite::params![name.trim(), registration_number.trim(), status, personnel_id, crew_id, vehicle_id],
+        )
+        .map_err(|_| "Не вдалося оновити автомобіль. Перевірте унікальність номера.".to_string())?;
+    Ok(())
+}
+#[tauri::command]
 pub fn assign_vehicle(
     state: tauri::State<AppState>,
     vehicle_id: i64,
