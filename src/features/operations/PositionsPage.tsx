@@ -1,4 +1,4 @@
-import { Clock3, Crosshair, MapPin, Plus, Radar, Trash2, UsersRound } from "lucide-react";
+import { Clock3, Crosshair, MapPin, PackageOpen, Plus, Radar, Trash2, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useEntityCollection } from "../../shared/hooks/useEntityCollection";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
@@ -10,11 +10,13 @@ import { PageFrame } from "../../shared/ui/PageFrame";
 import { PageTitle } from "../../shared/ui/PageTitle";
 import { RegistryToolbar } from "../../shared/ui/RegistryToolbar";
 import { operationsService } from "./services/operationsService";
-import type { Incident, Position, PositionDraft } from "./types";
+import type { Crew, Incident, Position, PositionDraft } from "./types";
+import { flightPlanSelectedCrewIds } from "./flight-plan-storage";
 
 type PositionTab = "overview" | "relations" | "history";
 const emptyDraft = (): PositionDraft => ({ name: "", positionType: "Основна", stripName: "", locality: "", battleOrder: "", sector: "", condition: "", conditionLevel: 0, fieldType: "", size: "", mgrs: "", suitableUavText: "", isActive: false, crewId: null, notes: "", uavIds: [] });
 const includes = (query: string, ...values: (string | null | undefined)[]) => values.join(" ").toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"));
+const positionTypeClass = (type: Position["positionType"]) => type === "Основна" ? "primary" : type === "Запасна" ? "reserve" : type === "Облаштовується" ? "building" : type === "Виявлена ворогом" ? "compromised" : "allied";
 
 export function PositionsPage() {
   const [query, setQuery] = useState("");
@@ -23,6 +25,7 @@ export function PositionsPage() {
   const [editorTab, setEditorTab] = useState<PositionTab>("overview");
   const [draft, setDraft] = useState<PositionDraft>(emptyDraft);
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [crews, setCrews] = useState<Crew[]>([]);
   const [deleting, setDeleting] = useState<Position | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
   const { notify } = useNotifications();
@@ -31,7 +34,11 @@ export function PositionsPage() {
   const { items, isLoading, reload: reloadItems } = useEntityCollection({ load: loadPositions, onError: onLoadError });
   const reload = useCallback(() => { void reloadItems(); }, [reloadItems]);
 
-  useEffect(() => { void operationsService.listIncidents().then(setIncidents).catch(() => setIncidents([])); }, []);
+  useEffect(() => {
+    void Promise.all([operationsService.listIncidents(), operationsService.listCrews()])
+      .then(([nextIncidents, nextCrews]) => { setIncidents(nextIncidents ?? []); setCrews(nextCrews ?? []); })
+      .catch(() => { setIncidents([]); setCrews([]); });
+  }, []);
 
   const filtered = useMemo(() => items.filter((item) => includes(query, item.name, item.stripName, item.locality, item.battleOrder, item.notes, item.condition, item.crewName)), [items, query]);
   const positionIncidents = useMemo(() => editing ? incidents.filter((incident) => incident.positionName === editing.name) : [], [editing, incidents]);
@@ -40,13 +47,14 @@ export function PositionsPage() {
   const savePosition = async () => { try { if (editing) await operationsService.updatePosition(editing.id, draft); else await operationsService.createPosition(draft); close(); reload(); notify("Позицію збережено.", "success"); } catch (error) { notify(typeof error === "string" ? error : "Не вдалося зберегти позицію.", "error"); } };
   const remove = async () => { if (!deleting) return; setDeletingBusy(true); try { await operationsService.deletePosition(deleting.id); setDeleting(null); reload(); notify("Позицію видалено.", "success"); } catch { notify("Не вдалося видалити позицію.", "error"); } finally { setDeletingBusy(false); } };
 
-  return <PageFrame className="positions-page" header={<PageTitle title="Позиції" subtitle="Робочі райони, прив’язані екіпажі та історія подій" actions={<button className="button primary" onClick={() => edit()}><Plus />Додати позицію</button>} />} tools={<RegistryToolbar placeholder="Пошук за назвою, смугою, районом, БРО або екіпажем…" query={query} onQueryChange={setQuery} resultCount={filtered.length} />}>
-    <EntityCardGrid className="positions-grid">{filtered.map((item) => <EntityCard className="position-card" key={item.id} onClick={() => edit(item)}>
-      <header><span className="position-card__icon"><Crosshair /></span><div><small>{item.stripName || "Смуга не вказана"}</small><h2>{item.name}</h2></div><span className="position-card__open">Відкрити</span></header>
-      <div className="position-tags">{item.battleOrder && <span>{item.battleOrder}</span>}{item.locality && <span>{item.locality}</span>}</div>
-      <dl><div><dt><MapPin />Район</dt><dd>{item.locality || "Не вказано"}</dd></div><div><dt><Radar />MGRS</dt><dd>{item.mgrs || "Не вказано"}</dd></div><div><dt><UsersRound />Екіпаж</dt><dd>{item.crewName || "Не закріплений"}</dd></div><div><dt><Clock3 />Інциденти</dt><dd>{incidents.filter((incident) => incident.positionName === item.name).length}</dd></div></dl>
+  const onPositionCrewIds = flightPlanSelectedCrewIds();
+  return <PageFrame className="positions-page" header={<PageTitle title="Позиції" subtitle="Робочі райони, прив’язані екіпажі та готовність позицій" actions={<button className="button primary" onClick={() => edit()}><Plus />Додати позицію</button>} />} tools={<RegistryToolbar placeholder="Пошук за назвою, смугою, районом, БРО або екіпажем…" query={query} onQueryChange={setQuery} resultCount={filtered.length} />}>
+    <EntityCardGrid className="positions-grid">{filtered.map((item) => { const hasCrewOnPosition = crews.some((crew) => crew.positionId === item.id && onPositionCrewIds.has(crew.id)); return <EntityCard className={`position-card position-card--${positionTypeClass(item.positionType)}`} key={item.id} onClick={() => edit(item)}>
+      <header><span className="position-card__icon"><Crosshair /></span><div><small>{item.stripName || "Смуга не вказана"}</small><h2>{item.name}</h2></div><div className="position-card__indicators"><span className="position-card__type">{item.positionType}</span>{hasCrewOnPosition && <span className="on-position-indicator">На позиції</span>}</div></header>
+      {item.battleOrder && <div className="position-tags"><span>{item.battleOrder}</span></div>}
+      <dl><div><dt><MapPin />Населений пункт</dt><dd>{item.locality || "Не вказано"}</dd></div><div><dt><Radar />MGRS</dt><dd>{item.mgrs || "Не вказано"}</dd></div><div><dt><UsersRound />Екіпаж</dt><dd>{item.crewName || "Не закріплений"}</dd></div><div><dt><PackageOpen />БпЛА та БпАК</dt><dd>{item.uavNames.length ? item.uavNames.join(", ") : "Не закріплені"}</dd></div></dl>
       <p className="position-notes">{item.notes || item.condition || "Опис позиції не заповнено."}</p>
-    </EntityCard>)}</EntityCardGrid>
+    </EntityCard>; })}</EntityCardGrid>
     {isLoading && <div className="operations-loading-overlay"><CardGridSkeleton variant="position" /></div>}
 
     {open && <Modal title={editing ? editing.name : "Нова позиція"} subtitle={editing ? `${editing.stripName || "Смуга не вказана"} · ${editing.locality || "район не вказано"}` : "Створення нової позиції"} onClose={close} className="position-editor"><div className="position-editor__body">

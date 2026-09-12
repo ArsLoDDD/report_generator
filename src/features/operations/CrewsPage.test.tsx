@@ -12,9 +12,15 @@ const first=person(1,"ПЕРША ЛЮДИНА");
 const last=person(501,"ОСТАННЯ ЛЮДИНА");
 const crew={id:9,name:"Сокіл",platoon:"",positionName:"",reconnaissanceArea:"",unitType:"Екіпаж",companyName:"",battleOrder:"",sector:"",officialStrength:1,workingStrength:0,positionId:null,status:"Працюючий",uavName:"",uavType:"",functionalDuties:"",currentLocation:"",notes:"",memberCount:1,members:[{personnelId:501,fullName:last.fullName,rank:last.rank,position:last.position}],actualMembers:[]};
 
-afterEach(()=>{cleanup();vi.clearAllMocks();});
+afterEach(()=>{cleanup();localStorage.clear();vi.clearAllMocks();});
 
 describe("Склад екіпажу",()=>{
+  it("позначає екіпаж, вибраний у плані польотів, як такий, що перебуває на позиції",async()=>{
+    localStorage.setItem("flight-plan-draft-v2",JSON.stringify({selected:[9]}));
+    invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve([crew]):command==="list_positions"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):command==="list_equipment"||command==="list_incidents"||command==="list_vehicles"?Promise.resolve([]):Promise.resolve());
+    render(<NotificationProvider><CrewsPage people={[first,last]}/></NotificationProvider>);
+    expect(await screen.findByText("На позиції")).toBeInTheDocument();
+  });
   it("завантажує весь особовий склад і попереджає про переміщення з іншого екіпажу",async()=>{
     invoke.mockImplementation((command:string,args?:Record<string,number>)=>{
       if(command==="list_crews") return Promise.resolve([crew]);

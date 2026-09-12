@@ -4,6 +4,7 @@
 	gap: 16px;
 }
 .position-card {
+	--position-accent: #668;
 	position: relative;
 	display: flex;
 	flex-direction: column;
@@ -17,19 +18,22 @@
 .position-card:before {
 	content: '';
 	position: absolute;
-	inset: 0 auto 0 0;
+	inset: 12px auto 12px 0;
 	width: 4px;
-	background: #668;
+	border-radius: 0 4px 4px 0;
+	background: var(--position-accent);
 }
 .position-card--primary:before {
-	background: #3bd452;
+	--position-accent: #3bd452;
 }
 .position-card--reserve:before {
-	background: #3f8cff;
+	--position-accent: #3f8cff;
 }
 .position-card--building:before {
-	background: #f6b73c;
+	--position-accent: #f6b73c;
 }
+.position-card--compromised:before { --position-accent: #de6d63; }
+.position-card--allied:before { --position-accent: #9a8fd0; }
 .position-card > header {
 	display: flex;
 	align-items: center;
@@ -47,7 +51,10 @@
 .position-card h2 {
 	margin: 2px 0 0;
 }
-.position-card__open { margin-left: auto; color: var(--accent); font-size: 12px; font-weight: 800; text-transform: uppercase; }
+.position-card__indicators,
+.crew-card__indicators { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 7px; margin-left: auto; }
+.position-card__type { color: var(--accent); font-size: 12px; font-weight: 800; text-transform: uppercase; }
+.on-position-indicator { padding: 5px 9px; border: 1px solid #74823f; border-radius: 999px; background: rgba(151,164,76,.14); color: #d8e68d; font-size: 11px; font-weight: 800; text-transform: uppercase; white-space: nowrap; }
 .position-card small {
 	color: var(--muted);
 }

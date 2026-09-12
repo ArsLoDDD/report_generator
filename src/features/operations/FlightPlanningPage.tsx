@@ -11,13 +11,13 @@ import type { Vehicle } from "../vehicles/types";
 import { FlightPlanParametersModal } from "./FlightPlanParametersModal";
 import { FlightPlanTable } from "./FlightPlanTable";
 import { flightPlanPreviewRows, initialFlightEntry, missingCrewCallsigns } from "./flight-plan-model";
+import { FLIGHT_PLAN_STORAGE_KEY } from "./flight-plan-storage";
 import { operationsService } from "./services/operationsService";
 import type { Crew, Equipment, FlightPlanEntry } from "./types";
 
-const STORAGE_KEY="flight-plan-draft-v2";
 const today=()=>{const value=new Date();return `${String(value.getDate()).padStart(2,"0")}.${String(value.getMonth()+1).padStart(2,"0")}.${value.getFullYear()}`;};
 type StoredDraft={unitName?:string;date?:string;zoom?:number;selected?:number[];entries?:Record<number,FlightPlanEntry>};
-const storedDraft=():StoredDraft=>{try{return JSON.parse(localStorage.getItem(STORAGE_KEY)??"{}");}catch{return {};}};
+const storedDraft=():StoredDraft=>{try{return JSON.parse(localStorage.getItem(FLIGHT_PLAN_STORAGE_KEY)??"{}");}catch{return {};}};
 
 export function FlightPlanningPage(){
   const {notify}=useNotifications();
@@ -30,7 +30,7 @@ export function FlightPlanningPage(){
 
   const load=useCallback(async()=>{try{const [allCrews,nextVehicles,nextUavs,settings]=await Promise.all([operationsService.listCrews(),vehiclesService.list(),operationsService.listEquipment("uav"),settingsService.get()]);const nextCrews=allCrews.filter((crew)=>crew.status.trim().toLocaleLowerCase("uk")==="працюючий");setCrews(nextCrews);setVehicles(nextVehicles);setUavs(nextUavs);setUnitName((current)=>current||settings.unit.shortName||settings.unit.fullName||"Підрозділ");setEntries((current)=>Object.fromEntries(nextCrews.map((crew)=>{const defaults=initialFlightEntry(crew,nextUavs);const stored=current[crew.id];return [crew.id,stored?{...defaults,...stored,uavSelections:stored.uavSelections??defaults.uavSelections,weather:{...defaults.weather,...stored.weather}}:defaults];})));setSelected((current)=>initial.selected===undefined?nextCrews.map((crew)=>crew.id):current.filter((id)=>nextCrews.some((crew)=>crew.id===id)));}catch{notify("Не вдалося завантажити дані для плану польотів.","error");}finally{setLoaded(true);}},[initial.selected,notify]);
   useEffect(()=>{void load();},[load]);
-  useEffect(()=>{if(loaded)localStorage.setItem(STORAGE_KEY,JSON.stringify({unitName,date,zoom,selected,entries}));},[date,entries,loaded,selected,unitName,zoom]);
+  useEffect(()=>{if(loaded)localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY,JSON.stringify({unitName,date,zoom,selected,entries}));},[date,entries,loaded,selected,unitName,zoom]);
   useEffect(()=>{if(loaded)void operationsService.syncFlightPlanLocations(selected).catch(()=>notify("Не вдалося синхронізувати місцезнаходження екіпажів із БЧС.","error"));},[loaded,notify,selected]);
 
   const missingCallsigns=useMemo(()=>missingCrewCallsigns(crews),[crews]);

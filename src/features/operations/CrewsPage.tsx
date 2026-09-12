@@ -16,6 +16,7 @@ import { operationsService } from "./services/operationsService";
 import type { Crew, CrewDraft, Equipment, EquipmentCategory, Incident, Position } from "./types";
 import { vehiclesService } from "../vehicles/services/vehiclesService";
 import type { Vehicle } from "../vehicles/types";
+import { flightPlanSelectedCrewIds } from "./flight-plan-storage";
 
 type CrewTab = "overview" | "members" | "assets" | "history";
 type CrewAssetTab = "uav" | "vehicles" | Exclude<EquipmentCategory, "uav">;
@@ -94,10 +95,11 @@ export function CrewsPage({ people }: { people: Person[] }) {
   const assetsForTab = assetTab === "uav" ? crewAssets : assetTab === "vehicles" ? crewVehicles : crewOtherAssets.filter((item) => item.category === assetTab);
   const assetCount = (tab: CrewAssetTab) => tab === "uav" ? crewAssets.length : tab === "vehicles" ? crewVehicles.length : crewOtherAssets.filter((item) => item.category === tab).length;
   const crewIncidents = editing ? incidents.filter((incident) => incident.crewId === editing.id) : [];
+  const onPositionCrewIds = flightPlanSelectedCrewIds();
 
   return <PageFrame className="crews-page" header={<PageTitle title="Екіпажі" subtitle="Єдиний облік екіпажів, позицій, складу та майна" actions={<button className="button primary" onClick={() => edit()}><Plus />Створити екіпаж</button>} />} tools={<RegistryToolbar placeholder="Пошук за назвою, статусом, смугою, БпАК або позицією…" query={query} onQueryChange={setQuery} resultCount={filtered.length} />}>
     <EntityCardGrid className="crews-grid">{filtered.map((crew) => { const assets = uavs.filter((uav) => uav.crewId === crew.id); return <EntityCard className={`crew-card crew-card--${crew.status === "Працюючий" ? "working" : crew.status === "Формується" ? "forming" : "inactive"}`} key={crew.id} onClick={() => edit(crew)}>
-      <header><div className="crew-card__mark"><Box /></div><div><h2>{crew.name}</h2><span>{crew.sector || "Смуга не вказана"}</span></div><span className="crew-card__status">{crew.status}</span></header>
+      <header><div className="crew-card__mark"><Box /></div><div><h2>{crew.name}</h2><span>{crew.sector || "Смуга не вказана"}</span></div><div className="crew-card__indicators"><span className="crew-card__status">{crew.status}</span>{onPositionCrewIds.has(crew.id) && <span className="on-position-indicator">На позиції</span>}</div></header>
       <div className="crew-card__context"><span><MapPin />{crew.positionName || "Позиція не обрана"}</span><span><PackageOpen />{assets.map((item) => item.name).join(" · ") || "БпЛА не закріплені"}</span></div>
       <div className="crew-card__roster">{crew.actualMembers.map((member) => <b key={member.personnelId} title={member.fullName}>{member.fullName.split(" ")[0]}</b>)}{!crew.actualMembers.length && <em>Склад не заповнений</em>}</div>
     </EntityCard>; })}{!filtered.length && <section className="panel personnel-state"><UsersRound /><b>Екіпажів поки немає</b><span>Створіть екіпаж і сформуйте його склад.</span></section>}</EntityCardGrid>
