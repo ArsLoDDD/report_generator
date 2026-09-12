@@ -1,5 +1,5 @@
 import { Clock3, Crosshair, MapPin, Plus, Radar, Trash2, UsersRound } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type UIEventHandler } from "react";
 import { useEntityCollection } from "../../shared/hooks/useEntityCollection";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
 import { CardGridSkeleton } from "../../shared/ui/entity-card/CardGridSkeleton";
@@ -28,6 +28,7 @@ export function PositionsPage() {
   const [crews, setCrews] = useState<Crew[]>([]);
   const [deleting, setDeleting] = useState<Position | null>(null);
   const [deletingBusy, setDeletingBusy] = useState(false);
+  const [visibleLimit, setVisibleLimit] = useState(20);
   const { notify } = useNotifications();
   const loadPositions = useCallback(() => operationsService.listPositions(), []);
   const onLoadError = useCallback(() => notify("Не вдалося завантажити позиції.", "error"), [notify]);
@@ -41,6 +42,9 @@ export function PositionsPage() {
   }, []);
 
   const filtered = useMemo(() => items.filter((item) => includes(query, item.name, item.stripName, item.locality, item.battleOrder, item.notes, item.condition, item.crewName)), [items, query]);
+  useEffect(() => setVisibleLimit(20), [query]);
+  const visibleItems = filtered.slice(0, visibleLimit);
+  const onContentScroll: UIEventHandler<HTMLDivElement> = (event) => { const element = event.currentTarget; if (element.scrollHeight - element.scrollTop - element.clientHeight < 100) setVisibleLimit((current) => Math.min(current + 20, filtered.length)); };
   const positionIncidents = useMemo(() => editing ? incidents.filter((incident) => incident.positionName === editing.name) : [], [editing, incidents]);
   const edit = (item?: Position) => { setEditing(item ?? null); setDraft(item ? { ...item } : emptyDraft()); setEditorTab("overview"); setOpen(true); };
   const close = () => { setOpen(false); setEditing(null); setDraft(emptyDraft()); setEditorTab("overview"); };
@@ -48,8 +52,8 @@ export function PositionsPage() {
   const remove = async () => { if (!deleting) return; setDeletingBusy(true); try { await operationsService.deletePosition(deleting.id); setDeleting(null); reload(); notify("Позицію видалено.", "success"); } catch { notify("Не вдалося видалити позицію.", "error"); } finally { setDeletingBusy(false); } };
 
   const onPositionCrewIds = flightPlanSelectedCrewIds();
-  return <PageFrame className="positions-page" header={<PageTitle title="Позиції" subtitle="Робочі райони, прив’язані екіпажі та готовність позицій" actions={<button className="button primary" onClick={() => edit()}><Plus />Додати позицію</button>} />} tools={<RegistryToolbar placeholder="Пошук за назвою, смугою, районом, БРО або екіпажем…" query={query} onQueryChange={setQuery} resultCount={filtered.length} />}>
-    <EntityCardGrid className="positions-grid">{filtered.map((item) => { const positionCrews = crews.filter((crew) => crew.positionId === item.id); const hasCrewOnPosition = positionCrews.some((crew) => onPositionCrewIds.has(crew.id)); return <EntityCard className={`position-card position-card--${positionTypeClass(item.positionType)}`} key={item.id} onClick={() => edit(item)}>
+  return <PageFrame className="positions-page" onContentScroll={onContentScroll} footer={<div className="panel pagination card-registry__pagination">Показано {visibleItems.length} із {filtered.length}</div>} header={<PageTitle title="Позиції" subtitle="Робочі райони, прив’язані екіпажі та готовність позицій" actions={<button className="button primary" onClick={() => edit()}><Plus />Додати позицію</button>} />} tools={<RegistryToolbar className="card-registry-toolbar" placeholder="Пошук за назвою, смугою, районом, БРО або екіпажем…" query={query} onQueryChange={setQuery} />}>
+    <EntityCardGrid className="positions-grid">{visibleItems.map((item) => { const positionCrews = crews.filter((crew) => crew.positionId === item.id); const hasCrewOnPosition = positionCrews.some((crew) => onPositionCrewIds.has(crew.id)); return <EntityCard className={`position-card position-card--${positionTypeClass(item.positionType)}`} key={item.id} onClick={() => edit(item)}>
       <header><span className="position-card__icon"><Crosshair /></span><div><small>{item.stripName || "Смуга не вказана"}</small><h2>{item.name}</h2></div><div className="position-card__indicators"><span className="position-card__type">{item.positionType}</span>{hasCrewOnPosition && <span className="on-position-indicator">На позиції</span>}</div></header>
       <div className="position-card__chips">
         {item.battleOrder && <span className="position-card__chip">{item.battleOrder}</span>}

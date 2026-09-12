@@ -217,6 +217,19 @@ td {
 	padding-inline: 6px;
 }
 
+.card-registry-toolbar {
+	width: 706px;
+	max-width: 100%;
+	margin: 0;
+}
+
+.card-registry__pagination {
+	margin: 0;
+	padding: 14px 16px;
+	border-color: var(--line);
+	background: #11140f;
+}
+
 .tabs button,
 .settings-tabs button,
 .entity-tabs button {

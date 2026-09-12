@@ -15,6 +15,17 @@ const crew={id:9,name:"Сокіл",platoon:"",positionName:"",reconnaissanceArea
 afterEach(()=>{cleanup();localStorage.clear();vi.clearAllMocks();});
 
 describe("Склад екіпажу",()=>{
+  it("обмежує картки двадцятьма, але шукає серед усього переліку",async()=>{
+    const crews=Array.from({length:25},(_,index)=>({...crew,id:index+1,name:`ЕКІПАЖ ${index+1}`}));
+    invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve(crews):command==="list_positions"||command==="list_equipment"||command==="list_incidents"||command==="list_vehicles"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):Promise.resolve());
+    render(<NotificationProvider><CrewsPage people={[first,last]}/></NotificationProvider>);
+    expect(await screen.findByText("Показано 20 із 25")).toBeInTheDocument();
+    expect(screen.queryByText("ЕКІПАЖ 25")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("Пошук за назвою, статусом, смугою, БпАК або позицією…"),{target:{value:"ЕКІПАЖ 25"}});
+    expect(screen.getByText("ЕКІПАЖ 25")).toBeInTheDocument();
+    expect(screen.getByText("Показано 1 із 1")).toBeInTheDocument();
+    expect(screen.queryByText("1 записів")).not.toBeInTheDocument();
+  });
   it("позначає екіпаж, вибраний у плані польотів, як такий, що перебуває на позиції",async()=>{
     localStorage.setItem("flight-plan-draft-v2",JSON.stringify({selected:[9]}));
     invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve([crew]):command==="list_positions"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):command==="list_equipment"||command==="list_incidents"||command==="list_vehicles"?Promise.resolve([]):Promise.resolve());

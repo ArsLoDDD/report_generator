@@ -1,5 +1,5 @@
 import { Box, Clock3, MapPin, PackageOpen, Plus, Search, Trash2, UsersRound } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type UIEventHandler } from "react";
 import type { Person } from "../../shared/types/domain";
 import { personnelService } from "../../shared/services/personnelService";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
@@ -49,6 +49,7 @@ export function CrewsPage({ people }: { people: Person[] }) {
   const [pendingUav, setPendingUav] = useState<Equipment | null>(null);
   const [uavQuery, setUavQuery] = useState("");
   const [assignQuantity, setAssignQuantity] = useState(1);
+  const [visibleLimit, setVisibleLimit] = useState(20);
   const { notify } = useNotifications();
 
   const reload = useCallback(() => {
@@ -61,6 +62,9 @@ export function CrewsPage({ people }: { people: Person[] }) {
   useEffect(reload, [reload]);
 
   const filtered = useMemo(() => items.filter((crew) => includes(query, crew.name, crew.status, crew.sector, crew.uavName, crew.uavType, crew.positionName)), [items, query]);
+  useEffect(() => setVisibleLimit(20), [query]);
+  const visibleItems = filtered.slice(0, visibleLimit);
+  const onContentScroll: UIEventHandler<HTMLDivElement> = (event) => { const element = event.currentTarget; if (element.scrollHeight - element.scrollTop - element.clientHeight < 100) setVisibleLimit((current) => Math.min(current + 20, filtered.length)); };
   const close = () => { setOpen(false); setEditing(null); setDraft(emptyDraft()); setEditorTab("overview"); setMemberTab("official"); setPickerOpen(false); };
   const edit = (crew?: Crew) => { setEditing(crew ?? null); setDraft(crew ? { ...crew, memberIds: crew.members.map((member) => member.personnelId), actualMemberIds: crew.actualMembers.map((member) => member.personnelId) } : emptyDraft()); setEditorTab("overview"); setAssetTab("uav"); setOpen(true); };
   const save = async () => { try { const payload = { ...draft, officialStrength: draft.memberIds.length, workingStrength: draft.actualMemberIds.length }; if (editing) await operationsService.updateCrew(editing.id, payload); else await operationsService.createCrew(payload); close(); reload(); notify("Екіпаж збережено.", "success"); } catch (error) { notify(typeof error === "string" ? error : "Не вдалося зберегти екіпаж.", "error"); } };
@@ -97,8 +101,8 @@ export function CrewsPage({ people }: { people: Person[] }) {
   const crewIncidents = editing ? incidents.filter((incident) => incident.crewId === editing.id) : [];
   const onPositionCrewIds = flightPlanSelectedCrewIds();
 
-  return <PageFrame className="crews-page" header={<PageTitle title="Екіпажі" subtitle="Єдиний облік екіпажів, позицій, складу та майна" actions={<button className="button primary" onClick={() => edit()}><Plus />Створити екіпаж</button>} />} tools={<RegistryToolbar placeholder="Пошук за назвою, статусом, смугою, БпАК або позицією…" query={query} onQueryChange={setQuery} resultCount={filtered.length} />}>
-    <EntityCardGrid className="crews-grid">{filtered.map((crew) => { const assets = uavs.filter((uav) => uav.crewId === crew.id); return <EntityCard className={`crew-card crew-card--${crew.status === "Працюючий" ? "working" : crew.status === "Формується" ? "forming" : "inactive"}`} key={crew.id} onClick={() => edit(crew)}>
+  return <PageFrame className="crews-page" onContentScroll={onContentScroll} footer={<div className="panel pagination card-registry__pagination">Показано {visibleItems.length} із {filtered.length}</div>} header={<PageTitle title="Екіпажі" subtitle="Єдиний облік екіпажів, позицій, складу та майна" actions={<button className="button primary" onClick={() => edit()}><Plus />Створити екіпаж</button>} />} tools={<RegistryToolbar className="card-registry-toolbar" placeholder="Пошук за назвою, статусом, смугою, БпАК або позицією…" query={query} onQueryChange={setQuery} />}>
+    <EntityCardGrid className="crews-grid">{visibleItems.map((crew) => { const assets = uavs.filter((uav) => uav.crewId === crew.id); return <EntityCard className={`crew-card crew-card--${crew.status === "Працюючий" ? "working" : crew.status === "Формується" ? "forming" : "inactive"}`} key={crew.id} onClick={() => edit(crew)}>
       <header><div className="crew-card__mark"><Box /></div><div><h2>{crew.name}</h2><span>{crew.sector || "Смуга не вказана"}</span></div><div className="crew-card__indicators"><span className="crew-card__status">{crew.status}</span>{onPositionCrewIds.has(crew.id) && <span className="on-position-indicator">На позиції</span>}</div></header>
       <div className="crew-card__context"><span><MapPin />{crew.positionName || "Позиція не обрана"}</span><span><PackageOpen />{assets.map((item) => item.name).join(" · ") || "БпЛА не закріплені"}</span></div>
       <div className="crew-card__roster">{crew.actualMembers.map((member) => <b key={member.personnelId} title={member.fullName}>{member.fullName.split(" ")[0]}</b>)}{!crew.actualMembers.length && <em>Склад не заповнений</em>}</div>

@@ -11,6 +11,5 @@ type Props = {
 };
 
 export function RegistryToolbar({ query, onQueryChange, placeholder, resultCount, children, className = "" }: Props) {
-  return <div className={`table-tools main-tools registry-toolbar ${className}`}><SearchInput placeholder={placeholder} value={query} onChange={onQueryChange} />{children}<span className="registry-toolbar__count">{typeof resultCount === "number" ? `${resultCount} записів` : ""}</span></div>;
+  return <div className={`table-tools main-tools registry-toolbar ${className}`}><SearchInput placeholder={placeholder} value={query} onChange={onQueryChange} />{children}{typeof resultCount === "number" && <span className="registry-toolbar__count">{resultCount} записів</span>}</div>;
 }
-

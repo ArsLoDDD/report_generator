@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
 import { PositionsPage } from "./PositionsPage";
@@ -24,5 +24,22 @@ describe("Картка позиції", () => {
     expect(screen.getAllByText("НОВОСЕЛІВКА")).toHaveLength(1);
     expect(screen.queryByText("Інциденти")).not.toBeInTheDocument();
     expect(screen.queryByText("Відкрити")).not.toBeInTheDocument();
+  });
+
+  it("показує по 20 карток, підвантажує наступні та шукає серед ще не показаних", async () => {
+    const positions = Array.from({ length: 25 }, (_, index) => ({ ...position, id: index + 1, name: `ПОЗИЦІЯ ${index + 1}`, battleOrder: `БРО-${index + 1}` }));
+    invoke.mockImplementation((command: string) => command === "list_positions" ? Promise.resolve(positions) : command === "list_crews" || command === "list_incidents" ? Promise.resolve([]) : Promise.resolve());
+    const { container } = render(<NotificationProvider><PositionsPage /></NotificationProvider>);
+
+    expect(await screen.findByText("Показано 20 із 25")).toBeInTheDocument();
+    expect(screen.queryByText("ПОЗИЦІЯ 25")).not.toBeInTheDocument();
+    const content = container.querySelector<HTMLElement>(".page-frame__content")!;
+    Object.defineProperties(content, { scrollHeight: { value: 1000 }, clientHeight: { value: 500 }, scrollTop: { value: 450, configurable: true } });
+    fireEvent.scroll(content);
+    await waitFor(() => expect(screen.getByText("Показано 25 із 25")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByPlaceholderText("Пошук за назвою, смугою, районом, БРО або екіпажем…"), { target: { value: "ПОЗИЦІЯ 25" } });
+    expect(screen.getByText("ПОЗИЦІЯ 25")).toBeInTheDocument();
+    expect(screen.getByText("Показано 1 із 1")).toBeInTheDocument();
   });
 });
