@@ -1,8 +1,12 @@
 .positions-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+	grid-template-columns: repeat(auto-fill, minmax(340px, 430px));
+	justify-content: start;
+	align-items: start;
 	gap: 16px;
 }
+.positions-page .page-frame__content { padding-top: 10px; }
+.positions-page .positions-grid { padding: 4px; }
 .position-card {
 	--position-accent: #668;
 	position: relative;
@@ -79,6 +83,11 @@
 	color: var(--muted);
 	font-size: 12px;
 }
+.position-card__chips { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 2px; }
+.position-card__chip { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; max-width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(0,0,0,.12); color: var(--muted); font-size: 12px; font-weight: 700; }
+.position-card__chip svg { width: 14px; height: 14px; flex: 0 0 auto; }
+.position-card__crew.is-on-position { border-color: #7d8d43; background: rgba(151,164,76,.16); color: #dfeba0; box-shadow: inset 3px 0 #a7ba58; }
+.position-card__crew.is-empty { opacity: .68; font-weight: 600; }
 .position-card dl {
 	display: grid;
 	grid-template-columns: 1fr 1fr;

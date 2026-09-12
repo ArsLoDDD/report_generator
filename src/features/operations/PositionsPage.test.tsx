@@ -19,8 +19,8 @@ describe("Картка позиції", () => {
 
     expect(await screen.findByText("Запасна")).toBeInTheDocument();
     expect(screen.getByText("На позиції")).toBeInTheDocument();
-    expect(screen.getByText("БпЛА та БпАК")).toBeInTheDocument();
-    expect(screen.getByText("SHARK")).toBeInTheDocument();
+    expect(screen.getByText("БРО-01")).toBeInTheDocument();
+    expect(screen.getByText("СОКІЛ")).toHaveClass("position-card__crew", "is-on-position");
     expect(screen.getAllByText("НОВОСЕЛІВКА")).toHaveLength(1);
     expect(screen.queryByText("Інциденти")).not.toBeInTheDocument();
     expect(screen.queryByText("Відкрити")).not.toBeInTheDocument();

@@ -1,4 +1,4 @@
-import { Clock3, Crosshair, MapPin, PackageOpen, Plus, Radar, Trash2, UsersRound } from "lucide-react";
+import { Clock3, Crosshair, MapPin, Plus, Radar, Trash2, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useEntityCollection } from "../../shared/hooks/useEntityCollection";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
@@ -49,11 +49,13 @@ export function PositionsPage() {
 
   const onPositionCrewIds = flightPlanSelectedCrewIds();
   return <PageFrame className="positions-page" header={<PageTitle title="Позиції" subtitle="Робочі райони, прив’язані екіпажі та готовність позицій" actions={<button className="button primary" onClick={() => edit()}><Plus />Додати позицію</button>} />} tools={<RegistryToolbar placeholder="Пошук за назвою, смугою, районом, БРО або екіпажем…" query={query} onQueryChange={setQuery} resultCount={filtered.length} />}>
-    <EntityCardGrid className="positions-grid">{filtered.map((item) => { const hasCrewOnPosition = crews.some((crew) => crew.positionId === item.id && onPositionCrewIds.has(crew.id)); return <EntityCard className={`position-card position-card--${positionTypeClass(item.positionType)}`} key={item.id} onClick={() => edit(item)}>
+    <EntityCardGrid className="positions-grid">{filtered.map((item) => { const positionCrews = crews.filter((crew) => crew.positionId === item.id); const hasCrewOnPosition = positionCrews.some((crew) => onPositionCrewIds.has(crew.id)); return <EntityCard className={`position-card position-card--${positionTypeClass(item.positionType)}`} key={item.id} onClick={() => edit(item)}>
       <header><span className="position-card__icon"><Crosshair /></span><div><small>{item.stripName || "Смуга не вказана"}</small><h2>{item.name}</h2></div><div className="position-card__indicators"><span className="position-card__type">{item.positionType}</span>{hasCrewOnPosition && <span className="on-position-indicator">На позиції</span>}</div></header>
-      {item.battleOrder && <div className="position-tags"><span>{item.battleOrder}</span></div>}
-      <dl><div><dt><MapPin />Населений пункт</dt><dd>{item.locality || "Не вказано"}</dd></div><div><dt><Radar />MGRS</dt><dd>{item.mgrs || "Не вказано"}</dd></div><div><dt><UsersRound />Екіпаж</dt><dd>{item.crewName || "Не закріплений"}</dd></div><div><dt><PackageOpen />БпЛА та БпАК</dt><dd>{item.uavNames.length ? item.uavNames.join(", ") : "Не закріплені"}</dd></div></dl>
-      <p className="position-notes">{item.notes || item.condition || "Опис позиції не заповнено."}</p>
+      <div className="position-card__chips">
+        {item.battleOrder && <span className="position-card__chip">{item.battleOrder}</span>}
+        <span className="position-card__chip"><MapPin />{item.locality || "Населений пункт не вказано"}</span>
+        {positionCrews.length ? positionCrews.map((crew) => <span key={crew.id} className={`position-card__chip position-card__crew ${onPositionCrewIds.has(crew.id) ? "is-on-position" : ""}`}><UsersRound />{crew.name}</span>) : <span className="position-card__chip position-card__crew is-empty"><UsersRound />Екіпаж не закріплений</span>}
+      </div>
     </EntityCard>; })}</EntityCardGrid>
     {isLoading && <div className="operations-loading-overlay"><CardGridSkeleton variant="position" /></div>}
 

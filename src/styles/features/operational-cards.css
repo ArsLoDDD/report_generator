@@ -1,9 +1,14 @@
 /* Operational cards: dense, readable summaries with a clear status hierarchy. */
-.crews-grid,
-.positions-grid {
+.crews-grid {
 	align-items: stretch;
 	grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
 	gap: 18px;
+}
+.positions-grid {
+	align-items: start;
+	grid-template-columns: repeat(auto-fill, minmax(340px, 430px));
+	justify-content: start;
+	gap: 14px;
 }
 .crew-card,
 .position-card {
@@ -110,7 +115,9 @@
 }
 .position-card {
 	overflow: hidden;
-	padding: 21px;
+	min-height: 0;
+	gap: 13px;
+	padding: 18px;
 }
 .position-card::before {
 	width: 5px;
