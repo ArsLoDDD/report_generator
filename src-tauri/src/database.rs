@@ -415,6 +415,18 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         );
         CREATE INDEX IF NOT EXISTS incidents_created_idx ON incidents(created_at DESC);",
     ).map_err(|_| "Не вдалося підготувати таблиці підрозділів і майна.".to_string())?;
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS incident_equipment (
+               incident_id INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+               equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
+               PRIMARY KEY(incident_id,equipment_id)
+             );
+             CREATE INDEX IF NOT EXISTS incident_equipment_incident_idx ON incident_equipment(incident_id);
+             INSERT OR IGNORE INTO incident_equipment(incident_id,equipment_id)
+               SELECT id,equipment_id FROM incidents WHERE equipment_id IS NOT NULL;",
+        )
+        .map_err(|_| "Не вдалося підготувати майно інцидентів.".to_string())?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS personnel_staff_assignments (
             personnel_id INTEGER PRIMARY KEY REFERENCES personnel(id) ON DELETE CASCADE,

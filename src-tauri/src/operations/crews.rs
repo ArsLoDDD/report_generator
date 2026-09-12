@@ -23,7 +23,10 @@ pub(crate) fn crew_members(
     result
 }
 
-fn actual_crew_members(connection: &Connection, crew_id: i64) -> Result<Vec<CrewMember>, String> {
+pub(crate) fn actual_crew_members(
+    connection: &Connection,
+    crew_id: i64,
+) -> Result<Vec<CrewMember>, String> {
     let mut statement=connection.prepare("SELECT p.id,trim(p.surname||' '||p.given_name||' '||p.patronymic),p.rank,p.position,COALESCE(p.callsign,'') FROM crew_actual_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=?1 ORDER BY p.position,p.id").map_err(|_|"Не вдалося прочитати фактичний склад екіпажу.".to_string())?;
     let members = statement
         .query_map([crew_id], |row| {

@@ -285,6 +285,8 @@ pub struct Incident {
     pub crew_name: Option<String>,
     pub equipment_id: Option<i64>,
     pub equipment_name: Option<String>,
+    pub equipment_ids: Vec<i64>,
+    pub equipment_names: Vec<String>,
     pub position_name: String,
     pub reconnaissance_area: String,
     pub crew_snapshot: String,
@@ -299,6 +301,8 @@ pub struct IncidentDraft {
     pub occurred_at: String,
     pub crew_id: Option<i64>,
     pub equipment_id: Option<i64>,
+    #[serde(default)]
+    pub equipment_ids: Vec<i64>,
     pub position_name: String,
     pub reconnaissance_area: String,
     pub description: String,

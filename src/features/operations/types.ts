@@ -81,13 +81,15 @@ export type Incident = {
   crewName: string | null;
   equipmentId: number | null;
   equipmentName: string | null;
+  equipmentIds: number[];
+  equipmentNames: string[];
   positionName: string;
   reconnaissanceArea: string;
   crewSnapshot: string;
   vehicleName: string;
   description: string;
 };
-export type IncidentDraft = Omit<Incident, "id" | "crewName" | "equipmentName" | "crewSnapshot" | "vehicleName">;
+export type IncidentDraft = Omit<Incident, "id" | "crewName" | "equipmentName" | "equipmentNames" | "crewSnapshot" | "vehicleName">;
 export type FlightPlanWeather = { temperature: string; windFrom: string; windTo: string; gustFrom: string; gustTo: string; cloudiness: string; cloudHeight: string; precipitation: string };
 export type FlightPlanUavSelection = { equipmentId: number; dayQuantity: number; nightQuantity: number };
 export type FlightPlanEntry = { crewId: number; actualCommanderId: number | null; actualVehicleId: number | null; weather: FlightPlanWeather; routePoints: string[]; altitudeFrom: string; altitudeTo: string; areaPoints: string[]; task: string; startTime: string; endTime: string; uavSelections: FlightPlanUavSelection[] };

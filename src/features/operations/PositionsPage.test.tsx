@@ -7,9 +7,9 @@ const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 const position = { id: 3, name: "БУРЕВІЙ", positionType: "Запасна", stripName: "СМУГА ПІВНІЧ", locality: "НОВОСЕЛІВКА", battleOrder: "БРО-01", sector: "", condition: "", conditionLevel: 0, fieldType: "", size: "", mgrs: "36U UV 12000 67000", suitableUavText: "", isActive: false, crewId: null, crewName: "СОКІЛ", notes: "Тестова позиція", uavIds: [8], uavNames: ["SHARK"] };
-const crew = { id: 9, name: "СОКІЛ", positionId: 3, status: "Працюючий", workingStrength: 3, officialStrength: 4, primaryUavId: 8, uavName: "SHARK", sector: "СМУГА ПІВНІЧ" };
+const crew = { id: 9, name: "СОКІЛ", positionId: 3, status: "Працюючий", workingStrength: 3, officialStrength: 4, primaryUavId: 8, uavName: "SHARK", sector: "СМУГА ПІВНІЧ", actualMembers: [] };
 const linkedEquipment = { id: 8, category: "uav", name: "SHARK", inventoryNumber: "UAV-008", status: "Справний", crewId: 9, crewName: "СОКІЛ", personnelId: null, holderName: null, totalQuantity: 1, dayQuantity: 1, nightQuantity: 0, assetKind: "aircraft", componentsJson: "[]", assignedQuantity: 1, notes: "" };
-const availableEquipment = { ...linkedEquipment, id: 18, category: "generator", name: "EcoFlow Delta", inventoryNumber: "GEN-018", crewId: null, crewName: null };
+const availableEquipment = { ...linkedEquipment, id: 18, category: "generator", name: "EcoFlow Delta", inventoryNumber: "GEN-018" };
 
 afterEach(() => { cleanup(); localStorage.clear(); vi.clearAllMocks(); });
 
@@ -46,30 +46,29 @@ describe("Картка позиції", () => {
     expect(screen.getByText("Показано 1 із 1")).toBeInTheDocument();
   });
 
-  it("показує екіпажі окремими записами та дозволяє закріпити за позицією майно будь-якої категорії", async () => {
+  it("показує екіпажі окремими записами та автоматично збирає майно екіпажу на позиції", async () => {
     localStorage.setItem("flight-plan-draft-v2", JSON.stringify({ selected: [9] }));
     invoke.mockImplementation((command: string, args?: { category?: string }) => {
       if (command === "list_positions") return Promise.resolve([position]);
       if (command === "list_crews") return Promise.resolve([crew]);
       if (command === "list_incidents") return Promise.resolve([]);
       if (command === "list_equipment") return Promise.resolve(args?.category === "uav" ? [linkedEquipment] : args?.category === "generator" ? [availableEquipment] : []);
+      if (command === "list_vehicles") return Promise.resolve([]);
       return Promise.resolve();
     });
     render(<NotificationProvider><PositionsPage /></NotificationProvider>);
 
     fireEvent.click((await screen.findByText("БУРЕВІЙ")).closest("article")!);
-    fireEvent.click(screen.getByRole("button", { name: "Екіпаж і майно" }));
+    fireEvent.click(screen.getByRole("button", { name: "Екіпажі і майно" }));
     expect(screen.getByText("Статус: Працюючий")).toBeInTheDocument();
     expect(screen.getByText("Основний БпЛА: SHARK · Смуга: СМУГА ПІВНІЧ")).toBeInTheDocument();
-    expect(screen.getByText("БпЛА та БпАК · UAV-008 · Справний")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Додати майно" }));
-    expect(screen.getByRole("heading", { name: "Майно позиції" })).toBeInTheDocument();
-    fireEvent.click(screen.getByText("EcoFlow Delta"));
-    fireEvent.click(screen.getByRole("button", { name: "Готово" }));
-    expect(screen.getByText("Генератори · GEN-018 · Справний")).toBeInTheDocument();
+    expect(screen.getByText("Майно на позиції")).toBeInTheDocument();
+    expect(screen.getByText("UAV-008 · Справний · 1 шт")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Генератори: 1" }));
+    expect(screen.getByText("EcoFlow Delta")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Додати майно" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Зберегти позицію" }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_position", expect.objectContaining({ positionId: 3, draft: expect.objectContaining({ uavIds: [8, 18] }) })));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_position", expect.objectContaining({ positionId: 3, draft: expect.objectContaining({ uavIds: [] }) })));
   });
 });
