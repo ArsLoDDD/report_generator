@@ -150,12 +150,12 @@ export function VehiclesPage({ people }: { people: Person[] }) {
   const onTableScroll: UIEventHandler<HTMLDivElement> = (event) => { const el=event.currentTarget; if(el.scrollHeight-el.scrollTop-el.clientHeight<100)setVisibleLimit((n)=>Math.min(n+20,filtered.length)); };
 
   return <PageFrame
-    className="vehicles-page asset-registry-page"
+    className="vehicles-page operations-page asset-registry-page"
     header={<PageTitle title="Автомобілі" subtitle="Облік автомобілів та відповідальних військовослужбовців" actions={<button className="button primary asset-registry-page__add" onClick={() => setEditorOpen(true)}><Plus />Додати</button>} />}
     tools={<div className="table-tools main-tools asset-registry-toolbar"><SearchInput placeholder="Пошук за назвою, номером, статусом або відповідальним…" value={query} onChange={setQuery} /><FilterButton active={filtersOpen} onClick={() => setFiltersOpen(true)} label="Додаткові фільтри" /></div>}
   >
     <div className={`people-layout ${selected ? "with-details" : ""}`}>
-      <section className="panel data-table asset-registry-table">
+      <section className="panel operation-table data-table asset-registry-table">
         <EntityTable
           className="personnel-table vehicle-table"
           items={visibleItems}

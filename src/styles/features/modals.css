@@ -87,12 +87,14 @@
 .entity-details__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .entity-details__actions .button { width: auto; min-width: 0; padding-inline: 10px; }
 .person-details--personnel .entity-details__actions {
-  display: flex;
+  display: block;
+  position: relative;
   width: 100%;
-  align-items: center;
-  justify-content: center !important;
+  height: 70px;
 }
 .person-details--personnel .entity-details__actions .button {
+  position: absolute;
+  top: 14px;
   width: 128px;
   min-width: 128px;
   max-width: 128px;
@@ -102,6 +104,8 @@
   font-size: 11px;
   white-space: nowrap;
 }
+.person-details--personnel .entity-details__actions .button:first-child { left: calc(50% - 133px); }
+.person-details--personnel .entity-details__actions .button:last-child { left: calc(50% + 5px); }
 .person-details--personnel .entity-details__actions .button svg { width: 16px; height: 16px; }
 
 .settings-page .page-frame__content { overflow: auto; padding-right: 3px; }

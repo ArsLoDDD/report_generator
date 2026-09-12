@@ -72,7 +72,13 @@ pub fn export(
         sheet.push_str(&text_cell(index, 4, header.as_str().unwrap_or_default(), 3));
         merges.push(format!("{0}4:{0}5", (b'A' + index as u8) as char));
     }
-    sheet.push_str("</row><row r=\"5\" ht=\"30\" customHeight=\"1\"/><row r=\"6\" ht=\"20\" customHeight=\"1\">");
+    sheet.push_str("</row><row r=\"5\" ht=\"30\" customHeight=\"1\">");
+    // Excel renders merged-cell borders differently across desktop and mobile.
+    // Styling every cell in the lower half keeps the complete header perimeter visible.
+    for index in 0..headers.len() {
+        sheet.push_str(&text_cell(index, 5, "", 3));
+    }
+    sheet.push_str("</row><row r=\"6\" ht=\"20\" customHeight=\"1\">");
     sheet.push_str(&text_cell(0, 6, unit, 6));
     sheet.push_str("</row>");
     let mut start = 0;
@@ -426,6 +432,7 @@ mod tests {
         assert!(xml.contains("r=\"G11\"") && xml.contains("r=\"I11\""));
         assert!(xml.contains("r=\"J11\"") && xml.contains("r=\"L11\""));
         assert!(xml.contains("r=\"M11\""));
+        assert!(xml.contains("r=\"A5\" s=\"3\"") && xml.contains("r=\"P5\" s=\"3\""));
         let _ = std::fs::remove_file(path);
     }
 }
