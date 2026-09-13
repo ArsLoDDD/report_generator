@@ -580,7 +580,6 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             flight_date TEXT NOT NULL,
             sky_time TEXT NOT NULL DEFAULT '',
             ground_time TEXT NOT NULL DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'Заплановано',
             crew_id INTEGER REFERENCES crews(id) ON DELETE SET NULL,
             position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL,
             uav_id INTEGER REFERENCES equipment(id) ON DELETE SET NULL,
@@ -591,6 +590,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             battle_order_snapshot TEXT NOT NULL DEFAULT '',
             work_strip_snapshot TEXT NOT NULL DEFAULT '',
             uav_name_snapshot TEXT NOT NULL DEFAULT '',
+            uav_type_snapshot TEXT NOT NULL DEFAULT '',
             uav_serial_snapshot TEXT NOT NULL DEFAULT '',
             mission TEXT NOT NULL DEFAULT '',
             notes TEXT NOT NULL DEFAULT '',
@@ -598,12 +598,11 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             payload_id INTEGER,
             payload_type_snapshot TEXT NOT NULL DEFAULT '',
             payload_serial_snapshot TEXT NOT NULL DEFAULT '',
-            personnel_snapshot TEXT NOT NULL DEFAULT '',
-            result TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS flight_journal_date_idx ON flight_journal_entries(flight_date,id);"
     ).map_err(|_| "Не вдалося підготувати знімки плану та журнал польотів.".to_string())?;
+    connection.execute("ALTER TABLE flight_journal_entries ADD COLUMN uav_type_snapshot TEXT NOT NULL DEFAULT ''", []).ok();
     connection.execute_batch("CREATE TRIGGER IF NOT EXISTS clear_changed_staff_slot AFTER UPDATE OF position ON personnel WHEN OLD.position <> NEW.position BEGIN UPDATE personnel_staff_assignments SET slot_id='' WHERE personnel_id=NEW.id; END;").map_err(|e| e.to_string())?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS positions (

@@ -19,7 +19,10 @@ describe("Цукерня", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Додати виготовлення" }));
     fireEvent.change(screen.getByLabelText(/Назва виробу/), { target: { value: "Виріб №1" } });
     fireEvent.change(screen.getByLabelText("Матеріал 1"), { target: { value: "7" } });
-    fireEvent.change(screen.getByLabelText("Кількість матеріалу 1"), { target: { value: "0.2" } });
+    const materialQuantity = screen.getByLabelText("Кількість матеріалу 1");
+    fireEvent.change(materialQuantity, { target: { value: "0" } });
+    fireEvent.change(materialQuantity, { target: { value: "0.2" } });
+    expect(materialQuantity).toHaveValue(0.2);
     fireEvent.click(screen.getByRole("button", { name: "Зберегти виготовлення" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_workshop_product", { draft: expect.objectContaining({ name: "Виріб №1", accountedAt: "", ingredients: [{ equipmentId: 7, equipmentName: "Складова", quantity: 0.2, measurementUnit: "кг" }] }) }));
   });
