@@ -56,7 +56,10 @@ pub fn create_equipment(
     if !["generator", "uav", "communications", "weapon_ammo"].contains(&draft.category.as_str()) {
         return Err("Невідома категорія майна.".into());
     }
-    if draft.category == "weapon_ammo" && draft.personnel_id.is_none() {
+    if draft.category == "weapon_ammo"
+        && draft.weapon_kind != "component"
+        && draft.personnel_id.is_none()
+    {
         return Err("Зброю та БК потрібно закріпити за військовослужбовцем.".into());
     }
     if draft.category == "weapon_ammo"
@@ -125,7 +128,10 @@ pub fn update_equipment(
     if draft.category == "uav" && draft.uav_type.trim().is_empty() {
         return Err("Оберіть тип БпАК.".into());
     }
-    if draft.category == "weapon_ammo" && draft.personnel_id.is_none() {
+    if draft.category == "weapon_ammo"
+        && draft.weapon_kind != "component"
+        && draft.personnel_id.is_none()
+    {
         return Err("Зброю та БК потрібно закріпити за військовослужбовцем.".into());
     }
     if draft.category == "weapon_ammo"

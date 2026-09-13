@@ -66,15 +66,24 @@
 
 .workshop-page .page-frame__content { min-height: 0; }
 .workshop-table { display: grid; grid-template-rows: minmax(0,1fr) auto; min-height: 0; overflow: hidden; }
-.workshop-ingredients { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; }
-.workshop-ingredients > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border-bottom: 1px solid var(--line); }
+.workshop-editor { width: min(920px, calc(100vw - 32px)); }
+.workshop-editor .operation-editor__body { max-height: min(68vh, 680px); overflow-y: auto; }
+.workshop-editor__body { grid-template-columns: minmax(0, 1.6fr) minmax(150px, .7fr) minmax(150px, .7fr); }
+.workshop-ingredients { max-height: 330px; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; }
+.workshop-ingredients > header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .workshop-ingredients > header > div { display: grid; gap: 3px; }
 .workshop-ingredients small,.workshop-ingredients > p { color: var(--muted); }
 .workshop-ingredient { display: grid; grid-template-columns: minmax(0,1fr) 150px 42px; align-items: center; gap: 9px; padding: 9px 12px; border-bottom: 1px solid rgba(143,153,104,.14); }
 .workshop-ingredient > label { display: flex; align-items: center; gap: 7px; }
-.workshop-ingredient input { min-width: 0; }
+.workshop-ingredient input { width: 100%; min-width: 0; height: 42px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; outline: none; background: #08141c; color: var(--text); font: inherit; }
+.workshop-ingredient input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgb(143 153 104 / 18%); }
+.workshop-ingredient > label span { flex: none; color: var(--muted); white-space: nowrap; }
 .workshop-ingredients > p { padding: 16px; text-align: center; }
-@media (max-width: 680px) { .workshop-ingredient { grid-template-columns: 1fr 110px 42px; } }
+@media (max-width: 760px) {
+  .workshop-editor__body { grid-template-columns: 1fr; }
+  .workshop-editor__body > * { grid-column: 1; }
+  .workshop-ingredient { grid-template-columns: minmax(0,1fr) 110px 42px; }
+}
 
 /* The generic personnel layout must not turn the whole asset hub into an auto-sized row. */
 .screen-body:has(> .assets-hub) {
