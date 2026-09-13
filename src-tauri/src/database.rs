@@ -603,6 +603,14 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS flight_journal_date_idx ON flight_journal_entries(flight_date,id);"
     ).map_err(|_| "Не вдалося підготувати знімки плану та журнал польотів.".to_string())?;
     connection.execute("ALTER TABLE flight_journal_entries ADD COLUMN uav_type_snapshot TEXT NOT NULL DEFAULT ''", []).ok();
+    for obsolete_column in ["status", "personnel_snapshot", "result"] {
+        connection
+            .execute(
+                &format!("ALTER TABLE flight_journal_entries DROP COLUMN {obsolete_column}"),
+                [],
+            )
+            .ok();
+    }
     connection.execute_batch("CREATE TRIGGER IF NOT EXISTS clear_changed_staff_slot AFTER UPDATE OF position ON personnel WHEN OLD.position <> NEW.position BEGIN UPDATE personnel_staff_assignments SET slot_id='' WHERE personnel_id=NEW.id; END;").map_err(|e| e.to_string())?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS positions (
