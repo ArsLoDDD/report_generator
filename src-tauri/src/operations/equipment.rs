@@ -65,7 +65,7 @@ pub fn create_equipment(
     if draft.category == "weapon_ammo"
         && !["weapon", "ammunition", "component"].contains(&draft.weapon_kind.as_str())
     {
-        return Err("Оберіть тип: Зброя, БК або Складові БК.".into());
+        return Err("Оберіть тип: Зброя, БК або Вибухові матеріали.".into());
     }
     if draft.category == "uav"
         && draft.asset_kind == "complex"
@@ -137,7 +137,7 @@ pub fn update_equipment(
     if draft.category == "weapon_ammo"
         && !["weapon", "ammunition", "component"].contains(&draft.weapon_kind.as_str())
     {
-        return Err("Оберіть тип: Зброя, БК або Складові БК.".into());
+        return Err("Оберіть тип: Зброя, БК або Вибухові матеріали.".into());
     }
     let day = draft.day_quantity.max(0);
     let night = draft.night_quantity.max(0);

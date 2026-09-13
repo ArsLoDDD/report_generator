@@ -18,9 +18,9 @@ describe("Цукерня", () => {
     render(<NotificationProvider><WorkshopPage /></NotificationProvider>);
     fireEvent.click(await screen.findByRole("button", { name: "Додати виготовлення" }));
     fireEvent.change(screen.getByLabelText(/Назва виробу/), { target: { value: "Виріб №1" } });
-    fireEvent.change(screen.getByLabelText("Складова 1"), { target: { value: "7" } });
-    fireEvent.change(screen.getByLabelText("Кількість складової 1"), { target: { value: "0.2" } });
+    fireEvent.change(screen.getByLabelText("Матеріал 1"), { target: { value: "7" } });
+    fireEvent.change(screen.getByLabelText("Кількість матеріалу 1"), { target: { value: "0.2" } });
     fireEvent.click(screen.getByRole("button", { name: "Зберегти виготовлення" }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_workshop_product", { draft: expect.objectContaining({ name: "Виріб №1", ingredients: [{ equipmentId: 7, equipmentName: "Складова", quantity: 0.2, measurementUnit: "кг" }] }) }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_workshop_product", { draft: expect.objectContaining({ name: "Виріб №1", accountedAt: "", ingredients: [{ equipmentId: 7, equipmentName: "Складова", quantity: 0.2, measurementUnit: "кг" }] }) }));
   });
 });

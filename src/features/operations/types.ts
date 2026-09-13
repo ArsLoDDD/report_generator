@@ -78,10 +78,12 @@ export type Equipment = {
 export type EquipmentDraft = Omit<Equipment, "id" | "crewName" | "holderName">;
 export type WorkshopIngredient = { equipmentId: number; equipmentName: string; quantity: number; measurementUnit: string };
 export type WorkshopProduct = { id: number; name: string; quantity: number; measurementUnit: string; ingredients: WorkshopIngredient[]; notes: string; createdAt: string };
-export type WorkshopDraft = Omit<WorkshopProduct, "id" | "createdAt">;
+export type WorkshopDraft = Omit<WorkshopProduct, "id" | "createdAt"> & { accountedAt: string };
 export type Incident = {
   id: number;
+  category: string;
   incidentType: string;
+  status: string;
   occurredAt: string;
   crewId: number | null;
   crewName: string | null;
@@ -89,13 +91,22 @@ export type Incident = {
   equipmentName: string | null;
   equipmentIds: number[];
   equipmentNames: string[];
+  personnelIds: number[];
+  personnelNames: string[];
   positionName: string;
   reconnaissanceArea: string;
   crewSnapshot: string;
   vehicleName: string;
   description: string;
+  immediateActions: string;
+  consequences: string;
+  flightStage: string;
+  preliminaryCause: string;
+  snapshotSource: string;
+  reportedTo: string;
+  reportedAt: string;
 };
-export type IncidentDraft = Omit<Incident, "id" | "crewName" | "equipmentName" | "equipmentNames" | "crewSnapshot" | "vehicleName">;
+export type IncidentDraft = Omit<Incident, "id" | "crewName" | "equipmentName" | "equipmentNames" | "personnelNames" | "crewSnapshot" | "vehicleName">;
 export type FlightPlanWeather = { temperature: string; windFrom: string; windTo: string; gustFrom: string; gustTo: string; cloudiness: string; cloudHeight: string; precipitation: string };
 export type FlightPlanUavSelection = { equipmentId: number; dayQuantity: number; nightQuantity: number };
 export type FlightPlanPayloadSelection = { sourceType: "equipment" | "workshop"; sourceId: number };

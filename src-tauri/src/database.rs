@@ -427,6 +427,30 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
                SELECT id,equipment_id FROM incidents WHERE equipment_id IS NOT NULL;",
         )
         .map_err(|_| "Не вдалося підготувати майно інцидентів.".to_string())?;
+    for sql in [
+        "ALTER TABLE incidents ADD COLUMN category TEXT NOT NULL DEFAULT 'Майно і транспорт'",
+        "ALTER TABLE incidents ADD COLUMN status TEXT NOT NULL DEFAULT 'Новий'",
+        "ALTER TABLE incidents ADD COLUMN immediate_actions TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE incidents ADD COLUMN consequences TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE incidents ADD COLUMN flight_stage TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE incidents ADD COLUMN preliminary_cause TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE incidents ADD COLUMN snapshot_source TEXT NOT NULL DEFAULT 'current'",
+        "ALTER TABLE incidents ADD COLUMN reported_to TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE incidents ADD COLUMN reported_at TEXT NOT NULL DEFAULT ''",
+    ] {
+        connection.execute(sql, []).ok();
+    }
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS incident_personnel (
+            incident_id INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+            personnel_id INTEGER REFERENCES personnel(id) ON DELETE SET NULL,
+            full_name_snapshot TEXT NOT NULL,
+            rank_snapshot TEXT NOT NULL DEFAULT '',
+            position_snapshot TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY(incident_id,personnel_id)
+        );
+        CREATE INDEX IF NOT EXISTS incident_personnel_incident_idx ON incident_personnel(incident_id);"
+    ).map_err(|_| "Не вдалося підготувати осіб інцидентів.".to_string())?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS personnel_staff_assignments (
             personnel_id INTEGER PRIMARY KEY REFERENCES personnel(id) ON DELETE CASCADE,
@@ -526,6 +550,60 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         );
         CREATE INDEX IF NOT EXISTS workshop_products_created_idx ON workshop_products(created_at DESC);"
     ).map_err(|_| "Не вдалося підготувати облік Цукерні.".to_string())?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS flight_plan_snapshots (
+            id INTEGER PRIMARY KEY,
+            plan_date TEXT NOT NULL,
+            revision INTEGER NOT NULL,
+            source TEXT NOT NULL DEFAULT 'saved',
+            snapshot_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(plan_date,revision)
+        );
+        CREATE INDEX IF NOT EXISTS flight_plan_snapshots_date_idx ON flight_plan_snapshots(plan_date,revision DESC);
+        CREATE TABLE IF NOT EXISTS flight_plan_snapshot_entries (
+            id INTEGER PRIMARY KEY,
+            snapshot_id INTEGER NOT NULL REFERENCES flight_plan_snapshots(id) ON DELETE CASCADE,
+            crew_id INTEGER REFERENCES crews(id) ON DELETE SET NULL,
+            crew_name_snapshot TEXT NOT NULL,
+            position_name_snapshot TEXT NOT NULL DEFAULT '',
+            battle_order_snapshot TEXT NOT NULL DEFAULT '',
+            work_strip_snapshot TEXT NOT NULL DEFAULT '',
+            uav_snapshot TEXT NOT NULL DEFAULT '',
+            payload_snapshot TEXT NOT NULL DEFAULT '',
+            personnel_snapshot TEXT NOT NULL DEFAULT '',
+            entry_json TEXT NOT NULL,
+            UNIQUE(snapshot_id,crew_id)
+        );
+        CREATE TABLE IF NOT EXISTS flight_journal_entries (
+            id INTEGER PRIMARY KEY,
+            flight_date TEXT NOT NULL,
+            sky_time TEXT NOT NULL DEFAULT '',
+            ground_time TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'Заплановано',
+            crew_id INTEGER REFERENCES crews(id) ON DELETE SET NULL,
+            position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL,
+            uav_id INTEGER REFERENCES equipment(id) ON DELETE SET NULL,
+            snapshot_id INTEGER REFERENCES flight_plan_snapshots(id) ON DELETE SET NULL,
+            source TEXT NOT NULL DEFAULT 'current_fallback',
+            crew_name_snapshot TEXT NOT NULL DEFAULT '',
+            position_name_snapshot TEXT NOT NULL DEFAULT '',
+            battle_order_snapshot TEXT NOT NULL DEFAULT '',
+            work_strip_snapshot TEXT NOT NULL DEFAULT '',
+            uav_name_snapshot TEXT NOT NULL DEFAULT '',
+            uav_serial_snapshot TEXT NOT NULL DEFAULT '',
+            mission TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            payload_source TEXT NOT NULL DEFAULT '',
+            payload_id INTEGER,
+            payload_type_snapshot TEXT NOT NULL DEFAULT '',
+            payload_serial_snapshot TEXT NOT NULL DEFAULT '',
+            personnel_snapshot TEXT NOT NULL DEFAULT '',
+            result TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS flight_journal_date_idx ON flight_journal_entries(flight_date,id);"
+    ).map_err(|_| "Не вдалося підготувати знімки плану та журнал польотів.".to_string())?;
     connection.execute_batch("CREATE TRIGGER IF NOT EXISTS clear_changed_staff_slot AFTER UPDATE OF position ON personnel WHEN OLD.position <> NEW.position BEGIN UPDATE personnel_staff_assignments SET slot_id='' WHERE personnel_id=NEW.id; END;").map_err(|e| e.to_string())?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS positions (

@@ -35,7 +35,7 @@ describe("Журнал інцидентів", () => {
     render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
 
     fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
-    fireEvent.change(screen.getByLabelText("Тип інциденту"), { target: { value: "Інший інцидент" } });
+    fireEvent.change(screen.getByLabelText("Категорія інциденту"), { target: { value: "Інше" } });
     fireEvent.change(screen.getByPlaceholderText("Наприклад, вимушена посадка"), { target: { value: "Вимушена посадка" } });
     fireEvent.change(screen.getByLabelText("Дата"), { target: { value: "2026-09-12" } });
     fireEvent.change(screen.getByLabelText("Час"), { target: { value: "14:45" } });

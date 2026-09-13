@@ -60,7 +60,7 @@ pub fn create_workshop_product(
         return Err("Кількість виробів повинна бути більшою за нуль.".into());
     }
     if draft.ingredients.is_empty() {
-        return Err("Додайте хоча б одну складову БК.".into());
+        return Err("Додайте хоча б один вибуховий матеріал.".into());
     }
     let mut ids = HashSet::new();
     if draft.ingredients.iter().any(|item| {
@@ -83,7 +83,10 @@ pub fn create_workshop_product(
             )
             .optional()
             .map_err(|_| "Не вдалося перевірити залишок складової.".to_string())?
-            .ok_or_else(|| "Обрану складову БК не знайдено.".to_string())?;
+            .ok_or_else(|| "Обраний вибуховий матеріал не знайдено.".to_string())?;
+        if source.0 <= f64::EPSILON {
+            return Err("Вибуховий матеріал із нульовим залишком використати не можна.".into());
+        }
         if source.0 + f64::EPSILON < ingredient.quantity {
             return Err(format!(
                 "Недостатньо складової №{} на обліку.",
@@ -93,8 +96,8 @@ pub fn create_workshop_product(
     }
     transaction
         .execute(
-            "INSERT INTO workshop_products(name,quantity,measurement_unit,notes) VALUES(?1,?2,?3,?4)",
-            params![draft.name.trim(), draft.quantity, draft.measurement_unit.trim(), draft.notes.trim()],
+            "INSERT INTO workshop_products(name,quantity,measurement_unit,notes,created_at) VALUES(?1,?2,?3,?4,CASE WHEN trim(?5)='' THEN CURRENT_TIMESTAMP ELSE replace(?5,'T',' ') END)",
+            params![draft.name.trim(), draft.quantity, draft.measurement_unit.trim(), draft.notes.trim(), draft.accounted_at.trim()],
         )
         .map_err(|_| "Не вдалося створити виріб.".to_string())?;
     let product_id = transaction.last_insert_rowid();

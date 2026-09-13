@@ -323,13 +323,17 @@ pub struct WorkshopDraft {
     pub measurement_unit: String,
     pub ingredients: Vec<WorkshopIngredient>,
     pub notes: String,
+    #[serde(default)]
+    pub accounted_at: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Incident {
     pub id: i64,
+    pub category: String,
     pub incident_type: String,
+    pub status: String,
     pub occurred_at: String,
     pub crew_id: Option<i64>,
     pub crew_name: Option<String>,
@@ -337,23 +341,52 @@ pub struct Incident {
     pub equipment_name: Option<String>,
     pub equipment_ids: Vec<i64>,
     pub equipment_names: Vec<String>,
+    pub personnel_ids: Vec<i64>,
+    pub personnel_names: Vec<String>,
     pub position_name: String,
     pub reconnaissance_area: String,
     pub crew_snapshot: String,
     pub vehicle_name: String,
     pub description: String,
+    pub immediate_actions: String,
+    pub consequences: String,
+    pub flight_stage: String,
+    pub preliminary_cause: String,
+    pub snapshot_source: String,
+    pub reported_to: String,
+    pub reported_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IncidentDraft {
+    #[serde(default)]
+    pub category: String,
     pub incident_type: String,
+    #[serde(default)]
+    pub status: String,
     pub occurred_at: String,
     pub crew_id: Option<i64>,
     pub equipment_id: Option<i64>,
     #[serde(default)]
     pub equipment_ids: Vec<i64>,
+    #[serde(default)]
+    pub personnel_ids: Vec<i64>,
     pub position_name: String,
     pub reconnaissance_area: String,
     pub description: String,
+    #[serde(default)]
+    pub immediate_actions: String,
+    #[serde(default)]
+    pub consequences: String,
+    #[serde(default)]
+    pub flight_stage: String,
+    #[serde(default)]
+    pub preliminary_cause: String,
+    #[serde(default)]
+    pub snapshot_source: String,
+    #[serde(default)]
+    pub reported_to: String,
+    #[serde(default)]
+    pub reported_at: String,
 }

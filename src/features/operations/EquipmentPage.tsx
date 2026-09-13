@@ -17,7 +17,7 @@ import type { Crew, Equipment, EquipmentCategory } from "./types";
 
 const statuses=["Справний","Потребує ремонту","Ремонтується","Несправний"];
 const uavTypes=["Літаковий Ударний","Літаковий Розвідувальний","Коптер","Бомбер","ФПВ","НРК","ФПВ Перехоплювач"];
-const weaponKinds={weapon:"Зброя",ammunition:"БК",component:"Складові БК"} as const;
+const weaponKinds={weapon:"Зброя",ammunition:"БК",component:"Вибухові матеріали"} as const;
 const measurementUnits=["шт","кг","г","л","мл","м"];
 const meta={generator:{title:"Генератори",subtitle:"Облік генераторів за екіпажами",icon:BatteryCharging,noun:"генератор"},uav:{title:"БпЛА",subtitle:"Облік безпілотних літальних апаратів за екіпажами",icon:Crosshair,noun:"БпЛА"},communications:{title:"Зв’язок",subtitle:"Облік засобів зв’язку за екіпажами",icon:Radio,noun:"засіб зв’язку"},weapon_ammo:{title:"Зброя та БК",subtitle:"Облік зброї та боєкомплекту за військовослужбовцями",icon:Shield,noun:"запис"}} as const;
 type KitComponent={name:string;serial:string};
