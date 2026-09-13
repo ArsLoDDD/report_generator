@@ -390,3 +390,65 @@ pub struct IncidentDraft {
     #[serde(default)]
     pub reported_at: String,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlightJournalEntry {
+    pub id: i64,
+    pub flight_date: String,
+    pub sky_time: String,
+    pub ground_time: String,
+    pub crew_id: Option<i64>,
+    pub crew_name: String,
+    pub position_id: Option<i64>,
+    pub position_name: String,
+    pub battle_order: String,
+    pub work_strip: String,
+    pub uav_id: Option<i64>,
+    pub uav_name: String,
+    pub uav_type: String,
+    pub uav_serial_number: String,
+    pub mission: String,
+    pub payload_source: String,
+    pub payload_id: Option<i64>,
+    pub payload_type: String,
+    pub payload_serial_number: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlightJournalDraft {
+    pub flight_date: String,
+    #[serde(default)]
+    pub sky_time: String,
+    #[serde(default)]
+    pub ground_time: String,
+    pub crew_id: Option<i64>,
+    pub crew_name: String,
+    pub position_id: Option<i64>,
+    #[serde(default)]
+    pub position_name: String,
+    #[serde(default)]
+    pub battle_order: String,
+    #[serde(default)]
+    pub work_strip: String,
+    pub uav_id: Option<i64>,
+    #[serde(default)]
+    pub uav_name: String,
+    #[serde(default)]
+    pub uav_type: String,
+    #[serde(default)]
+    pub uav_serial_number: String,
+    #[serde(default)]
+    pub mission: String,
+    #[serde(default)]
+    pub payload_source: String,
+    pub payload_id: Option<i64>,
+    #[serde(default)]
+    pub payload_type: String,
+    #[serde(default)]
+    pub payload_serial_number: String,
+    #[serde(default)]
+    pub notes: String,
+}

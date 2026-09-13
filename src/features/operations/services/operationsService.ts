@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightPlanRequest, Incident, IncidentDraft, Position, PositionDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation, WorkshopDraft, WorkshopProduct } from "../types";
+import type { Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightJournalDraft, FlightJournalEntry, FlightPlanRequest, Incident, IncidentDraft, Position, PositionDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation, WorkshopDraft, WorkshopProduct } from "../types";
 
 export const operationsService = {
   listCrews: () => invoke<Crew[]>("list_crews"),
@@ -33,4 +33,6 @@ export const operationsService = {
   createWorkshopProduct: (draft: WorkshopDraft) => invoke<void>("create_workshop_product", { draft }),
   listIncidents: () => invoke<Incident[]>("list_incidents"),
   createIncident: (draft: IncidentDraft) => invoke<void>("create_incident", { draft }),
+  listFlightJournalEntries: () => invoke<FlightJournalEntry[]>("list_flight_journal_entries"),
+  createFlightJournalEntry: (draft: FlightJournalDraft) => invoke<void>("create_flight_journal_entry", { draft }),
 };

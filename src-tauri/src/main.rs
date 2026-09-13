@@ -611,6 +611,8 @@ fn main() {
             operations::create_workshop_product,
             operations::list_incidents,
             operations::create_incident,
+            operations::list_flight_journal_entries,
+            operations::create_flight_journal_entry,
             update_unit_settings
         ])
     };

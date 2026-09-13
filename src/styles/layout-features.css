@@ -16,6 +16,7 @@
 @import "./features/crews.css";
 @import "./features/crew-assets.css";
 @import "./features/flight-plan.css";
+@import "./features/flight-journal.css";
 @import "./features/warnings.css";
 @import "./features/position-details.css";
 @import "./features/operational-cards.css";

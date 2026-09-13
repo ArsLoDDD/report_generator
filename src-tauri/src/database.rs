@@ -584,7 +584,6 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL,
             uav_id INTEGER REFERENCES equipment(id) ON DELETE SET NULL,
             snapshot_id INTEGER REFERENCES flight_plan_snapshots(id) ON DELETE SET NULL,
-            source TEXT NOT NULL DEFAULT 'current_fallback',
             crew_name_snapshot TEXT NOT NULL DEFAULT '',
             position_name_snapshot TEXT NOT NULL DEFAULT '',
             battle_order_snapshot TEXT NOT NULL DEFAULT '',
@@ -593,17 +592,17 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             uav_type_snapshot TEXT NOT NULL DEFAULT '',
             uav_serial_snapshot TEXT NOT NULL DEFAULT '',
             mission TEXT NOT NULL DEFAULT '',
-            notes TEXT NOT NULL DEFAULT '',
             payload_source TEXT NOT NULL DEFAULT '',
             payload_id INTEGER,
             payload_type_snapshot TEXT NOT NULL DEFAULT '',
             payload_serial_snapshot TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS flight_journal_date_idx ON flight_journal_entries(flight_date,id);"
     ).map_err(|_| "Не вдалося підготувати знімки плану та журнал польотів.".to_string())?;
     connection.execute("ALTER TABLE flight_journal_entries ADD COLUMN uav_type_snapshot TEXT NOT NULL DEFAULT ''", []).ok();
-    for obsolete_column in ["status", "personnel_snapshot", "result"] {
+    for obsolete_column in ["status", "personnel_snapshot", "result", "source"] {
         connection
             .execute(
                 &format!("ALTER TABLE flight_journal_entries DROP COLUMN {obsolete_column}"),

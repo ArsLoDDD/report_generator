@@ -2,6 +2,7 @@
 mod bcs;
 mod crews;
 mod equipment;
+mod flight_journal;
 mod incidents;
 mod models;
 mod positions;
@@ -12,6 +13,7 @@ mod workshop;
 pub use bcs::*;
 pub use crews::*;
 pub use equipment::*;
+pub use flight_journal::*;
 pub use incidents::*;
 pub use models::*;
 pub use positions::*;

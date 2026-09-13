@@ -6,7 +6,7 @@ import { GeneratedReportsPage } from "./features/generated-reports/GeneratedRepo
 import { prefetchGeneratedReports } from "./features/generated-reports/hooks/useGeneratedReports";
 import { PersonnelPage } from "./features/personnel/PersonnelPage";
 import { VehiclesPage } from "./features/vehicles/VehiclesPage";
-import { CrewsPage, EquipmentPage, FlightPlanningPage, IncidentsPage, PositionsPage, StaffingBcsPage } from "./features/operations/OperationalPages";
+import { CrewsPage, EquipmentPage, FlightJournalPage, FlightPlanningPage, IncidentsPage, PositionsPage, StaffingBcsPage } from "./features/operations/OperationalPages";
 import { usePersonnel } from "./features/personnel/hooks/usePersonnel";
 import { ReportGenerationPage } from "./features/report-generation/ReportGenerationPage";
 import { SettingsPage } from "./features/settings/SettingsPage";
@@ -87,6 +87,7 @@ export default function App() {
       {screen === "people" && <PersonnelPage people={people} totalCount={personnelTotalCount} hasMore={personnelHasMore} isLoading={personnelLoading} isLoadingMore={personnelLoadingMore} errorMessage={personnelError} onCreate={createPersonnel} onUpdate={updatePersonnel} onDelete={deletePersonnel} onRefresh={refreshPersonnel} onLoadMore={loadMorePersonnel} />}
       {!isSimpleEdition && screen === "staffing-bcs" && <StaffingBcsPage />}
       {!isSimpleEdition && screen === "flight-planning" && <FlightPlanningPage />}
+      {!isSimpleEdition && screen === "flight-journal" && <FlightJournalPage />}
       {!isSimpleEdition && screen === "positions" && <PositionsPage />}
       {!isSimpleEdition && screen === "assets" && <AssetsPage people={people} />}
       {!isSimpleEdition && screen === "vehicles" && <VehiclesPage people={people} />}
