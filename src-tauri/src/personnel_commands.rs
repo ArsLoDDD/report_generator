@@ -372,7 +372,7 @@ pub(crate) fn import_personnel_xlsx(
                 .unwrap_or(if crew_id.is_some() { total } else { 0 })
                 .max(0)
                 .min(total);
-            db.connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,personnel_id,notes,total_quantity,day_quantity,night_quantity,uav_type,asset_kind,components_json,assigned_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)", rusqlite::params![equipment.category,equipment.name.trim(),equipment.inventory_number.trim(),if equipment.status.trim().is_empty(){"Справний"}else{equipment.status.trim()},crew_id,holder_id,equipment.notes.trim(),total,day,night,equipment.uav_type.trim(),if equipment.asset_kind.trim()=="complex"{"complex"}else{"aircraft"},equipment.components_json,assigned]).map_err(|_| "Не вдалося імпортувати майно.".to_string())?;
+            db.connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,personnel_id,notes,total_quantity,day_quantity,night_quantity,uav_type,asset_kind,components_json,assigned_quantity,stock_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)", rusqlite::params![equipment.category,equipment.name.trim(),equipment.inventory_number.trim(),if equipment.status.trim().is_empty(){"Справний"}else{equipment.status.trim()},crew_id,holder_id,equipment.notes.trim(),total,day,night,equipment.uav_type.trim(),if equipment.asset_kind.trim()=="complex"{"complex"}else{"aircraft"},equipment.components_json,assigned,total as f64]).map_err(|_| "Не вдалося імпортувати майно.".to_string())?;
             count += 1;
         }
         for (crew_name, inventory_number) in primary_uavs {

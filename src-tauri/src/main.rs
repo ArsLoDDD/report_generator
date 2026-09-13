@@ -607,6 +607,8 @@ fn main() {
             operations::update_equipment,
             operations::assign_equipment,
             operations::delete_equipment,
+            operations::list_workshop_products,
+            operations::create_workshop_product,
             operations::list_incidents,
             operations::create_incident,
             update_unit_settings

@@ -152,7 +152,8 @@
 .position-relation-item small,.position-relation-item em { color: var(--muted); font-size: 11px; font-style: normal; }
 .position-relation-item.is-on-position { margin-inline: -7px; padding-inline: 9px; border-left: 3px solid #a7ba58; border-radius: 8px; background: rgba(151,164,76,.12); color: #dce99a; }
 .position-relation-empty { padding: 32px 10px; color: var(--muted); line-height: 1.45; text-align: center; }
-.position-asset-tabs { display: flex; gap: 5px; margin-left: auto; }
+.position-asset-tabs { display: flex; flex: 1 1 auto; justify-content: flex-end; gap: 5px; min-width: 0; margin-left: auto; padding-bottom: 3px; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
+.position-asset-tabs button { flex: 0 0 auto; }
 .position-asset-tabs button { display: inline-flex; align-items: center; gap: 3px; min-width: 34px; height: 34px; padding: 0 7px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
 .position-asset-tabs button:hover,.position-asset-tabs button.active { border-color: #7d8c4e; background: rgba(151,164,102,.13); color: var(--accent-text); }
 .position-asset-tabs svg { width: 15px !important; }

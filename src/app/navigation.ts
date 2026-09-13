@@ -10,7 +10,7 @@ const basicNavigationGroups: NavigationGroup[] = [
 ];
 
 const advancedNavigationGroups: NavigationGroup[] = [
-  { label: "Особовий склад — розширено", items: [["staffing-bcs", "Штат та БЧС", Network], ["flight-planning", "Планування польотів", PlaneTakeoff], ["crews", "Екіпажі", UsersRound]] },
+  { label: "Особовий склад — розширено", items: [["staffing-bcs", "Штат та БЧС", Network], ["flight-planning", "План польотів", PlaneTakeoff], ["crews", "Екіпажі", UsersRound]] },
   { label: "Бойова робота", items: [["positions", "Позиції", MapPinned], ["incidents", "Інциденти", AlertTriangle]] },
   { label: "Техніка та майно", items: [["assets", "Майно", PackageOpen]] },
 ];

@@ -456,6 +456,15 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS staff_position_recommendations_position_idx ON staff_position_recommendations(position_name, issued_at DESC);"
     ).map_err(|_| "Не вдалося підготувати кадрові призначення.".to_string())?;
     crate::temporary_personnel::prepare(connection)?;
+    let had_stock_quantity = connection
+        .prepare("PRAGMA table_info(equipment)")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        })
+        .map(|columns| columns.iter().any(|column| column == "stock_quantity"))
+        .unwrap_or(false);
     for statement in [
         "ALTER TABLE personnel_staff_assignments ADD COLUMN slot_id TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE personnel_staff_assignments ADD COLUMN acting_slot_id TEXT NOT NULL DEFAULT ''",
@@ -479,6 +488,9 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         "ALTER TABLE equipment ADD COLUMN asset_kind TEXT NOT NULL DEFAULT 'aircraft'",
         "ALTER TABLE equipment ADD COLUMN components_json TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE equipment ADD COLUMN assigned_quantity INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE equipment ADD COLUMN weapon_kind TEXT NOT NULL DEFAULT 'weapon'",
+        "ALTER TABLE equipment ADD COLUMN measurement_unit TEXT NOT NULL DEFAULT 'шт'",
+        "ALTER TABLE equipment ADD COLUMN stock_quantity REAL NOT NULL DEFAULT 0",
         "ALTER TABLE crews ADD COLUMN primary_uav_id INTEGER REFERENCES equipment(id) ON DELETE SET NULL",
     ] {
         connection.execute(statement, []).ok();
@@ -488,6 +500,32 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     connection.execute("UPDATE equipment SET uav_type=COALESCE((SELECT c.uav_type FROM crews c WHERE lower(trim(c.uav_name))=lower(trim(equipment.name)) AND trim(c.uav_type)<>'' LIMIT 1),'') WHERE category='uav' AND trim(uav_type)=''",[]).map_err(|_|"Не вдалося зіставити старі типи БпАК.".to_string())?;
     connection.execute("UPDATE equipment SET uav_type=CASE WHEN upper(name) LIKE '%FPV%' OR upper(name) LIKE '%ФПВ%' THEN 'ФПВ' WHEN upper(name) LIKE '%MAVIC%' THEN 'Коптер' ELSE uav_type END WHERE category='uav' AND trim(uav_type)=''",[]).map_err(|_|"Не вдалося визначити типи старих БпЛА.".to_string())?;
     connection.execute("UPDATE equipment SET assigned_quantity=CASE WHEN crew_id IS NULL THEN 0 ELSE total_quantity END WHERE category='uav' AND assigned_quantity=0",[]).map_err(|_|"Не вдалося перенести кількість закріплених БпЛА.".to_string())?;
+    if !had_stock_quantity {
+        connection
+            .execute(
+                "UPDATE equipment SET stock_quantity=total_quantity WHERE category='weapon_ammo'",
+                [],
+            )
+            .map_err(|_| "Не вдалося перенести залишки зброї та БК.".to_string())?;
+    }
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS workshop_products (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            measurement_unit TEXT NOT NULL DEFAULT 'шт',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS workshop_ingredients (
+            product_id INTEGER NOT NULL REFERENCES workshop_products(id) ON DELETE CASCADE,
+            equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE RESTRICT,
+            quantity REAL NOT NULL,
+            measurement_unit TEXT NOT NULL,
+            PRIMARY KEY(product_id,equipment_id)
+        );
+        CREATE INDEX IF NOT EXISTS workshop_products_created_idx ON workshop_products(created_at DESC);"
+    ).map_err(|_| "Не вдалося підготувати облік Цукерні.".to_string())?;
     connection.execute_batch("CREATE TRIGGER IF NOT EXISTS clear_changed_staff_slot AFTER UPDATE OF position ON personnel WHEN OLD.position <> NEW.position BEGIN UPDATE personnel_staff_assignments SET slot_id='' WHERE personnel_id=NEW.id; END;").map_err(|e| e.to_string())?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS positions (

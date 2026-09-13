@@ -245,6 +245,9 @@ pub struct Equipment {
     pub asset_kind: String,
     pub components_json: String,
     pub assigned_quantity: i64,
+    pub weapon_kind: String,
+    pub measurement_unit: String,
+    pub stock_quantity: f64,
     pub notes: String,
 }
 
@@ -268,11 +271,58 @@ pub struct EquipmentDraft {
     pub components_json: String,
     #[serde(default)]
     pub assigned_quantity: i64,
+    #[serde(default = "default_weapon_kind")]
+    pub weapon_kind: String,
+    #[serde(default = "default_measurement_unit")]
+    pub measurement_unit: String,
+    #[serde(default)]
+    pub stock_quantity: f64,
     pub notes: String,
 }
 
 fn default_asset_kind() -> String {
     "aircraft".into()
+}
+
+fn default_weapon_kind() -> String {
+    "weapon".into()
+}
+
+fn default_measurement_unit() -> String {
+    "шт".into()
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkshopProduct {
+    pub id: i64,
+    pub name: String,
+    pub quantity: f64,
+    pub measurement_unit: String,
+    pub ingredients: Vec<WorkshopIngredient>,
+    pub notes: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkshopIngredient {
+    pub equipment_id: i64,
+    #[serde(default)]
+    pub equipment_name: String,
+    pub quantity: f64,
+    #[serde(default)]
+    pub measurement_unit: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkshopDraft {
+    pub name: String,
+    pub quantity: f64,
+    pub measurement_unit: String,
+    pub ingredients: Vec<WorkshopIngredient>,
+    pub notes: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

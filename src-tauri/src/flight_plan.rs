@@ -41,6 +41,8 @@ pub struct FlightPlanEntry {
     end_time: String,
     #[serde(default)]
     uav_selections: Vec<FlightPlanUavSelection>,
+    #[serde(default)]
+    payload_selection: Option<FlightPlanPayloadSelection>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -49,6 +51,13 @@ struct FlightPlanUavSelection {
     equipment_id: i64,
     day_quantity: i64,
     night_quantity: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FlightPlanPayloadSelection {
+    source_type: String,
+    source_id: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -312,6 +321,29 @@ fn build_rows(
                 format!("{}\n{}", name.to_uppercase(), number.to_uppercase())
             }),
         );
+        if let Some(payload) = &entry.payload_selection {
+            let payload_name = match payload.source_type.as_str() {
+                "equipment" => connection
+                    .query_row(
+                        "SELECT name FROM equipment WHERE id=?1 AND category='weapon_ammo' AND weapon_kind='ammunition' AND stock_quantity>0",
+                        [payload.source_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()
+                    .map_err(|error| error.to_string())?,
+                "workshop" => connection
+                    .query_row(
+                        "SELECT name FROM workshop_products WHERE id=?1 AND quantity>0",
+                        [payload.source_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()
+                    .map_err(|error| error.to_string())?,
+                _ => None,
+            }
+            .ok_or_else(|| "Обране бойове навантаження більше не доступне.".to_string())?;
+            support.push(format!("БК: {}", payload_name.to_uppercase()));
+        }
         let route = clean_points(&entry.route_points);
         let area = clean_points(&entry.area_points);
         let altitude = format!(
@@ -543,6 +575,7 @@ mod tests {
                     day_quantity: 2,
                     night_quantity: 2,
                 }],
+                payload_selection: None,
             }],
         };
         let rows = build_rows(&connection, &request).unwrap();

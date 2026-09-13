@@ -70,9 +70,15 @@ export type Equipment = {
   assetKind: "aircraft" | "complex";
   componentsJson: string;
   assignedQuantity: number;
+  weaponKind: "weapon" | "ammunition" | "component";
+  measurementUnit: string;
+  stockQuantity: number;
   notes: string;
 };
 export type EquipmentDraft = Omit<Equipment, "id" | "crewName" | "holderName">;
+export type WorkshopIngredient = { equipmentId: number; equipmentName: string; quantity: number; measurementUnit: string };
+export type WorkshopProduct = { id: number; name: string; quantity: number; measurementUnit: string; ingredients: WorkshopIngredient[]; notes: string; createdAt: string };
+export type WorkshopDraft = Omit<WorkshopProduct, "id" | "createdAt">;
 export type Incident = {
   id: number;
   incidentType: string;
@@ -92,5 +98,6 @@ export type Incident = {
 export type IncidentDraft = Omit<Incident, "id" | "crewName" | "equipmentName" | "equipmentNames" | "crewSnapshot" | "vehicleName">;
 export type FlightPlanWeather = { temperature: string; windFrom: string; windTo: string; gustFrom: string; gustTo: string; cloudiness: string; cloudHeight: string; precipitation: string };
 export type FlightPlanUavSelection = { equipmentId: number; dayQuantity: number; nightQuantity: number };
-export type FlightPlanEntry = { crewId: number; actualCommanderId: number | null; actualVehicleId: number | null; weather: FlightPlanWeather; routePoints: string[]; altitudeFrom: string; altitudeTo: string; areaPoints: string[]; task: string; startTime: string; endTime: string; uavSelections: FlightPlanUavSelection[] };
+export type FlightPlanPayloadSelection = { sourceType: "equipment" | "workshop"; sourceId: number };
+export type FlightPlanEntry = { crewId: number; actualCommanderId: number | null; actualVehicleId: number | null; weather: FlightPlanWeather; routePoints: string[]; altitudeFrom: string; altitudeTo: string; areaPoints: string[]; task: string; startTime: string; endTime: string; uavSelections: FlightPlanUavSelection[]; payloadSelection: FlightPlanPayloadSelection | null };
 export type FlightPlanRequest = { unitName: string; entries: FlightPlanEntry[] };
