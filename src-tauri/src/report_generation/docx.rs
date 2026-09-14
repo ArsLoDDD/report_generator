@@ -214,10 +214,14 @@ pub(super) fn create_template_archive(
             // shorter replacement destroys the longer source text first.
             for (value, replacement, occurrence) in replacements {
                 if !value.is_empty() {
+                    let replacement = escape_xml(replacement)
+                        .replace("\r\n", "\n")
+                        .replace('\r', "\n")
+                        .replace('\n', "</w:t><w:br/><w:t>");
                     xml = replace_word_token_occurrence_case_insensitive(
                         &xml,
                         value,
-                        &escape_xml(replacement),
+                        &replacement,
                         *occurrence,
                     );
                 }

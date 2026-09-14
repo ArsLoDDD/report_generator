@@ -9,6 +9,7 @@ mod report_generation;
 mod settings;
 mod settings_commands;
 mod staffing_exchange;
+mod summary_report;
 mod template_analysis;
 mod temporary_personnel;
 mod xlsx;
@@ -575,6 +576,8 @@ fn main() {
             import_application_data,
             export_bcs_excel,
             flight_plan::export_flight_plan_excel,
+            flight_plan::save_flight_plan_snapshot,
+            flight_plan::get_flight_plan_snapshot,
             operations::update_bcs_crew_strength,
             temporary_personnel::list_temporary_personnel,
             temporary_personnel::save_temporary_personnel,
@@ -613,6 +616,11 @@ fn main() {
             operations::create_incident,
             operations::list_flight_journal_entries,
             operations::create_flight_journal_entry,
+            summary_report::load_summary_report_draft,
+            summary_report::save_summary_report_draft,
+            summary_report::render_summary_report_preview,
+            summary_report::export_summary_report,
+            summary_report::open_summary_report,
             update_unit_settings
         ])
     };

@@ -601,6 +601,15 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         );
         CREATE INDEX IF NOT EXISTS flight_journal_date_idx ON flight_journal_entries(flight_date,id);"
     ).map_err(|_| "Не вдалося підготувати знімки плану та журнал польотів.".to_string())?;
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS summary_report_drafts (
+            report_date TEXT PRIMARY KEY,
+            manual_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS summary_report_drafts_updated_idx ON summary_report_drafts(updated_at DESC);"
+    ).map_err(|_| "Не вдалося підготувати збереження підсумкових донесень.".to_string())?;
     connection.execute("ALTER TABLE flight_journal_entries ADD COLUMN uav_type_snapshot TEXT NOT NULL DEFAULT ''", []).ok();
     for obsolete_column in ["status", "personnel_snapshot", "result", "source"] {
         connection

@@ -86,7 +86,7 @@ export type SignerSettings = {
 
 export type SignerRole = { id: string; name: string; signer: SignerSettings };
 export type UnitStructureNode = { id: string; parentId: string | null; kind: "group" | "position"; name: string; order: number };
-export type UnitSettings = { kind: "Рота" | "Окремий взвод" | "Інше"; shortName: string; fullName?: string; unitCode?: string; authorizedStrength: number; structure?: UnitStructureNode[] };
+export type UnitSettings = { kind: "Рота" | "Окремий взвод" | "Інше"; shortName: string; fullName?: string; unitCode?: string; authorizedStrength: number; structure?: UnitStructureNode[]; battalionFullName?: string; battalionShortName?: string; militaryUnitShortName?: string; reportRecipient?: string; kspName?: string; kspLocality?: string; kspMgrs?: string; armyCorpsNumber?: string; armNumber?: string };
 
 export type AppSettings = {
   mainSigner: SignerSettings;
@@ -108,4 +108,4 @@ export type StartupWarning = {
   message: string;
 };
 
-export type Screen = "warnings" | "generator" | "templates" | "report-analyser" | "people" | "staffing-bcs" | "flight-planning" | "flight-journal" | "positions" | "assets" | "vehicles" | "generators" | "uavs" | "communications" | "weapons" | "crews" | "incidents" | "generated" | "settings" | "documentation" | "variable-constructor";
+export type Screen = "warnings" | "generator" | "templates" | "report-analyser" | "summary-report" | "people" | "staffing-bcs" | "flight-planning" | "flight-journal" | "positions" | "assets" | "vehicles" | "generators" | "uavs" | "communications" | "weapons" | "crews" | "incidents" | "generated" | "settings" | "documentation" | "variable-constructor";

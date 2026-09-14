@@ -42,6 +42,24 @@ pub struct UnitSettings {
     pub authorized_strength: i64,
     #[serde(default)]
     pub structure: Vec<UnitStructureNode>,
+    #[serde(default)]
+    pub battalion_full_name: String,
+    #[serde(default)]
+    pub battalion_short_name: String,
+    #[serde(default)]
+    pub military_unit_short_name: String,
+    #[serde(default)]
+    pub report_recipient: String,
+    #[serde(default)]
+    pub ksp_name: String,
+    #[serde(default)]
+    pub ksp_locality: String,
+    #[serde(default)]
+    pub ksp_mgrs: String,
+    #[serde(default)]
+    pub army_corps_number: String,
+    #[serde(default)]
+    pub arm_number: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -79,6 +97,15 @@ fn default_unit() -> UnitSettings {
         unit_code: String::new(),
         authorized_strength: 0,
         structure: Vec::new(),
+        battalion_full_name: String::new(),
+        battalion_short_name: String::new(),
+        military_unit_short_name: String::new(),
+        report_recipient: String::new(),
+        ksp_name: String::new(),
+        ksp_locality: String::new(),
+        ksp_mgrs: String::new(),
+        army_corps_number: String::new(),
+        arm_number: String::new(),
     }
 }
 
@@ -217,6 +244,15 @@ pub fn update_unit_settings(root: &Path, unit: UnitSettings) -> Result<AppSettin
         unit_code,
         authorized_strength: unit.authorized_strength,
         structure: unit.structure,
+        battalion_full_name: unit.battalion_full_name.trim().into(),
+        battalion_short_name: unit.battalion_short_name.trim().into(),
+        military_unit_short_name: unit.military_unit_short_name.trim().into(),
+        report_recipient: unit.report_recipient.trim().into(),
+        ksp_name: unit.ksp_name.trim().into(),
+        ksp_locality: unit.ksp_locality.trim().into(),
+        ksp_mgrs: unit.ksp_mgrs.trim().into(),
+        army_corps_number: unit.army_corps_number.trim().into(),
+        arm_number: unit.arm_number.trim().into(),
     };
     save(root, &settings)?;
     Ok(settings)

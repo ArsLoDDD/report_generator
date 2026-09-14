@@ -22,6 +22,7 @@ const storedDraft=():StoredDraft=>{try{return JSON.parse(localStorage.getItem(FL
 const cloneEntry=(entry:FlightPlanEntry):FlightPlanEntry=>({...entry,actualMemberIds:[...entry.actualMemberIds],weather:{...entry.weather},routePoints:[...entry.routePoints],areaPoints:[...entry.areaPoints],uavSelections:entry.uavSelections.map((item)=>({...item})),payloadSelection:entry.payloadSelection?{...entry.payloadSelection}:null});
 const entryFromRotation=(rotation:FlightPlanRotation):FlightPlanEntry=>{const copy={...cloneEntry(rotation)} as FlightPlanEntry&{rotationId?:string};delete copy.rotationId;return copy;};
 const dateNumber=(value:string)=>{const parts=value.includes(".")?value.split(".").reverse():value.split("-");const [year,month,day]=parts.map(Number);return year&&month&&day?year*10000+month*100+day:0;};
+const isoDate=(value:string)=>{const [day,month,year]=value.split(".");return year&&month&&day?`${year}-${month}-${day}`:value;};
 
 export function FlightPlanningPage(){
   const {notify}=useNotifications();
@@ -42,6 +43,7 @@ export function FlightPlanningPage(){
   const selectedEntries=useMemo(()=>selected.flatMap((id)=>entries[id]?[entries[id],...(rotations[id]??[])]:[]),[entries,rotations,selected]);
   const locationAssignments=useMemo<FlightPlanCrewLocationAssignment[]>(()=>selected.flatMap((crewId)=>entries[crewId]?[{crewId,stages:[entries[crewId].actualMemberIds,...(rotations[crewId]??[]).map((rotation)=>rotation.actualMemberIds)]}]:[]),[entries,rotations,selected]);
   useEffect(()=>{if(loaded)void operationsService.syncFlightPlanLocations(date,locationAssignments).catch(()=>notify("Не вдалося синхронізувати ротацію з БЧС.","error"));},[date,loaded,locationAssignments,notify]);
+  useEffect(()=>{if(!loaded||!/^\d{2}\.\d{2}\.\d{4}$/u.test(date))return;const timer=window.setTimeout(()=>{void operationsService.saveFlightPlanSnapshot(isoDate(date),{unitName,entries:selectedEntries}).catch(()=>notify("Не вдалося зберегти знімок плану польотів.","error"));},350);return()=>window.clearTimeout(timer);},[date,loaded,notify,selectedEntries,unitName]);
   const rows=useMemo(()=>flightPlanPreviewRows(unitName,selectedEntries,crews,uavs,vehicles,ammunition,workshopProducts),[ammunition,crews,selectedEntries,uavs,unitName,vehicles,workshopProducts]);
   const patchEntry=(crewId:number,patch:Partial<FlightPlanEntry>)=>setEntries((current)=>({...current,[crewId]:{...current[crewId],...patch}}));
   const patchRotation=(crewId:number,rotationId:string,patch:Partial<FlightPlanEntry>)=>setRotations((current)=>({...current,[crewId]:(current[crewId]??[]).map((rotation)=>rotation.rotationId===rotationId?{...rotation,...patch}:rotation)}));

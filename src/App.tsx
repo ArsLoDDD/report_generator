@@ -20,6 +20,7 @@ import { AppSidebar } from "./app/components/AppSidebar";
 import { isSimpleEdition } from "./app/navigation";
 import { WarningsPage } from "./app/components/WarningsPage";
 import { AssetsPage } from "./features/assets/AssetsPage";
+import { SummaryReportPage } from "./features/operations/SummaryReportPage";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("generator");
@@ -97,6 +98,7 @@ export default function App() {
       {!isSimpleEdition && screen === "weapons" && <EquipmentPage category="weapon_ammo" people={people} />}
       {!isSimpleEdition && screen === "crews" && <CrewsPage people={people} />}
       {!isSimpleEdition && screen === "incidents" && <IncidentsPage />}
+      {!isSimpleEdition && screen === "summary-report" && <SummaryReportPage />}
       {screen === "generated" && <GeneratedReportsPage />}
       {screen === "settings" && <SettingsPage />}
       {!isSimpleEdition && screen === "documentation" && <ProgramGuidePage />}

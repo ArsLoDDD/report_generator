@@ -1,6 +1,6 @@
 use crate::AppState;
 use rusqlite::{Connection, OptionalExtension};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
     io::{Cursor, Read, Write},
@@ -10,7 +10,7 @@ use zip::{write::SimpleFileOptions, ZipArchive, ZipWriter};
 
 const TEMPLATE: &[u8] = include_bytes!("../resources/flight-plan-template.xlsx");
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlightPlanWeather {
     temperature: String,
@@ -23,7 +23,7 @@ pub struct FlightPlanWeather {
     precipitation: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlightPlanEntry {
     crew_id: i64,
@@ -47,26 +47,69 @@ pub struct FlightPlanEntry {
     payload_selection: Option<FlightPlanPayloadSelection>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FlightPlanUavSelection {
+pub struct FlightPlanUavSelection {
     equipment_id: i64,
     day_quantity: i64,
     night_quantity: i64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FlightPlanPayloadSelection {
+pub struct FlightPlanPayloadSelection {
     source_type: String,
     source_id: i64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlightPlanRequest {
     unit_name: String,
     entries: Vec<FlightPlanEntry>,
+}
+
+fn normalise_plan_date(value: &str) -> Result<String, String> {
+    chrono::NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
+        .map(|date| date.format("%Y-%m-%d").to_string())
+        .map_err(|_| "Некоректна дата плану польотів.".to_string())
+}
+
+#[tauri::command]
+pub fn save_flight_plan_snapshot(
+    state: tauri::State<AppState>,
+    plan_date: String,
+    request: FlightPlanRequest,
+) -> Result<(), String> {
+    let plan_date = normalise_plan_date(&plan_date)?;
+    let snapshot_json = serde_json::to_string(&request)
+        .map_err(|_| "Не вдалося підготувати знімок плану польотів.".to_string())?;
+    let database = state
+        .0
+        .lock()
+        .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
+    database.connection.execute(
+        "INSERT INTO flight_plan_snapshots(plan_date,revision,source,snapshot_json) VALUES(?1,1,'saved',?2) ON CONFLICT(plan_date,revision) DO UPDATE SET snapshot_json=excluded.snapshot_json,source='saved',created_at=CURRENT_TIMESTAMP",
+        rusqlite::params![plan_date, snapshot_json],
+    ).map_err(|_| "Не вдалося зберегти знімок плану польотів.".to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_flight_plan_snapshot(
+    state: tauri::State<AppState>,
+    plan_date: String,
+) -> Result<Option<String>, String> {
+    let plan_date = normalise_plan_date(&plan_date)?;
+    let database = state
+        .0
+        .lock()
+        .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
+    database.connection.query_row(
+        "SELECT snapshot_json FROM flight_plan_snapshots WHERE plan_date=?1 ORDER BY revision DESC LIMIT 1",
+        [plan_date],
+        |row| row.get(0),
+    ).optional().map_err(|_| "Не вдалося прочитати знімок плану польотів.".to_string())
 }
 
 #[derive(Debug, Clone)]
