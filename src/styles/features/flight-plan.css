@@ -247,6 +247,29 @@
 		inset 3px 0 0 var(--green),
 		0 10px 26px rgba(0, 0, 0, 0.18);
 }
+.flight-plan-crew-group { display: grid; gap: 8px; }
+.flight-plan-editor--rotation { margin-left: 34px; border-style: dashed; }
+.flight-plan-editor__rotation-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.flight-plan-editor__rotation-title > svg { width: 20px; color: var(--accent); }
+.flight-plan-editor__rotation-title span { display: grid; gap: 4px; min-width: 0; }
+.flight-plan-editor__rotation-title small { color: var(--muted); }
+.flight-plan-editor__rotation-actions { display: flex; align-items: center; gap: 6px; }
+.flight-plan-rotation-action { display: flex; justify-content: center; padding: 0 20px 20px; }
+.flight-plan-rotation-action .button { min-width: 210px; }
+.flight-rotation-modal { width: min(900px, calc(100vw - 36px)); max-height: calc(100vh - 32px); }
+.flight-rotation-modal__body { min-height: 0; overflow-y: auto; padding: 20px 24px 24px; }
+.flight-rotation-summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: rgba(169,182,107,.06); }
+.flight-rotation-summary svg { color: var(--accent); }
+.flight-rotation-summary span { display: grid; gap: 4px; }
+.flight-rotation-summary small { color: var(--muted); }
+.flight-rotation-members { display: grid; gap: 8px; max-height: 410px; margin: 14px 0; overflow-y: auto; }
+.flight-rotation-members > label { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 14px; min-height: 72px; padding: 12px 15px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.flight-rotation-members > label.is-selected { border-color: rgba(169,182,107,.66); background: rgba(169,182,107,.08); }
+.flight-rotation-members input { width: 19px; height: 19px; accent-color: var(--accent); }
+.flight-rotation-members span { display: grid; gap: 5px; min-width: 0; }
+.flight-rotation-members small { color: var(--muted); }
+.flight-rotation-members em { padding: 5px 9px; border-radius: 999px; background: rgba(169,182,107,.1); color: var(--accent); font-size: 11px; font-style: normal; white-space: nowrap; }
+@media (max-width: 760px) { .flight-plan-editor--rotation { margin-left: 12px; } .flight-rotation-members > label { grid-template-columns: auto minmax(0,1fr); } .flight-rotation-members em { grid-column: 2; justify-self: start; } }
 .flight-plan-editor__header {
 	display: grid;
 	grid-template-columns: minmax(220px, 0.8fr) minmax(430px, 1.3fr) auto;

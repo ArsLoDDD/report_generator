@@ -13,7 +13,7 @@ export const FLIGHT_PLAN_HEADERS = [
 export const FLIGHT_TASKS = ["Розвідка противника та місцевості", "Ураження противника"];
 export const initialWeather = (): FlightPlanWeather => ({ temperature:"20",windFrom:"2",windTo:"4",gustFrom:"5",gustTo:"7",cloudiness:"10",cloudHeight:"2000",precipitation:"0" });
 export const splitPoints = (value: string) => value.split(/[,;\n]+/u).map((part) => part.trim()).filter(Boolean);
-export const initialFlightEntry = (crew: Crew, uavs:Equipment[]=[]): FlightPlanEntry => ({ crewId:crew.id,actualCommanderId:crew.actualMembers.find((member)=>member.position.toLocaleLowerCase("uk").includes("командир"))?.personnelId??crew.actualMembers[0]?.personnelId??null,actualVehicleId:null,weather:initialWeather(),routePoints:[],altitudeFrom:"800",altitudeTo:"1100",areaPoints:splitPoints(crew.reconnaissanceArea),task:FLIGHT_TASKS[0],startTime:"05:00",endTime:"21:00",uavSelections:uavs.filter((item)=>item.crewId===crew.id).map((item)=>({equipmentId:item.id,dayQuantity:item.dayQuantity,nightQuantity:item.nightQuantity})),payloadSelection:null });
+export const initialFlightEntry = (crew: Crew, uavs:Equipment[]=[]): FlightPlanEntry => ({ crewId:crew.id,actualMemberIds:crew.actualMembers.map((member)=>member.personnelId),actualCommanderId:crew.actualMembers.find((member)=>member.position.toLocaleLowerCase("uk").includes("командир"))?.personnelId??crew.actualMembers[0]?.personnelId??null,actualVehicleId:null,weather:initialWeather(),routePoints:[],altitudeFrom:"800",altitudeTo:"1100",areaPoints:splitPoints(crew.reconnaissanceArea),task:FLIGHT_TASKS[0],startTime:"05:00",endTime:"21:00",uavSelections:uavs.filter((item)=>item.crewId===crew.id).map((item)=>({equipmentId:item.id,dayQuantity:item.dayQuantity,nightQuantity:item.nightQuantity})),payloadSelection:null });
 
 const caps = (value: string) => value.trim().toLocaleUpperCase("uk");
 const shortRank = (rank: string) => ({"солдат":"сол.","старший солдат":"ст. сол.","молодший сержант":"мол. серж.","сержант":"серж.","старший сержант":"ст. серж.","головний сержант":"гол. серж.","штаб-сержант":"штаб-серж.","майстер-сержант":"майстер-серж.","молодший лейтенант":"мол. лейт.","лейтенант":"лейт.","старший лейтенант":"ст. лейт.","капітан":"кап.","підполковник":"підполк.","полковник":"полк."}[rank.trim().toLocaleLowerCase("uk")] ?? rank.trim());
@@ -21,14 +21,15 @@ const abbreviatedName=(fullName:string)=>{const [surname="",given="",patronymic=
 const personText = (member: Crew["members"][number]) => [shortRank(member.rank),abbreviatedName(member.fullName),member.callsign?.trim()?`(${member.callsign.trim()})`:""].filter(Boolean).join(" ");
 const pointList = (points: string[], separator = " — ") => points.map(caps).filter(Boolean).join(separator);
 
-export type FlightPlanPreviewRow = { crewId: number; cells: string[] };
+export type FlightPlanPreviewRow = { rowId: string; crewId: number; cells: string[] };
 
-export function flightPlanPreviewRows(unitName: string, selected: number[], entries: Record<number, FlightPlanEntry>, crews: Crew[], uavs: Equipment[], vehicles: Vehicle[], ammunition: Equipment[] = [], workshopProducts: WorkshopProduct[] = []): FlightPlanPreviewRow[] {
-  return selected.flatMap((crewId, index) => {
+export function flightPlanPreviewRows(unitName: string, planEntries: FlightPlanEntry[], crews: Crew[], uavs: Equipment[], vehicles: Vehicle[], ammunition: Equipment[] = [], workshopProducts: WorkshopProduct[] = []): FlightPlanPreviewRow[] {
+  return planEntries.flatMap((entry, index) => {
+    const crewId=entry.crewId;
     const crew = crews.find((item) => item.id === crewId);
-    const entry = entries[crewId];
     if (!crew || !entry) return [];
-    const actual = crew.actualMembers;
+    const actualIds=entry.actualMemberIds?.length?new Set(entry.actualMemberIds):new Set(crew.actualMembers.map((member)=>member.personnelId));
+    const actual = [...crew.members,...crew.actualMembers].filter((member,index,members)=>actualIds.has(member.personnelId)&&members.findIndex((candidate)=>candidate.personnelId===member.personnelId)===index);
     const commander = actual.find((member) => member.personnelId===entry.actualCommanderId) ?? actual.find((member) => member.position.toLocaleLowerCase("uk").includes("командир")) ?? actual[0];
     const crewUavs = uavs.filter((item) => item.crewId === crewId);
     const selectedUavs=entry.uavSelections.flatMap((selection)=>{const item=crewUavs.find((uav)=>uav.id===selection.equipmentId);return item?[{item,...selection}]:[];});
@@ -40,7 +41,7 @@ export function flightPlanPreviewRows(unitName: string, selected: number[], entr
     const payload = entry.payloadSelection?.sourceType === "equipment" ? ammunition.find((item)=>item.id===entry.payloadSelection?.sourceId)?.name : entry.payloadSelection?.sourceType === "workshop" ? workshopProducts.find((item)=>item.id===entry.payloadSelection?.sourceId)?.name : "";
     const support = [...supportUavs, ...crewVehicles.map((item) => [caps(item.name),caps(item.registrationNumber)].filter(Boolean).join("\n")), payload ? `БК: ${caps(payload)}` : ""].filter(Boolean).join("\n");
     const weather = entry.weather;
-    return [{ crewId, cells:[
+    return [{ rowId:`${crewId}-${index}`, crewId, cells:[
       String(index+1), unitName, uavName, [caps(crew.name),crew.positionName ? `(${caps(crew.positionName)})` : ""].filter(Boolean).join("\n"), crew.battleOrder,
       commander ? personText(commander) : "", actual.map(personText).join("\n"),
       `Згідно прогнозу UAV Forecast ${weather.temperature} С, вітер від ${weather.windFrom} до ${weather.windTo} м/с, пориви від ${weather.gustFrom} до ${weather.gustTo} м/с. Хмарність ${weather.cloudiness} % ${weather.cloudHeight} м. Вірогідність опадів ${weather.precipitation} %`,

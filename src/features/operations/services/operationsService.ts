@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightJournalDraft, FlightJournalEntry, FlightPlanRequest, Incident, IncidentDraft, Position, PositionDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation, WorkshopDraft, WorkshopProduct } from "../types";
+import type { Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightJournalDraft, FlightJournalEntry, FlightPlanCrewLocationAssignment, FlightPlanRequest, Incident, IncidentDraft, Position, PositionDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation, WorkshopDraft, WorkshopProduct } from "../types";
 
 export const operationsService = {
   listCrews: () => invoke<Crew[]>("list_crews"),
@@ -10,7 +10,7 @@ export const operationsService = {
   saveTemporaryPersonnel: (person: import("../types").TemporaryPerson) => invoke<void>("save_temporary_personnel", { person }),
   deleteTemporaryPersonnel: (personId: number) => invoke<void>("delete_temporary_personnel", { personId }),
   listStaffingRecords: () => invoke<StaffingRecord[]>("list_staffing_records"),
-  syncFlightPlanLocations: (crewIds: number[]) => invoke<void>("sync_flight_plan_locations", { crewIds }),
+  syncFlightPlanLocations: (planDate: string, assignments: FlightPlanCrewLocationAssignment[]) => invoke<void>("sync_flight_plan_locations", { planDate, assignments }),
   updateStaffingPersonnel: (payload: { personnelId: number; position: string; actingPosition: string; currentLocation: string; functionalDuties: string; notes: string }) => invoke<void>("update_staffing_personnel", payload),
   transferStaffingChain: (assignments: import("../staffing-slots").SlotTransfer[], actingChanges: import("../staffing-slots").ActingChange[] = []) => invoke<void>("transfer_staffing_chain", { assignments, actingChanges }),
   createStaffRecommendation: (payload: { personnelId: number; positionName: string; issuedAt: string; notes: string }) => invoke<void>("create_staff_recommendation", payload),

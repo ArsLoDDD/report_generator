@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
 import { operationsService } from "./services/operationsService";
@@ -63,5 +63,35 @@ describe("Планування польотів",()=>{
     expect(screen.getByText("Масштаб таблиці · 75%")).toBeInTheDocument();
     expect(await screen.findByText("БАРС",{selector:"b"})).toBeInTheDocument();
     expect(screen.queryByText("РЕЗЕРВ")).not.toBeInTheDocument();
+  });
+
+  it("creates a separately editable rotation stage and limits the commander to the selected people",async()=>{
+    const people=[
+      {personnelId:1,fullName:"ПЕРШИЙ Петро Петрович",rank:"капітан",position:"командир екіпажу",callsign:"СОКІЛ"},
+      {personnelId:2,fullName:"ДРУГИЙ Дмитро Дмитрович",rank:"солдат",position:"оператор",callsign:"ЛИС"},
+      {personnelId:3,fullName:"ТРЕТІЙ Тарас Тарасович",rank:"солдат",position:"оператор",callsign:"КРУК"},
+      {personnelId:4,fullName:"ЧЕТВЕРТИЙ Іван Іванович",rank:"солдат",position:"технік",callsign:"СИЧ"},
+    ];
+    vi.mocked(operationsService.listCrews).mockResolvedValue([{...crew("СОКІЛ"),officialStrength:4,workingStrength:2,members:people,actualMembers:people.slice(0,2)}]);
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText("БАРС",{selector:"b"});
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    fireEvent.click(screen.getByRole("button",{name:"Провести ротацію"}));
+    const dialog=screen.getByRole("dialog",{name:/Ротація екіпажу/u});
+    const memberChecks=within(dialog).getAllByRole("checkbox");
+    expect(memberChecks.filter((checkbox)=>(checkbox as HTMLInputElement).checked)).toHaveLength(2);
+    fireEvent.click(within(dialog).getByText("ДРУГИЙ Дмитро Дмитрович"));
+    fireEvent.click(within(dialog).getByText("ТРЕТІЙ Тарас Тарасович"));
+    const commander=within(dialog).getByLabelText("Фактичний командир після ротації");
+    expect(within(commander).queryByText("ДРУГИЙ Дмитро Дмитрович · ЛИС")).not.toBeInTheDocument();
+    expect(within(commander).getByText("ТРЕТІЙ Тарас Тарасович · КРУК")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button",{name:"Провести ротацію"}));
+    expect(await screen.findByText("БАРС · після ротації 1")).toBeInTheDocument();
+    await waitFor(()=>{
+      const stored=JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}");
+      expect(stored.rotations[1][0].actualMemberIds).toEqual([1,3]);
+      expect(stored.rotations[1][0].actualCommanderId).toBe(1);
+    });
+    await waitFor(()=>expect(operationsService.syncFlightPlanLocations).toHaveBeenLastCalledWith(expect.any(String),[{crewId:1,stages:[[1,2],[1,3]]}]));
   });
 });

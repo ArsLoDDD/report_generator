@@ -1,34 +1,45 @@
-import { AlertTriangle, ChevronDown, MapPin, Plane, Route, Users } from "lucide-react";
+import { AlertTriangle, ChevronDown, MapPin, Plane, RefreshCw, Trash2, Users } from "lucide-react";
 import { useState } from "react";
-import { Select } from "../../shared/ui/Select";
 import type { Vehicle } from "../vehicles/types";
-import { FLIGHT_TASKS } from "./flight-plan-model";
-import { PointTagsInput } from "./PointTagsInput";
-import type { Crew, Equipment, FlightPlanEntry, FlightPlanWeather, WorkshopProduct } from "./types";
+import { FlightPlanEntryFields } from "./FlightPlanEntryFields";
+import { FlightRotationModal } from "./FlightRotationModal";
+import type { Crew, Equipment, FlightPlanEntry, FlightPlanRotation, WorkshopProduct } from "./types";
 
-const weatherFields: Array<[keyof FlightPlanWeather,string]> = [["temperature","Температура, °С"],["windFrom","Вітер від, м/с"],["windTo","Вітер до, м/с"],["gustFrom","Пориви від, м/с"],["gustTo","Пориви до, м/с"],["cloudiness","Хмарність, %"],["cloudHeight","Висота хмар, м"],["precipitation","Вірогідність опадів, %"]];
-
-export function FlightPlanParametersModal({ crews, vehicles, uavs, ammunition, workshopProducts, selected, entries, missingCallsignCount, onToggle, onPatch }: {
-  crews:Crew[]; vehicles:Vehicle[]; uavs:Equipment[]; ammunition:Equipment[]; workshopProducts:WorkshopProduct[]; selected:number[]; entries:Record<number,FlightPlanEntry>; missingCallsignCount:number;
-  onToggle:(crewId:number)=>void; onPatch:(crewId:number,patch:Partial<FlightPlanEntry>)=>void;
+export function FlightPlanParametersModal({ crews, vehicles, uavs, ammunition, workshopProducts, selected, entries, rotations, missingCallsignCount, onToggle, onPatch, onPatchRotation, onSaveRotation, onDeleteRotation }: {
+  crews:Crew[];
+  vehicles:Vehicle[];
+  uavs:Equipment[];
+  ammunition:Equipment[];
+  workshopProducts:WorkshopProduct[];
+  selected:number[];
+  entries:Record<number,FlightPlanEntry>;
+  rotations:Record<number,FlightPlanRotation[]>;
+  missingCallsignCount:number;
+  onToggle:(crewId:number)=>void;
+  onPatch:(crewId:number,patch:Partial<FlightPlanEntry>)=>void;
+  onPatchRotation:(crewId:number,rotationId:string,patch:Partial<FlightPlanEntry>)=>void;
+  onSaveRotation:(crewId:number,memberIds:number[],commanderId:number,rotationId?:string)=>void;
+  onDeleteRotation:(crewId:number,rotationId:string)=>void;
 }) {
-  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
-  const toggleExpanded = (crewId:number) => setExpanded((current) => { const next=new Set(current); if(next.has(crewId))next.delete(crewId);else next.add(crewId); return next; });
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [rotationCrewId,setRotationCrewId]=useState<number|null>(null);
+  const toggleExpanded = (key:string) => setExpanded((current) => { const next=new Set(current); if(next.has(key))next.delete(key);else next.add(key); return next; });
+  const rotationCrew=crews.find((crew)=>crew.id===rotationCrewId);
+  const currentRotation=rotationCrewId===null?undefined:rotations[rotationCrewId]?.[0];
   return <section className="panel flight-plan-parameters-panel"><div className="flight-plan-parameters">
-      {missingCallsignCount>0&&<div className="flight-plan-modal-warning"><AlertTriangle/><span>У складі екіпажів немає позивних у {missingCallsignCount} людей. Для вибраних екіпажів експорт буде недоступний, доки позивні не заповнені.</span></div>}
-      <section className="flight-plan-parameters__crews" aria-label={`Працюючі екіпажі: вибрано ${selected.length} з ${crews.length}`}>
-        {crews.map((crew)=>{const checked=selected.includes(crew.id);const open=expanded.has(crew.id);const entry=entries[crew.id];if(!entry)return null;const crewVehicles=vehicles.filter((item)=>item.crewId===crew.id);const crewUavs=uavs.filter((item)=>item.crewId===crew.id);return <article className={`flight-plan-editor ${checked?"is-selected":""}`} key={crew.id}>
-          <div className="flight-plan-editor__header" role="button" tabIndex={0} onClick={()=>toggleExpanded(crew.id)} onKeyDown={(event)=>{if(event.key==="Enter"||event.key===" ")toggleExpanded(crew.id);}}><label className="flight-plan-editor__select" onClick={(event)=>event.stopPropagation()}><input type="checkbox" checked={checked} onChange={()=>onToggle(crew.id)}/><span><b>{crew.name}</b><small>{crew.positionName||"Позицію не визначено"}</small></span></label><div className="flight-plan-editor__facts"><span><MapPin/>{crew.battleOrder||"БРО не вказано"}</span><span><Plane/>{crew.uavName||"БпАК не вказано"}</span><span><Users/>{crew.actualMembers.length} фактично</span><em>{crew.status}</em></div><button type="button" className={`flight-plan-editor__expand ${open?"is-open":""}`} aria-label={`${open?"Згорнути":"Розгорнути"} ${crew.name}`} onClick={(event)=>{event.stopPropagation();toggleExpanded(crew.id);}}><ChevronDown/></button></div>
-          {open&&<div className="flight-plan-editor__fields">
-            <fieldset><legend>Фактичне забезпечення</legend><div className="flight-plan-actual-grid"><label className="form-field"><span>Фактичний командир екіпажу</span><Select ariaLabel={`Фактичний командир ${crew.name}`} value={entry.actualCommanderId?.toString()??""} onChange={(value)=>onPatch(crew.id,{actualCommanderId:value?Number(value):null})} options={crew.actualMembers.map((member)=>({value:String(member.personnelId),label:`${member.fullName}${member.callsign?` · ${member.callsign}`:""}`}))}/></label>{crewVehicles.length>1&&<label className="form-field"><span>Фактичний автомобіль</span><Select ariaLabel={`Фактичний автомобіль ${crew.name}`} value={entry.actualVehicleId?.toString()??""} onChange={(value)=>onPatch(crew.id,{actualVehicleId:value?Number(value):null})} options={[{value:"",label:"Оберіть автомобіль"},...crewVehicles.map((vehicle)=>({value:String(vehicle.id),label:`${vehicle.name} · ${vehicle.registrationNumber}`}))]}/></label>}</div></fieldset>
-            <fieldset><legend>БпЛА у плані польотів</legend><div className="flight-uav-selector">{crewUavs.map((uav)=>{const current=entry.uavSelections.find((item)=>item.equipmentId===uav.id);const patchQuantity=(key:"dayQuantity"|"nightQuantity",raw:number)=>{if(!current)return;const other=key==="dayQuantity"?current.nightQuantity:current.dayQuantity;const value=Math.max(0,Math.min(Number.isFinite(raw)?raw:0,uav.totalQuantity-other));onPatch(crew.id,{uavSelections:entry.uavSelections.map((item)=>item.equipmentId===uav.id?{...item,[key]:value}:item)});};return <article className={current?"selected":""} key={uav.id}><label><input type="checkbox" checked={!!current} onChange={()=>onPatch(crew.id,{uavSelections:current?entry.uavSelections.filter((item)=>item.equipmentId!==uav.id):[...entry.uavSelections,{equipmentId:uav.id,dayQuantity:uav.dayQuantity,nightQuantity:uav.nightQuantity}]})}/><span><b>{uav.name}</b><small>{uav.inventoryNumber||"Без номера"} · усього {uav.totalQuantity}</small></span></label>{current&&<div><label className="form-field"><span>Денні</span><input type="number" min="0" max={uav.totalQuantity-current.nightQuantity} value={current.dayQuantity} onChange={(event)=>patchQuantity("dayQuantity",Number(event.target.value))}/></label><label className="form-field"><span>Нічні</span><input type="number" min="0" max={uav.totalQuantity-current.dayQuantity} value={current.nightQuantity} onChange={(event)=>patchQuantity("nightQuantity",Number(event.target.value))}/></label></div>}</article>})}{!crewUavs.length&&<p>За екіпажем не закріплено жодного БпЛА.</p>}</div></fieldset>
-            {entry.task==="Ураження противника"&&<fieldset><legend>Бойове навантаження</legend><label className="form-field form-field--wide"><span>Штатне БК або виріб Цукерні</span><Select ariaLabel={`Бойове навантаження ${crew.name}`} value={entry.payloadSelection?`${entry.payloadSelection.sourceType}:${entry.payloadSelection.sourceId}`:""} onChange={(value)=>{const [sourceType,sourceId]=value.split(":");onPatch(crew.id,{payloadSelection:value?{sourceType:sourceType as "equipment"|"workshop",sourceId:Number(sourceId)}:null});}} options={[{value:"",label:"Не обрано"},...ammunition.filter((item)=>item.weaponKind==="ammunition"&&item.stockQuantity>0).map((item)=>({value:`equipment:${item.id}`,label:`Штатне БК · ${item.name} · ${item.stockQuantity} ${item.measurementUnit}`})),...workshopProducts.filter((item)=>item.quantity>0).map((item)=>({value:`workshop:${item.id}`,label:`Цукерня · ${item.name} · ${item.quantity} ${item.measurementUnit}`}))]}/></label></fieldset>}
-            <fieldset><legend>Погода цього екіпажу</legend><div className="flight-weather__grid">{weatherFields.map(([key,label])=><label className="form-field" key={key}><span>{label}</span><input type="number" value={entry.weather[key]} onChange={(event)=>onPatch(crew.id,{weather:{...entry.weather,[key]:event.target.value}})}/></label>)}</div></fieldset>
-            <div className="flight-plan-editor__route"><PointTagsInput label="Маршрут — населені пункти" value={entry.routePoints} onChange={(routePoints)=>onPatch(crew.id,{routePoints})}/><label className="form-field"><span>Висота від, м</span><input type="number" value={entry.altitudeFrom} onChange={(event)=>onPatch(crew.id,{altitudeFrom:event.target.value})}/></label><label className="form-field"><span>Висота до, м</span><input type="number" value={entry.altitudeTo} onChange={(event)=>onPatch(crew.id,{altitudeTo:event.target.value})}/></label><PointTagsInput label="Район виконання — населені пункти" value={entry.areaPoints} onChange={(areaPoints)=>onPatch(crew.id,{areaPoints})}/><label className="form-field"><span>Завдання після «Бойове чергування»</span><Select ariaLabel={`Завдання екіпажу ${crew.name}`} value={entry.task} onChange={(task)=>onPatch(crew.id,{task})} options={FLIGHT_TASKS.map((value)=>({value,label:value}))}/></label><label className="form-field"><span>Початок</span><input type="time" value={entry.startTime} onChange={(event)=>onPatch(crew.id,{startTime:event.target.value})}/></label><label className="form-field"><span>Закінчення</span><input type="time" value={entry.endTime} onChange={(event)=>onPatch(crew.id,{endTime:event.target.value})}/></label></div>
-            <div className="flight-crew__links"><Route/><span>Фактичний склад: {crew.actualMembers.length}</span><span>БпЛА: {crewUavs.length||crew.uavName||"не вказано"}</span><span>Автомобілі: {crewVehicles.length||"немає"}</span></div>
-          </div>}
-        </article>;})}
-      </section>
-    </div>
-  </section>;
+    {missingCallsignCount>0&&<div className="flight-plan-modal-warning"><AlertTriangle/><span>У складі екіпажів немає позивних у {missingCallsignCount} людей. Для вибраних екіпажів експорт буде недоступний, доки позивні не заповнені.</span></div>}
+    <section className="flight-plan-parameters__crews" aria-label={`Працюючі екіпажі: вибрано ${selected.length} з ${crews.length}`}>
+      {crews.map((crew)=>{const checked=selected.includes(crew.id);const baseKey=`crew-${crew.id}`;const open=expanded.has(baseKey);const entry=entries[crew.id];if(!entry)return null;const crewRotations=rotations[crew.id]??[];return <div className="flight-plan-crew-group" key={crew.id}>
+        <article className={`flight-plan-editor ${checked?"is-selected":""}`}>
+          <div className="flight-plan-editor__header" role="button" tabIndex={0} onClick={()=>toggleExpanded(baseKey)} onKeyDown={(event)=>{if(event.key==="Enter"||event.key===" ")toggleExpanded(baseKey);}}><label className="flight-plan-editor__select" onClick={(event)=>event.stopPropagation()}><input type="checkbox" checked={checked} onChange={()=>onToggle(crew.id)}/><span><b>{crew.name}</b><small>{crew.positionName||"Позицію не визначено"}</small></span></label><div className="flight-plan-editor__facts"><span><MapPin/>{crew.battleOrder||"БРО не вказано"}</span><span><Plane/>{crew.uavName||"БпАК не вказано"}</span><span><Users/>{entry.actualMemberIds.length} на позиції</span><em>{crew.status}</em></div><button type="button" className={`flight-plan-editor__expand ${open?"is-open":""}`} aria-label={`${open?"Згорнути":"Розгорнути"} ${crew.name}`} onClick={(event)=>{event.stopPropagation();toggleExpanded(baseKey);}}><ChevronDown/></button></div>
+          {open&&<><FlightPlanEntryFields crew={crew} entry={entry} vehicles={vehicles} uavs={uavs} ammunition={ammunition} workshopProducts={workshopProducts} onPatch={(patch)=>onPatch(crew.id,patch)}/><div className="flight-plan-rotation-action"><button className="button" type="button" onClick={()=>setRotationCrewId(crew.id)}><RefreshCw/>{crewRotations.length?"Змінити склад ротації":"Провести ротацію"}</button></div></>}
+        </article>
+        {crewRotations.map((rotation,index)=>{const key=`rotation-${rotation.rotationId}`;const rotationOpen=expanded.has(key);return <article className={`flight-plan-editor flight-plan-editor--rotation ${checked?"is-selected":""}`} key={rotation.rotationId}>
+          <div className="flight-plan-editor__header" role="button" tabIndex={0} onClick={()=>toggleExpanded(key)} onKeyDown={(event)=>{if(event.key==="Enter"||event.key===" ")toggleExpanded(key);}}><div className="flight-plan-editor__rotation-title"><RefreshCw/><span><b>{crew.name} · після ротації {index+1}</b><small>{rotation.actualMemberIds.length} людей · {rotation.startTime}–{rotation.endTime}</small></span></div><div className="flight-plan-editor__facts"><span><Users/>{rotation.actualMemberIds.length} на позиції</span><span><Plane/>{crew.uavName||"БпАК не вказано"}</span></div><div className="flight-plan-editor__rotation-actions"><button type="button" className="icon-button danger" aria-label={`Видалити ротацію ${crew.name}`} onClick={(event)=>{event.stopPropagation();onDeleteRotation(crew.id,rotation.rotationId);}}><Trash2/></button><button type="button" className={`flight-plan-editor__expand ${rotationOpen?"is-open":""}`} aria-label={`${rotationOpen?"Згорнути":"Розгорнути"} ротацію ${crew.name}`} onClick={(event)=>{event.stopPropagation();toggleExpanded(key);}}><ChevronDown/></button></div></div>
+          {rotationOpen&&<FlightPlanEntryFields crew={crew} entry={rotation} vehicles={vehicles} uavs={uavs} ammunition={ammunition} workshopProducts={workshopProducts} onPatch={(patch)=>onPatchRotation(crew.id,rotation.rotationId,patch)}/>}
+        </article>})}
+      </div>;})}
+    </section>
+    {rotationCrew&&<FlightRotationModal crew={rotationCrew} currentEntry={entries[rotationCrew.id]} rotation={currentRotation} onClose={()=>setRotationCrewId(null)} onSave={(memberIds,commanderId)=>{onSaveRotation(rotationCrew.id,memberIds,commanderId,currentRotation?.rotationId);setRotationCrewId(null);}}/>}
+  </div></section>;
 }

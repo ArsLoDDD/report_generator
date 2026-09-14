@@ -183,6 +183,14 @@ pub struct StaffingRecord {
     pub recommendation_count: i64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlightPlanCrewLocationAssignment {
+    pub crew_id: i64,
+    #[serde(default)]
+    pub stages: Vec<Vec<i64>>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StaffRecommendation {

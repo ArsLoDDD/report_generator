@@ -28,6 +28,8 @@ pub struct FlightPlanWeather {
 pub struct FlightPlanEntry {
     crew_id: i64,
     #[serde(default)]
+    actual_member_ids: Vec<i64>,
+    #[serde(default)]
     actual_commander_id: Option<i64>,
     #[serde(default)]
     actual_vehicle_id: Option<i64>,
@@ -238,7 +240,18 @@ fn build_rows(
             "SELECT c.name,COALESCE(primary_uav.name,c.uav_name),COALESCE(primary_uav.inventory_number,''),COALESCE(p.name,c.position_name),COALESCE(p.battle_order,c.battle_order),COALESCE(p.locality,c.reconnaissance_area) FROM crews c LEFT JOIN positions p ON p.id=c.position_id LEFT JOIN equipment primary_uav ON primary_uav.id=c.primary_uav_id AND primary_uav.crew_id=c.id WHERE c.id=?1",
             [entry.crew_id], |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,String>(3)?,row.get::<_,String>(4)?,row.get::<_,String>(5)?)),
         ).optional().map_err(|e| e.to_string())?.ok_or_else(|| "Один з екіпажів плану більше не існує.".to_string())?;
-        let actual = list_members(connection, entry.crew_id, true)?;
+        let mut actual = list_members(connection, entry.crew_id, true)?;
+        if !entry.actual_member_ids.is_empty() {
+            actual.retain(|member| entry.actual_member_ids.contains(&member.id));
+            let official_for_rotation = list_members(connection, entry.crew_id, false)?;
+            for member in official_for_rotation {
+                if entry.actual_member_ids.contains(&member.id)
+                    && !actual.iter().any(|item| item.id == member.id)
+                {
+                    actual.push(member);
+                }
+            }
+        }
         let official = list_members(connection, entry.crew_id, false)?;
         let mut all = official.clone();
         for member in &actual {
@@ -551,6 +564,7 @@ mod tests {
             unit_name: "РБПАК".into(),
             entries: vec![FlightPlanEntry {
                 crew_id: 1,
+                actual_member_ids: vec![1],
                 actual_commander_id: Some(1),
                 actual_vehicle_id: None,
                 weather: FlightPlanWeather {
