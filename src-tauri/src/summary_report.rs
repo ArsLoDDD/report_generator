@@ -124,7 +124,8 @@ fn shelling_row(number: usize, row: Option<&SummaryShellingRow>) -> String {
         })
         .unwrap_or_else(|| vec!["-".into(); 6]);
     let widths = [500, 1100, 1050, 2050, 2200, 1900];
-    let cells = values.into_iter().zip(widths).map(|(value,width)| format!("<w:tc><w:tcPr><w:tcW w:w=\"{width}\" w:type=\"dxa\"/><w:vAlign w:val=\"center\"/></w:tcPr><w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:sz w:val=\"22\"/></w:rPr><w:t xml:space=\"preserve\">{}</w:t></w:r></w:p></w:tc>", escape(if value.trim().is_empty() { "-" } else { &value }))).collect::<String>();
+    let borders = "<w:tcBorders><w:top w:val=\"single\" w:sz=\"4\" w:color=\"000000\"/><w:left w:val=\"single\" w:sz=\"4\" w:color=\"000000\"/><w:bottom w:val=\"single\" w:sz=\"4\" w:color=\"000000\"/><w:right w:val=\"single\" w:sz=\"4\" w:color=\"000000\"/></w:tcBorders>";
+    let cells = values.into_iter().zip(widths).map(|(value,width)| format!("<w:tc><w:tcPr><w:tcW w:w=\"{width}\" w:type=\"dxa\"/>{borders}<w:vAlign w:val=\"center\"/></w:tcPr><w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/><w:sz w:val=\"22\"/></w:rPr><w:t xml:space=\"preserve\">{}</w:t></w:r></w:p></w:tc>", escape(if value.trim().is_empty() { "-" } else { &value }))).collect::<String>();
     format!("<w:tr>{cells}</w:tr>")
 }
 
@@ -260,50 +261,24 @@ mod tests {
     #[test]
     fn creates_a_docx_without_template_markers() {
         let output = temp_path("docx");
-        let keys = [
-            "recipient",
-            "report_number",
-            "unit_short_name",
-            "military_unit_short_name",
-            "ksp_name",
-            "ksp_locality",
-            "report_date",
-            "enemy_losses",
-            "composition_changes",
-            "force_composition",
-            "completeness",
-            "positions",
-            "enemy_actions",
-            "assault_actions",
-            "battalion_short_name",
-            "period_start_date",
-            "period_end_date",
-            "flight_count",
-            "flight_operations",
-            "ksp_mgrs",
-            "command_duties",
-            "guard_duties",
-            "period_events",
-            "commissions",
-            "fortification",
-            "dzvin",
-            "next_tasks",
-            "personnel_losses",
-            "equipment_losses",
-            "equipment_losses_details",
-            "ammunition_expenses",
-            "problems",
-            "other_issues",
-            "signer_position",
-            "signer_rank",
-            "signer_given_name",
-            "signer_surname",
-            "arm_number",
-        ];
-        let values = keys
-            .into_iter()
-            .map(|key| (key.to_string(), "Тест".to_string()))
-            .collect();
+        let mut source = ZipArchive::new(std::io::Cursor::new(TEMPLATE)).unwrap();
+        let mut template_xml = String::new();
+        source
+            .by_name("word/document.xml")
+            .unwrap()
+            .read_to_string(&mut template_xml)
+            .unwrap();
+        let mut values = std::collections::HashMap::new();
+        let mut remaining = template_xml.as_str();
+        while let Some(start) = remaining.find("{{") {
+            let after_start = &remaining[start + 2..];
+            let Some(end) = after_start.find("}}") else {
+                break;
+            };
+            values.insert(after_start[..end].to_string(), "Тест".to_string());
+            remaining = &after_start[end + 2..];
+        }
+        values.remove("shelling_rows");
         build_document(
             &output,
             &SummaryReportDocument {
