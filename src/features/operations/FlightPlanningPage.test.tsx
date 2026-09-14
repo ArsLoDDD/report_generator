@@ -80,8 +80,11 @@ describe("Планування польотів",()=>{
     const dialog=screen.getByRole("dialog",{name:/Ротація екіпажу/u});
     const memberChecks=within(dialog).getAllByRole("checkbox");
     expect(memberChecks.filter((checkbox)=>(checkbox as HTMLInputElement).checked)).toHaveLength(2);
+    expect(within(dialog).getByText(/Щоб провести ротацію, змініть склад екіпажу/u)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button",{name:"Провести ротацію"})).toBeDisabled();
     fireEvent.click(within(dialog).getByText("ДРУГИЙ Дмитро Дмитрович"));
     fireEvent.click(within(dialog).getByText("ТРЕТІЙ Тарас Тарасович"));
+    expect(within(dialog).getByRole("button",{name:"Провести ротацію"})).toBeEnabled();
     const commander=within(dialog).getByLabelText("Фактичний командир після ротації");
     expect(within(commander).queryByText("ДРУГИЙ Дмитро Дмитрович · ЛИС")).not.toBeInTheDocument();
     expect(within(commander).getByText("ТРЕТІЙ Тарас Тарасович · КРУК")).toBeInTheDocument();

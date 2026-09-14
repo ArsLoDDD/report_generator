@@ -262,6 +262,7 @@
 .flight-rotation-summary svg { color: var(--accent); }
 .flight-rotation-summary span { display: grid; gap: 4px; }
 .flight-rotation-summary small { color: var(--muted); }
+.flight-rotation-warning { margin: 12px 0 0; padding: 10px 12px; border: 1px solid rgba(225,177,67,.42); border-radius: 10px; background: rgba(202,147,25,.08); color: #e7c466; font-size: 13px; }
 .flight-rotation-members { display: grid; gap: 8px; max-height: 410px; margin: 14px 0; overflow-y: auto; }
 .flight-rotation-members > label { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 14px; min-height: 72px; padding: 12px 15px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
 .flight-rotation-members > label.is-selected { border-color: rgba(169,182,107,.66); background: rgba(169,182,107,.08); }
