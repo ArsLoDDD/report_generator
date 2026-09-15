@@ -1,5 +1,5 @@
 /* Reusable modal surface and the personnel editor. */
-.modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 28px; background: #02070bc7; backdrop-filter: blur(4px); }
+.modal-backdrop { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 28px; background: #02070bc7; backdrop-filter: blur(4px); }
 .modal-panel { width: min(720px, 100%); max-height: calc(100vh - 56px); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border: 1px solid #2b414d; border-radius: 10px; background: #0c1821; box-shadow: 0 24px 80px #000a; }
 .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 17px 20px; border-bottom: 1px solid #263945; }
 .modal-header h2 { margin: 0; font-size: 18px; }

@@ -45,6 +45,50 @@ pub struct FlightPlanEntry {
     uav_selections: Vec<FlightPlanUavSelection>,
     #[serde(default)]
     payload_selection: Option<FlightPlanPayloadSelection>,
+    #[serde(default)]
+    rotation_id: Option<String>,
+    #[serde(default)]
+    crew_name: String,
+    #[serde(default)]
+    crew_uav_type: String,
+    #[serde(default)]
+    position_id: Option<i64>,
+    #[serde(default)]
+    position_name: String,
+    #[serde(default)]
+    position_mgrs: String,
+    #[serde(default)]
+    position_locality: String,
+    #[serde(default)]
+    work_strip: String,
+    #[serde(default)]
+    battle_order: String,
+    #[serde(default)]
+    uav_snapshots: Vec<FlightPlanUavSnapshot>,
+    #[serde(default)]
+    member_snapshots: Vec<FlightPlanMemberSnapshot>,
+    #[serde(default)]
+    arrives_today: bool,
+    #[serde(default)]
+    departs_today: bool,
+    #[serde(default)]
+    departure_time: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlightPlanUavSnapshot {
+    equipment_id: i64,
+    name: String,
+    serial_number: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FlightPlanMemberSnapshot {
+    personnel_id: i64,
+    full_name: String,
+    rank: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -580,6 +624,37 @@ mod tests {
     use crate::database;
 
     #[test]
+    fn keeps_position_transition_metadata_in_a_snapshot() {
+        let request: FlightPlanRequest = serde_json::from_value(serde_json::json!({
+            "unitName": "РБПАК",
+            "entries": [{
+                "crewId": 1,
+                "actualMemberIds": [1],
+                "actualCommanderId": 1,
+                "actualVehicleId": null,
+                "weather": { "temperature": "", "windFrom": "", "windTo": "", "gustFrom": "", "gustTo": "", "cloudiness": "", "cloudHeight": "", "precipitation": "" },
+                "routePoints": [],
+                "altitudeFrom": "",
+                "altitudeTo": "",
+                "areaPoints": [],
+                "task": "Розвідка",
+                "startTime": "07:00",
+                "endTime": "12:00",
+                "uavSelections": [],
+                "payloadSelection": null,
+                "arrivesToday": true,
+                "departsToday": true,
+                "departureTime": "16:30"
+            }]
+        })).unwrap();
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(value["entries"][0]["arrivesToday"], true);
+        assert_eq!(value["entries"][0]["departsToday"], true);
+        assert_eq!(value["entries"][0]["departureTime"], "16:30");
+    }
+
+    #[test]
     fn fills_the_reference_template_and_keeps_excel_times_numeric() {
         let connection = Connection::open_in_memory().unwrap();
         database::initialise(&connection).unwrap();
@@ -633,6 +708,20 @@ mod tests {
                     night_quantity: 2,
                 }],
                 payload_selection: None,
+                rotation_id: None,
+                crew_name: String::new(),
+                crew_uav_type: String::new(),
+                position_id: None,
+                position_name: String::new(),
+                position_mgrs: String::new(),
+                position_locality: String::new(),
+                work_strip: String::new(),
+                battle_order: String::new(),
+                uav_snapshots: vec![],
+                member_snapshots: vec![],
+                arrives_today: false,
+                departs_today: false,
+                departure_time: String::new(),
             }],
         };
         let rows = build_rows(&connection, &request).unwrap();

@@ -606,6 +606,7 @@ fn main() {
             operations::update_position,
             operations::delete_position,
             operations::list_position_work,
+            operations::list_position_work_status_history,
             operations::save_position_work,
             operations::delete_position_work,
             operations::list_equipment,

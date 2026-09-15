@@ -179,24 +179,46 @@ fn validate_position(draft: &PositionDraft) -> Result<String, String> {
     normalise_mgrs(&draft.mgrs)
 }
 
+fn ensure_position_has_no_work_history(
+    connection: &Connection,
+    position_id: i64,
+) -> Result<(), String> {
+    let work_count = connection
+        .query_row(
+            "SELECT COUNT(*) FROM position_work WHERE position_id=?1",
+            [position_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0);
+    if work_count > 0 {
+        return Err("Позицію не можна видалити, оскільки для неї вже є історія рекогностування або облаштування. Спочатку видаліть відповідні записи робіт.".into());
+    }
+    Ok(())
+}
+
 #[tauri::command]
-pub fn create_position(state: tauri::State<AppState>, draft: PositionDraft) -> Result<(), String> {
+pub fn create_position(state: tauri::State<AppState>, draft: PositionDraft) -> Result<i64, String> {
     let mgrs = validate_position(&draft)?;
     let db = state.0.lock().map_err(|_| busy())?;
-    db.connection.execute("INSERT INTO positions(name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,crew_id,notes,condition_level,field_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",rusqlite::params![draft.name.trim(),draft.position_type,draft.strip_name.trim(),draft.locality.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.condition.trim(),draft.size.trim(),mgrs,draft.suitable_uav_text.trim(),draft.is_active,draft.crew_id,draft.notes.trim(),draft.condition_level.clamp(0,100),draft.field_type.trim()]).map_err(|_|"Не вдалося створити позицію. Перевірте унікальність назви.".to_string())?;
-    save_position_uavs(
-        &db.connection,
-        db.connection.last_insert_rowid(),
-        &draft.uav_ids,
-    )?;
+    let transaction = db
+        .connection
+        .unchecked_transaction()
+        .map_err(|_| "Не вдалося розпочати створення позиції.".to_string())?;
+    transaction.execute("INSERT INTO positions(name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,crew_id,notes,condition_level,field_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",rusqlite::params![draft.name.trim(),draft.position_type,draft.strip_name.trim(),draft.locality.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.condition.trim(),draft.size.trim(),mgrs,draft.suitable_uav_text.trim(),draft.is_active,draft.crew_id,draft.notes.trim(),draft.condition_level.clamp(0,100),draft.field_type.trim()]).map_err(|_|"Не вдалося створити позицію. Перевірте унікальність назви.".to_string())?;
+    let position_id = transaction.last_insert_rowid();
+    save_position_uavs(&transaction, position_id, &draft.uav_ids)?;
     sync_active_position(
-        &db.connection,
+        &transaction,
         None,
         draft.name.trim(),
         draft.locality.trim(),
         draft.is_active,
         draft.crew_id,
-    )
+    )?;
+    transaction
+        .commit()
+        .map_err(|_| "Не вдалося завершити створення позиції.".to_string())?;
+    Ok(position_id)
 }
 
 #[tauri::command]
@@ -230,6 +252,7 @@ pub fn update_position(
 #[tauri::command]
 pub fn delete_position(state: tauri::State<AppState>, position_id: i64) -> Result<(), String> {
     let db = state.0.lock().map_err(|_| busy())?;
+    ensure_position_has_no_work_history(&db.connection, position_id)?;
     let old = db
         .connection
         .query_row(
@@ -356,5 +379,16 @@ mod position_tests {
             )
             .unwrap();
         assert_eq!(linked_count, 1);
+    }
+
+    #[test]
+    fn position_with_current_work_cannot_be_deleted_silently() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO positions(id,name) VALUES(1,'СП Історія')", [])
+            .unwrap();
+        connection.execute("INSERT INTO position_work(position_id,work_type,status,start_date,start_time) VALUES(1,'Облаштування','Завершили','2026-09-15','08:00')", []).unwrap();
+        assert!(ensure_position_has_no_work_history(&connection, 1).is_err());
     }
 }

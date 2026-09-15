@@ -1,5 +1,5 @@
 import type { Vehicle } from "../vehicles/types";
-import type { Crew, Equipment, FlightPlanEntry, FlightPlanWeather, WorkshopProduct } from "./types";
+import type { Crew, Equipment, FlightPlanEntry, FlightPlanRotation, FlightPlanWeather, WorkshopProduct } from "./types";
 
 export const FLIGHT_PLAN_HEADERS = [
   "№ п/п", "Підрозділ", "Тип БпАК (№ борта)", "Найменування екіпажу (позиція)",
@@ -13,7 +13,91 @@ export const FLIGHT_PLAN_HEADERS = [
 export const FLIGHT_TASKS = ["Розвідка противника та місцевості", "Ураження противника"];
 export const initialWeather = (): FlightPlanWeather => ({ temperature:"20",windFrom:"2",windTo:"4",gustFrom:"5",gustTo:"7",cloudiness:"10",cloudHeight:"2000",precipitation:"0" });
 export const splitPoints = (value: string) => value.split(/[,;\n]+/u).map((part) => part.trim()).filter(Boolean);
-export const initialFlightEntry = (crew: Crew, uavs:Equipment[]=[]): FlightPlanEntry => ({ crewId:crew.id,actualMemberIds:crew.actualMembers.map((member)=>member.personnelId),actualCommanderId:crew.actualMembers.find((member)=>member.position.toLocaleLowerCase("uk").includes("командир"))?.personnelId??crew.actualMembers[0]?.personnelId??null,actualVehicleId:null,weather:initialWeather(),routePoints:[],altitudeFrom:"800",altitudeTo:"1100",areaPoints:splitPoints(crew.reconnaissanceArea),task:FLIGHT_TASKS[0],startTime:"05:00",endTime:"21:00",uavSelections:uavs.filter((item)=>item.crewId===crew.id).map((item)=>({equipmentId:item.id,dayQuantity:item.dayQuantity,nightQuantity:item.nightQuantity})),payloadSelection:null });
+export const initialFlightEntry = (crew: Crew, uavs:Equipment[]=[]): FlightPlanEntry => ({ crewId:crew.id,actualMemberIds:crew.actualMembers.map((member)=>member.personnelId),actualCommanderId:crew.actualMembers.find((member)=>member.position.toLocaleLowerCase("uk").includes("командир"))?.personnelId??crew.actualMembers[0]?.personnelId??null,actualVehicleId:null,weather:initialWeather(),routePoints:[],altitudeFrom:"800",altitudeTo:"1100",areaPoints:splitPoints(crew.reconnaissanceArea),task:FLIGHT_TASKS[0],startTime:"05:00",endTime:"21:00",uavSelections:uavs.filter((item)=>item.crewId===crew.id).map((item)=>({equipmentId:item.id,dayQuantity:item.dayQuantity,nightQuantity:item.nightQuantity})),payloadSelection:null,arrivesToday:false,departsToday:false,departureTime:"" });
+
+export type FlightPlanScheduleValidation = {
+  isValid: boolean;
+  departureError?: string;
+  rotationError?: string;
+  errors: string[];
+};
+
+const scheduleMinute = (value?: string) => {
+  const [hours, minutes] = (value ?? "").split(":").map(Number);
+  return Number.isInteger(hours) && Number.isInteger(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60
+    ? hours * 60 + minutes
+    : null;
+};
+
+const scheduleTime = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+
+/**
+ * Validates only same-day presence transitions and rotation joints.
+ * Working hours do not define presence, except that startTime is the confirmed
+ * arrival time when arrivesToday is set by the previous-plan comparison.
+ */
+export function validateFlightPlanSchedule(primary: FlightPlanEntry, rotations: FlightPlanRotation[] = []): FlightPlanScheduleValidation {
+  let rotationError: string | undefined;
+  let previous = primary;
+
+  for (let index = 0; index < rotations.length; index += 1) {
+    const rotation = rotations[index];
+    const previousEnd = scheduleMinute(previous.endTime);
+    const previousStart = scheduleMinute(previous.startTime);
+    const rotationStart = scheduleMinute(rotation.startTime);
+    const number = index + 1;
+
+    if (previousEnd === null || rotationStart === null) {
+      rotationError = `Ротація ${number}: вкажіть час закінчення попереднього етапу та час початку ротації.`;
+      break;
+    }
+    if (previousEnd === 23 * 60 + 59) {
+      rotationError = `Ротація ${number}: перехід 23:59→00:00 неможливий у межах одного плану. Перенесіть ротацію до плану наступного дня.`;
+      break;
+    }
+
+    const expectedStart = previousEnd + 1;
+    if (rotationStart !== expectedStart) {
+      rotationError = `Ротація ${number}: початок має бути о ${scheduleTime(expectedStart)}, одразу після завершення попереднього етапу о ${previous.endTime}.`;
+      break;
+    }
+    if (previousStart !== null && rotationStart <= previousStart) {
+      rotationError = `Ротація ${number}: час початку має бути пізніше за початок попереднього етапу.`;
+      break;
+    }
+    previous = rotation;
+  }
+
+  let departureError: string | undefined;
+  if (primary.departsToday) {
+    const departure = scheduleMinute(primary.departureTime);
+    if (!primary.departureTime) {
+      departureError = "Вкажіть фактичний час виїзду з позиції.";
+    } else if (departure === null) {
+      departureError = "Вкажіть коректний фактичний час виїзду з позиції.";
+    } else {
+      const lastRotation = rotations[rotations.length - 1];
+      const lastRotationStart = scheduleMinute(lastRotation?.startTime);
+      const finalStage = lastRotation ?? primary;
+      const finalStageEnd = scheduleMinute(finalStage.endTime);
+      const arrival = primary.arrivesToday ? scheduleMinute(primary.startTime) : null;
+      if (primary.arrivesToday && arrival === null) {
+        departureError = "Вкажіть коректний час заїзду екіпажу.";
+      } else if (primary.arrivesToday && arrival !== null && departure <= arrival) {
+        departureError = `Час виїзду має бути пізніше за час заїзду о ${primary.startTime}.`;
+      } else if (lastRotation && lastRotationStart !== null && departure <= lastRotationStart) {
+        departureError = `Час виїзду має бути пізніше за останню ротацію о ${lastRotation.startTime}.`;
+      } else if (finalStageEnd === null) {
+        departureError = "Вкажіть коректний час завершення останнього етапу роботи.";
+      } else if (departure < finalStageEnd) {
+        departureError = `Час виїзду не може бути раніше завершення останнього етапу роботи о ${finalStage.endTime}.`;
+      }
+    }
+  }
+
+  const errors = [departureError, rotationError].filter((value): value is string => Boolean(value));
+  return { isValid: errors.length === 0, departureError, rotationError, errors };
+}
 
 const caps = (value: string) => value.trim().toLocaleUpperCase("uk");
 const shortRank = (rank: string) => ({"солдат":"сол.","старший солдат":"ст. сол.","молодший сержант":"мол. серж.","сержант":"серж.","старший сержант":"ст. серж.","головний сержант":"гол. серж.","штаб-сержант":"штаб-серж.","майстер-сержант":"майстер-серж.","молодший лейтенант":"мол. лейт.","лейтенант":"лейт.","старший лейтенант":"ст. лейт.","капітан":"кап.","підполковник":"підполк.","полковник":"полк."}[rank.trim().toLocaleLowerCase("uk")] ?? rank.trim());

@@ -107,15 +107,6 @@
     "fullName": "рота безпілотних авіаційних комплексів",
     "unitCode": "А2222",
     "authorizedStrength": 72,
-    "battalionFullName": "батальйон безпілотних систем військової частини А2222",
-    "battalionShortName": "ББпС",
-    "militaryUnitShortName": "військова частина А2222",
-    "reportRecipient": "Командиру батальйону безпілотних систем військової частини А2222",
-    "kspName": "ОРІОН",
-    "kspLocality": "КАЛИНІВКА",
-    "kspMgrs": "36U UV 40000 47000",
-    "armyCorpsNumber": "1",
-    "armNumber": "01",
     "structure": [
       {
         "id": "management",
@@ -767,7 +758,23 @@
         "kind": "position",
         "name": "оператор",
         "order": 7
+      },
+      {
+        "id": "special-collection-position-93-0",
+        "parentId": "special-collection-processing",
+        "kind": "position",
+        "name": "аналітик",
+        "order": 8
       }
-    ]
+    ],
+    "battalionFullName": "477 окремого батальйону безпілолтних систем",
+    "battalionShortName": "ББпС",
+    "militaryUnitShortName": "477 ОББпС",
+    "reportRecipient": "477 окремого батальйону безпілолтних систем",
+    "kspName": "ОРІОН",
+    "kspLocality": "КАЛИНІВКА",
+    "kspMgrs": "36U UV 40000 47000",
+    "armyCorpsNumber": "1",
+    "armNumber": "01"
   }
 }

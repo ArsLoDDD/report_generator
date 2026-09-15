@@ -492,4 +492,112 @@ mod tests {
             .unwrap();
         assert!(location.is_empty());
     }
+
+    #[test]
+    fn migrates_legacy_position_work_events_before_backfilling_history() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE position_work_events (
+                    id INTEGER PRIMARY KEY,
+                    work_id INTEGER NOT NULL,
+                    position_id INTEGER NOT NULL,
+                    position_name TEXT NOT NULL,
+                    work_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    start_date TEXT NOT NULL,
+                    start_time TEXT NOT NULL,
+                    end_date TEXT NOT NULL DEFAULT '',
+                    end_time TEXT NOT NULL DEFAULT '',
+                    battle_order TEXT NOT NULL DEFAULT '',
+                    notes TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                INSERT INTO position_work_events(
+                    work_id,position_id,position_name,work_type,status,start_date,start_time
+                ) VALUES(99,88,'СТАРА ПОЗИЦІЯ','Облаштування','Приступили','2026-09-14','18:01');",
+            )
+            .unwrap();
+
+        initialise(&connection).unwrap();
+
+        let columns = connection
+            .prepare("PRAGMA table_info(position_work_events)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        for expected in ["position_mgrs", "position_locality", "members_json"] {
+            assert!(columns.iter().any(|column| column == expected));
+        }
+        let legacy_snapshots = connection
+            .query_row(
+                "SELECT position_mgrs,position_locality,members_json
+                 FROM position_work_events WHERE work_id=99",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            legacy_snapshots,
+            (String::new(), String::new(), "[]".into())
+        );
+
+        connection
+            .execute(
+                "INSERT INTO positions(name,mgrs,locality) VALUES('НОВА ПОЗИЦІЯ','36U TEST','РАЙОН')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO position_work(position_id,work_type,status,start_date,start_time)
+                 VALUES(1,'Облаштування','Приступили','2026-09-15','08:00')",
+                [],
+            )
+            .unwrap();
+
+        initialise(&connection).unwrap();
+        initialise(&connection).unwrap();
+
+        let migrated = connection
+            .query_row(
+                "SELECT position_name,position_mgrs,position_locality,members_json
+                 FROM position_work_events WHERE work_id=1",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            migrated,
+            (
+                "НОВА ПОЗИЦІЯ".into(),
+                "36U TEST".into(),
+                "РАЙОН".into(),
+                "[]".into()
+            )
+        );
+        let event_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM position_work_events WHERE work_id=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(event_count, 1);
+    }
 }

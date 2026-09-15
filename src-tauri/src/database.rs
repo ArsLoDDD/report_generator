@@ -134,6 +134,38 @@ fn normalize_bcs_locations(connection: &Connection) -> Result<(), String> {
     Ok(())
 }
 
+fn migrate_position_work_event_columns(connection: &Connection) -> Result<(), String> {
+    let existing_columns = connection
+        .prepare("PRAGMA table_info(position_work_events)")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        })
+        .map_err(|error| {
+            format!("Не вдалося прочитати структуру історії робіт на позиціях: {error}")
+        })?;
+
+    for (column, definition) in [
+        ("position_mgrs", "TEXT NOT NULL DEFAULT ''"),
+        ("position_locality", "TEXT NOT NULL DEFAULT ''"),
+        ("members_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ] {
+        if existing_columns.iter().any(|existing| existing == column) {
+            continue;
+        }
+        connection
+            .execute(
+                &format!("ALTER TABLE position_work_events ADD COLUMN {column} {definition}"),
+                [],
+            )
+            .map_err(|error| {
+                format!("Не вдалося додати поле {column} до історії робіт на позиціях: {error}")
+            })?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomFieldDefinition {
@@ -711,6 +743,114 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS position_work_position_idx ON position_work(position_id);",
         )
         .map_err(|_| "Не вдалося підготувати роботи на позиціях.".to_string())?;
+    for statement in [
+        "ALTER TABLE position_work ADD COLUMN previous_position_type TEXT",
+        "ALTER TABLE position_work_members ADD COLUMN duty_type TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE position_work_members ADD COLUMN start_date TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE position_work_members ADD COLUMN start_time TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE position_work_members ADD COLUMN end_date TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE position_work_members ADD COLUMN end_time TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE position_work_members ADD COLUMN previous_location TEXT",
+    ] {
+        connection.execute(statement, []).ok();
+    }
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS position_work_periods (
+                id INTEGER PRIMARY KEY,
+                work_id INTEGER NOT NULL REFERENCES position_work(id) ON DELETE CASCADE,
+                personnel_id INTEGER NOT NULL REFERENCES personnel(id) ON DELETE CASCADE,
+                duty_type TEXT NOT NULL DEFAULT '',
+                start_date TEXT NOT NULL DEFAULT '',
+                start_time TEXT NOT NULL DEFAULT '',
+                end_date TEXT NOT NULL DEFAULT '',
+                end_time TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS position_work_periods_work_idx ON position_work_periods(work_id,id);
+            CREATE INDEX IF NOT EXISTS position_work_periods_personnel_idx ON position_work_periods(personnel_id,work_id);
+            CREATE INDEX IF NOT EXISTS position_work_members_personnel_idx ON position_work_members(personnel_id,work_id);
+            CREATE TABLE IF NOT EXISTS position_work_status_history (
+                id INTEGER PRIMARY KEY,
+                work_id INTEGER NOT NULL REFERENCES position_work(id) ON DELETE CASCADE,
+                status TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_date TEXT NOT NULL DEFAULT '',
+                end_time TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS position_work_status_history_work_idx
+                ON position_work_status_history(work_id,id);
+            CREATE TABLE IF NOT EXISTS position_work_events (
+                id INTEGER PRIMARY KEY,
+                work_id INTEGER NOT NULL,
+                position_id INTEGER NOT NULL,
+                position_name TEXT NOT NULL,
+                position_mgrs TEXT NOT NULL DEFAULT '',
+                position_locality TEXT NOT NULL DEFAULT '',
+                work_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_date TEXT NOT NULL DEFAULT '',
+                end_time TEXT NOT NULL DEFAULT '',
+                battle_order TEXT NOT NULL DEFAULT '',
+                notes TEXT NOT NULL DEFAULT '',
+                members_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS position_work_events_work_idx
+                ON position_work_events(work_id,id);",
+        )
+        .map_err(|error| format!("Не вдалося підготувати історію робіт на позиціях: {error}"))?;
+    migrate_position_work_event_columns(connection)?;
+    connection
+        .execute_batch(
+            "
+            INSERT INTO position_work_periods(work_id,personnel_id,duty_type,start_date,start_time,end_date,end_time)
+            SELECT pwm.work_id,pwm.personnel_id,
+                   COALESCE(NULLIF(pwm.duty_type,''),w.work_type),
+                   COALESCE(NULLIF(pwm.start_date,''),w.start_date),
+                   COALESCE(NULLIF(pwm.start_time,''),w.start_time),
+                   COALESCE(NULLIF(pwm.end_date,''),w.end_date),
+                   COALESCE(NULLIF(pwm.end_time,''),w.end_time)
+            FROM position_work_members pwm
+            JOIN position_work w ON w.id=pwm.work_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM position_work_periods pwp WHERE pwp.work_id=pwm.work_id
+            );
+            UPDATE position_work_members
+            SET previous_location='ОХ'
+            WHERE previous_location IS NULL;
+            INSERT INTO position_work_status_history(work_id,status,start_date,start_time,end_date,end_time)
+            SELECT w.id,w.status,w.start_date,w.start_time,w.end_date,w.end_time
+            FROM position_work w
+            WHERE NOT EXISTS (
+                SELECT 1 FROM position_work_status_history h WHERE h.work_id=w.id
+            );
+            INSERT INTO position_work_events(work_id,position_id,position_name,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,members_json,created_at)
+            SELECT h.work_id,w.position_id,p.name,w.work_type,h.status,h.start_date,h.start_time,h.end_date,h.end_time,w.battle_order,w.notes,'[]',h.created_at
+            FROM position_work_status_history h
+            JOIN position_work w ON w.id=h.work_id
+            JOIN positions p ON p.id=w.position_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM position_work_events e
+                WHERE e.work_id=h.work_id AND e.status=h.status
+                  AND e.start_date=h.start_date AND e.start_time=h.start_time
+                  AND e.end_date=h.end_date AND e.end_time=h.end_time
+            );",
+        )
+        .map_err(|error| format!("Не вдалося підготувати періоди робіт на позиціях: {error}"))?;
+    connection
+        .execute(
+            "UPDATE position_work_events
+             SET position_mgrs=COALESCE((SELECT mgrs FROM positions WHERE positions.id=position_work_events.position_id),position_mgrs),
+                 position_locality=COALESCE((SELECT locality FROM positions WHERE positions.id=position_work_events.position_id),position_locality)
+             WHERE position_mgrs='' OR position_locality=''",
+            [],
+        )
+        .map_err(|_| "Не вдалося доповнити знімки позицій в історії робіт.".to_string())?;
     connection
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS crew_actual_members (
@@ -807,6 +947,22 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
                 .map_err(|_| format!("Не вдалося додати основне поле «{field_key}»."))?;
         }
     }
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS flight_plan_personnel_locations (
+                personnel_id INTEGER PRIMARY KEY REFERENCES personnel(id) ON DELETE CASCADE,
+                plan_date TEXT NOT NULL,
+                location TEXT NOT NULL CHECK(location IN ('На позиції','ЗБЗ','ПБЗ')),
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS flight_plan_personnel_locations_date_idx
+                ON flight_plan_personnel_locations(plan_date);
+            INSERT OR IGNORE INTO flight_plan_personnel_locations(personnel_id,plan_date,location)
+                SELECT id,date(updated_at,'localtime'),current_location
+                FROM personnel
+                WHERE current_location IN ('На позиції','ЗБЗ','ПБЗ');",
+        )
+        .map_err(|_| "Не вдалося підготувати добові стани плану польотів.".to_string())?;
     normalize_bcs_locations(connection)?;
     normalize_staff_positions(connection)?;
     Ok(())

@@ -94,6 +94,7 @@ def main() -> None:
         35: "склади боєприпасів/ПММ – {{enemy_ammo_depots}}/{{enemy_fuel_depots}}, з них: знищено – {{enemy_depots_destroyed}} од.; пошкоджено – {{enemy_depots_damaged}} од.",
         42: "-{{composition_changes}}.",
         45: "{{force_composition}}",
+        47: "",
         49: "{{completeness}}",
         51: "КСП {{unit_short_name}} – {{ksp_outskirts}} населеного пункту {{ksp_locality}}.",
         53: "{{positions}}",
@@ -145,7 +146,7 @@ def main() -> None:
         165: "Виконав і надрукував {{signer_given_name}} {{signer_surname}}",
         166: "{{report_date}}",
     }
-    remove = {34, 46, 47, 54, 55, 63, 64} | set(range(73, 85)) | set(range(96, 100))
+    remove = {34, 46, 54, 55, 63, 64} | set(range(73, 85)) | set(range(96, 100))
 
     with ZipFile(source) as archive:
         document = etree.fromstring(archive.read("word/document.xml"))
@@ -155,10 +156,9 @@ def main() -> None:
             if index in remove:
                 body.remove(paragraph)
             elif index in replacements:
-                if replacements[index]:
-                    set_paragraph_text(paragraph, replacements[index])
-                else:
-                    body.remove(paragraph)
+                # An explicitly empty replacement is a deliberate blank line from
+                # the supplied template, not a paragraph deletion.
+                set_paragraph_text(paragraph, replacements[index])
 
         paragraphs = body.xpath("./w:p", namespaces=NS)
         temporary = next((paragraph for paragraph in paragraphs if "Тимчасові – {{own_personnel_temporary}}" in "".join(paragraph.xpath(".//w:t/text()", namespaces=NS))), None)

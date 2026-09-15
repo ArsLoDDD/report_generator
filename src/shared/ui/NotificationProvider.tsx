@@ -5,12 +5,13 @@ type NotificationTone = "success" | "error" | "info";
 type Notification = { id: number; message: string; tone: NotificationTone };
 type Notifications = { notify: (message: string, tone?: NotificationTone) => void };
 const NotificationContext = createContext<Notifications | null>(null);
+let nextNotificationId = 0;
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Notification[]>([]);
   const dismiss = useCallback((id: number) => setItems((current) => current.filter((item) => item.id !== id)), []);
   const notify = useCallback((message: string, tone: NotificationTone = "info") => {
-    const id = Date.now() + Math.floor(Math.random() * 1000);
+    const id = ++nextNotificationId;
     setItems((current) => [...current, { id, message, tone }].slice(-4));
     window.setTimeout(() => dismiss(id), 5000);
   }, [dismiss]);

@@ -16,7 +16,7 @@ import { operationsService } from "./services/operationsService";
 import type { Crew, CrewDraft, Equipment, EquipmentCategory, Incident, Position } from "./types";
 import { vehiclesService } from "../vehicles/services/vehiclesService";
 import type { Vehicle } from "../vehicles/types";
-import { flightPlanSelectedCrewIds } from "./flight-plan-storage";
+import { flightPlanActiveCrewIds } from "./flight-plan-storage";
 import { incidentDateTimeParts } from "./incident-date";
 
 type CrewTab = "overview" | "members" | "assets" | "history";
@@ -100,7 +100,7 @@ export function CrewsPage({ people }: { people: Person[] }) {
   const assetsForTab = assetTab === "uav" ? crewAssets : assetTab === "vehicles" ? crewVehicles : crewOtherAssets.filter((item) => item.category === assetTab);
   const assetCount = (tab: CrewAssetTab) => tab === "uav" ? crewAssets.length : tab === "vehicles" ? crewVehicles.length : crewOtherAssets.filter((item) => item.category === tab).length;
   const crewIncidents = editing ? incidents.filter((incident) => incident.crewId === editing.id) : [];
-  const onPositionCrewIds = flightPlanSelectedCrewIds();
+  const onPositionCrewIds = flightPlanActiveCrewIds();
 
   return <PageFrame className="crews-page" onContentScroll={onContentScroll} footer={<div className="panel pagination card-registry__pagination">Показано {visibleItems.length} із {filtered.length}</div>} header={<PageTitle title="Екіпажі" subtitle="Єдиний облік екіпажів, позицій, складу та майна" actions={<button className="button primary" onClick={() => edit()}><Plus />Створити екіпаж</button>} />} tools={<RegistryToolbar className="card-registry-toolbar" placeholder="Пошук за назвою, статусом, смугою, БпАК або позицією…" query={query} onQueryChange={setQuery} />}>
     <EntityCardGrid className="crews-grid">{visibleItems.map((crew) => { const assets = uavs.filter((uav) => uav.crewId === crew.id); return <EntityCard className={`crew-card crew-card--${crew.status === "Працюючий" ? "working" : crew.status === "Формується" ? "forming" : "inactive"}`} key={crew.id} onClick={() => edit(crew)}>

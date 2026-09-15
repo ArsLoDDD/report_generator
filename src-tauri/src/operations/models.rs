@@ -152,12 +152,29 @@ pub struct PositionDraft {
     pub uav_ids: Vec<i64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PositionWorkMember {
+    pub assignment_id: Option<i64>,
     pub personnel_id: i64,
     pub full_name: String,
     pub rank: String,
+    pub duty_type: String,
+    pub start_date: String,
+    pub start_time: String,
+    pub end_date: String,
+    pub end_time: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PositionWorkMemberDraft {
+    pub personnel_id: i64,
+    pub duty_type: String,
+    pub start_date: String,
+    pub start_time: String,
+    pub end_date: String,
+    pub end_time: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -177,6 +194,27 @@ pub struct PositionWork {
     pub members: Vec<PositionWorkMember>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PositionWorkStatusEvent {
+    pub id: i64,
+    pub work_id: i64,
+    pub position_id: i64,
+    pub position_name: String,
+    pub position_mgrs: String,
+    pub position_locality: String,
+    pub work_type: String,
+    pub status: String,
+    pub start_date: String,
+    pub start_time: String,
+    pub end_date: String,
+    pub end_time: String,
+    pub battle_order: String,
+    pub notes: String,
+    pub members: Vec<PositionWorkMember>,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PositionWorkDraft {
@@ -191,6 +229,8 @@ pub struct PositionWorkDraft {
     pub notes: String,
     #[serde(default)]
     pub personnel_ids: Vec<i64>,
+    #[serde(default)]
+    pub member_assignments: Vec<PositionWorkMemberDraft>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -230,6 +270,10 @@ pub struct FlightPlanCrewLocationAssignment {
     pub crew_id: i64,
     #[serde(default)]
     pub stages: Vec<Vec<i64>>,
+    #[serde(default)]
+    pub arrives_today: bool,
+    #[serde(default)]
+    pub departs_today: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

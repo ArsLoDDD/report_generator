@@ -21,6 +21,7 @@ import { isSimpleEdition } from "./app/navigation";
 import { WarningsPage } from "./app/components/WarningsPage";
 import { AssetsPage } from "./features/assets/AssetsPage";
 import { SummaryReportPage } from "./features/operations/SummaryReportPage";
+import { GlobalTooltip } from "./shared/ui/GlobalTooltip";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("generator");
@@ -78,7 +79,7 @@ export default function App() {
     return () => document.removeEventListener("click", closeOnBackdrop);
   }, []);
 
-  return <NotificationProvider><div className={`product-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+  return <NotificationProvider><GlobalTooltip /><div className={`product-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <AppSidebar screen={screen} collapsed={sidebarCollapsed} warnings={startupWarnings} onToggleCollapsed={toggleSidebar} onNavigate={(next) => { if (next === "report-analyser") setAnalyserVisited(true); setScreen(next); }} />
     <main className="workspace">
       {screen === "warnings" && <WarningsPage warnings={startupWarnings} isLoading={warningState.isLoading} onRefresh={() => void warningState.refresh()} onOpenPersonnel={() => setScreen("people")} />}

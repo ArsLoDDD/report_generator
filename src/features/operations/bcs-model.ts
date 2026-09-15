@@ -7,7 +7,7 @@ export type BcsExportRow = { isTemporary: boolean; isExternal: boolean; actualCr
 
 const normalize = (value: string) => value.toLocaleLowerCase("uk").replace(/[’']/g, "'").replace(/\s+/g, " ").trim();
 export const bcsCaps = (value: string | null | undefined) => (value ?? "").toLocaleUpperCase("uk");
-export const CREW_WORKING_LOCATIONS = ["На позиції", "ЗБЗ", "ПБЗ", "Реко та облаштування", "Логістика на позиції", "ГШР", "ОХ", "ЗАБ"] as const;
+export const CREW_WORKING_LOCATIONS = ["На позиції", "ЗБЗ", "ПБЗ", "Реко та облаштування", "Реко", "Облаштування", "Логістика на позиції", "ГШР", "ОХ", "ЗАБ"] as const;
 export const BCS_ABSENCE_LOCATIONS = ["ВІДП", "ЛІК", "НАВЧ", "ВІДР", "Відкомандировані", "СЗЧ"] as const;
 export function isAvailableInUnit(value: string) {
   return !BCS_ABSENCE_LOCATIONS.includes(value as typeof BCS_ABSENCE_LOCATIONS[number]) && value !== "ПТЗ Новостав";

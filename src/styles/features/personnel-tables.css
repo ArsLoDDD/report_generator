@@ -5,6 +5,8 @@
 .personnel-page .person-details, .vehicles-page .person-details { min-height: 0; overflow: hidden; }
 .personnel-page .data-table__scroll table, .vehicles-page .data-table__scroll table, .generated-page .data-table__scroll table { display: table; min-height: auto; overflow: visible; }
 .personnel-page .data-table__scroll thead, .vehicles-page .data-table__scroll thead, .generated-page .data-table__scroll thead { position: sticky; top: 0; z-index: 1; background: #0d1922; }
+.personnel-page .data-table__scroll { isolation: isolate; }
+.personnel-page .data-table__scroll thead { z-index: 20; }
 .personnel-page .data-table__scroll, .vehicles-page .data-table__scroll { overflow: auto; }
 .personnel-page .personnel-table { display: table !important; min-width: 2860px; }
 .personnel-page .personnel-table th { position: sticky; top: 0; z-index: 3; background: #0d1922; }
@@ -19,8 +21,9 @@
 @keyframes icon-spin { to { transform: rotate(360deg); } }
 .personnel-table__actions,
 .personnel-table th:last-child { position: sticky; right: 0; width: 96px; min-width: 96px; }
-.personnel-table__actions { z-index: 5; background: #0e1922; white-space: nowrap; }
-.personnel-table th:last-child { z-index: 6; background: #0d1922; text-align: left; }
+.personnel-table__actions { z-index: 5; overflow: hidden; background: #0e1922; box-shadow: -10px 0 14px rgb(7 16 22 / 82%); white-space: nowrap; }
+.personnel-table th:last-child { z-index: 22; overflow: hidden; background: #0d1922; box-shadow: -10px 0 14px rgb(7 16 22 / 82%); text-align: left; }
+.personnel-table tbody .personnel-table__actions .icon-button { z-index: 0; }
 .vehicles-page .vehicle-table th:last-child { position: static; width: auto; min-width: 0; background: #0d1922; }
 .personnel-table td:nth-child(6), .personnel-table td:nth-child(10) { max-width: 310px; overflow: hidden; text-overflow: ellipsis; }
 .infinite-loading { padding: 12px 16px; color: #9caab4; font-size: 12px; text-align: center; }

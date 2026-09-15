@@ -380,6 +380,49 @@
 	gap: 10px;
 }
 .flight-plan-actual-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; align-items: end; }
+.flight-plan-presence > p {
+	margin: 0 0 12px;
+	color: var(--muted);
+	font-size: 13px;
+}
+.flight-plan-presence__arrival {
+	display: grid;
+	gap: 3px;
+	margin: 0 0 12px;
+	padding: 10px 12px;
+	border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line));
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--accent) 9%, transparent);
+	font-size: 12px;
+}
+.flight-plan-presence__arrival span { color: var(--muted); }
+.flight-plan-presence__departure {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(190px, 260px);
+	gap: 12px;
+	align-items: start;
+}
+.flight-plan-presence__departure .check-row {
+	min-height: 72px;
+}
+.flight-plan-presence__departure .check-row > svg {
+	width: 20px;
+	height: 20px;
+	color: var(--muted);
+	flex: 0 0 auto;
+}
+.flight-plan-presence__departure .check-row > span {
+	display: grid;
+	gap: 4px;
+}
+.flight-plan-presence__departure .check-row small,
+.flight-plan-presence__departure .field-error {
+	color: var(--muted);
+	font-size: 12px;
+}
+.flight-plan-presence__departure .field-error {
+	color: var(--danger);
+}
 .flight-plan-editor__route {
 	display: grid;
 	grid-template-columns: repeat(4, minmax(0, 1fr));

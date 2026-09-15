@@ -1,0 +1,24 @@
+/* Icon labels live at viewport level, outside panels that clip scrollable content. */
+.icon-button:hover::after {
+	display: none;
+	content: none;
+}
+
+.global-tooltip {
+	position: fixed;
+	z-index: 30000;
+	max-width: min(320px, calc(100vw - 16px));
+	padding: 5px 8px;
+	border: 1px solid var(--line-strong, #38505b);
+	border-radius: 5px;
+	background: #152019;
+	box-shadow: 0 8px 24px rgb(0 0 0 / 34%);
+	color: #eef1e9;
+	font-size: 11px;
+	font-weight: 600;
+	line-height: 1.25;
+	text-align: center;
+	white-space: normal;
+	pointer-events: none;
+	transform: translateX(-50%);
+}
