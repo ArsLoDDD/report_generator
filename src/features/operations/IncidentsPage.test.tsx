@@ -44,6 +44,30 @@ describe("Журнал інцидентів", () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", { draft: expect.objectContaining({ incidentType: "Вимушена посадка", occurredAt: "2026-09-12T14:45" }) }));
   });
 
+  it("не надсилає інцидент без обов’язкових дати та часу", async () => {
+    invoke.mockImplementation((command: string) => command === "list_incidents" || command === "list_crews" || command === "list_equipment" ? Promise.resolve([]) : Promise.resolve());
+    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
+    const date=screen.getByLabelText("Дата");
+    const time=screen.getByLabelText("Час");
+    expect(date).toBeRequired();
+    expect(time).toBeRequired();
+
+    fireEvent.change(time, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
+    expect(await screen.findByText("Вкажіть обов’язкові дату та час інциденту.")).toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalledWith("create_incident", expect.anything());
+
+    fireEvent.change(time, { target: { value: "14:45" } });
+    fireEvent.change(date, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
+    expect(invoke).not.toHaveBeenCalledWith("create_incident", expect.anything());
+
+    fireEvent.change(date, { target: { value: "2026-09-12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", { draft: expect.objectContaining({ occurredAt: "2026-09-12T14:45" }) }));
+  });
+
   it("показує фактичний склад і дозволяє вибрати кілька одиниць лише з майна обраного екіпажу", async () => {
     const member = { personnelId: 41, fullName: "ІВАНЕНКО Іван Іванович", rank: "солдат", position: "Оператор", callsign: "СОКІЛ" };
     const crew = { id: 4, name: "ГРІМ", positionName: "ХИЖАК", reconnaissanceArea: "СТЕПОВЕ", actualMembers: [member] };

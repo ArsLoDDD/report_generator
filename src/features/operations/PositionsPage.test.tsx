@@ -13,8 +13,9 @@ const availableEquipment = { ...linkedEquipment, id: 18, category: "generator", 
 const freePerson = { personnelId: 42, fullName: "ПЕТРЕНКО Петро Петрович", rank: "солдат", position: "оператор", crewId: null, crewName: null, currentLocation: "ОХ" };
 const kspPerson = { ...freePerson, personnelId: 43, fullName: "КСПОВИЙ Кирило Кирилович", currentLocation: "КСП Роти" };
 const otherWorkPerson = { ...freePerson, personnelId: 44, fullName: "РОБОЧИЙ Роман Романович", currentLocation: "Реко та облаштування" };
+const currentIsoDate = () => new Date().toLocaleDateString("sv-SE");
 const currentPlanDate = () => {
-  const [year, month, day] = new Date().toLocaleDateString("sv-SE").split("-");
+  const [year, month, day] = currentIsoDate().split("-");
   return `${day}.${month}.${year}`;
 };
 const openPositionSetup = async () => {
@@ -96,7 +97,7 @@ describe("Картка позиції", () => {
     await openPositionSetup();
     fireEvent.change(screen.getByLabelText("Позиція для облаштування"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Час події"), { target: { value: "11:00" } });
-    fireEvent.change(screen.getByLabelText("Дата завершення групи"), { target: { value: "2026-09-15" } });
+    fireEvent.change(screen.getByLabelText("Дата завершення групи"), { target: { value: currentIsoDate() } });
     fireEvent.change(screen.getByLabelText("Час завершення групи"), { target: { value: "18:00" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ }));
     fireEvent.click(screen.getByRole("button", { name: `Додати період: ${freePerson.fullName}` }));
@@ -163,7 +164,7 @@ describe("Картка позиції", () => {
     fireEvent.change(screen.getByLabelText("Придатні БпЛА / БпАК"), { target: { value: "SHARK" } });
     fireEvent.change(screen.getByLabelText("Опис позиції"), { target: { value: "Під’їзд із півночі" } });
     fireEvent.change(screen.getByLabelText("Час події"), { target: { value: "11:00" } });
-    fireEvent.change(screen.getByLabelText("Дата завершення групи"), { target: { value: "2026-09-15" } });
+    fireEvent.change(screen.getByLabelText("Дата завершення групи"), { target: { value: currentIsoDate() } });
     fireEvent.change(screen.getByLabelText("Час завершення групи"), { target: { value: "18:00" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ }));
     fireEvent.click(screen.getByRole("button", { name: "Розпочати роботи" }));
@@ -313,7 +314,7 @@ describe("Картка позиції", () => {
     await openPositionSetup();
     fireEvent.change(screen.getByLabelText("Позиція для облаштування"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Час події"), { target: { value: "11:00" } });
-    fireEvent.change(screen.getByLabelText("Дата завершення групи"), { target: { value: "2026-09-15" } });
+    fireEvent.change(screen.getByLabelText("Дата завершення групи"), { target: { value: currentIsoDate() } });
     fireEvent.change(screen.getByLabelText("Час завершення групи"), { target: { value: "18:00" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ }));
     fireEvent.change(screen.getByLabelText(`Час завершення, період 1: ${freePerson.fullName}`), { target: { value: "19:00" } });
@@ -343,7 +344,7 @@ describe("Картка позиції", () => {
     fireEvent.change(screen.getByLabelText(/^Координати MGRS/), { target: { value: "36U UV 12000 67000" } });
     fireEvent.change(screen.getByLabelText("Придатні БпЛА / БпАК"), { target: { value: "SHARK" } });
     fireEvent.change(screen.getByLabelText("Час події"), { target: { value: "11:00" } });
-    fireEvent.change(screen.getByLabelText("Дата завершення групи"), { target: { value: "2026-09-15" } });
+    fireEvent.change(screen.getByLabelText("Дата завершення групи"), { target: { value: currentIsoDate() } });
     fireEvent.change(screen.getByLabelText("Час завершення групи"), { target: { value: "18:00" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ }));
     fireEvent.click(screen.getByRole("button", { name: "Розпочати роботи" }));

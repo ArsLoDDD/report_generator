@@ -3,6 +3,10 @@ use super::{busy, Incident, IncidentDraft};
 use crate::AppState;
 use rusqlite::Connection;
 
+fn valid_incident_datetime(value: &str) -> bool {
+    chrono::NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M").is_ok()
+}
+
 fn incident_equipment(
     connection: &Connection,
     incident_id: i64,
@@ -169,6 +173,10 @@ pub fn create_incident(state: tauri::State<AppState>, draft: IncidentDraft) -> R
     if draft.incident_type.trim().is_empty() {
         return Err("Оберіть тип інциденту.".into());
     }
+    let occurred_at = draft.occurred_at.trim();
+    if !valid_incident_datetime(occurred_at) {
+        return Err("Вкажіть коректні дату та час інциденту.".into());
+    }
     let mut equipment_ids = draft.equipment_ids.clone();
     if let Some(equipment_id) = draft.equipment_id {
         if !equipment_ids.contains(&equipment_id) {
@@ -224,7 +232,7 @@ pub fn create_incident(state: tauri::State<AppState>, draft: IncidentDraft) -> R
     if !["Новий", "Опрацьовується", "Закритий"].contains(&status) {
         return Err("Оберіть коректний статус інциденту.".into());
     }
-    db.connection.execute("INSERT INTO incidents(category,incident_type,status,occurred_at,crew_id,equipment_id,position_name,reconnaissance_area,crew_snapshot,description,immediate_actions,consequences,flight_stage,preliminary_cause,snapshot_source,reported_to,reported_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",rusqlite::params![category,draft.incident_type.trim(),status,draft.occurred_at.trim(),draft.crew_id,equipment_ids.first(),position_name,reconnaissance_area,crew_snapshot,draft.description.trim(),draft.immediate_actions.trim(),draft.consequences.trim(),draft.flight_stage.trim(),draft.preliminary_cause.trim(),if draft.snapshot_source.trim().is_empty(){"current"}else{draft.snapshot_source.trim()},draft.reported_to.trim(),draft.reported_at.trim()]).map_err(|_|"Не вдалося зберегти інцидент.".to_string())?;
+    db.connection.execute("INSERT INTO incidents(category,incident_type,status,occurred_at,crew_id,equipment_id,position_name,reconnaissance_area,crew_snapshot,description,immediate_actions,consequences,flight_stage,preliminary_cause,snapshot_source,reported_to,reported_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",rusqlite::params![category,draft.incident_type.trim(),status,occurred_at,draft.crew_id,equipment_ids.first(),position_name,reconnaissance_area,crew_snapshot,draft.description.trim(),draft.immediate_actions.trim(),draft.consequences.trim(),draft.flight_stage.trim(),draft.preliminary_cause.trim(),if draft.snapshot_source.trim().is_empty(){"current"}else{draft.snapshot_source.trim()},draft.reported_to.trim(),draft.reported_at.trim()]).map_err(|_|"Не вдалося зберегти інцидент.".to_string())?;
     let incident_id = db.connection.last_insert_rowid();
     for equipment_id in equipment_ids {
         db.connection
@@ -251,6 +259,15 @@ pub fn create_incident(state: tauri::State<AppState>, draft: IncidentDraft) -> R
 #[cfg(test)]
 mod incident_tests {
     use super::*;
+
+    #[test]
+    fn requires_a_valid_incident_date_and_time() {
+        assert!(valid_incident_datetime("2026-09-15T07:05"));
+        assert!(!valid_incident_datetime(""));
+        assert!(!valid_incident_datetime("2026-09-15"));
+        assert!(!valid_incident_datetime("2026-09-15T25:00"));
+        assert!(!valid_incident_datetime("15.09.2026T07:05"));
+    }
 
     #[test]
     fn accepts_multiple_assets_of_the_selected_crew() {

@@ -78,7 +78,10 @@ export function FlightJournalPage() {
   const choosePosition = (value: string) => { const position = positions.find((item) => item.id === Number(value)); setDraft((current) => ({ ...current, positionId: position?.id ?? null, positionName: position?.name ?? "", battleOrder: position?.battleOrder ?? current.battleOrder })); };
   const chooseUav = (value: string) => { const uav = uavs.find((item) => item.id === Number(value)); setDraft((current) => ({ ...current, uavId: uav?.id ?? null, uavName: uav?.name ?? "", uavType: uav?.uavType ?? "", uavSerialNumber: uav?.inventoryNumber ?? "" })); };
   const choosePayload = (value: string) => { const payload = payloadOptions.find((item) => item.key === value); setDraft((current) => ({ ...current, payloadSource: payload?.source ?? "", payloadId: payload?.id ?? null, payloadType: payload?.name ?? "", payloadSerialNumber: payload?.serial ?? "" })); };
-  const save = async () => { try { await operationsService.createFlightJournalEntry(draft); setOpen(false); setDraft(emptyDraft()); await reload(); notify("Запис журналу польотів збережено.", "success"); } catch (error) { notify(typeof error === "string" ? error : "Не вдалося зберегти запис.", "error"); } };
+  const save = async () => {
+    if (!draft.skyTime || !draft.groundTime) { notify("Вкажіть обов’язкові часи «Небо» та «Земля».", "error"); return; }
+    try { await operationsService.createFlightJournalEntry(draft); setOpen(false); setDraft(emptyDraft()); await reload(); notify("Запис журналу польотів збережено.", "success"); } catch (error) { notify(typeof error === "string" ? error : "Не вдалося зберегти запис.", "error"); }
+  };
   const onScroll: UIEventHandler<HTMLDivElement> = (event) => { const element = event.currentTarget; if (element.scrollHeight - element.scrollTop - element.clientHeight < 100) setVisibleLimit((current) => Math.min(current + 20, items.length)); };
   const visibleItems = items.slice(0, visibleLimit);
 
@@ -87,8 +90,8 @@ export function FlightJournalPage() {
     {open && <Modal title="Новий запис польоту" subtitle="Поля з плану та картки екіпажу можна змінити перед збереженням." onClose={() => setOpen(false)} className="flight-journal-editor"><div className="operation-editor__body">
       <label className="form-field"><span>Дата <b>*</b></span><input type="date" value={draft.flightDate} onChange={(event) => setDraft({ ...draft, flightDate: event.target.value })} /></label>
       <label className="form-field"><span>Екіпаж <b>*</b></span><Select ariaLabel="Екіпаж польоту" value={draft.crewId?.toString() ?? ""} onChange={chooseCrew} options={[{ value: "", label: "Оберіть екіпаж" }, ...crews.map((crew) => ({ value: String(crew.id), label: crew.name }))]} /></label>
-      <label className="form-field"><span>Час «Небо»</span><input type="time" value={draft.skyTime} onChange={(event) => setDraft({ ...draft, skyTime: event.target.value })} /></label>
-      <label className="form-field"><span>Час «Земля»</span><input type="time" value={draft.groundTime} onChange={(event) => setDraft({ ...draft, groundTime: event.target.value })} /></label>
+      <label className="form-field"><span>Час «Небо» <b>*</b></span><input aria-label="Час «Небо»" required type="time" value={draft.skyTime} onChange={(event) => setDraft({ ...draft, skyTime: event.target.value })} /></label>
+      <label className="form-field"><span>Час «Земля» <b>*</b></span><input aria-label="Час «Земля»" required type="time" value={draft.groundTime} onChange={(event) => setDraft({ ...draft, groundTime: event.target.value })} /></label>
       <label className="form-field"><span>Позиція</span><Select ariaLabel="Позиція польоту" value={draft.positionId?.toString() ?? ""} onChange={choosePosition} options={[{ value: "", label: "Не обрана" }, ...positions.map((position) => ({ value: String(position.id), label: position.name }))]} /></label>
       <label className="form-field"><span>БрО</span><input value={draft.battleOrder} onChange={(event) => setDraft({ ...draft, battleOrder: event.target.value })} /></label>
       <label className="form-field form-field--wide"><span>Смуга роботи</span><input value={draft.workStrip} onChange={(event) => setDraft({ ...draft, workStrip: event.target.value })} /></label>

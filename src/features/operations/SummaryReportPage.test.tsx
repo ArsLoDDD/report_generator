@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
 import { defaultSummaryManual } from "./summary-report-model";
@@ -79,6 +79,15 @@ describe("Підсумкове донесення", () => {
     const labels = Array.from((selects[0] as HTMLSelectElement).options).map((option) => option.text);
     expect(labels.some((label) => label.includes(positionPerson.fullName))).toBe(true);
     expect(labels.some((label) => label.includes(freePerson.fullName))).toBe(true);
+
+    const dutyCard = selects[0].closest("article");
+    expect(dutyCard).not.toBeNull();
+    fireEvent.click(within(dutyCard as HTMLElement).getByRole("button", { name: "Додати період" }));
+    expect(within(dutyCard as HTMLElement).getByText("Період 1")).toBeInTheDocument();
+    expect(within(dutyCard as HTMLElement).getByText("Від")).toBeInTheDocument();
+    expect(within(dutyCard as HTMLElement).getByText("До")).toBeInTheDocument();
+    expect(within(dutyCard as HTMLElement).getByLabelText("Дата першого часу")).toBeInTheDocument();
+    expect(within(dutyCard as HTMLElement).getByLabelText("Дата другого часу")).toBeInTheDocument();
   });
 
   it("переходить до нового донесення лише після підтвердження і зберігає поточне", async () => {

@@ -5,5 +5,6 @@ import "./styles.css";
 import "./layout-fixes.css";
 import "./template-language.css";
 import "./summary-report.css";
+import "./styles/features/program-guide.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);

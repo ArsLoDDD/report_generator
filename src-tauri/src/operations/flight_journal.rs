@@ -6,8 +6,8 @@ fn valid_iso_date(value: &str) -> bool {
     chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok()
 }
 
-fn valid_time(value: &str) -> bool {
-    value.is_empty() || chrono::NaiveTime::parse_from_str(value, "%H:%M").is_ok()
+fn valid_required_time(value: &str) -> bool {
+    !value.is_empty() && chrono::NaiveTime::parse_from_str(value, "%H:%M").is_ok()
 }
 
 #[tauri::command]
@@ -60,8 +60,11 @@ pub fn create_flight_journal_entry(
     }
     let sky_time = draft.sky_time.trim();
     let ground_time = draft.ground_time.trim();
-    if !valid_time(sky_time) || !valid_time(ground_time) {
-        return Err("Вкажіть час у форматі ГГ:ХХ.".into());
+    if sky_time.is_empty() || ground_time.is_empty() {
+        return Err("Вкажіть обов’язкові часи «Небо» та «Земля».".into());
+    }
+    if !valid_required_time(sky_time) || !valid_required_time(ground_time) {
+        return Err("Вкажіть часи «Небо» та «Земля» у форматі ГГ:ХХ.".into());
     }
     if draft.crew_name.trim().is_empty() {
         return Err("Оберіть екіпаж.".into());
@@ -99,11 +102,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn validates_date_and_optional_time() {
+    fn validates_date_and_required_time() {
         assert!(valid_iso_date("2026-09-13"));
         assert!(!valid_iso_date("13.09.2026"));
-        assert!(valid_time(""));
-        assert!(valid_time("07:05"));
-        assert!(!valid_time("25:00"));
+        assert!(!valid_required_time(""));
+        assert!(valid_required_time("07:05"));
+        assert!(!valid_required_time("25:00"));
     }
 }

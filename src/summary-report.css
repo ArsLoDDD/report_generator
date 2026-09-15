@@ -21,7 +21,8 @@
 .summary-header-actions, .summary-card-actions { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
 .button.compact { min-height: 38px; padding: 7px 10px; font-size: 13px; }
 .button.compact svg { width: 16px; height: 16px; }
-.summary-controls input:not([type="checkbox"]), .summary-controls textarea, .summary-controls select, .summary-flight-modal input, .summary-flight-modal select, .summary-parameters-modal input { box-sizing: border-box; width: 100%; min-width: 0; color: var(--text); background: color-mix(in srgb, var(--surface) 78%, #000 22%); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font: inherit; }
+.summary-controls input:not([type="checkbox"]), .summary-controls textarea, .summary-controls select, .summary-flight-modal input, .summary-flight-modal select, .summary-parameters-modal input { box-sizing: border-box; width: 100%; min-width: 0; color: var(--text); background: #101812; border: 2px solid color-mix(in srgb, var(--accent) 42%, #687164); border-radius: 10px; padding: 9px 11px; font: inherit; box-shadow: inset 0 1px 0 #ffffff0d, 0 1px 2px #0006; }
+.summary-controls input:not([type="checkbox"]):hover, .summary-controls textarea:hover, .summary-controls select:hover, .summary-flight-modal input:hover, .summary-flight-modal select:hover, .summary-parameters-modal input:hover { border-color: color-mix(in srgb, var(--accent) 78%, #9da597); background: #142017; }
 .summary-controls input:focus, .summary-controls textarea:focus, .summary-controls select:focus, .summary-flight-modal input:focus, .summary-flight-modal select:focus { outline: 2px solid color-mix(in srgb, var(--accent) 68%, transparent); outline-offset: 1px; border-color: var(--accent); }
 .summary-controls textarea { min-height: 96px; resize: vertical; line-height: 1.45; }
 .check-row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--surface) 90%, #000 10%); cursor: pointer; }
@@ -30,11 +31,20 @@
 .summary-duty-list, .summary-duty-period-list, .summary-structured-list { display: grid; gap: 9px; min-width: 0; }
 .summary-duty-object, .summary-structured-object { display: grid; min-width: 0; gap: 10px; align-items: start; padding: 12px; border: 1px solid var(--border); border-radius: 13px; background: color-mix(in srgb, var(--surface) 90%, #000 10%); }
 .summary-duty-object > header, .summary-structured-object > header { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 9px; }
-.summary-duty-object > header > .shared-select { flex: 1 1 260px; }
-.summary-duty-period { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; gap: 7px; align-items: center; padding: 9px; border: 1px solid color-mix(in srgb, var(--border) 82%, transparent); border-radius: 11px; background: color-mix(in srgb, var(--surface) 82%, #000 18%); }
-.summary-duty-period > div { display: grid; grid-template-columns: minmax(118px, 1fr) 88px; gap: 6px; min-width: 0; }
-.summary-duty-period > span { color: var(--muted); }
-.summary-structured-object label, .summary-shelling label { display: grid; gap: 5px; min-width: 0; }
+.summary-duty-object > header.summary-duty-person { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+.summary-duty-person > label { display: grid; min-width: 0; gap: 5px; }
+.summary-duty-person > label > span, .summary-time-group label > span { color: var(--muted); font-size: 11px; font-weight: 700; }
+.summary-duty-person .shared-select { width: 100%; min-width: 0; }
+.summary-duty-person .shared-select select { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.summary-duty-period { display: grid; gap: 7px; padding: 9px; border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border)); border-radius: 11px; background: color-mix(in srgb, var(--surface) 76%, #000 24%); }
+.summary-duty-period > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.summary-duty-period > header > span { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.summary-duty-period > header .icon-button { min-width: 36px; min-height: 36px; }
+.summary-duty-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; }
+.summary-time-group { display: grid; grid-template-columns: minmax(118px, 1fr) 88px; gap: 6px; min-width: 0; padding: 8px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-radius: 10px; background: #0a0f0b; }
+.summary-time-group > b { grid-column: 1 / -1; color: var(--accent); font-size: 12px; }
+.summary-time-group > label { display: grid; min-width: 0; gap: 4px; }
+.summary-structured-object label, .summary-shelling label { display: grid; gap: 5px; min-width: 0; padding: 7px; border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border)); border-radius: 11px; background: color-mix(in srgb, var(--surface) 76%, #000 24%); }
 .summary-structured-object label > span, .summary-shelling label > span { overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; }
 .summary-structured-object > header > span, .summary-position-object > header span { color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: .045em; text-transform: uppercase; }
 .summary-position-object > header > div { display: grid; min-width: 0; gap: 2px; }
@@ -43,7 +53,7 @@
 .summary-position-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; min-width: 0; }
 .summary-position-fields label:last-child { grid-column: 1 / -1; }
 .summary-structured-object.is-automatic { border-color: color-mix(in srgb, var(--accent) 36%, var(--border)); }
-.summary-structured-object.is-automatic input[readonly] { border-color: transparent; background: color-mix(in srgb, var(--accent) 8%, #0b100c); color: var(--text); cursor: default; }
+.summary-structured-object.is-automatic input[readonly] { border-color: color-mix(in srgb, var(--accent) 42%, var(--border)); background: color-mix(in srgb, var(--accent) 8%, #0b100c); color: var(--text); cursor: default; }
 .summary-number-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .summary-shelling { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px 54px 10px 10px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--surface) 90%, #000 10%); }
 .summary-shelling label:nth-of-type(5) { grid-column: 1 / -1; }
@@ -78,9 +88,10 @@
 .summary-source-facts .wide { grid-column: 1 / -1; }
 .summary-modal-group { display: grid; gap: 9px; padding: 13px; border: 1px solid var(--border); border-radius: 13px; }
 .summary-modal-row { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 8px; }
-.summary-member-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(300px, 1.5fr); gap: 10px; align-items: center; padding: 10px; border-radius: 10px; background: color-mix(in srgb, var(--surface) 88%, #000 12%); }
-.summary-member-row > div:first-child { display: grid; gap: 3px; }
-.summary-member-times { display: grid; grid-template-columns: 1fr 90px 1fr 90px; gap: 6px; }
+.summary-member-row { display: grid; grid-template-columns: minmax(190px, .8fr) minmax(380px, 1.5fr); gap: 12px; align-items: end; padding: 11px; border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border)); border-radius: 11px; background: color-mix(in srgb, var(--surface) 82%, #000 18%); }
+.summary-member-identity { display: grid; min-width: 0; gap: 3px; align-self: center; }
+.summary-member-identity b, .summary-member-identity small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.summary-member-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0; }
 .summary-controls .shared-select, .summary-flight-modal .shared-select, .summary-parameters-modal .shared-select { width: 100%; min-width: 0; }
 .summary-controls .shared-select select, .summary-flight-modal .shared-select select, .summary-parameters-modal .shared-select select { min-width: 0; padding-right: 38px; }
 .summary-duty-editor > header { align-items: flex-start; }
@@ -101,5 +112,6 @@
    Stack before the two report columns can no longer keep their real minimums;
    this prevents the editor from being clipped by the fixed app workspace. */
 @media (max-width: 1600px) { .summary-report-layout { grid-template-columns: minmax(0, 1fr); } .summary-controls { max-height: none; } .summary-preview__document { height: 65vh; } }
-@media (max-width: 720px) { .summary-event-object, .summary-member-row { grid-template-columns: 1fr; } .summary-event-object .icon-button { grid-column: 1; justify-self: end; } .summary-duty-period, .summary-duty-period > div, .summary-member-times, .summary-modal-row, .summary-source-facts, .summary-parameters-grid { grid-template-columns: 1fr; } .summary-duty-period > span { display: none; } .summary-source-facts .wide, .summary-parameters-grid .wide { grid-column: 1; } }
+@media (max-width: 720px) { .summary-event-object, .summary-member-row, .summary-duty-object > header.summary-duty-person { grid-template-columns: 1fr; } .summary-event-object .icon-button { grid-column: 1; justify-self: end; } .summary-duty-range, .summary-member-times, .summary-modal-row, .summary-source-facts, .summary-parameters-grid { grid-template-columns: 1fr; } .summary-card-actions { justify-content: flex-start; } .summary-source-facts .wide, .summary-parameters-grid .wide { grid-column: 1; } }
+@media (max-width: 520px) { .summary-time-group { grid-template-columns: 1fr; } }
 @media (max-width: 620px) { .summary-number-grid, .summary-composition-fields, .summary-position-fields, .summary-shelling { grid-template-columns: 1fr; } .summary-position-fields label:last-child, .summary-shelling label:nth-of-type(5) { grid-column: 1; } .summary-title-actions { width: 100%; } .summary-title-actions .button { flex: 1; } .summary-preview__document { padding: 0; } }

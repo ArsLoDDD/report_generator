@@ -60,9 +60,8 @@ export function CustomFieldsManager({ scope }: { scope: CustomFieldsScope }) {
       </> : <>
         <header className="custom-field-editor__header"><div><p>Створюйте додаткові поля для {scope === "vehicle" ? "автомобілів" : "особового складу"}, конструктора та шаблонів.</p></div><button className="button primary" onClick={() => { setEditingFieldKey(null); setField(emptyField()); setFormOpen(true); }}><Plus />Створити поле</button></header>
         {fields.length === 0 ? <p className="custom-field-editor__empty">Кастомних полів ще немає.</p> : <div className="custom-field-list"><h3>Створені поля</h3>{fields.map((item) => <div key={item.fieldKey}><span>{item.displayName} <code>{item.fieldKey}</code></span><button className="button" onClick={() => { setEditingFieldKey(item.fieldKey); setField(item); setFormOpen(true); }}>Редагувати</button><button className="button danger" onClick={() => void remove(item.fieldKey)}>Видалити</button></div>)}</div>}
-        <div className="modal-actions"><button className="button" onClick={close}>Закрити</button></div>
+        <div className="modal-actions"><button data-modal-enter-action className="button" onClick={close}>Закрити</button></div>
       </>}
     </Modal>}
   </>;
 }
-

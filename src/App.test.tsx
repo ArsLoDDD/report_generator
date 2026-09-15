@@ -73,7 +73,7 @@ describe("navigation and report generation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
     expect(screen.getByRole("heading", { name: "Налаштування" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
-    expect(screen.getByRole("heading", { name: "Повний посібник із програми" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Як працювати з програмою" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Конструктор змінних" }));
     expect(screen.getByRole("heading", { name: "Покрокове складання" })).toBeInTheDocument();
   });

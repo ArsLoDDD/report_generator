@@ -295,11 +295,13 @@ fn with_row_height(row: &str, height: u32) -> String {
     row.replacen("<w:tr>", &format!("<w:tr><w:trPr>{height_xml}</w:trPr>"), 1)
 }
 
-fn stabilize_signer_tab_stop(xml: &mut String) -> Result<(), String> {
-    // The template's writable width is 9,632 twips. A right tab at that edge
-    // keeps the rank at the left margin and aligns the end of `Імʼя ПРІЗВИЩЕ`
-    // with the right margin, matching the supplied document.
-    const SIGNER_NAME_TAB_POSITION: u32 = 9632;
+fn stabilize_signer_layout(xml: &mut String) -> Result<(), String> {
+    // `docx-preview` renders tab characters as a fixed-width space unless its
+    // experimental layout mode is enabled. A borderless, full-width table is
+    // deterministic in Word, LibreOffice and the in-app preview: rank stays at
+    // the left edge, while the end of `Імʼя ПРІЗВИЩЕ` reaches the right text margin.
+    const SIGNER_ROW_WIDTH: u32 = 9632;
+    const SIGNER_CELL_WIDTH: u32 = SIGNER_ROW_WIDTH / 2;
     let marker = "{{signer_rank}}";
     let marker_pos = xml
         .find(marker)
@@ -317,29 +319,33 @@ fn stabilize_signer_tab_stop(xml: &mut String) -> Result<(), String> {
             .find("</w:p>")
             .ok_or_else(|| "Некоректний блок підписанта.".to_string())?
         + "</w:p>".len();
-    let mut paragraph = xml[start..end].to_string();
-    let tab_stop =
-        format!("<w:tabs><w:tab w:val=\"right\" w:pos=\"{SIGNER_NAME_TAB_POSITION}\"/></w:tabs>");
-    if let Some(properties) = xml_element(&paragraph, "w:pPr") {
-        let properties_with_tab = if let Some(existing_tabs) = xml_element(&properties, "w:tabs") {
-            properties.replacen(&existing_tabs, &tab_stop, 1)
-        } else {
-            properties.replacen("</w:pPr>", &format!("{tab_stop}</w:pPr>"), 1)
-        };
-        paragraph = paragraph.replacen(&properties, &properties_with_tab, 1);
-    } else {
-        paragraph = paragraph.replacen("<w:p>", &format!("<w:p><w:pPr>{tab_stop}</w:pPr>"), 1);
+    let paragraph = &xml[start..end];
+    let mut paragraph_properties = xml_element(paragraph, "w:pPr").unwrap_or_else(|| {
+        "<w:pPr><w:pStyle w:val=\"Normal.0\"/><w:spacing w:line=\"240\" w:lineRule=\"auto\"/></w:pPr>"
+            .to_string()
+    });
+    if let Some(tabs) = xml_element(&paragraph_properties, "w:tabs") {
+        paragraph_properties = paragraph_properties.replacen(&tabs, "", 1);
     }
-    paragraph = paragraph
-        .replacen('\t', "", 1)
-        .replacen("&#9;", "", 1)
-        .replacen("&#x9;", "", 1)
-        .replacen(
-            marker,
-            &format!("{marker}</w:t><w:tab/><w:t xml:space=\"preserve\">"),
-            1,
-        );
-    xml.replace_range(start..end, &paragraph);
+    paragraph_properties = replace_or_append_xml_element(
+        &paragraph_properties,
+        "w:ind",
+        "<w:ind w:left=\"0\" w:right=\"0\" w:firstLine=\"0\"/>",
+    );
+    let left_properties =
+        replace_or_append_xml_element(&paragraph_properties, "w:jc", "<w:jc w:val=\"left\"/>");
+    let right_properties =
+        replace_or_append_xml_element(&paragraph_properties, "w:jc", "<w:jc w:val=\"right\"/>");
+    let run_properties = marker_run_properties(paragraph, marker).unwrap_or_default();
+    let run_properties = if run_properties.is_empty() {
+        String::new()
+    } else {
+        run_properties
+    };
+    let replacement = format!(
+        "<w:tbl><w:tblPr><w:tblW w:w=\"{SIGNER_ROW_WIDTH}\" w:type=\"dxa\"/><w:jc w:val=\"left\"/><w:tblInd w:w=\"0\" w:type=\"dxa\"/><w:tblBorders><w:top w:val=\"nil\"/><w:left w:val=\"nil\"/><w:bottom w:val=\"nil\"/><w:right w:val=\"nil\"/><w:insideH w:val=\"nil\"/><w:insideV w:val=\"nil\"/></w:tblBorders><w:tblLayout w:type=\"fixed\"/><w:tblCellMar><w:top w:w=\"0\" w:type=\"dxa\"/><w:left w:w=\"0\" w:type=\"dxa\"/><w:bottom w:w=\"0\" w:type=\"dxa\"/><w:right w:w=\"0\" w:type=\"dxa\"/></w:tblCellMar></w:tblPr><w:tblGrid><w:gridCol w:w=\"{SIGNER_CELL_WIDTH}\"/><w:gridCol w:w=\"{SIGNER_CELL_WIDTH}\"/></w:tblGrid><w:tr><w:trPr><w:cantSplit/></w:trPr><w:tc><w:tcPr><w:tcW w:w=\"{SIGNER_CELL_WIDTH}\" w:type=\"dxa\"/><w:vAlign w:val=\"center\"/></w:tcPr><w:p>{left_properties}<w:r>{run_properties}<w:t xml:space=\"preserve\">{{{{signer_rank}}}}</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w=\"{SIGNER_CELL_WIDTH}\" w:type=\"dxa\"/><w:vAlign w:val=\"center\"/></w:tcPr><w:p>{right_properties}<w:r>{run_properties}<w:t xml:space=\"preserve\">{{{{signer_given_name}}}} {{{{signer_surname}}}}</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"
+    );
+    xml.replace_range(start..end, &replacement);
     Ok(())
 }
 
@@ -438,7 +444,7 @@ fn replace_rich_blocks(
             if name == "word/document.xml" {
                 let mut xml =
                     String::from_utf8(bytes).map_err(|_| "Некоректний текст DOCX.".to_string())?;
-                stabilize_signer_tab_stop(&mut xml)?;
+                stabilize_signer_layout(&mut xml)?;
                 for (key, lines) in blocks {
                     let marker = format!("{{{{{key}}}}}");
                     let Some(marker_pos) = xml.find(&marker) else {
@@ -855,9 +861,33 @@ mod tests {
         assert!(!xml.contains("{{") && !xml.contains("!"));
         assert!(xml.contains("<w:trHeight w:val=\"1278\" w:hRule=\"atLeast\"/>"));
         assert!(xml.contains("<w:trHeight w:val=\"402\" w:hRule=\"atLeast\"/>"));
-        assert!(xml.contains("<w:tab w:val=\"right\" w:pos=\"9632\"/>"));
-        assert!(xml.contains("<w:tab/>"));
         assert!(xml.contains("Командир роти безпілотних авіаційних комплексів 477 окремого батальйону безпілотних систем"));
+
+        let signer_rank_pos = xml.find("молодший лейтенант").unwrap();
+        let signer_table_start = xml[..signer_rank_pos].rfind("<w:tbl>").unwrap();
+        let signer_table_end =
+            signer_rank_pos + xml[signer_rank_pos..].find("</w:tbl>").unwrap() + "</w:tbl>".len();
+        let signer_table = &xml[signer_table_start..signer_table_end];
+        assert!(signer_table.contains("<w:tblW w:w=\"9632\" w:type=\"dxa\"/>"));
+        assert!(signer_table.contains("<w:tblLayout w:type=\"fixed\"/>"));
+        assert!(signer_table.contains("<w:tblCellMar><w:top w:w=\"0\" w:type=\"dxa\"/><w:left w:w=\"0\" w:type=\"dxa\"/><w:bottom w:w=\"0\" w:type=\"dxa\"/><w:right w:w=\"0\" w:type=\"dxa\"/></w:tblCellMar>"));
+        assert!(!signer_table.contains("<w:tab"));
+        let signer_cells = xml_element_ranges(signer_table, "w:tc");
+        assert_eq!(signer_cells.len(), 2);
+        let rank_cell = &signer_table[signer_cells[0].clone()];
+        let name_cell = &signer_table[signer_cells[1].clone()];
+        assert!(rank_cell.contains("<w:jc w:val=\"left\"/>"));
+        assert!(rank_cell.contains("молодший лейтенант"));
+        assert!(name_cell.contains("<w:jc w:val=\"right\"/>"));
+        assert!(name_cell.contains("Арсеній ШКОЛЬНІКОВ"));
+
+        let following_paragraphs = xml_element_ranges(&xml[signer_table_end..], "w:p");
+        assert_eq!(
+            following_paragraphs
+                .first()
+                .map(|range| paragraph_text(&xml[signer_table_end..][range.clone()])),
+            Some("Тест".into())
+        );
 
         let generated_paragraphs = xml_element_ranges(&xml, "w:p");
         let generated_texts = generated_paragraphs

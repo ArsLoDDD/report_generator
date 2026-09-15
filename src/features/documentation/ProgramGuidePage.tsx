@@ -1,107 +1,212 @@
-import { BookOpen, Database, FileCheck2, FileSpreadsheet, FileText, Folder, MapPinned, Network, PlaneTakeoff, Settings, Users, UsersRound, WandSparkles } from "lucide-react";
+import {
+  ArrowRight,
+  BookOpen,
+  Check,
+  ChevronDown,
+  CircleHelp,
+  Database,
+  FileText,
+  Keyboard,
+  PackageOpen,
+  PlaneTakeoff,
+  SearchX,
+  Settings,
+  ShieldCheck,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { PageFrame } from "../../shared/ui/PageFrame";
+import { SearchInput } from "../../shared/ui/SearchInput";
+import {
+  dataFlow,
+  guideGroups,
+  guideTopics,
+  quickStartSteps,
+  type GuideGroupId,
+  type GuideTopic,
+} from "./program-guide-content";
 
-type GuideSection = {
-  id: string;
-  title: string;
-  icon: typeof BookOpen;
-  purpose: string;
-  steps: string[];
-  notes?: string[];
+const groupIcons: Record<GuideGroupId, LucideIcon> = {
+  start: BookOpen,
+  personnel: Users,
+  operations: PlaneTakeoff,
+  assets: PackageOpen,
+  documents: FileText,
+  administration: Settings,
 };
 
-const sections: GuideSection[] = [
-  {
-    id: "generation", title: "Генерація рапортів", icon: FileCheck2,
-    purpose: "Створює готовий DOCX на основі шаблону та даних вибраних військовослужбовців.",
-    steps: ["Оберіть шаблон зі списку або відкрийте DOCX-файл.", "Позначте одного чи кількох військовослужбовців, якщо їхні змінні є у шаблоні.", "Якщо шаблон містить параметри документа, заповніть поля, які одразу з’являться праворуч.", "Переконайтеся, що швидка перевірка не показує помилок, і натисніть «Згенерувати рапорт»."],
-    notes: ["Перший обраний військовослужбовець — це №1, другий — №2 і так далі.", "Створені файли зберігаються локально поруч із програмою, у папці «Згенеровані рапорти»."]
-  },
-  {
-    id: "templates", title: "Шаблони", icon: FileText,
-    purpose: "Керує локальною папкою DOCX-шаблонів і перевіряє мову шаблонів до генерації.",
-    steps: ["Додайте DOCX через «Відкрити шаблон з файлу» або скопіюйте його до папки «Шаблони».", "Оберіть шаблон, щоб побачити знайдені змінні та їхній стан.", "Натисніть «Перевірити», щоб отримати повну перевірку: назви змінних, номери осіб, модифікатори та можливість відмінювання.", "Відкрийте шаблон для редагування у Word, після збереження натисніть «Оновити»."],
-    notes: ["Перевірка не змінює DOCX.", "Старі змінні v1 не підтримуються — їх потрібно замінити на v2 через Конструктор змінних."]
-  },
-  {
-    id: "personnel", title: "Особовий склад", icon: Users,
-    purpose: "Містить дані військовослужбовців, з яких програма заповнює шаблони.",
-    steps: ["Додайте запис або відкрийте наявний для редагування.", "Заповніть ПІБ, звання, посаду та інші потрібні поля. Порожні значення залишаються порожніми і в рапорті.", "У вікні «Додаткові фільтри» шукайте записи за будь-якими даними та оберіть колонки, які потрібно бачити в таблиці.", "Для відмінювання вкажіть стать. Якщо її немає, програма намагається визначити її за по батькові та попереджає у неоднозначних випадках."],
-    notes: ["Видимість колонок зберігається локально у settings.json.", "Повне ПІБ можна вводити окремо: під час імпорту воно також розкладається на прізвище, ім’я та по батькові, якщо ці колонки порожні."]
-  },
-  {
-    id: "staffing", title: "Штат та БЧС", icon: Network,
-    purpose: "Показує актуальну ієрархію підрозділу та чисельний облік без дублювання даних.",
-    steps: ["У вкладці «Штат» переглядайте структуру за ротою, взводом, екіпажем і посадою.", "Командири розташовуються вище підлеглих, а особи без визначеного взводу входять до управління роти.", "У вкладці «БЧС» переглядайте офіційну й фактичну чисельність, БРО, сектор, позицію, БпАК, обов’язки та місце перебування.", "Редагуйте посаду, склад екіпажу або його дані у відповідних розділах — Штат і БЧС оновляться автоматично."],
-    notes: ["Офіційний і фактичний склад зберігаються окремо. Кількість тих, хто працює, враховує фактичний екіпаж і поточне значення «Де знаходиться»."]
-  },
-  {
-    id: "flight-planning", title: "Планування польотів", icon: PlaneTakeoff,
-    purpose: "Формує Excel-план за наданим шаблоном із актуальних даних екіпажів, позицій, БпЛА й автомобілів.",
-    steps: ["Заповніть позивні всіх військовослужбовців, які входять до офіційного або фактичного складу екіпажів.", "У «Параметрах плану польотів» оберіть екіпажі та окремо для кожного задайте погоду, маршрут, висоту, район виконання, завдання й час.", "Перевірте на сторінці таблицю, яка відтворює майбутній Excel-файл.", "Експортуйте файл: назви населених пунктів, екіпажу, позиції та БпЛА будуть приведені до великих літер, а час залишиться числовим форматом Excel."],
-    notes: ["Працюючі екіпажі вибираються автоматично під час першого відкриття. Введені параметри зберігаються за екіпажем після закриття модального вікна.", "Експорт блокується лише тоді, коли позивного немає в офіційному або фактичному складі одного з вибраних екіпажів.", "Сторінка «Попередження» автоматично відкривається під час запуску програми, якщо в даних знайдено проблеми."]
-  },
-  {
-    id: "crews", title: "Екіпажі", icon: UsersRound,
-    purpose: "Об’єднує військовослужбовців, техніку та бойові відомості в одну актуальну сутність.",
-    steps: ["Створіть екіпаж і вкажіть підрозділ, роту, взвод, БРО, сектор, статус та офіційну чисельність.", "Додайте штатні посади, фактичних учасників, БпАК, функціональні обов’язки й поточне місце.", "Закріплюйте за екіпажем автомобілі, генератори, БпЛА, засоби зв’язку та позицію у відповідних розділах.", "Після переведення людини або зміни позиції пов’язані сторінки та БЧС використовують нові дані."],
-    notes: ["Історія участі не втрачається: чинним вважається запис, у якому не зазначено дату виходу."]
-  },
-  {
-    id: "positions", title: "Позиції", icon: MapPinned,
-    purpose: "Зберігає основні, запасні та позиції в облаштуванні разом зі смугою, екіпажем і придатними БпЛА.",
-    steps: ["Створіть позицію, оберіть тип, стан, смугу, населений пункт, БРО, сектор і розмір.", "Вкажіть приблизні координати MGRS — програма залишить точність до одного кілометра, замінивши останні три цифри кожної координати на 000.", "Оберіть придатні БпЛА зі списку або додайте їхні типи текстом.", "Для активної позиції обов’язково закріпіть екіпаж; його поточна позиція та район роботи синхронізуються автоматично."],
-    notes: ["Під час відкріплення, видалення або деактивації позиції старий зв’язок екіпажу очищається."]
-  },
-  {
-    id: "excel", title: "Імпорт і експорт Excel", icon: FileSpreadsheet,
-    purpose: "Переносить повну локальну базу між програмою та Excel-файлом без надсилання даних в інтернет.",
-    steps: ["Експортуйте дані, щоб отримати .xlsx з українськими назвами колонок у першому рядку та ключами для програми у другому.", "Файл містить особовий склад, автомобілі, екіпажі, позиції, склад екіпажів, генератори, БпЛА, зв’язок, зброю та БК, інциденти й мапи основних полів кожного розділу.", "Для нового файлу використовуйте такий самий шаблон: записи починаються з третього рядка.", "Під час імпорту оберіть «Замінити базу», щоб зробити БД точно такою, як у файлі, або «Доповнити», щоб додати нові записи до наявних.", "Порожній файл-шаблон можна імпортувати у режимі заміни — результатом буде повністю порожня база."],
-    notes: ["Не змінюйте другий рядок із ключами, інакше програма не зможе зіставити колонки.", "Зв’язки відновлюються за ІПН або ПІБ, назвою екіпажу, державним та інвентарним номером — внутрішні ID у файл не потрапляють.", "Кастомні поля ОС і автомобілів мають окремі аркуші зі значеннями."]
-  },
-  {
-    id: "reports", title: "Згенеровані рапорти", icon: Folder,
-    purpose: "Дає доступ до вже створених файлів без повторної генерації.",
-    steps: ["Використовуйте період і пошук, щоб знайти потрібний результат.", "Відкрийте сам DOCX або папку з ним у провіднику.", "Позначте непотрібні результати й видаліть їх після підтвердження."],
-    notes: ["Якщо файл було вручну переміщено або видалено, програма повідомить, що його шлях недоступний."]
-  },
-  {
-    id: "constructor", title: "Конструктор змінних", icon: WandSparkles,
-    purpose: "Допомагає зібрати правильну змінну без запам’ятовування синтаксису.",
-    steps: ["У режимі «Конструктор змінних» оберіть об’єкт: військовослужбовець, автомобіль, потрібний підписант або «Параметри документа».", "Оберіть поле. Для військовослужбовця вкажіть номер — за замовчуванням 1; для параметра документа за потреби вкажіть його номер.", "За потреби додайте один відмінок, один модифікатор регістру та будь-яке сумісне форматування DOCX. Недоступні модифікатори вимкнені.", "Перевірте токен, приклад значення й речення праворуч, потім скопіюйте його до Word."],
-    notes: ["Режим «Всі змінні» показує весь реєстр і шукає за назвою, описом та токеном.", "Кастомні поля є полями військовослужбовця, а не окремими суб’єктами."]
-  },
-  {
-    id: "settings", title: "Налаштування", icon: Settings,
-    purpose: "Зберігає дані ролей-підписантів і дає доступ до локальних службових дій.",
-    steps: ["Заповніть ПІБ, звання та посаду основного підписанта, командира, начальника штабу й інших доступних ролей.", "Використовуйте відповідні змінні, наприклад {{командир_піб}} або {{основний_підписант_посада}}.", "Створіть резервну копію перед великим імпортом або масовим редагуванням даних.", "Через «Відкрити папку програми» можна побачити всі локальні файли застосунку."],
-    notes: ["Змінені дані підписантів застосовуються лише до нових згенерованих документів."]
-  },
-  {
-    id: "custom", title: "Редактор кастомних полів", icon: Database,
-    purpose: "Додає спеціальні поля, яких немає серед основних даних особового складу.",
-    steps: ["У вкладці «Особовий склад» відкрийте «Редактор кастомних полів».", "Створіть ключ латиницею: мала літера на початку, далі малі літери, цифри або підкреслення; додайте українську назву, опис і початкове значення.", "Після збереження поле одразу стає колонкою таблиці та доступне у Конструкторі змінних для військовослужбовця.", "Редагуйте або видаляйте поле тільки в редакторі; зміна ключа заборонена, бо він прив’язаний до даних."],
-    notes: ["Опис і перелік кастомних полів зберігаються локально у custom_variables.json поруч із програмою.", "Токен будується з української назви: «Код підрозділу» → {{військовий_1_код_підрозділу}}."]
-  }
-];
+const synonymGroups = [
+  ["інцидент", "інцедент"],
+  ["бпла", "дрон", "борт"],
+  ["бпак", "комплекс"],
+  ["екіпаж", "розрахунок"],
+  ["ротація", "заміна"],
+  ["виїзд", "виїхав", "вихід"],
+  ["заїзд", "заїхав", "вхід"],
+  ["підсумкове", "пд", "донесення"],
+  ["бчс", "бойовий", "чисельний"],
+  ["цукерня", "крафт", "виготовлення"],
+  ["рекогностування", "реко"],
+  ["знімок", "snapshot", "чернетка"],
+  ["excel", "ексель", "xlsx"],
+  ["резервна", "backup", "копія"],
+  ["тво", "тимчасове", "виконання"],
+  ["позивний", "позивні", "callsign"],
+] as const;
 
-const errors = [
-  ["Невідома змінна", "Скопіюйте змінну з Конструктора або перевірте назву, підкреслення та номер військовослужбовця."],
-  ["Номер військовослужбовця більший за кількість вибраних", "Або виберіть більше людей, або використайте менший номер у токені."],
-  ["Конфлікт модифікаторів", "Для відмінка й регістру можна обрати лише по одному значенню. Жирний та підкреслення можна комбінувати."],
-  ["Не можна відмінювати", "Відмінки доступні лише для ПІБ, частин ПІБ, звань і посад. Приберіть відмінок з дати, номера або звичайного тексту."],
-  ["Не вдалося визначити стать", "Вкажіть стать у картці військовослужбовця. Це має пріоритет над автоматичним визначенням."],
-  ["Шаблон не знайдено або не DOCX", "Оберіть наявний файл .docx у локальній папці шаблонів."]
-];
+const normalized = (value: string) => value
+  .toLocaleLowerCase("uk")
+  .replace(/[’ʼ`]/gu, "'")
+  .replace(/[^\p{L}\p{N}'.]+/gu, " ")
+  .replace(/\s+/gu, " ")
+  .trim();
+
+const tokens = (value: string) => normalized(value).split(" ").filter(Boolean);
+const synonymsFor = (token: string): readonly string[] => synonymGroups.find((group) => (group as readonly string[]).includes(token)) ?? [token];
+const topicSearchText = (topic: GuideTopic) => normalized([
+  topic.title,
+  topic.summary,
+  ...topic.steps,
+  ...(topic.receives ?? []),
+  ...(topic.sends ?? []),
+  ...(topic.rules ?? []),
+  ...(topic.keywords ?? []),
+].join(" "));
+
+export const matchesGuideQuery = (topic: GuideTopic, query: string) => {
+  const searchText = topicSearchText(topic);
+  return tokens(query).every((token) => synonymsFor(token).some((synonym) => searchText.includes(normalized(synonym))));
+};
+
+const topicIdFromHash = () => {
+  const hash = decodeURIComponent(window.location.hash).replace(/^#guide-/u, "");
+  return guideTopics.some((topic) => topic.id === hash) ? hash : "";
+};
+
+const scrollBehavior = (): ScrollBehavior => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
 
 export function ProgramGuidePage() {
-  return <PageFrame className="documentation-page"><section className="panel documentation program-guide">
-    <header className="documentation__intro"><BookOpen /><div><h1>Довідник</h1><h2>Повний посібник із програми</h2><p>Усі дані, шаблони, Excel-файли та рапорти працюють локально на цьому комп’ютері.</p></div></header>
-    <nav className="guide-navigation" aria-label="Розділи довідника">{sections.map(({ id, title }) => <a href={`#${id}`} key={id}>{title}</a>)}<a href="#language">Мова шаблонів</a><a href="#errors">Типові помилки</a></nav>
-    <section className="guide-start"><h2>Швидкий старт</h2><ol><li>Заповніть «Особовий склад» і дані підписантів у «Налаштуваннях».</li><li>Додайте DOCX у «Шаблони» та вставте змінні через Конструктор.</li><li>Перевірте шаблон, оберіть людей у «Генерації рапортів» і створіть DOCX.</li></ol></section>
-    <div className="guide-sections">{sections.map(({ id, title, icon: Icon, purpose, steps, notes }) => <article className="guide-section" id={id} key={id}><header><Icon /><div><h2>{title}</h2><p>{purpose}</p></div></header><h3>Як користуватися</h3><ol>{steps.map((step) => <li key={step}>{step}</li>)}</ol>{notes && <aside><b>Важливо</b><ul>{notes.map((note) => <li key={note}>{note}</li>)}</ul></aside>}</article>)}</div>
-    <section className="guide-language" id="language"><h2>Мова шаблонів v2</h2><p>Змінна завжди записується між подвійними фігурними дужками. Усі назви полів у шаблоні — українською. Внутрішні ключі бази даних у шаблонах не використовуються.</p><div className="guide-language__rows"><code>{"{{військовий_1_піб}}"}</code><span>ПІБ першого обраного військовослужбовця.</span><code>{"{{військовий_2_посвідчення_водія}}"}</code><span>Посвідчення водія другої обраної особи.</span><code>{"{{військовий_1_посада:родовий:з_великої}}"}</code><span>Посада у родовому відмінку, де велика лише перша літера першого слова.</span><code>{"{{основний_підписант_звання}}"}</code><span>Звання основного підписанта з «Налаштувань».</span><code>{"{{командир_посада:орудний:підкреслити}}"}</code><span>Посада командира в орудному відмінку та з підкресленням у Word.</span><code>{"{{військовий_1_код_підрозділу}}"}</code><span>Приклад кастомного поля з назвою «Код підрозділу».</span><code>{"{{дата_рапорту_1}}"}</code><span>Перше з кількох значень дати, яке користувач введе перед генерацією.</span><code>{"{{обставини:жирним:підкреслити}}"}</code><span>Параметр документа з форматуванням у Word.</span></div><div className="guide-modifier-rules"><b>Правила модифікаторів</b><span>Відмінок: один із семи та лише для полів, які можна відмінювати. Регістр: «великими», «маленькими» або «з_великої» — лише один. Форматування: «жирним» і «підкреслити» можна додавати разом до всіх параметрів документа.</span></div></section>
-    <section className="guide-language" id="errors"><h2>Типові помилки та рішення</h2><div className="guide-error-list">{errors.map(([title, solution]) => <article key={title}><b>{title}</b><span>{solution}</span></article>)}</div></section>
-    <aside className="guide-note"><b>Якщо щось не працює</b><span>Спочатку відкрийте «Шаблони» і виконайте повну перевірку. Потім перевірте потрібний запис у «Особовому складі», дані ролі в «Налаштуваннях» і тільки після цього запускайте генерацію повторно.</span></aside>
-  </section></PageFrame>;
+  const [query, setQuery] = useState("");
+  const [group, setGroup] = useState<"all" | GuideGroupId>("all");
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(["first-launch", "flight-plan", "summary-report", topicIdFromHash()].filter(Boolean)));
+  const search = normalized(query);
+  const visibleTopics = useMemo(() => guideTopics.filter((topic) => {
+    const groupMatches = group === "all" || topic.group === group;
+    return groupMatches && (!search || matchesGuideQuery(topic, search));
+  }), [group, search]);
+
+  useEffect(() => {
+    if (!search) return;
+    setExpanded((current) => new Set([...current, ...visibleTopics.map((topic) => topic.id)]));
+  }, [search, visibleTopics]);
+
+  useEffect(() => {
+    const revealHashTopic = () => {
+      const id = topicIdFromHash();
+      if (!id) return;
+      setGroup("all");
+      setExpanded((current) => new Set([...current, id]));
+      window.setTimeout(() => {
+        const card = document.getElementById(`guide-${id}`);
+        card?.scrollIntoView?.({ behavior: scrollBehavior(), block: "start" });
+        document.getElementById(`guide-toggle-${id}`)?.focus({ preventScroll: true });
+      }, 0);
+    };
+    revealHashTopic();
+    window.addEventListener("hashchange", revealHashTopic);
+    return () => window.removeEventListener("hashchange", revealHashTopic);
+  }, []);
+
+  const toggle = (id: string) => setExpanded((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+
+  const openTopic = (id: string) => {
+    setExpanded((current) => new Set([...current, id]));
+    window.history.replaceState(null, "", `#guide-${id}`);
+    window.setTimeout(() => {
+      const card = document.getElementById(`guide-${id}`);
+      card?.scrollIntoView?.({ behavior: scrollBehavior(), block: "start" });
+      document.getElementById(`guide-toggle-${id}`)?.focus({ preventScroll: true });
+    }, 0);
+  };
+
+  const resetLibrary = () => {
+    setQuery("");
+    setGroup("all");
+  };
+
+  return <PageFrame className="program-guide-page">
+    <main className="program-guide">
+      <header className="panel program-guide-hero">
+        <div className="program-guide-hero__mark" aria-hidden="true"><BookOpen /></div>
+        <div className="program-guide-hero__copy">
+          <span className="program-guide-eyebrow">Довідник користувача</span>
+          <h1>Як працювати з програмою</h1>
+          <p>Покрокові інструкції, зв’язки між розділами та відповіді на типові питання. Почніть зі швидкого старту або знайдіть потрібну дію.</p>
+          <div className="program-guide-hero__facts">
+            <span><ShieldCheck aria-hidden="true" />Дані й документи залишаються на цьому комп’ютері</span>
+            <span><Keyboard aria-hidden="true" />Enter виконує основну дію, Escape закриває верхнє вікно</span>
+          </div>
+        </div>
+        <div className="program-guide-hero__search" role="search">
+          <SearchInput placeholder="Знайти відповідь у довіднику…" value={query} onChange={setQuery} />
+          <small>Можна кілька слів: «ротація БЧС», «інцедент екіпаж», «резервна копія»</small>
+        </div>
+      </header>
+
+      {!search && <>
+        <section className="panel program-guide-onboarding" aria-labelledby="program-guide-start-title">
+          <header><div><span className="program-guide-section-kicker">Перші дії</span><h2 id="program-guide-start-title">Швидкий старт</h2></div><span>6 кроків</span></header>
+          <ol>{quickStartSteps.map(([number, title, text]) => <li key={number}><b aria-hidden="true">{number}</b><span><strong>{title}</strong><small>{text}</small></span></li>)}</ol>
+        </section>
+
+        <section className="panel program-guide-flow" aria-labelledby="program-guide-flow-title">
+          <header><div><span className="program-guide-section-kicker">Одна система даних</span><h2 id="program-guide-flow-title">Як інформація проходить через програму</h2></div><Database aria-hidden="true" /></header>
+          <div className="program-guide-flow__track">{dataFlow.map(([title, text], index) => <div className="program-guide-flow__step" key={title}><article><b aria-hidden="true">{index + 1}</b><span><strong>{title}</strong><small>{text}</small></span></article>{index < dataFlow.length - 1 && <ArrowRight aria-hidden="true" />}</div>)}</div>
+          <p><b>Головне правило:</b> виправляйте дані у першоджерелі. Тоді наступні сторінки й документи отримають правильне значення.</p>
+        </section>
+      </>}
+
+      <section className="program-guide-library" aria-labelledby="program-guide-library-title">
+        <aside className="panel program-guide-library__index">
+          <header><CircleHelp aria-hidden="true" /><div><b id="program-guide-library-title">Теми</b><small aria-live="polite">{visibleTopics.length} із {guideTopics.length}</small></div></header>
+          <div className="program-guide-group-filter" role="group" aria-label="Категорії довідника">{guideGroups.map((item) => <button type="button" key={item.id} className={group === item.id ? "active" : ""} aria-pressed={group === item.id} onClick={() => setGroup(item.id)}>{item.label}</button>)}</div>
+          <nav aria-label="Знайдені теми"><ul>{visibleTopics.map((topic) => <li key={topic.id}><a href={`#guide-${topic.id}`} onClick={(event) => { event.preventDefault(); openTopic(topic.id); }}>{topic.title}</a></li>)}</ul></nav>
+        </aside>
+
+        <div className="program-guide-library__content">
+          <header className="program-guide-results-header">
+            <div><span className="program-guide-section-kicker">Практичні інструкції</span><h2>{search ? `Результати для «${query.trim()}»` : guideGroups.find((item) => item.id === group)?.label}</h2><span className="program-guide-results-status" role="status">Знайдено тем: {visibleTopics.length}</span></div>
+            {(search || group !== "all") && <button className="button compact" type="button" onClick={resetLibrary}><SearchX aria-hidden="true" />Показати все</button>}
+          </header>
+          {visibleTopics.length > 0 ? <div className="program-guide-topic-list">{visibleTopics.map((topic) => {
+            const Icon = groupIcons[topic.group];
+            const isOpen = expanded.has(topic.id);
+            const titleId = `guide-title-${topic.id}`;
+            const contentId = `guide-content-${topic.id}`;
+            return <article className={`panel program-guide-topic ${isOpen ? "is-open" : ""}`} id={`guide-${topic.id}`} key={topic.id} aria-labelledby={titleId}>
+              <button id={`guide-toggle-${topic.id}`} className="program-guide-topic__toggle" type="button" aria-expanded={isOpen} aria-controls={contentId} onClick={() => toggle(topic.id)}>
+                <span className="program-guide-topic__icon" aria-hidden="true"><Icon /></span>
+                <span><h3 id={titleId}>{topic.title}</h3><small>{topic.summary}</small></span>
+                <ChevronDown aria-hidden="true" />
+              </button>
+              {isOpen && <div className="program-guide-topic__content" id={contentId} role="region" aria-labelledby={titleId}>
+                <section className="program-guide-topic__steps"><h4>Як працювати</h4><ol>{topic.steps.map((step) => <li key={step}><Check aria-hidden="true" /><span>{step}</span></li>)}</ol></section>
+                {(topic.receives?.length || topic.sends?.length) && <section className="program-guide-connections" aria-label={`Зв’язки: ${topic.title}`}>
+                  {topic.receives?.length ? <div><b>Бере дані з</b><ul>{topic.receives.map((item) => <li key={item}>{item}</li>)}</ul></div> : null}
+                  {topic.sends?.length ? <div><b>Передає дані в</b><ul>{topic.sends.map((item) => <li key={item}>{item}</li>)}</ul></div> : null}
+                </section>}
+                {topic.rules?.length ? <section className="program-guide-topic__rules"><h4>Важливо</h4><ul>{topic.rules.map((rule) => <li key={rule}>{rule}</li>)}</ul></section> : null}
+              </div>}
+            </article>;
+          })}</div> : <section className="panel program-guide-empty" aria-labelledby="program-guide-empty-title"><SearchX aria-hidden="true" /><h3 id="program-guide-empty-title">Нічого не знайдено</h3><p>Спробуйте коротший запит або скиньте фільтр категорії.</p><button className="button" type="button" onClick={resetLibrary}>Показати весь довідник</button></section>}
+        </div>
+      </section>
+    </main>
+  </PageFrame>;
 }

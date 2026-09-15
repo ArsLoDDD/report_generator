@@ -31,6 +31,6 @@ export function BcsParametersModal({ unitName, fileName, date, zoom, people, onU
         <div className="bcs-parameters__list">{people.map((person) => <article key={person.id}><div><b>{person.fullName}</b><span>{person.category === "Інша підгрупа" ? person.groupName : person.category}{person.rank ? ` · ${person.rank}` : ""}{person.position ? ` · ${person.position}` : ""}{person.actingPosition ? ` · ТВО: ${person.actingPosition}` : ""}</span></div><button className="icon-button" title="Редагувати" onClick={() => onEdit(person)}><Pencil /></button><button className="icon-button danger" title="Видалити з БЧС" onClick={() => onDelete(person)}><Trash2 /></button></article>)}{!people.length && <p className="bcs-parameters__empty">Окремих записів ще немає.</p>}</div>
       </section>
     </div>
-    <footer className="modal-actions"><button className="button" onClick={onClose}>Закрити</button><button className="button primary" onClick={onExport}><FileSpreadsheet />Експорт БЧС</button></footer>
+    <footer className="modal-actions"><button data-modal-enter-action className="button" onClick={onClose}>Закрити</button><button className="button primary" onClick={onExport}><FileSpreadsheet />Експорт БЧС</button></footer>
   </Modal>;
 }

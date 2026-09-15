@@ -44,7 +44,32 @@ describe("Журнал польотів", () => {
     render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
     fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
     fireEvent.change(screen.getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("Час «Небо»"), { target: { value: "07:10" } });
+    fireEvent.change(screen.getByLabelText("Час «Земля»"), { target: { value: "08:20" } });
     fireEvent.click(screen.getByRole("button", { name: "Зберегти запис" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_flight_journal_entry", { draft: expect.not.objectContaining({ source: expect.anything() }) }));
+  });
+
+  it("не зберігає політ без обох обов’язкових часів Небо і Земля", async () => {
+    invoke.mockImplementation((command: string) => command === "list_flight_journal_entries" || command === "list_crews" || command === "list_positions" || command === "list_equipment" || command === "list_workshop_products" ? Promise.resolve(command === "list_crews" ? [crew] : []) : Promise.resolve());
+    render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
+    fireEvent.change(screen.getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
+    const skyTime=screen.getByLabelText("Час «Небо»");
+    const groundTime=screen.getByLabelText("Час «Земля»");
+    expect(skyTime).toBeRequired();
+    expect(groundTime).toBeRequired();
+
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти запис" }));
+    expect(await screen.findByText("Вкажіть обов’язкові часи «Небо» та «Земля».")).toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalledWith("create_flight_journal_entry", expect.anything());
+
+    fireEvent.change(skyTime, { target: { value: "07:10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти запис" }));
+    expect(invoke).not.toHaveBeenCalledWith("create_flight_journal_entry", expect.anything());
+
+    fireEvent.change(groundTime, { target: { value: "08:20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти запис" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_flight_journal_entry", { draft: expect.objectContaining({ skyTime: "07:10", groundTime: "08:20" }) }));
   });
 });

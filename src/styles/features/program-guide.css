@@ -1,0 +1,130 @@
+.program-guide-page .page-frame__content { overflow: auto; }
+.program-guide-page .program-guide { width: min(100%, 1480px); margin: 0 auto; padding-bottom: 28px; display: grid; gap: 14px; }
+.program-guide-page .program-guide-hero { position: relative; overflow: hidden; display: grid; grid-template-columns: auto minmax(360px, 1fr) minmax(330px, .72fr); gap: 20px; align-items: center; padding: 25px 28px; border-color: #304338; background: radial-gradient(circle at 78% -40%, #304326 0, transparent 44%), linear-gradient(135deg, #121d17, #0b1310 58%, #0d171c); }
+.program-guide-page .program-guide-hero::after { content: ""; position: absolute; inset: auto -80px -120px auto; width: 260px; height: 260px; border: 1px solid #b6cb6530; border-radius: 50%; pointer-events: none; }
+.program-guide-page .program-guide-hero__mark { width: 60px; height: 60px; border: 1px solid #aabf5b75; border-radius: 16px; display: grid; place-items: center; background: #adbf5420; color: #d8e887; }
+.program-guide-page .program-guide-hero__mark svg { width: 30px; height: 30px; }
+.program-guide-page .program-guide-hero__copy { min-width: 0; }
+.program-guide-page .program-guide-eyebrow,
+.program-guide-page .program-guide-section-kicker { display: block; color: #b7ca67; font-size: 12px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.program-guide-page .program-guide-hero h1 { margin: 5px 0 7px; font-size: clamp(27px, 2.2vw, 36px); letter-spacing: -.035em; }
+.program-guide-page .program-guide-hero p { max-width: 760px; margin: 0; color: #aeb8af; font-size: 14px; line-height: 1.55; }
+.program-guide-page .program-guide-hero__facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+.program-guide-page .program-guide-hero__facts span { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 6px 10px; border: 1px solid #34483b; border-radius: 7px; background: #101a14cc; color: #c7d0c8; font-size: 12px; }
+.program-guide-page .program-guide-hero__facts svg { width: 16px; height: 16px; color: #aeca5d; }
+.program-guide-page .program-guide-hero__search { position: relative; z-index: 1; min-width: 0; padding: 14px; border: 1px solid #384a3f; border-radius: 11px; background: #080e0bcc; }
+.program-guide-page .program-guide-hero__search .search { width: 100%; min-height: 44px; border-color: #536649; background: #0b120e; }
+.program-guide-page .program-guide-hero__search small { display: block; margin: 9px 3px 0; color: #8f9c93; font-size: 12px; line-height: 1.4; }
+.program-guide-page .program-guide-onboarding,
+.program-guide-page .program-guide-flow { padding: 20px 22px; border-color: #28372f; background: linear-gradient(145deg, #101813, #0a110d); }
+.program-guide-page .program-guide-onboarding > header,
+.program-guide-page .program-guide-flow > header,
+.program-guide-page .program-guide-results-header { display: flex; justify-content: space-between; align-items: center; gap: 15px; margin-bottom: 15px; }
+.program-guide-page .program-guide-onboarding h2,
+.program-guide-page .program-guide-flow h2,
+.program-guide-page .program-guide-results-header h2 { margin: 4px 0 0; font-size: 20px; }
+.program-guide-page .program-guide-onboarding > header > span { padding: 6px 9px; border-radius: 6px; background: #29331f; color: #d6e389; font-size: 12px; font-weight: 700; }
+.program-guide-page .program-guide-onboarding ol { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 0; padding: 0; }
+.program-guide-page .program-guide-onboarding li { min-width: 0; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 11px; align-items: start; padding: 13px; border: 1px solid #26352c; border-radius: 9px; background: #0b120e; }
+.program-guide-page .program-guide-onboarding li > b { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 8px; background: #354224; color: #dceb8a; }
+.program-guide-page .program-guide-onboarding li span { display: grid; gap: 4px; }
+.program-guide-page .program-guide-onboarding li strong { color: #e6ebe6; font-size: 14px; }
+.program-guide-page .program-guide-onboarding li small { color: #9aa69e; font-size: 12px; line-height: 1.45; }
+.program-guide-page .program-guide-flow > header > svg { color: #aabd5b; }
+.program-guide-page .program-guide-flow__track { display: flex; align-items: stretch; gap: 7px; overflow-x: auto; padding: 1px 1px 8px; scrollbar-width: thin; }
+.program-guide-page .program-guide-flow__step { display: flex; align-items: center; gap: 7px; flex: 1 0 195px; }
+.program-guide-page .program-guide-flow__step:last-child { flex-grow: 1; }
+.program-guide-page .program-guide-flow__step article { min-width: 0; height: 100%; flex: 1; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 9px; padding: 12px; border: 1px solid #2e3c33; border-radius: 9px; background: #0a110d; }
+.program-guide-page .program-guide-flow__step article > b { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: #222d1d; color: #cbdc74; font-size: 12px; }
+.program-guide-page .program-guide-flow__step article span { display: grid; gap: 4px; }
+.program-guide-page .program-guide-flow__step strong { color: #dde5de; font-size: 13px; line-height: 1.35; }
+.program-guide-page .program-guide-flow__step small { color: #929e96; font-size: 11px; line-height: 1.4; }
+.program-guide-page .program-guide-flow__step > svg { width: 16px; flex: 0 0 16px; color: #66715d; }
+.program-guide-page .program-guide-flow > p { margin: 9px 0 0; color: #9ba79f; font-size: 12px; line-height: 1.45; }
+.program-guide-page .program-guide-flow > p b { color: #cdda84; }
+.program-guide-page .program-guide-library { display: grid; grid-template-columns: 275px minmax(0, 1fr); gap: 14px; align-items: start; }
+.program-guide-page .program-guide-library__index { position: sticky; top: 0; max-height: calc(100vh - 52px); overflow: auto; padding: 15px; border-color: #29372f; background: #0b120f; scrollbar-width: thin; }
+.program-guide-page .program-guide-library__index > header { display: flex; align-items: center; gap: 10px; padding: 2px 2px 13px; border-bottom: 1px solid #27352d; }
+.program-guide-page .program-guide-library__index > header > svg { color: #b7c965; }
+.program-guide-page .program-guide-library__index > header div { display: grid; gap: 2px; }
+.program-guide-page .program-guide-library__index > header b { font-size: 15px; }
+.program-guide-page .program-guide-library__index > header small { color: #8c9890; font-size: 12px; }
+.program-guide-page .program-guide-group-filter { display: grid; gap: 4px; padding: 11px 0; border-bottom: 1px solid #27352d; }
+.program-guide-page .program-guide-group-filter button { min-height: 44px; border: 0; border-radius: 7px; padding: 0 11px; background: transparent; color: #a5b0a8; text-align: left; cursor: pointer; font-size: 13px; }
+.program-guide-page .program-guide-group-filter button:hover { background: #151f18; color: #e5ebe6; }
+.program-guide-page .program-guide-group-filter button.active { background: #303b22; color: #e2ed96; font-weight: 700; }
+.program-guide-page .program-guide-library__index nav ul { display: grid; list-style: none; margin: 0; padding: 9px 0 0; }
+.program-guide-page .program-guide-library__index nav a { display: flex; align-items: center; min-height: 40px; padding: 7px; color: #b4beb6; font-size: 12px; line-height: 1.35; text-decoration: none; border-radius: 6px; }
+.program-guide-page .program-guide-library__index nav a:hover,
+.program-guide-page .program-guide-library__index nav a:focus-visible { background: #131d16; color: #dce880; outline: none; }
+.program-guide-page .program-guide-library__content { min-width: 0; }
+.program-guide-page .program-guide-results-header { min-height: 60px; margin: 0; padding: 0 3px 10px; }
+.program-guide-page .program-guide-results-header .button { min-height: 44px; }
+.program-guide-page .program-guide-results-header .button svg { width: 17px; }
+.program-guide-page .program-guide-results-status { display: block; margin-top: 4px; color: #8c9890; font-size: 12px; }
+.program-guide-page .program-guide-topic-list { display: grid; gap: 9px; }
+.program-guide-page .program-guide-topic { scroll-margin-top: 15px; overflow: hidden; border-color: #28382f; background: linear-gradient(145deg, #0f1712, #090f0c); }
+.program-guide-page .program-guide-topic.is-open { border-color: #3c4c37; }
+.program-guide-page .program-guide-topic__toggle { width: 100%; min-height: 68px; display: grid; grid-template-columns: 42px minmax(0, 1fr) 24px; gap: 13px; align-items: center; border: 0; padding: 15px 17px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.program-guide-page .program-guide-topic__toggle:hover { background: #17201899; }
+.program-guide-page .program-guide-topic__toggle:focus-visible { outline: 2px solid #bfd56b; outline-offset: -3px; }
+.program-guide-page .program-guide-topic__icon { width: 42px; height: 42px; display: grid; place-items: center; border: 1px solid #3b4a37; border-radius: 10px; background: #222d1c; color: #c6d974; }
+.program-guide-page .program-guide-topic__icon svg { width: 21px; height: 21px; }
+.program-guide-page .program-guide-topic__toggle > span:nth-child(2) { min-width: 0; display: grid; gap: 4px; }
+.program-guide-page .program-guide-topic__toggle h3 { margin: 0; color: #e8ece8; font-size: 16px; line-height: 1.3; }
+.program-guide-page .program-guide-topic__toggle small { color: #9da8a0; font-size: 13px; line-height: 1.45; }
+.program-guide-page .program-guide-topic__toggle > svg { color: #7d897f; transition: transform .18s ease; }
+.program-guide-page .program-guide-topic.is-open .program-guide-topic__toggle > svg { transform: rotate(180deg); color: #b7c96a; }
+.program-guide-page .program-guide-topic__content { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .65fr); gap: 13px; padding: 0 17px 17px 72px; }
+.program-guide-page .program-guide-topic__content h4 { margin: 0 0 10px; color: #bacb70; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+.program-guide-page .program-guide-topic__steps { grid-row: span 2; min-width: 0; }
+.program-guide-page .program-guide-topic__steps ol { list-style: none; display: grid; gap: 8px; margin: 0; padding: 0; }
+.program-guide-page .program-guide-topic__steps li { display: grid; grid-template-columns: 19px minmax(0, 1fr); gap: 9px; align-items: start; color: #c8d0c9; font-size: 13px; line-height: 1.5; }
+.program-guide-page .program-guide-topic__steps li svg { width: 16px; height: 16px; margin-top: 2px; padding: 2px; border-radius: 50%; background: #263421; color: #bfd56b; }
+.program-guide-page .program-guide-connections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; align-self: start; }
+.program-guide-page .program-guide-connections > div { min-width: 0; padding: 11px; border: 1px solid #2b3c32; border-radius: 8px; background: #0a110d; }
+.program-guide-page .program-guide-connections b { display: block; margin-bottom: 7px; color: #9fafa0; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.program-guide-page .program-guide-connections ul { display: flex; flex-wrap: wrap; gap: 5px; list-style: none; margin: 0; padding: 0; }
+.program-guide-page .program-guide-connections li { max-width: 100%; padding: 5px 7px; border-radius: 5px; background: #202b1b; color: #d0da89; font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.program-guide-page .program-guide-topic__rules { padding: 11px 13px; border-left: 3px solid #c5a659; border-radius: 0 7px 7px 0; background: #211c0d; }
+.program-guide-page .program-guide-topic__rules h4 { color: #e2c36b; }
+.program-guide-page .program-guide-topic__rules ul { display: grid; gap: 6px; margin: 0; padding-left: 17px; color: #d0c5a2; font-size: 12px; line-height: 1.45; }
+.program-guide-page .program-guide-empty { min-height: 280px; display: grid; place-content: center; justify-items: center; gap: 9px; padding: 30px; text-align: center; }
+.program-guide-page .program-guide-empty > svg { width: 38px; height: 38px; color: #707c73; }
+.program-guide-page .program-guide-empty h3,
+.program-guide-page .program-guide-empty p { margin: 0; }
+.program-guide-page .program-guide-empty p { color: #98a39b; }
+.program-guide-page .program-guide-empty .button { min-height: 44px; margin-top: 8px; }
+
+@media (max-width: 1250px) {
+  .program-guide-page .program-guide-hero { grid-template-columns: auto minmax(0, 1fr); }
+  .program-guide-page .program-guide-hero__search { grid-column: 1 / -1; }
+  .program-guide-page .program-guide-onboarding ol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .program-guide-page .program-guide-topic__content { grid-template-columns: 1fr; }
+  .program-guide-page .program-guide-topic__steps { grid-row: auto; }
+}
+
+@media (max-width: 900px) {
+  .program-guide-page .program-guide { gap: 10px; }
+  .program-guide-page .program-guide-hero { grid-template-columns: 1fr; padding: 20px; }
+  .program-guide-page .program-guide-hero__mark { display: none; }
+  .program-guide-page .program-guide-library { grid-template-columns: 1fr; }
+  .program-guide-page .program-guide-library__index { position: static; max-height: none; }
+  .program-guide-page .program-guide-library__index nav { display: none; }
+  .program-guide-page .program-guide-group-filter { display: flex; overflow-x: auto; }
+  .program-guide-page .program-guide-group-filter button { flex: 0 0 auto; }
+  .program-guide-page .program-guide-onboarding ol { grid-template-columns: 1fr; }
+  .program-guide-page .program-guide-topic__content { padding-left: 17px; }
+}
+
+@media (max-width: 560px) {
+  .program-guide-page .program-guide-hero__facts { display: grid; }
+  .program-guide-page .program-guide-connections { grid-template-columns: 1fr; }
+  .program-guide-page .program-guide-topic__toggle { grid-template-columns: 38px minmax(0, 1fr) 20px; padding-inline: 12px; }
+  .program-guide-page .program-guide-topic__icon { width: 38px; height: 38px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .program-guide-page .program-guide-topic__toggle > svg { transition: none; }
+  .program-guide-page * { scroll-behavior: auto !important; }
+}
