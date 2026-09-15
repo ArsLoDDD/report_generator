@@ -39,6 +39,29 @@ def set_paragraph_text(paragraph, text: str) -> None:
         node.text = part
 
 
+def set_mixed_text(paragraph, parts: list[tuple[str, bool]]) -> None:
+    runs = paragraph.xpath("./w:r", namespaces=NS)
+    exemplar = runs[0] if runs else None
+    for child in list(paragraph):
+        if child.tag != q("pPr"):
+            paragraph.remove(child)
+    for text, bold in parts:
+        run = etree.SubElement(paragraph, q("r"))
+        if exemplar is not None:
+            run_properties = exemplar.find(q("rPr"))
+            if run_properties is not None:
+                properties = deepcopy(run_properties)
+                for node in properties.findall(q("b")) + properties.findall(q("bCs")):
+                    properties.remove(node)
+                if bold:
+                    etree.SubElement(properties, q("b")).set(q("val"), "1")
+                    etree.SubElement(properties, q("bCs")).set(q("val"), "1")
+                run.append(properties)
+        node = etree.SubElement(run, q("t"))
+        node.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        node.text = text
+
+
 def main() -> None:
     source = Path("/private/tmp/summary-report-reference.docx")
     destination = Path("src-tauri/resources/summary-report-template.docx")
@@ -61,7 +84,7 @@ def main() -> None:
         25: "РЕБ – {{enemy_reb}} од., з них: знищено – {{enemy_reb_destroyed}} од.; пошкоджено – {{enemy_reb_damaged}} од.;",
         26: "АТТ – {{enemy_vehicles}} од., з них: знищено – {{enemy_vehicles_destroyed}} од.; пошкоджено – {{enemy_vehicles_damaged}} од.;",
         27: "Літаки/гелікоптери – {{enemy_aircraft}} од., з них: знищено – {{enemy_aircraft_destroyed}} од.; пошкоджено – {{enemy_aircraft_damaged}} од.;",
-        28: "БпЛА – {{enemy_uav}} од., з них: знищено – {{enemy_uav_destroyed}} од.; пошкоджено – {{enemy_uav_damaged}} од.;",
+        28: "БпЛА – {{enemy_uav}} од., знищено по типам: баражуючий боєприпас – {{enemy_uav_loitering}} од. ({{enemy_uav_molniya}} од. молнія, {{enemy_uav_lancet}} од. ланцет, пошкоджено – {{enemy_uav_damaged}}; пункти управління/укриття – {{enemy_command_posts}}/{{enemy_shelters}}, з них знищено – {{enemy_command_posts_destroyed}} од., пошкоджено – {{enemy_command_posts_damaged}} од. ({{enemy_shelters_damaged}} од. укриття).",
         29: "БпЛА (посаджені РЕБ) – {{enemy_uav_reb}} од.",
         30: "Спеціальна техніка – {{enemy_special_equipment}} од., з них: знищено – {{enemy_special_equipment_destroyed}} од.; пошкоджено – {{enemy_special_equipment_damaged}} од.;",
         31: "Технічні засоби розвідки – {{enemy_recon_equipment}} од., з них: знищено – {{enemy_recon_equipment_destroyed}} од.; пошкоджено – {{enemy_recon_equipment_damaged}} од.;",
@@ -72,12 +95,12 @@ def main() -> None:
         42: "-{{composition_changes}}.",
         45: "{{force_composition}}",
         49: "{{completeness}}",
-        51: "КСП {{unit_short_name}} – південні околиці населеного пункту {{ksp_locality}}.",
+        51: "КСП {{unit_short_name}} – {{ksp_outskirts}} населеного пункту {{ksp_locality}}.",
         53: "{{positions}}",
         62: "{{enemy_actions}}",
         65: "Противник здійснив обстріли:",
         69: "{{assault_actions}}",
-        70: "Розвідка противника та виконання спланованих завдань {{unit_short_name}} {{battalion_short_name}} за період з 18:01 год {{period_start_date}} по 18:00 год {{period_end_date}} здійснювалися {{flight_count}} рази.",
+        70: "Розвідка противника та виконання спланованих завдань {{unit_short_name}} {{battalion_short_name}} за період з 18:01 год {{period_start_date}} по 18:00 год {{period_end_date}} {{flight_count}}",
         72: "{{flight_operations}}",
         88: "На КСП {{unit_short_name}} в районі {{ksp_locality}} ({{ksp_mgrs}}) залучені:",
         90: "{{command_duties}}",
@@ -122,7 +145,7 @@ def main() -> None:
         165: "Виконав і надрукував {{signer_given_name}} {{signer_surname}}",
         166: "{{report_date}}",
     }
-    remove = {46, 47, 54, 55, 63, 64} | set(range(73, 85)) | set(range(96, 100))
+    remove = {34, 46, 47, 54, 55, 63, 64} | set(range(73, 85)) | set(range(96, 100))
 
     with ZipFile(source) as archive:
         document = etree.fromstring(archive.read("word/document.xml"))
@@ -137,12 +160,22 @@ def main() -> None:
                 else:
                     body.remove(paragraph)
 
+        paragraphs = body.xpath("./w:p", namespaces=NS)
+        temporary = next((paragraph for paragraph in paragraphs if "Тимчасові – {{own_personnel_temporary}}" in "".join(paragraph.xpath(".//w:t/text()", namespaces=NS))), None)
+        if temporary is not None:
+            set_mixed_text(temporary, [("Тимчасові – {{own_personnel_temporary}}", True), (", у тому числі:", False)])
+
         tables = body.xpath("./w:tbl", namespaces=NS)
         if not tables:
             raise SystemExit("Shelling table not found in reference document")
         rows = tables[0].xpath("./w:tr", namespaces=NS)
         if len(rows) < 2:
             raise SystemExit("Shelling table data row not found")
+        for row in rows[:2]:
+            row_properties = row.find(q("trPr"))
+            if row_properties is not None:
+                for height in row_properties.findall(q("trHeight")):
+                    row_properties.remove(height)
         data_paragraph = rows[1].xpath("./w:tc[1]/w:p[1]", namespaces=NS)[0]
         set_paragraph_text(data_paragraph, "{{shelling_rows}}")
         document_bytes = etree.tostring(document, xml_declaration=True, encoding="UTF-8", standalone="yes")

@@ -34,6 +34,18 @@ pub struct SummaryReportDocument {
     pub values: std::collections::HashMap<String, String>,
     #[serde(default)]
     pub shelling_rows: Vec<SummaryShellingRow>,
+    #[serde(default)]
+    pub blocks: std::collections::HashMap<String, Vec<SummaryBlockLine>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SummaryBlockLine {
+    pub text: String,
+    #[serde(default)]
+    pub bold: bool,
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -129,6 +141,100 @@ fn shelling_row(number: usize, row: Option<&SummaryShellingRow>) -> String {
     format!("<w:tr>{cells}</w:tr>")
 }
 
+fn block_paragraph(line: &SummaryBlockLine) -> String {
+    let indent = match line.kind.as_deref() {
+        Some("item") => "<w:ind w:left=\"709\" w:hanging=\"283\"/>",
+        Some("continuation") => "<w:ind w:left=\"709\"/>",
+        _ => "<w:ind w:firstLine=\"709\"/>",
+    };
+    let bold = if line.bold {
+        "<w:b w:val=\"1\"/><w:bCs w:val=\"1\"/>"
+    } else {
+        ""
+    };
+    format!("<w:p><w:pPr><w:pStyle w:val=\"Normal.0\"/><w:spacing w:line=\"240\" w:lineRule=\"auto\"/>{indent}</w:pPr><w:r><w:rPr><w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\"/>{bold}<w:sz w:val=\"22\"/><w:szCs w:val=\"22\"/></w:rPr><w:t xml:space=\"preserve\">{}</w:t></w:r></w:p>", escape(&line.text))
+}
+
+fn replace_rich_blocks(
+    path: &Path,
+    blocks: &std::collections::HashMap<String, Vec<SummaryBlockLine>>,
+) -> Result<(), String> {
+    if blocks.is_empty() {
+        return Ok(());
+    }
+    let source = temp_path("docx");
+    fs::rename(path, &source)
+        .map_err(|_| "Не вдалося підготувати форматовані блоки.".to_string())?;
+    let result = (|| {
+        let mut archive = ZipArchive::new(
+            fs::File::open(&source).map_err(|_| "Не вдалося прочитати донесення.".to_string())?,
+        )
+        .map_err(|_| "Некоректний DOCX підсумкового донесення.".to_string())?;
+        let mut writer = ZipWriter::new(
+            fs::File::create(path).map_err(|_| "Не вдалося записати донесення.".to_string())?,
+        );
+        for index in 0..archive.len() {
+            let mut entry = archive
+                .by_index(index)
+                .map_err(|_| "Не вдалося прочитати DOCX.".to_string())?;
+            let name = entry.name().to_string();
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+            if entry.is_dir() {
+                writer
+                    .add_directory(name, options)
+                    .map_err(|_| "Не вдалося записати DOCX.".to_string())?;
+                continue;
+            }
+            let mut bytes = Vec::new();
+            entry
+                .read_to_end(&mut bytes)
+                .map_err(|_| "Не вдалося прочитати DOCX.".to_string())?;
+            writer
+                .start_file(&name, options)
+                .map_err(|_| "Не вдалося записати DOCX.".to_string())?;
+            if name == "word/document.xml" {
+                let mut xml =
+                    String::from_utf8(bytes).map_err(|_| "Некоректний текст DOCX.".to_string())?;
+                for (key, lines) in blocks {
+                    let marker = format!("{{{{{key}}}}}");
+                    let Some(marker_pos) = xml.find(&marker) else {
+                        continue;
+                    };
+                    let start = [
+                        xml[..marker_pos].rfind("<w:p>"),
+                        xml[..marker_pos].rfind("<w:p "),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .max()
+                    .ok_or_else(|| format!("Некоректний блок {key}."))?;
+                    let end = marker_pos
+                        + xml[marker_pos..]
+                            .find("</w:p>")
+                            .ok_or_else(|| format!("Некоректний блок {key}."))?
+                        + "</w:p>".len();
+                    let replacement = lines.iter().map(block_paragraph).collect::<String>();
+                    xml.replace_range(start..end, &replacement);
+                }
+                writer
+                    .write_all(xml.as_bytes())
+                    .map_err(|_| "Не вдалося записати форматовані блоки.".to_string())?;
+            } else {
+                writer
+                    .write_all(&bytes)
+                    .map_err(|_| "Не вдалося записати DOCX.".to_string())?;
+            }
+        }
+        writer
+            .finish()
+            .map_err(|_| "Не вдалося завершити DOCX.".to_string())?;
+        Ok(())
+    })();
+    let _ = fs::remove_file(source);
+    result
+}
+
 fn replace_shelling_rows(path: &Path, rows: &[SummaryShellingRow]) -> Result<(), String> {
     let source = temp_path("docx");
     fs::rename(path, &source)
@@ -212,6 +318,7 @@ fn build_document(output: &Path, document: &SummaryReportDocument) -> Result<(),
         .iter()
         .map(|(key, value)| (format!("{{{{{key}}}}}"), value.clone(), None))
         .collect::<Vec<_>>();
+    replace_rich_blocks(&template_path, &document.blocks)?;
     let result = create_template_from_literal_replacements(&template_path, output, &replacements)
         .and_then(|_| replace_shelling_rows(output, &document.shelling_rows));
     let _ = fs::remove_file(template_path);
@@ -279,11 +386,44 @@ mod tests {
             remaining = &after_start[end + 2..];
         }
         values.remove("shelling_rows");
+        let rich_keys = [
+            "force_composition",
+            "positions",
+            "enemy_actions",
+            "assault_actions",
+            "flight_operations",
+            "command_duties",
+            "guard_duties",
+            "period_events",
+            "next_tasks",
+        ];
+        let blocks = rich_keys
+            .into_iter()
+            .map(|key| {
+                values.remove(key);
+                (
+                    key.to_string(),
+                    vec![
+                        SummaryBlockLine {
+                            text: format!("Перевірка форматованого блоку {key}."),
+                            bold: true,
+                            kind: Some("paragraph".into()),
+                        },
+                        SummaryBlockLine {
+                            text: "-окремий елемент без суцільної жирності;".into(),
+                            bold: false,
+                            kind: Some("item".into()),
+                        },
+                    ],
+                )
+            })
+            .collect();
         build_document(
             &output,
             &SummaryReportDocument {
                 values,
                 shelling_rows: vec![],
+                blocks,
             },
         )
         .unwrap();
