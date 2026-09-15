@@ -154,6 +154,47 @@ pub struct PositionDraft {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PositionWorkMember {
+    pub personnel_id: i64,
+    pub full_name: String,
+    pub rank: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PositionWork {
+    pub id: i64,
+    pub position_id: i64,
+    pub position_name: String,
+    pub work_type: String,
+    pub status: String,
+    pub start_date: String,
+    pub start_time: String,
+    pub end_date: String,
+    pub end_time: String,
+    pub battle_order: String,
+    pub notes: String,
+    pub members: Vec<PositionWorkMember>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PositionWorkDraft {
+    pub position_id: i64,
+    pub work_type: String,
+    pub status: String,
+    pub start_date: String,
+    pub start_time: String,
+    pub end_date: String,
+    pub end_time: String,
+    pub battle_order: String,
+    pub notes: String,
+    #[serde(default)]
+    pub personnel_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StaffingRecord {
     pub working_strength: i64,
     pub staff_slot_id: String,

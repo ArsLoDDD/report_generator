@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightJournalDraft, FlightJournalEntry, FlightPlanCrewLocationAssignment, FlightPlanRequest, Incident, IncidentDraft, Position, PositionDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation, WorkshopDraft, WorkshopProduct } from "../types";
+import type { Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightJournalDraft, FlightJournalEntry, FlightPlanCrewLocationAssignment, FlightPlanRequest, Incident, IncidentDraft, Position, PositionDraft, PositionWork, PositionWorkDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation, WorkshopDraft, WorkshopProduct } from "../types";
 
 export const operationsService = {
   listCrews: () => invoke<Crew[]>("list_crews"),
@@ -26,6 +26,9 @@ export const operationsService = {
   createPosition: (draft: PositionDraft) => invoke<void>("create_position", { draft }),
   updatePosition: (positionId: number, draft: PositionDraft) => invoke<void>("update_position", { positionId, draft }),
   deletePosition: (positionId: number) => invoke<void>("delete_position", { positionId }),
+  listPositionWork: () => invoke<PositionWork[]>("list_position_work"),
+  savePositionWork: (workId: number | null, draft: PositionWorkDraft) => invoke<void>("save_position_work", { workId, draft }),
+  deletePositionWork: (workId: number) => invoke<void>("delete_position_work", { workId }),
   listEquipment: (category: EquipmentCategory) => invoke<Equipment[]>("list_equipment", { category }),
   createEquipment: (draft: EquipmentDraft) => invoke<void>("create_equipment", { draft }),
   updateEquipment: (equipmentId: number, draft: EquipmentDraft) => invoke<void>("update_equipment", { equipmentId, draft }),

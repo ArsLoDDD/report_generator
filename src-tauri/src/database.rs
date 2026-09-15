@@ -688,6 +688,31 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     }
     connection
         .execute_batch(
+            "CREATE TABLE IF NOT EXISTS position_work (
+            id INTEGER PRIMARY KEY,
+            position_id INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+            work_type TEXT NOT NULL CHECK(work_type IN ('Рекогностування','Облаштування')),
+            status TEXT NOT NULL CHECK(status IN ('Приступили','Продовжують','Завершили')),
+            start_date TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            end_date TEXT NOT NULL DEFAULT '',
+            end_time TEXT NOT NULL DEFAULT '',
+            battle_order TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE IF NOT EXISTS position_work_members (
+            work_id INTEGER NOT NULL REFERENCES position_work(id) ON DELETE CASCADE,
+            personnel_id INTEGER NOT NULL REFERENCES personnel(id) ON DELETE CASCADE,
+            PRIMARY KEY(work_id,personnel_id)
+        );
+        CREATE INDEX IF NOT EXISTS position_work_period_idx ON position_work(start_date,end_date);
+        CREATE INDEX IF NOT EXISTS position_work_position_idx ON position_work(position_id);",
+        )
+        .map_err(|_| "Не вдалося підготувати роботи на позиціях.".to_string())?;
+    connection
+        .execute_batch(
             "CREATE TABLE IF NOT EXISTS crew_actual_members (
            crew_id INTEGER NOT NULL REFERENCES crews(id) ON DELETE CASCADE,
            personnel_id INTEGER NOT NULL UNIQUE REFERENCES personnel(id) ON DELETE CASCADE,

@@ -1,10 +1,13 @@
 import type { AppSettings } from "../../shared/types/domain";
-import type { Crew, FlightJournalEntry, FlightPlanRequest, Position, StaffingRecord } from "./types";
+import type { Crew, Equipment, FlightJournalEntry, FlightPlanRequest, Position, PositionWork, StaffingRecord } from "./types";
 
 export type SummaryTextItem = { id: string; text: string; date?: string; time?: string };
 export type SummaryDutyItem = { id: string; personnelId: number | null; startDate: string; startTime: string; endDate: string; endTime: string };
 export type SummaryCompositionItem = { id: string; count: string; uavKind: string; battleOrder: string; workStrip: string };
 export type SummaryPositionItem = { id: string; workStrip: string; uavName: string; positionName: string; mgrs: string; locality: string };
+export type SummaryFlightUav = { id: string; equipmentId: number | null; name: string; serialNumber: string };
+export type SummaryFlightMember = { id: string; personnelId: number; fullName: string; rank: string; startDate: string; startTime: string; endDate: string; endTime: string };
+export type SummaryFlightItem = { id: string; crewId: number; workStrip: string; positionName: string; mgrs: string; locality: string; unitShortName: string; crewName: string; taskArea: string; uavs: SummaryFlightUav[]; members: SummaryFlightMember[]; flightTimes: Array<{ date: string; time: string }> };
 export type SummaryBlockLine = { text: string; bold?: boolean; kind?: "paragraph" | "item" | "continuation" };
 export type SummaryShelling = { id: string; time: string; shellingType: string; target: string; direction: string; response: string };
 export type SummaryManual = {
@@ -16,7 +19,7 @@ export type SummaryManual = {
   kspOutskirts: string;
   compositionItems: SummaryCompositionItem[] | null;
   positionItems: SummaryPositionItem[] | null;
-  flightItems: SummaryTextItem[] | null;
+  flightItems: SummaryFlightItem[] | null;
   rocketStrikes: string;
   airStrikes: string;
   va: string;
@@ -63,7 +66,7 @@ export const defaultSummaryManual = (): SummaryManual => ({
 export const carryForwardSummary = (previous?: SummaryManual | null): SummaryManual => {
   const fresh = defaultSummaryManual();
   if (!previous) return fresh;
-  return { ...fresh, reportNumber: previous.reportNumber, kspOutskirts: previous.kspOutskirts, compositionItems: previous.compositionItems?.map((item) => ({ ...item, id: crypto.randomUUID() })) ?? null, positionItems: previous.positionItems?.map((item) => ({ ...item, id: crypto.randomUUID() })) ?? null, flightItems: null, commandDuties: previous.commandDuties.map((item) => ({ ...item, id: crypto.randomUUID() })), guardDuties: previous.guardDuties.map((item) => ({ ...item, id: crypto.randomUUID() })), nextTasks: previous.nextTasks.map((item) => ({ ...item, id: crypto.randomUUID() })), problems: previous.problems, otherIssues: previous.otherIssues.map((item) => ({ ...item, id: crypto.randomUUID() })) };
+  return { ...fresh, reportNumber: previous.reportNumber, kspOutskirts: previous.kspOutskirts, compositionItems: null, positionItems: null, flightItems: null, commandDuties: previous.commandDuties.map((item) => ({ ...item, id: crypto.randomUUID() })), guardDuties: previous.guardDuties.map((item) => ({ ...item, id: crypto.randomUUID() })), nextTasks: previous.nextTasks.map((item) => ({ ...item, id: crypto.randomUUID() })), problems: previous.problems, otherIssues: previous.otherIssues.map((item) => ({ ...item, id: crypto.randomUUID() })) };
 };
 
 const pad = (value: number) => String(value).padStart(2, "0");
@@ -87,19 +90,27 @@ const dutyLines = (items: SummaryDutyItem[], staffing: StaffingRecord[], positio
 }, []);
 const countWord = (count: number) => ["Нуль", "Один", "Два", "Три", "Чотири", "П’ять", "Шість", "Сім", "Вісім", "Дев’ять", "Десять"][count] ?? String(count);
 const roleFromCrew = (crew: Crew) => /удар|fpv|фпв/iu.test(`${crew.uavType} ${crew.functionalDuties}`) ? "екіпажі ударних БпЛА літакового типу" : "екіпажі розвідувальних БпЛА літакового типу";
-const crewCompositionItems = (crews: Crew[], entries: ReturnType<typeof planEntries>): SummaryCompositionItem[] => {
-  const groups = new Map<string, { crew: Crew; count: number }>();
+const crewCompositionItems = (crews: Crew[], positions: Position[], equipment: Equipment[], entries: ReturnType<typeof planEntries>): SummaryCompositionItem[] => {
+  const groups = new Map<string, { crew: Crew; count: number; role: string; battleOrder: string; workStrip: string }>();
   [...new Set(entries.map((entry) => entry.crewId))].forEach((id) => {
     const crew = crews.find((item) => item.id === id); if (!crew) return;
-    const key = [roleFromCrew(crew), crew.battleOrder, crew.sector].join("|");
-    const current = groups.get(key); groups.set(key, { crew, count: (current?.count ?? 0) + 1 });
+    const entry = entries.find((item) => item.crewId === id);
+    const position = positions.find((item) => item.id === crew.positionId);
+    const plannedUavText = (entry?.uavSelections ?? []).map((selection) => equipment.find((item) => item.id === selection.equipmentId)).filter((item): item is Equipment => Boolean(item)).map((item) => `${item.uavType} ${item.name}`).join(" ");
+    const role = plannedUavText ? roleFromCrew({ ...crew, uavType: plannedUavText }) : roleFromCrew(crew);
+    const battleOrder = position?.battleOrder || crew.battleOrder;
+    const workStrip = position?.stripName || crew.sector;
+    const key = [role, battleOrder, workStrip].join("|");
+    const current = groups.get(key); groups.set(key, { crew, count: (current?.count ?? 0) + 1, role, battleOrder, workStrip });
   });
-  return [...groups.values()].map(({ crew, count }) => ({ id: `auto-composition-${crew.id}`, count: String(count), uavKind: roleFromCrew(crew), battleOrder: crew.battleOrder, workStrip: crew.sector }));
+  return [...groups.values()].map(({ crew, count, role, battleOrder, workStrip }) => ({ id: `auto-composition-${crew.id}-${battleOrder}-${workStrip}`, count: String(count), uavKind: role, battleOrder, workStrip }));
 };
-const crewPositionItems = (crews: Crew[], positions: Position[], entries: ReturnType<typeof planEntries>): SummaryPositionItem[] => [...new Set(entries.map((entry) => entry.crewId))].flatMap((id) => {
+const crewPositionItems = (crews: Crew[], positions: Position[], equipment: Equipment[], entries: ReturnType<typeof planEntries>): SummaryPositionItem[] => [...new Set(entries.map((entry) => entry.crewId))].flatMap((id) => {
   const crew = crews.find((item) => item.id === id); if (!crew) return [];
   const position = positions.find((item) => item.id === crew.positionId);
-  return [{ id: `auto-position-${crew.id}`, workStrip: crew.sector, uavName: crew.uavName, positionName: position?.name || crew.positionName, mgrs: position?.mgrs || "", locality: position?.locality || "" }];
+  const entry = entries.find((item) => item.crewId === id);
+  const uavNames = (entry?.uavSelections ?? []).map((selection) => equipment.find((item) => item.id === selection.equipmentId)?.name).filter((name): name is string => Boolean(name));
+  return [{ id: `auto-position-${crew.id}`, workStrip: position?.stripName || crew.sector, uavName: uavNames.join(", ") || crew.uavName, positionName: position?.name || crew.positionName, mgrs: position?.mgrs || "", locality: position?.locality || "" }];
 });
 const compositionLines = (items: SummaryCompositionItem[], settings: AppSettings): SummaryBlockLine[] => items.map((item) => {
   const count = Math.max(0, Number(item.count) || 0);
@@ -110,45 +121,58 @@ const positionLines = (items: SummaryPositionItem[], settings: AppSettings): Sum
   const grouped = new Map<string, SummaryPositionItem[]>();
   items.forEach((item) => grouped.set(item.workStrip || "Смуга роботи не вказана", [...(grouped.get(item.workStrip || "Смуга роботи не вказана") ?? []), item]));
   return [...grouped.entries()].flatMap(([strip, rows]) => [
-    { text: `Для виконання бойових (спеціальних) завдань в смузі оборони ${strip} ${settings.unit.armyCorpsNumber || "номер не вказано"} АК на глибину батальйонних районів оборони підрозділів виставлено:`, bold: true, kind: "paragraph" as const },
+    { text: `Для виконання бойових (спеціальних) завдань в смузі оборони ${strip} ${settings.unit.armyCorpsNumber || "номер не вказано"} АК на глибину батальйонних районів оборони підрозділів виставлено:`, kind: "paragraph" as const },
     ...rows.map((item) => ({ text: `- стартову позицію БпАК «${item.uavName || "назву не вказано"}» – «${(item.positionName || "назву не вказано").toLocaleUpperCase("uk")}» (${item.mgrs || "координати не вказано"}) в районі ${item.locality || "населений пункт не вказано"};`, kind: "item" as const })),
   ]);
 };
 
-export function buildSummaryDocument(input: { reportDate: string; manual: SummaryManual; settings: AppSettings; crews: Crew[]; positions: Position[]; journal: FlightJournalEntry[]; snapshots: Array<FlightPlanRequest | null>; staffing?: StaffingRecord[] }): { document: SummaryDocument; warnings: string[]; automatic: Record<string, string>; objects: { compositionItems: SummaryCompositionItem[]; positionItems: SummaryPositionItem[]; flightItems: SummaryTextItem[]; rotationEvents: SummaryTextItem[] } } {
+export function buildSummaryDocument(input: { reportDate: string; manual: SummaryManual; settings: AppSettings; crews: Crew[]; positions: Position[]; equipment?: Equipment[]; journal: FlightJournalEntry[]; snapshots: Array<FlightPlanRequest | null>; staffing?: StaffingRecord[]; positionWork?: PositionWork[] }): { document: SummaryDocument; warnings: string[]; automatic: Record<string, string>; objects: { compositionItems: SummaryCompositionItem[]; positionItems: SummaryPositionItem[]; flightItems: SummaryFlightItem[]; rotationEvents: SummaryTextItem[] } } {
   const { reportDate, manual, settings, crews, positions } = input;
   const period = reportPeriod(reportDate);
   const flights = input.journal.filter((flight) => flight.skyTime && `${flight.flightDate}T${flight.skyTime}` >= period.start && `${flight.flightDate}T${flight.skyTime}` <= period.end);
   const entries = planEntries(input.snapshots);
   const positionPersonnel = new Set(entries.flatMap((entry) => entry.actualMemberIds ?? []));
-  const automaticCompositionItems = crewCompositionItems(crews, entries);
-  const automaticPositionItems = crewPositionItems(crews, positions, entries);
-  const selectedCompositionItems = manual.compositionItems ?? automaticCompositionItems;
-  const selectedPositionItems = manual.positionItems ?? automaticPositionItems;
+  const equipment = input.equipment ?? [];
+  const automaticCompositionItems = crewCompositionItems(crews, positions, equipment, entries);
+  const automaticPositionItems = crewPositionItems(crews, positions, equipment, entries);
+  const selectedCompositionItems = [...automaticCompositionItems, ...(manual.compositionItems ?? []).filter((item) => !item.id.startsWith("auto-composition-"))];
+  const selectedPositionItems = [...automaticPositionItems, ...(manual.positionItems ?? []).filter((item) => !item.id.startsWith("auto-position-"))];
   const forceComposition = compositionLines(selectedCompositionItems, settings).map((item) => item.text).join("\n") || "Екіпажі у плані польотів відсутні.";
   const positionText = positionLines(selectedPositionItems, settings).map((item) => item.text).join("\n") || "Позиції не визначені.";
-  const flightGroups = new Map<string, FlightJournalEntry[]>();
-  flights.forEach((flight) => { const key = `${flight.workStrip}|${flight.crewId}|${flight.positionId}|${flight.uavId}`; flightGroups.set(key, [...(flightGroups.get(key) ?? []), flight]); });
-  const flightLines: SummaryBlockLine[] = [];
-  const automaticFlightItems: SummaryTextItem[] = [];
-  let previousStrip = "";
-  [...flightGroups.values()].forEach((rows) => {
-    const flight = rows[0]; const crew = crews.find((item) => item.id === flight.crewId); const position = positions.find((item) => item.id === flight.positionId);
-    const strip = flight.workStrip || crew?.sector || "Смуга роботи не вказана";
-    const groupLines: SummaryBlockLine[] = [];
-    if (strip !== previousStrip) { groupLines.push({ text: `У межах смуги оборони ${strip}:`, bold: true, kind: "paragraph" }); previousStrip = strip; }
-    const entry = [...entries].reverse().find((item) => item.crewId === flight.crewId);
-    groupLines.push({ text: `Із стартової позиції «${flight.positionName || "позиція не вказана"}» (${position?.mgrs || "не вказано"}) в районі ${position?.locality || "не вказано"} екіпажем ${settings.unit.shortName || "не вказано"} «${flight.crewName}» (БпЛА ${flight.uavName || "не вказано"}${flight.uavSerialNumber ? `, серійний № ${flight.uavSerialNumber}` : ""}) виконується бойове чергування з повітряної розвідки в районі ${crew?.reconnaissanceArea || position?.locality || "не вказано"} у складі:`, kind: "paragraph" });
-    const members = (entry?.actualMemberIds ?? []).map((id) => crew?.members.find((member) => member.personnelId === id)).filter((member): member is NonNullable<typeof member> => Boolean(member));
-    members.forEach((member) => groupLines.push({ text: `-${member.rank} ${personName(member.fullName)} – з 18:01 год ${displayDate(shiftDate(reportDate, -1))} по 18:00 год ${displayDate(reportDate)};`, kind: "item" }));
-    if (!members.length) groupLines.push({ text: "-склад не вказаний;", kind: "item" });
-    const times = rows.map((item) => `${displayDate(item.flightDate)} о ${item.skyTime} год`).join(", ");
-    const noun = rows.length === 1 ? "розвідувальний виліт" : `розвідувальні вильоти у кількості ${rows.length}`;
-    groupLines.push({ text: `В період з 18:01 год ${displayDate(shiftDate(reportDate, -1))} по 18:00 год ${displayDate(reportDate)} здійснено ${noun}: ${times}. Більш детально в ІС «DELTA» за відповідними шарами.`, kind: "paragraph" });
-    flightLines.push(...groupLines);
-    automaticFlightItems.push({ id: `auto-flight-${flight.id}`, text: groupLines.map((line) => line.text).join("\n") });
+  const datedEntries = input.snapshots.flatMap((snapshot, snapshotIndex) => (snapshot?.entries ?? []).map((entry, index) => ({ entry, index, date: snapshotIndex === 0 ? shiftDate(reportDate, -1) : reportDate })));
+  const automaticFlightItems: SummaryFlightItem[] = [...new Set(datedEntries.map(({ entry }) => entry.crewId))].flatMap((crewId) => {
+    const crew = crews.find((item) => item.id === crewId); if (!crew) return [];
+    const position = positions.find((item) => item.id === crew.positionId);
+    const stages = datedEntries.filter(({ entry }) => entry.crewId === crewId);
+    const crewFlights = flights.filter((flight) => flight.crewId === crewId);
+    const uavs = new Map<string, SummaryFlightUav>();
+    stages.flatMap(({ entry }) => entry.uavSelections ?? []).forEach((selection) => { const asset = equipment.find((item) => item.id === selection.equipmentId); if (asset) uavs.set(`equipment-${asset.id}`, { id: `equipment-${asset.id}`, equipmentId: asset.id, name: asset.name, serialNumber: asset.inventoryNumber }); });
+    crewFlights.forEach((flight) => { const key = `${flight.uavId ?? "journal"}-${flight.uavSerialNumber || flight.uavName}`; if (!uavs.has(key)) uavs.set(key, { id: key, equipmentId: flight.uavId, name: flight.uavName, serialNumber: flight.uavSerialNumber }); });
+    if (!uavs.size && crew.uavName) uavs.set(`crew-${crew.id}`, { id: `crew-${crew.id}`, equipmentId: crew.primaryUavId ?? null, name: crew.uavName, serialNumber: "" });
+    const members = new Map<number, SummaryFlightMember>();
+    stages.forEach(({ entry, date }) => entry.actualMemberIds.forEach((personnelId) => {
+      const member = [...(crew.members ?? []), ...(crew.actualMembers ?? [])].find((item) => item.personnelId === personnelId);
+      const person = input.staffing?.find((item) => item.personnelId === personnelId);
+      const previous = members.get(personnelId);
+      members.set(personnelId, { id: `member-${crewId}-${personnelId}`, personnelId, fullName: member?.fullName || person?.fullName || "ПІБ не вказано", rank: member?.rank || person?.rank || "звання не вказано", startDate: previous?.startDate || date, startTime: previous?.startTime || entry.startTime || "18:01", endDate: date, endTime: entry.endTime || "18:00" });
+    }));
+    const latest = stages[stages.length - 1]?.entry;
+    return [{ id: `auto-flight-${crewId}`, crewId, workStrip: position?.stripName || crew.sector, positionName: position?.name || crew.positionName, mgrs: position?.mgrs || "", locality: position?.locality || "", unitShortName: settings.unit.shortName, crewName: crew.name, taskArea: latest?.areaPoints?.join(", ") || crew.reconnaissanceArea || position?.locality || "", uavs: [...uavs.values()], members: [...members.values()], flightTimes: crewFlights.map((flight) => ({ date: flight.flightDate, time: flight.skyTime })) }];
   });
-  if (!flightLines.length) flightLines.push({ text: "Польоти за звітний період відсутні.", kind: "paragraph" });
+  const selectedFlightItems = manual.flightItems ?? automaticFlightItems;
+  const flightLines: SummaryBlockLine[] = [];
+  let previousStrip = "";
+  selectedFlightItems.forEach((item) => {
+    if (item.workStrip !== previousStrip) { flightLines.push({ text: `У межах смуги оборони ${item.workStrip || "смугу не вказано"}:`, bold: true, kind: "paragraph" }); previousStrip = item.workStrip; }
+    const uavText = item.uavs.map((uav) => `${uav.name || "назву не вказано"}${uav.serialNumber ? `, серійний № ${uav.serialNumber}` : ""}`).join("; ") || "не вказано";
+    flightLines.push({ text: `Із стартової позиції «${item.positionName || "позиція не вказана"}» (${item.mgrs || "координати не вказано"}) в районі ${item.locality || "населений пункт не вказано"} екіпажем ${item.unitShortName || "підрозділ не вказано"} «${item.crewName || "екіпаж не вказано"}» (БпЛА ${uavText}) виконується бойове чергування з повітряної розвідки в районі ${item.taskArea || "район не вказано"} у складі:`, kind: "paragraph" });
+    item.members.forEach((member) => flightLines.push({ text: `-${member.rank} ${personName(member.fullName)} – з ${member.startTime || "18:01"} год ${displayDate(member.startDate)} по ${member.endTime || "18:00"} год ${displayDate(member.endDate)};`, kind: "item" }));
+    if (!item.members.length) flightLines.push({ text: "-склад не вказаний;", kind: "item" });
+    const times = item.flightTimes.map((flight) => `${displayDate(flight.date)} о ${flight.time} год`).join(", ");
+    const noun = item.flightTimes.length === 1 ? "розвідувальний виліт" : `розвідувальні вильоти у кількості ${item.flightTimes.length}`;
+    flightLines.push({ text: item.flightTimes.length ? `В період з 18:01 год ${displayDate(shiftDate(reportDate, -1))} по 18:00 год ${displayDate(reportDate)} здійснено ${noun}: ${times}. Більш детально в ІС «DELTA» за відповідними шарами.` : `В період з 18:01 год ${displayDate(shiftDate(reportDate, -1))} по 18:00 год ${displayDate(reportDate)} розвідувальні вильоти не здійснювалися.`, kind: "paragraph" });
+  });
+  if (!flightLines.length) flightLines.push({ text: "Екіпажі у плані польотів за звітний період відсутні.", kind: "paragraph" });
   const flightOperations = flightLines.map((item) => item.text).join("\n");
   const rotationEvents: SummaryTextItem[] = [];
   input.snapshots.forEach((snapshot, snapshotIndex) => {
@@ -169,10 +193,40 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
       rotationEvents.push({ id: `rotation-${eventDate}-${crewId}-${index}`, date: eventDate, time: next.startTime, text: paragraphs });
     }));
   });
+  const stagesByPosition = new Map<number, Array<{ crew: Crew; entry: (typeof datedEntries)[number]["entry"]; date: string }>>();
+  datedEntries.forEach(({ entry, date }) => {
+    const crew = crews.find((item) => item.id === entry.crewId);
+    if (!crew?.positionId) return;
+    stagesByPosition.set(crew.positionId, [...(stagesByPosition.get(crew.positionId) ?? []), { crew, entry, date }]);
+  });
+  stagesByPosition.forEach((stages, positionId) => {
+    const sorted = [...stages].sort((left, right) => `${left.date}T${left.entry.startTime || "00:00"}`.localeCompare(`${right.date}T${right.entry.startTime || "00:00"}`));
+    sorted.slice(1).forEach((next, index) => {
+      const previous = sorted[index];
+      if (previous.crew.id === next.crew.id) return;
+      const position = positions.find((item) => item.id === positionId);
+      if (!position) return;
+      const identities = (crew: Crew, ids: number[]) => ids.map((id) => [...(crew.members ?? []), ...(crew.actualMembers ?? [])].find((member) => member.personnelId === id)).filter((member): member is NonNullable<typeof member> => Boolean(member)).map((member) => `${member.rank} ${personName(member.fullName)};`).join("\n") || "склад не вказаний;";
+      const leavingTime = previous.entry.endTime || next.entry.startTime || "час не вказано";
+      const enteringTime = next.entry.startTime || previous.entry.endTime || "час не вказано";
+      rotationEvents.push({ id: `crew-change-${positionId}-${next.date}-${next.crew.id}-${index}`, date: next.date, time: enteringTime, text: `${leavingTime} год ${displayDate(next.date)} завершив бойове чергування та виконання бойових (спеціальних) завдань з ведення повітряної розвідки противника з позиції «${position.name.toLocaleUpperCase("uk")}» (${position.mgrs || "координати не вказано"}) в районі ${position.locality || "не вказано"} екіпаж «${previous.crew.name.toLocaleUpperCase("uk")}» та вибув в розташування ${settings.unit.shortName || "підрозділу"} у складі:\n${identities(previous.crew, previous.entry.actualMemberIds)}\n${enteringTime} год ${displayDate(next.date)} приступив до бойового чергування та виконання бойових (спеціальних) завдань з ведення повітряної розвідки противника з позиції «${position.name.toLocaleUpperCase("uk")}» (${position.mgrs || "координати не вказано"}) в районі ${position.locality || "не вказано"} екіпаж «${next.crew.name.toLocaleUpperCase("uk")}» у складі:\n${identities(next.crew, next.entry.actualMemberIds)}` });
+    });
+  });
+  (input.positionWork ?? []).forEach((work) => {
+    const timestamp = `${work.startDate}T${work.startTime}`;
+    if (timestamp < period.start || timestamp > period.end) return;
+    const position = positions.find((item) => item.id === work.positionId);
+    if (!position) return;
+    const action = work.workType === "Рекогностування" ? "рекогностування" : "дооблаштування";
+    const verb = work.status === "Приступили" ? `приступили до ${action}` : work.status === "Завершили" ? `завершили ${action}` : `продовжують ${action}`;
+    const people = work.members.map((member) => `${member.rank} ${personName(member.fullName)};`).join("\n");
+    const order = work.battleOrder ? ` на виконання БОЙОВОГО РОЗПОРЯДЖЕННЯ КОМАНДИРА ${settings.unit.battalionShortName || "батальйону"} ${work.battleOrder}` : "";
+    rotationEvents.push({ id: `position-work-${work.id}`, date: work.startDate, time: work.startTime, text: `-${work.startTime} год ${displayDate(work.startDate)}${order} ${verb} позиції старту БпЛА «${position.name.toLocaleUpperCase("uk")}» (${position.mgrs || "координати не вказано"}) в районі ${position.locality || "населений пункт не вказано"} військовослужбовці:\n${people || "склад не вказаний;"}` });
+  });
   const selectedAutoEvents = rotationEvents.filter((item) => manual.includedAutoEventIds.includes(item.id)).map((item) => manual.autoEventEdits[item.id] || item.text);
   const periodEvents = [...selectedAutoEvents, ...manual.manualEvents.map((item) => item.text.trim())].filter(Boolean).join("\n") || "Подій не зафіксовано.";
   const signer = settings.mainSigner;
-  const name = signer.fullName.trim().split(/\s+/u);
+  const name = (signer.fullName || "").trim().split(/\s+/u);
   const staffing = input.staffing ?? [];
   const kspConflict = [...manual.commandDuties, ...manual.guardDuties].some((item) => item.personnelId && positionPersonnel.has(item.personnelId));
   const automatic = { forceComposition, positions: positionText, flightOperations, periodEvents };
@@ -209,7 +263,7 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
       { text: manual.enemyAssault ? manual.enemyAssaultText : "Противник не проводив наступальні дії;", bold: true, kind: "paragraph" },
     ],
     assault_actions: [{ text: manual.ownAssault ? manual.ownAssaultText : `Штурмові дії ${settings.unit.shortName || "підрозділу"} ${settings.unit.battalionShortName || ""} по противнику не проводились.`.replace(/\s+/gu, " "), kind: "paragraph" }],
-    flight_operations: manual.flightItems === null ? flightLines : manual.flightItems.flatMap((item) => textLines(item.text)),
+    flight_operations: flightLines,
     command_duties: commandLines.length ? commandLines : [{ text: "Чергових не зазначено.", kind: "paragraph" }],
     guard_duties: guardLines.length ? guardLines : [{ text: "Склад охорони не зазначено.", kind: "paragraph" }],
     period_events: periodEventLines.length ? periodEventLines : [{ text: "Подій не зафіксовано.", kind: "paragraph" }],

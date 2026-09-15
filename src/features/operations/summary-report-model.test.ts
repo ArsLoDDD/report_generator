@@ -56,8 +56,8 @@ describe("підсумкове донесення", () => {
     });
     expect(result.document.values.flight_count).toBe("здійснювалися 2 рази.");
     expect(result.objects.flightItems).toHaveLength(1);
-    expect(result.objects.flightItems[0].text).toContain("розвідувальні вильоти у кількості 2");
-    expect(result.objects.flightItems[0].text).toContain("15.09.2026 о 12:10 год, 15.09.2026 о 16:05 год");
+    expect(result.objects.flightItems[0].flightTimes).toEqual([{ date: "2026-09-15", time: "12:10" }, { date: "2026-09-15", time: "16:05" }]);
+    expect(result.objects.flightItems[0].crewName).toBe("ГРІМ");
     const detailLines = result.document.blocks.flight_operations.filter((line) => line.text.startsWith("Із стартової позиції"));
     expect(detailLines).toHaveLength(1);
     expect(detailLines[0]).toEqual(expect.objectContaining({ kind: "paragraph" }));
@@ -96,5 +96,24 @@ describe("підсумкове донесення", () => {
       crews: [crew], positions: [position], journal: [], snapshots: [{ unitName: "РБАК", entries: stages }],
     });
     expect(included.document.blocks.period_events.some((line) => line.text.includes("завершив бойове чергування"))).toBe(true);
+  });
+
+  it("counts crews by the position strip and battle order from the flight plan", () => {
+    const manual = defaultSummaryManual();
+    const crews = [1, 2].map((id) => ({ id, name: `ЕКІПАЖ-${id}`, sector: "ЗАСТАРІЛА СМУГА", battleOrder: "СТАРЕ БРО", positionId: id, uavType: "розвідувальний", members: [], actualMembers: [] })) as never;
+    const positions = [1, 2].map((id) => ({ id, name: `ПОЗИЦІЯ-${id}`, stripName: "СЕКТОР ПІВНІЧ", battleOrder: "БРО-01", mgrs: `36U UV 1${id}000 67000`, locality: "НОВОСЕЛІВКА" })) as never;
+    const entries = [1, 2].map((crewId) => ({ crewId, actualMemberIds: [], uavSelections: [], areaPoints: [] })) as never;
+    const result = buildSummaryDocument({ reportDate: "2026-09-15", manual, settings: { mainSigner: {}, unit: { kind: "Рота", shortName: "РБАК", authorizedStrength: 4 } } as never, crews, positions, journal: [], snapshots: [{ unitName: "РБАК", entries }] });
+    expect(result.objects.compositionItems).toEqual([expect.objectContaining({ count: "2", workStrip: "СЕКТОР ПІВНІЧ", battleOrder: "БРО-01" })]);
+    expect(result.objects.positionItems).toHaveLength(2);
+    expect(result.document.blocks.positions[0]).not.toHaveProperty("bold");
+  });
+
+  it("turns position reconnaissance into an automatic report event", () => {
+    const manual = defaultSummaryManual();
+    const input = { reportDate: "2026-09-15", manual, settings: { mainSigner: {}, unit: { kind: "Рота", shortName: "РБАК", battalionShortName: "ББпС", authorizedStrength: 4 } } as never, crews: [], positions: [{ id: 4, name: "САПСАН", mgrs: "36U UV 19000 62000", locality: "НОВОСЕЛІВКА" }] as never, journal: [], snapshots: [], positionWork: [{ id: 9, positionId: 4, positionName: "САПСАН", workType: "Рекогностування", status: "Продовжують", startDate: "2026-09-15", startTime: "08:00", endDate: "", endTime: "", battleOrder: "№ 17", notes: "", members: [{ personnelId: 3, fullName: "ПЕТРЕНКО Петро Петрович", rank: "солдат" }] }] as never };
+    const automatic = buildSummaryDocument(input);
+    expect(automatic.objects.rotationEvents[0].text).toContain("продовжують рекогностування");
+    expect(automatic.objects.rotationEvents[0].text).toContain("ПЕТРЕНКО Петро Петрович");
   });
 });
