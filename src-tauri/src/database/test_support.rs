@@ -325,6 +325,81 @@ mod tests {
     }
 
     #[test]
+    fn upgrades_a_pre_summary_operations_database_without_losing_flight_plan_data() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE personnel (
+                id INTEGER PRIMARY KEY, rank TEXT NOT NULL, surname TEXT NOT NULL,
+                given_name TEXT NOT NULL, patronymic TEXT NOT NULL DEFAULT '',
+                position TEXT NOT NULL, tax_id TEXT NOT NULL DEFAULT '', birth_date TEXT NOT NULL,
+                education_level TEXT NOT NULL, education_details TEXT NOT NULL,
+                armed_forces_service_start_date TEXT NOT NULL, position_assigned_date TEXT NOT NULL,
+                position_assignment_order TEXT NOT NULL, military_id TEXT NOT NULL,
+                gender TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             CREATE TABLE vehicles (
+                id INTEGER PRIMARY KEY, name TEXT NOT NULL,
+                registration_number TEXT NOT NULL UNIQUE, notes TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             CREATE TABLE crews (
+                id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE,
+                platoon TEXT NOT NULL DEFAULT '', position_name TEXT NOT NULL DEFAULT '',
+                reconnaissance_area TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             CREATE TABLE equipment (
+                id INTEGER PRIMARY KEY, category TEXT NOT NULL,
+                name TEXT NOT NULL, inventory_number TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'Справний', crew_id INTEGER,
+                personnel_id INTEGER, notes TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             INSERT INTO crews(id,name,platoon,position_name,reconnaissance_area)
+                VALUES(7,'СТАРИЙ ЕКІПАЖ','1 взвод','СТАРТ-1','РАЙОН-1');
+             INSERT INTO equipment(id,category,name,inventory_number,status,crew_id)
+                VALUES(9,'uav','СТАРИЙ БПЛА','OLD-009','Справний',7);",
+            )
+            .unwrap();
+
+        initialise(&connection).unwrap();
+
+        let crew: (String, String, i64) = connection
+            .query_row(
+                "SELECT name,reconnaissance_area,official_strength FROM crews WHERE id=7",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(crew, ("СТАРИЙ ЕКІПАЖ".into(), "РАЙОН-1".into(), 4));
+        let aircraft: (String, i64, i64) = connection
+            .query_row(
+                "SELECT name,total_quantity,day_quantity FROM equipment WHERE id=9",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(aircraft, ("СТАРИЙ БПЛА".into(), 1, 1));
+        for table in [
+            "flight_plan_snapshots",
+            "flight_plan_snapshot_entries",
+            "summary_report_drafts",
+            "flight_plan_personnel_locations",
+        ] {
+            let exists: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(exists, 1, "missing migrated table {table}");
+        }
+    }
+
+    #[test]
     fn migrates_legacy_tax_id_constraint_to_allow_empty_import_values() {
         let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch("CREATE TABLE personnel (id INTEGER PRIMARY KEY, rank TEXT NOT NULL, surname TEXT NOT NULL, given_name TEXT NOT NULL, patronymic TEXT NOT NULL DEFAULT '', position TEXT NOT NULL, tax_id TEXT NOT NULL UNIQUE CHECK(length(tax_id) = 10), birth_date TEXT NOT NULL, education_level TEXT NOT NULL, education_details TEXT NOT NULL, armed_forces_service_start_date TEXT NOT NULL, position_assigned_date TEXT NOT NULL, position_assignment_order TEXT NOT NULL, military_id TEXT NOT NULL, gender TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").unwrap();

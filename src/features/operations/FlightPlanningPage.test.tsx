@@ -80,6 +80,26 @@ describe("Планування польотів",()=>{
     await waitFor(()=>{const stored=JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}");expect(stored.entries[1].routePoints).toEqual(["БАЗА"]);expect(stored.rotations[1][0]).toEqual(expect.objectContaining({rotationId:"saved-rotation",routePoints:["НОВА ТОЧКА"]}));});
   });
 
+  it("opens and upgrades a legacy local plan that has none of the new fields",async()=>{
+    localStorage.setItem("flight-plan-draft-v2",JSON.stringify({
+      unitName:"СТАРИЙ ПІДРОЗДІЛ",date:"01.01.2020",selected:[1],
+      entries:{1:{crewId:1,actualMemberIds:[1],routePoints:["СТАРИЙ МАРШРУТ"],startTime:"06:00",endTime:"18:00"}},
+    }));
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+
+    await screen.findByText("БАРС",{selector:"b"});
+    await waitFor(()=>{
+      const stored=JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}");
+      expect(stored.entries[1]).toEqual(expect.objectContaining({
+        crewId:1,routePoints:["СТАРИЙ МАРШРУТ"],areaPoints:[],uavSelections:[],
+        arrivesToday:false,departsToday:false,departureTime:"",
+        weather:expect.objectContaining({temperature:"20",windFrom:"2"}),
+      }));
+    });
+  });
+
   it("creates a separately editable rotation stage and limits the commander to the selected people",async()=>{
     const people=[
       {personnelId:1,fullName:"ПЕРШИЙ Петро Петрович",rank:"капітан",position:"командир екіпажу",callsign:"СОКІЛ"},

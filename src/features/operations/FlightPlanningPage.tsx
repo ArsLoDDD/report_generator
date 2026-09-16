@@ -11,21 +11,57 @@ import { vehiclesService } from "../vehicles/services/vehiclesService";
 import type { Vehicle } from "../vehicles/types";
 import { FlightPlanParametersModal } from "./FlightPlanParametersModal";
 import { FlightPlanTable } from "./FlightPlanTable";
-import { flightPlanPreviewRows, initialFlightEntry, missingCrewCallsigns, validateFlightPlanSchedule } from "./flight-plan-model";
+import { flightPlanPreviewRows, initialFlightEntry, initialWeather, missingCrewCallsigns, validateFlightPlanSchedule } from "./flight-plan-model";
 import { FLIGHT_PLAN_STORAGE_KEY } from "./flight-plan-storage";
 import { operationsService } from "./services/operationsService";
 import type { Crew, Equipment, FlightPlanCrewLocationAssignment, FlightPlanEntry, FlightPlanRequest, FlightPlanRotation, Position, WorkshopProduct } from "./types";
 
 const today=()=>{const value=new Date();return `${String(value.getDate()).padStart(2,"0")}.${String(value.getMonth()+1).padStart(2,"0")}.${value.getFullYear()}`;};
 type StoredDraft={unitName?:string;date?:string;zoom?:number;selected?:number[];entries?:Record<number,FlightPlanEntry>;rotations?:Record<number,FlightPlanRotation[]>;rolledFromPreviousDate?:boolean};
-const storedDraft=():StoredDraft=>{try{return JSON.parse(localStorage.getItem(FLIGHT_PLAN_STORAGE_KEY)??"{}");}catch{return {};}};
+const isRecord=(value:unknown):value is Record<string,unknown>=>Boolean(value)&&typeof value==="object"&&!Array.isArray(value);
+const stringArray=(value:unknown)=>Array.isArray(value)?value.filter((item):item is string=>typeof item==="string"):[];
+const numberArray=(value:unknown)=>Array.isArray(value)?value.filter((item):item is number=>typeof item==="number"&&Number.isFinite(item)):[];
+const normaliseEntry=(value:unknown,crewIdFallback=0):FlightPlanEntry=>{
+  const raw=isRecord(value)?value:{};
+  const crewId=typeof raw.crewId==="number"&&Number.isFinite(raw.crewId)?raw.crewId:crewIdFallback;
+  const weather=isRecord(raw.weather)?raw.weather:{};
+  const uavSelections=Array.isArray(raw.uavSelections)?raw.uavSelections.flatMap((selection)=>{
+    if(!isRecord(selection)||typeof selection.equipmentId!=="number")return[];
+    return[{equipmentId:selection.equipmentId,dayQuantity:typeof selection.dayQuantity==="number"?selection.dayQuantity:0,nightQuantity:typeof selection.nightQuantity==="number"?selection.nightQuantity:0}];
+  }):[];
+  const payloadSelection=isRecord(raw.payloadSelection)&&typeof raw.payloadSelection.sourceType==="string"&&typeof raw.payloadSelection.sourceId==="number"
+    ?{sourceType:raw.payloadSelection.sourceType as "equipment"|"workshop",sourceId:raw.payloadSelection.sourceId}
+    :null;
+  return{
+    ...(raw as Partial<FlightPlanEntry>),crewId,
+    actualMemberIds:numberArray(raw.actualMemberIds),
+    actualCommanderId:typeof raw.actualCommanderId==="number"?raw.actualCommanderId:null,
+    actualVehicleId:typeof raw.actualVehicleId==="number"?raw.actualVehicleId:null,
+    weather:{...initialWeather(),...Object.fromEntries(Object.entries(weather).filter(([,item])=>typeof item==="string"))},
+    routePoints:stringArray(raw.routePoints),areaPoints:stringArray(raw.areaPoints),
+    altitudeFrom:typeof raw.altitudeFrom==="string"?raw.altitudeFrom:"800",altitudeTo:typeof raw.altitudeTo==="string"?raw.altitudeTo:"1100",
+    task:typeof raw.task==="string"?raw.task:"Розвідка противника та місцевості",
+    startTime:typeof raw.startTime==="string"?raw.startTime:"05:00",endTime:typeof raw.endTime==="string"?raw.endTime:"21:00",
+    uavSelections,payloadSelection,
+    arrivesToday:raw.arrivesToday===true,departsToday:raw.departsToday===true,departureTime:typeof raw.departureTime==="string"?raw.departureTime:"",
+  };
+};
+const normaliseStoredDraft=(value:unknown):StoredDraft=>{
+  if(!isRecord(value))return{};
+  const rawEntries=isRecord(value.entries)?value.entries:null;
+  const entries=Object.fromEntries(Object.entries(rawEntries??{}).flatMap(([key,entry])=>{const crewId=Number(key);return Number.isFinite(crewId)?[[crewId,normaliseEntry(entry,crewId)]]:[];}));
+  const rawRotations=isRecord(value.rotations)?value.rotations:null;
+  const rotations=Object.fromEntries(Object.entries(rawRotations??{}).flatMap(([key,list])=>{const crewId=Number(key);if(!Number.isFinite(crewId)||!Array.isArray(list))return[];return[[crewId,list.map((entry,index)=>({...normaliseEntry(entry,crewId),rotationId:isRecord(entry)&&typeof entry.rotationId==="string"?entry.rotationId:`legacy-${crewId}-${index}`}))]];}));
+  return{unitName:typeof value.unitName==="string"?value.unitName:undefined,date:typeof value.date==="string"?value.date:undefined,zoom:typeof value.zoom==="number"?value.zoom:undefined,selected:Array.isArray(value.selected)?numberArray(value.selected):undefined,entries:rawEntries?entries:undefined,rotations:rawRotations?rotations:undefined,rolledFromPreviousDate:value.rolledFromPreviousDate===true};
+};
+const storedDraft=():StoredDraft=>{try{return normaliseStoredDraft(JSON.parse(localStorage.getItem(FLIGHT_PLAN_STORAGE_KEY)??"{}"));}catch{return {};}};
 const cloneEntry=(entry:FlightPlanEntry):FlightPlanEntry=>({...entry,actualMemberIds:[...entry.actualMemberIds],weather:{...entry.weather},routePoints:[...entry.routePoints],areaPoints:[...entry.areaPoints],uavSelections:entry.uavSelections.map((item)=>({...item})),payloadSelection:entry.payloadSelection?{...entry.payloadSelection}:null});
 const entryFromRotation=(rotation:FlightPlanRotation):FlightPlanEntry=>{const copy={...cloneEntry(rotation)} as FlightPlanEntry&{rotationId?:string};delete copy.rotationId;return copy;};
 const dateNumber=(value:string)=>{const parts=value.includes(".")?value.split(".").reverse():value.split("-");const [year,month,day]=parts.map(Number);return year&&month&&day?year*10000+month*100+day:0;};
 const isoDate=(value:string)=>{const [day,month,year]=value.split(".");return year&&month&&day?`${year}-${month}-${day}`:value;};
 const shiftIsoDate=(value:string,days:number)=>{const [year,month,day]=value.split("-").map(Number);const shifted=new Date(year,month-1,day+days);return `${shifted.getFullYear()}-${String(shifted.getMonth()+1).padStart(2,"0")}-${String(shifted.getDate()).padStart(2,"0")}`;};
 export const flightPlanTransitionHasHappened=(planDate:string,time:string,now=new Date(Date.now()))=>{const minute=planMinute(time);const parts=planDate.includes(".")?planDate.split(".").reverse():planDate.split("-");const [year,month,day]=parts.map(Number);if(minute===null||!year||!month||!day)return false;return now.getTime()>=new Date(year,month-1,day,Math.floor(minute/60),minute%60).getTime();};
-const parseSnapshot=(value:string|null|undefined):FlightPlanRequest|null=>{try{return value?JSON.parse(value) as FlightPlanRequest:null;}catch{return null;}};
+const parseSnapshot=(value:string|null|undefined):FlightPlanRequest|null=>{try{const parsed=value?JSON.parse(value):null;if(!isRecord(parsed))return null;return{unitName:typeof parsed.unitName==="string"?parsed.unitName:"Підрозділ",entries:Array.isArray(parsed.entries)?parsed.entries.map((entry)=>normaliseEntry(entry)):[]};}catch{return null;}};
 const planMinute=(value?:string)=>{const [hours,minutes]=(value??"").split(":").map(Number);return Number.isInteger(hours)&&Number.isInteger(minutes)&&hours>=0&&hours<24&&minutes>=0&&minutes<60?hours*60+minutes:null;};
 const minuteText=(minute:number)=>`${String(Math.floor(minute/60)).padStart(2,"0")}:${String(minute%60).padStart(2,"0")}`;
 const nextRotationTime=(source:FlightPlanEntry)=>{const end=planMinute(source.endTime);const start=planMinute(source.startTime);return end!==null&&end<23*60+59&&start!==null&&end+1>start?minuteText(end+1):"";};
