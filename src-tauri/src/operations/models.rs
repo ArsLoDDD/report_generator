@@ -245,6 +245,8 @@ pub struct StaffingRecord {
     pub position: String,
     pub crew_id: Option<i64>,
     pub crew_name: Option<String>,
+    pub actual_crew_id: Option<i64>,
+    pub actual_crew_name: Option<String>,
     pub platoon: String,
     pub company_name: String,
     pub unit_type: String,

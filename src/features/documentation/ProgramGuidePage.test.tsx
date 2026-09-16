@@ -67,11 +67,25 @@ describe("Довідник", () => {
     expect(topicText("flight-plan")).toMatch(/експорт.+додатково перевіряє позивні, маршрут, район, висоту та робочі години/ui);
   });
 
+  it("explains official crew grouping and composed BCS notes", () => {
+    expect(topicText("staffing-bcs")).toMatch(/лише з офіційного складу/u);
+    expect(topicText("staffing-bcs")).toMatch(/Працює в екіпажі НАЗВА/u);
+    expect(topicText("staffing-bcs")).toMatch(/ТВО.+до примітки.+не змінюючи штатну посаду/u);
+    expect(topicText("staffing-bcs")).toMatch(/незалежні модифікатори через кому/u);
+  });
+
   it("distinguishes snapshots, current drafts, static DOCX files and planned features", () => {
     expect(topicText("rotation")).toContain("Окремого незмінного журналу історії переходів у програмі зараз немає.");
     expect(topicText("summary-report")).toMatch(/одну поточну чернетку.+не створює історію ревізій/u);
     expect(topicText("summary-report")).toMatch(/Експортований DOCX.+сам не оновлюється/u);
     expect(topicText("generated-reports")).toMatch(/видаляє сам DOCX-файл без можливості відновлення/u);
     expect(topicText("planned-features")).toMatch(/заплановано/u);
+  });
+
+  it("documents automatic migrations and backward-compatible imports", () => {
+    expect(topicText("updates-compatibility")).toMatch(/автоматично додає.+таблиці й колонки/u);
+    expect(topicText("updates-compatibility")).toMatch(/старий Excel-файл.+безпечне початкове значення/u);
+    expect(topicText("updates-compatibility")).toMatch(/чернетки й знімки.+актуальний формат/u);
+    expect(topicText("updates-compatibility")).toMatch(/не повинно вимагати чистої бази даних/u);
   });
 });

@@ -192,7 +192,7 @@ pub fn export(
     };
     let temporary_acting = personnel_rows
         .iter()
-        .filter(|row| row.is_temporary && row.personnel_position.contains("ТВО:"))
+        .filter(|row| row.is_temporary && row.notes.contains("ТВО:"))
         .count() as i64;
     let absent = ["ВІДП", "ЛІК", "НАВЧ", "ВІДР", "Відкомандировані", "СЗЧ"];
     let present = personnel_rows
@@ -247,7 +247,7 @@ pub fn export(
         String::new(),
         String::new(),
         temporary_formula,
-        format!(r#"COUNTIFS(A7:A{last},"Тимчасово прибулі",K7:K{last},"*ТВО:*")"#),
+        format!(r#"COUNTIFS(A7:A{last},"Тимчасово прибулі",P7:P{last},"*ТВО:*")"#),
     ];
     let crews: Vec<_> = group_starts
         .iter()

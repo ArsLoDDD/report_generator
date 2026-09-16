@@ -50,7 +50,7 @@ describe("Склад екіпажу",()=>{
     fireEvent.click(within(picker).getByText(last.fullName));
     fireEvent.click(within(picker).getByRole("button",{name:"Готово"}));
     fireEvent.click(screen.getByRole("button",{name:"Зберегти екіпаж"}));
-    await waitFor(()=>expect(invoke).toHaveBeenCalledWith("create_crew",expect.objectContaining({draft:expect.objectContaining({memberIds:[501],actualMemberIds:[501]})})));
+    await waitFor(()=>expect(invoke).toHaveBeenCalledWith("create_crew",expect.objectContaining({draft:expect.objectContaining({memberIds:[501],actualMemberIds:[]})})));
     expect(invoke).toHaveBeenCalledWith("list_personnel",{offset:500,limit:500});
   });
   it("видаляє екіпаж лише після підтвердження",async()=>{

@@ -18,7 +18,28 @@ export function isCrewWorkingLocation(value: string) {
 }
 export function crewWorkingStrength(records: StaffingRecord[], crewId: number | null) {
   if (crewId == null) return 0;
-  return new Set(records.filter((person) => !person.isCrewPlaceholder && person.crewId === crewId && isCrewWorkingLocation(person.currentLocation)).map((person) => person.personnelId)).size;
+  return new Set(records.filter((person) => {
+    const actualCrewId = person.actualCrewId === undefined ? person.crewId : person.actualCrewId;
+    return !person.isCrewPlaceholder && actualCrewId === crewId && isCrewWorkingLocation(person.currentLocation);
+  }).map((person) => person.personnelId)).size;
+}
+
+export function bcsAutomaticNoteModifiers(person: StaffingRecord) {
+  const modifiers: string[] = [];
+  if (person.actualCrewId != null && person.actualCrewId !== person.crewId && person.actualCrewName?.trim()) {
+    modifiers.push(`Працює в екіпажі ${bcsCaps(person.actualCrewName.trim())}`);
+  }
+  if (person.actingPosition.trim()) modifiers.push(`ТВО: ${person.actingPosition.trim()}`);
+  return modifiers;
+}
+
+export function bcsManualNotes(person: StaffingRecord) {
+  const automatic = new Set(bcsAutomaticNoteModifiers(person));
+  return person.notes.split(/\s*,\s*/u).map((item) => item.trim()).filter((item) => item && !automatic.has(item)).join(", ");
+}
+
+export function bcsComposedNotes(person: StaffingRecord) {
+  return [...new Set([bcsManualNotes(person), ...bcsAutomaticNoteModifiers(person)].filter(Boolean))].join(", ");
 }
 export function specializedStructuralGroup(section: string, group: string) {
   const candidates=[group,section].map((value)=>value.trim()).filter(Boolean);
@@ -97,7 +118,7 @@ export function bcsExportRows(records: StaffingRecord[]): BcsExportRow[] {
     isTemporary: !!person.isTemporary, isExternal: !!person.isExternal, actualCrewMember: person.crewId != null && !person.isCrewPlaceholder, groupKey: key, section, colorKey, positionName: section === "Екіпаж" ? bcsCaps(person.crewPositionName) : "", battleOrder: section === "Екіпаж" ? person.battleOrder : "", sector: section === "Екіпаж" ? person.sector : "",
     crewName: section === "Екіпаж" ? bcsCaps(person.crewName) : "", crewActual: section === "Екіпаж" ? String(crewWorkingStrength(records, person.crewId)) : "",
     crewOfficial: String(section === "Екіпаж" ? person.actualStrength : people.length), crewStatus: section === "Екіпаж" ? canonicalCrewStatus(person.crewStatus) : "", uavName: section === "Екіпаж" ? bcsCaps(person.uavName) : "", uavType: section === "Екіпаж" ? person.uavType : "",
-    personnelPosition: [person.position, person.actingPosition && `ТВО: ${person.actingPosition}`].filter(Boolean).join(" · "), rank: person.rank, fullName: person.fullName, duties: person.functionalDuties, location: person.currentLocation, notes: person.notes,
+    personnelPosition: person.position, rank: person.rank, fullName: person.fullName, duties: person.functionalDuties, location: person.currentLocation, notes: bcsComposedNotes(person),
     }));
   });
 }
@@ -136,5 +157,5 @@ export function bcsFunctionalSummary(records: StaffingRecord[]) {
 
 export function temporaryStaffingRecord(person: TemporaryPerson): StaffingRecord {
   const section = person.category === "Інша підгрупа" ? person.groupName.trim() || "Інша підгрупа" : person.category;
-  return { isTemporary: person.category === "Тимчасово прибулі", isExternal: true, bcsGroupName: section, personnelId: -person.id, fullName: person.fullName, rank: person.rank, position: person.position, crewId: null, crewName: null, platoon: "", companyName: "", unitType: section, crewPositionName: "", battleOrder: "", sector: "", officialStrength: 0, actualStrength: 0, crewStatus: "", uavName: "", uavType: "", functionalDuties: person.duties, currentLocation: person.currentLocation, bcsStatus: "", notes: person.notes.trim() || (person.category === "Тимчасово прибулі" && person.actingPosition.trim() ? `ТВО: ${person.actingPosition.trim()}` : ""), actingPosition: person.actingPosition, recommendationCount: 0 };
+  return { isTemporary: person.category === "Тимчасово прибулі", isExternal: true, bcsGroupName: section, personnelId: -person.id, fullName: person.fullName, rank: person.rank, position: person.position, crewId: null, crewName: null, actualCrewId: null, actualCrewName: null, platoon: "", companyName: "", unitType: section, crewPositionName: "", battleOrder: "", sector: "", officialStrength: 0, actualStrength: 0, crewStatus: "", uavName: "", uavType: "", functionalDuties: person.duties, currentLocation: person.currentLocation, bcsStatus: "", notes: person.notes, actingPosition: person.actingPosition, recommendationCount: 0 };
 }

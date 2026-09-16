@@ -93,12 +93,23 @@ describe("БЧС та тимчасово прибулі", () => {
     expect(bcsGroups(records)).toHaveLength(1);
   });
   it("рахує фактичну роботу за місцем і за фактичним екіпажем, не змінюючи офіційну кількість", () => {
-    const first={...person(1,"оператор"),crewId:1,crewName:"Перший",actualStrength:4,currentLocation:"ЛІК"};
-    const transferred={...person(2,"оператор"),crewId:2,crewName:"Другий",actualStrength:3,currentLocation:"ЗБЗ"};
-    const logistics={...person(3,"водій"),crewId:2,crewName:"Другий",actualStrength:3,currentLocation:"Логістика на позиції"};
+    const first={...person(1,"оператор"),crewId:1,crewName:"Перший",actualCrewId:2,actualCrewName:"Другий",actualStrength:4,currentLocation:"ЗБЗ"};
+    const transferred={...person(2,"оператор"),crewId:2,crewName:"Другий",actualCrewId:2,actualCrewName:"Другий",actualStrength:3,currentLocation:"ЗБЗ"};
+    const logistics={...person(3,"водій"),crewId:2,crewName:"Другий",actualCrewId:1,actualCrewName:"Перший",actualStrength:3,currentLocation:"Логістика на позиції"};
     const rows=bcsExportRows([first,transferred,logistics]);
-    expect(rows.find((row)=>row.crewName==="ПЕРШИЙ")).toMatchObject({crewActual:"0",crewOfficial:"4"});
+    expect(rows.find((row)=>row.crewName==="ПЕРШИЙ")).toMatchObject({crewActual:"1",crewOfficial:"4",notes:"Працює в екіпажі ДРУГИЙ"});
     expect(rows.find((row)=>row.crewName==="ДРУГИЙ")).toMatchObject({crewActual:"2",crewOfficial:"3"});
+    expect(rows.filter((row)=>row.groupKey==="crew-1").map((row)=>row.fullName)).toEqual(["Людина 1"]);
+    expect(rows.filter((row)=>row.groupKey==="crew-2").map((row)=>row.fullName)).toEqual(["Людина 2","Людина 3"]);
+  });
+  it("залишає у штатній посаді лише офіційну посаду та складає примітки з незалежних модифікаторів", () => {
+    const record={...person(1,"штатний оператор"),crewId:1,crewName:"Сокіл",actualCrewId:2,actualCrewName:"Барс",actingPosition:"Командир відділення",notes:"Ручна примітка"};
+    expect(bcsExportRows([record])[0]).toMatchObject({
+      personnelPosition:"штатний оператор",
+      notes:"Ручна примітка, Працює в екіпажі БАРС, ТВО: Командир відділення",
+    });
+    const legacy={...record,notes:"ТВО: Командир відділення"};
+    expect(bcsExportRows([legacy])[0].notes).toBe("Працює в екіпажі БАРС, ТВО: Командир відділення");
   });
   it("форматує назви позиції, екіпажу та БпАК у БЧС великими літерами", () => {
     const record={...person(1,"оператор"),crewId:7,crewName:"Мугай-Тай",crewPositionName:"позиція Сільпо",uavName:"Mavic 3 pro",actualStrength:1,currentLocation:"На позиції"};

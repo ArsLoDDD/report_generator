@@ -90,7 +90,7 @@ export function CrewsPage({ people }: { people: Person[] }) {
   const toggle = (id: number) => setDraft((current) => {
     if (memberTab === "actual") return { ...current, actualMemberIds: current.actualMemberIds.includes(id) ? current.actualMemberIds.filter((value) => value !== id) : [...current.actualMemberIds, id] };
     if (current.memberIds.includes(id)) return { ...current, memberIds: current.memberIds.filter((value) => value !== id) };
-    return { ...current, memberIds: [...current.memberIds, id], actualMemberIds: current.actualMemberIds.includes(id) ? current.actualMemberIds : [...current.actualMemberIds, id] };
+    return { ...current, memberIds: [...current.memberIds, id] };
   });
   const crewAssets = editing ? uavs.filter((uav) => uav.crewId === editing.id) : [];
   const crewMemberIds = new Set([...draft.memberIds, ...draft.actualMemberIds]);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildStaffingHierarchy } from "./StaffingBcsPage";
-import { bcsFunctionalSummary, bcsSummary, temporaryStaffingRecord } from "./bcs-model";
+import { bcsExportRows, bcsFunctionalSummary, bcsSummary, temporaryStaffingRecord } from "./bcs-model";
 import type { StaffingRecord } from "./types";
 
 const record = (personnelId: number, position: string, platoon = "1 взвод"): StaffingRecord => ({
@@ -113,6 +113,7 @@ describe("Штат та БЧС", () => {
     expect(summary["В наявності"]).toBe(0);
     expect(summary["Тимчасово прибулі з ТВО"]).toBe(1);
     expect(summary["Відпустка"]).toBe(0);
-    expect(temporary.notes).toBe("ТВО: Водій");
+    expect(temporary.notes).toBe("");
+    expect(bcsExportRows([temporary])[0]).toMatchObject({ personnelPosition: "оператор", notes: "ТВО: Водій" });
   });
 });

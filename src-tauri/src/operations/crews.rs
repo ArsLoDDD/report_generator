@@ -132,12 +132,7 @@ pub fn create_crew(state: tauri::State<AppState>, draft: CrewDraft) -> Result<()
     if draft.name.trim().is_empty() {
         return Err("Вкажіть назву екіпажу.".into());
     }
-    let mut actual_member_ids = draft.actual_member_ids.clone();
-    for personnel_id in &draft.member_ids {
-        if !actual_member_ids.contains(personnel_id) {
-            actual_member_ids.push(*personnel_id);
-        }
-    }
+    let actual_member_ids = draft.actual_member_ids.clone();
     let working_strength = actual_member_ids.len() as i64;
     let db = state.0.lock().map_err(|_| busy())?;
     db.connection
@@ -191,18 +186,7 @@ pub fn update_crew(
         return Err("Вкажіть назву екіпажу.".into());
     }
     let db = state.0.lock().map_err(|_| busy())?;
-    let previous_official_ids = crew_members(&db.connection, crew_id)?
-        .into_iter()
-        .map(|member| member.personnel_id)
-        .collect::<Vec<_>>();
-    let mut actual_member_ids = draft.actual_member_ids.clone();
-    for personnel_id in &draft.member_ids {
-        if !previous_official_ids.contains(personnel_id)
-            && !actual_member_ids.contains(personnel_id)
-        {
-            actual_member_ids.push(*personnel_id);
-        }
-    }
+    let actual_member_ids = draft.actual_member_ids.clone();
     if let Some(primary_uav_id) = draft.primary_uav_id {
         let valid = db
             .connection

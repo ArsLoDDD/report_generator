@@ -12,7 +12,31 @@ pub fn list_staffing_records(state: tauri::State<AppState>) -> Result<Vec<Staffi
         &db.connection,
         &chrono::Local::now().format("%Y-%m-%d").to_string(),
     )?;
-    let mut statement=db.connection.prepare("SELECT p.id,trim(p.surname||' '||p.given_name||' '||p.patronymic),p.rank,p.position,c.id,c.name,COALESCE(c.platoon,''),COALESCE(c.company_name,''),COALESCE(c.unit_type,'Екіпаж'),COALESCE(pos.name,''),COALESCE(pos.battle_order,''),COALESCE(c.sector,''),COALESCE(c.official_strength,0),COALESCE((SELECT COUNT(*) FROM crew_members x WHERE x.crew_id=c.id AND x.left_at IS NULL),0),COALESCE(c.status,''),COALESCE(c.uav_name,''),COALESCE(c.uav_type,''),COALESCE(NULLIF(p.functional_duties,''),c.functional_duties,''),COALESCE(p.current_location,''),COALESCE(p.bcs_status,''),COALESCE(NULLIF(p.bcs_notes,''),c.notes,''),COALESCE(a.acting_position,''),COALESCE((SELECT COUNT(*) FROM staff_recommendations sr WHERE sr.personnel_id=p.id),0),COALESCE(a.slot_id,''),COALESCE(a.acting_slot_id,''),COALESCE((SELECT COUNT(*) FROM crew_actual_members x WHERE x.crew_id=c.id),0) FROM personnel p LEFT JOIN crew_actual_members cam ON cam.personnel_id=p.id LEFT JOIN crews c ON c.id=cam.crew_id LEFT JOIN positions pos ON pos.id=c.position_id LEFT JOIN personnel_staff_assignments a ON a.personnel_id=p.id ORDER BY COALESCE(c.name,''),p.position,p.id").map_err(|_|"Не вдалося сформувати Штат та БЧС.".to_string())?;
+    staffing_records(&db.connection)
+}
+
+fn staffing_records(connection: &rusqlite::Connection) -> Result<Vec<StaffingRecord>, String> {
+    let mut statement = connection.prepare(
+        "SELECT p.id,trim(p.surname||' '||p.given_name||' '||p.patronymic),p.rank,p.position,
+                c.id,c.name,COALESCE(c.platoon,''),COALESCE(c.company_name,''),COALESCE(c.unit_type,'Екіпаж'),
+                COALESCE(pos.name,''),COALESCE(pos.battle_order,''),COALESCE(c.sector,''),COALESCE(c.official_strength,0),
+                COALESCE((SELECT COUNT(*) FROM crew_members x WHERE x.crew_id=c.id AND x.left_at IS NULL),0),
+                COALESCE(c.status,''),COALESCE(c.uav_name,''),COALESCE(c.uav_type,''),
+                COALESCE(NULLIF(p.functional_duties,''),c.functional_duties,''),COALESCE(p.current_location,''),
+                COALESCE(p.bcs_status,''),COALESCE(NULLIF(p.bcs_notes,''),c.notes,''),COALESCE(a.acting_position,''),
+                COALESCE((SELECT COUNT(*) FROM staff_recommendations sr WHERE sr.personnel_id=p.id),0),
+                COALESCE(a.slot_id,''),COALESCE(a.acting_slot_id,''),
+                COALESCE((SELECT COUNT(*) FROM crew_actual_members x WHERE x.crew_id=c.id),0),
+                actual_c.id,actual_c.name
+         FROM personnel p
+         LEFT JOIN crew_members cm ON cm.personnel_id=p.id AND cm.left_at IS NULL
+         LEFT JOIN crews c ON c.id=cm.crew_id
+         LEFT JOIN crew_actual_members cam ON cam.personnel_id=p.id
+         LEFT JOIN crews actual_c ON actual_c.id=cam.crew_id
+         LEFT JOIN positions pos ON pos.id=c.position_id
+         LEFT JOIN personnel_staff_assignments a ON a.personnel_id=p.id
+         ORDER BY COALESCE(c.name,''),p.position,p.id",
+    ).map_err(|_| "Не вдалося сформувати Штат та БЧС.".to_string())?;
     let result = statement
         .query_map([], |r| {
             Ok(StaffingRecord {
@@ -22,6 +46,8 @@ pub fn list_staffing_records(state: tauri::State<AppState>) -> Result<Vec<Staffi
                 position: r.get(3)?,
                 crew_id: r.get(4)?,
                 crew_name: r.get(5)?,
+                actual_crew_id: r.get(26)?,
+                actual_crew_name: r.get(27)?,
                 platoon: r.get(6)?,
                 company_name: r.get(7)?,
                 unit_type: r.get(8)?,
@@ -197,6 +223,46 @@ fn apply_flight_plan_locations(
 #[cfg(test)]
 mod flight_plan_location_tests {
     use super::*;
+
+    #[test]
+    fn staffing_uses_the_official_crew_and_keeps_the_actual_crew_separate() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(1,'СОКІЛ')", [])
+            .unwrap();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(2,'БАРС')", [])
+            .unwrap();
+        connection.execute("INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id,current_location) VALUES(1,'солдат','ЛЮДИНА','Тест','Тестович','штатний оператор','tax-1','','','','','','','','На позиції')", []).unwrap();
+        connection
+            .execute(
+                "INSERT INTO crew_members(crew_id,personnel_id) VALUES(1,1)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(2,1)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO personnel_staff_assignments(personnel_id,acting_position) VALUES(1,'Командир відділення')",
+                [],
+            )
+            .unwrap();
+
+        let records = staffing_records(&connection).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].crew_id, Some(1));
+        assert_eq!(records[0].crew_name.as_deref(), Some("СОКІЛ"));
+        assert_eq!(records[0].actual_crew_id, Some(2));
+        assert_eq!(records[0].actual_crew_name.as_deref(), Some("БАРС"));
+        assert_eq!(records[0].position, "штатний оператор");
+        assert_eq!(records[0].acting_position, "Командир відділення");
+    }
 
     #[test]
     fn assigns_daily_rotation_locations() {

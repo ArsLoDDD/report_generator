@@ -85,6 +85,16 @@
 	overflow-x: auto;
 	overflow-y: hidden;
 }
+.bcs-reference td.bcs-reference__notes {
+	white-space: normal;
+}
+.bcs-reference__notes small {
+	display: block;
+	margin-top: 3px;
+	color: #334155;
+	font: 600 10px/1.2 system-ui, sans-serif;
+	white-space: normal;
+}
 .bcs-reference__summaries {
 	display: grid;
 	grid-template-columns: minmax(270px, 0.9fr) minmax(360px, 1.25fr) minmax(
