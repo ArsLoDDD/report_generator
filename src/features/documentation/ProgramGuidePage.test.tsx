@@ -74,6 +74,12 @@ describe("Довідник", () => {
     expect(topicText("staffing-bcs")).toMatch(/незалежні модифікатори через кому/u);
   });
 
+  it("explains automatic position-work rotation and incident titles", () => {
+    expect(topicText("position-work")).toMatch(/два неперетинні періоди.+основна робота та охорона/u);
+    expect(topicText("position-work")).toMatch(/«ЗБЗ» чи «ПБЗ»/u);
+    expect(topicText("incidents")).toMatch(/Тип інциденту - ПРІЗВИЩЕ І\.П\. - дата/u);
+  });
+
   it("distinguishes snapshots, current drafts, static DOCX files and planned features", () => {
     expect(topicText("rotation")).toContain("Окремого незмінного журналу історії переходів у програмі зараз немає.");
     expect(topicText("summary-report")).toMatch(/одну поточну чернетку.+не створює історію ревізій/u);

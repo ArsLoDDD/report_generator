@@ -199,6 +199,9 @@
 .position-work-people > header { display: flex; justify-content: space-between; gap: 12px; padding: 13px; border-bottom: 1px solid var(--line); }
 .position-work-people > header > div { display: grid; gap: 3px; }
 .position-work-people > header small, .position-work-people > header > span { color: var(--muted); font-size: 11px; }
+.position-work-people > header .position-work-rotation { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.position-work-rotation > span,.position-work-rotation > strong { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.position-work-rotation .shared-select { min-width: 104px; }
 .position-work-people > div { display: grid; align-content: start; gap: 7px; padding: 10px; overflow-y: auto; }
 .position-work-people article { display: grid; gap: 9px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #111612; }
 .position-work-people article.selected { border-color: var(--accent); background: rgba(151,164,76,.12); }

@@ -32,7 +32,8 @@ const workTypeOptions = [{ value: "Рекогностування", label: "Ре
 const workStatusOptions = [{ value: "Приступили", label: "Приступили" }, { value: "Продовжують", label: "Продовжують" }, { value: "Завершили", label: "Завершили" }];
 const workDutyOptions = [{ value: "Охорона та оборона", label: "Охорона та оборона" }, ...workTypeOptions];
 const basePositionTypeOptions = [{ value: "Основна", label: "Основна" }, { value: "Запасна", label: "Запасна" }];
-const freePositionWorkLocations = new Set(["", "ОХ"]);
+const unavailablePositionWorkLocations = new Set(["На позиції", "ЗБЗ", "ПБЗ", "Реко", "Облаштування", "Реко та облаштування"]);
+const rotationHourOptions = [1, 2, 3, 4, 6, 8, 12].map((hours) => ({ value: String(hours), label: `${hours} год` }));
 const uniquePersonnelIds = (assignments: PositionWorkMemberDraft[]) => [...new Set(assignments.map((item) => item.personnelId))];
 const withAssignments = (draft: PositionWorkDraft, memberAssignments: PositionWorkMemberDraft[]): PositionWorkDraft => ({ ...draft, personnelIds: uniquePersonnelIds(memberAssignments), memberAssignments });
 const freshAssignment = (draft: PositionWorkDraft, personnelId: number): PositionWorkMemberDraft => ({ assignmentId: null, personnelId, dutyType: draft.workType, startDate: draft.startDate, startTime: draft.startTime, endDate: draft.endDate || draft.startDate, endTime: draft.endTime });
@@ -44,6 +45,40 @@ const isValidIsoDate = (value: string) => {
 };
 const isValidTime = (value: string) => /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
 const workMoment = (date: string, time: string) => `${date}T${time}`;
+const shiftedWorkMoment = (date: string, time: string, minutes: number) => {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, minute] = time.split(":").map(Number);
+  const value = new Date(Date.UTC(year, month - 1, day, hours, minute + minutes));
+  return { date: value.toISOString().slice(0, 10), time: value.toISOString().slice(11, 16) };
+};
+const rotatingWorkDraft = (draft: PositionWorkDraft, personnelIds: number[], rotationHours: number) => {
+  const ids = [...new Set(personnelIds)];
+  if (!ids.length) return withAssignments({ ...draft, endDate: "", endTime: "" }, []);
+  if (!isValidIsoDate(draft.startDate) || !isValidTime(draft.startTime)) {
+    return withAssignments(draft, ids.flatMap((personnelId) => {
+      const work = freshAssignment(draft, personnelId);
+      return [work, { ...work, dutyType: "Охорона та оборона" }];
+    }));
+  }
+  const slotMinutes = rotationHours * 60;
+  const slotCount = ids.length === 1 ? 2 : ids.length;
+  const assignments = ids.flatMap((personnelId, index) => {
+    const slots = [
+      { slot: index, dutyType: draft.workType as PositionWorkMemberDraft["dutyType"] },
+      { slot: ids.length === 1 ? 1 : (index + 1) % ids.length, dutyType: "Охорона та оборона" as const },
+    ].sort((left, right) => left.slot - right.slot);
+    return slots.map(({ slot, dutyType }, periodIndex) => {
+      const rawStart = shiftedWorkMoment(draft.startDate, draft.startTime, slot * slotMinutes);
+      const start = periodIndex > 0 && slots[periodIndex - 1].slot + 1 === slot
+        ? shiftedWorkMoment(rawStart.date, rawStart.time, 1)
+        : rawStart;
+      const end = shiftedWorkMoment(draft.startDate, draft.startTime, (slot + 1) * slotMinutes);
+      return { assignmentId: null, personnelId, dutyType, startDate: start.date, startTime: start.time, endDate: end.date, endTime: end.time };
+    });
+  });
+  const end = shiftedWorkMoment(draft.startDate, draft.startTime, slotCount * slotMinutes);
+  return withAssignments({ ...draft, endDate: end.date, endTime: end.time }, assignments);
+};
 const invalidWorkMessage = (draft: PositionWorkDraft) => {
   if (!isValidIsoDate(draft.startDate) || !isValidTime(draft.startTime)) return "Вкажіть коректні дату та час початку робіт.";
   if (Boolean(draft.endDate) !== Boolean(draft.endTime)) return "Для завершення групи вкажіть і дату, і час.";
@@ -74,15 +109,20 @@ function PositionWorkFields({ draft, onChange }: { draft: PositionWorkDraft; onC
   </div>;
 }
 
-function PositionWorkPeople({ draft, people, onChange }: { draft: PositionWorkDraft; people: PositionWorkPerson[]; onChange: (next: PositionWorkDraft) => void }) {
+function PositionWorkPeople({ draft, people, onChange, automaticRotationHours, onAutomaticRotationHoursChange }: { draft: PositionWorkDraft; people: PositionWorkPerson[]; onChange: (next: PositionWorkDraft) => void; automaticRotationHours?: number; onAutomaticRotationHoursChange?: (hours: number) => void }) {
   const toggle = (personnelId: number) => {
     const hasPerson = draft.memberAssignments.some((item) => item.personnelId === personnelId);
+    if (automaticRotationHours) {
+      const ids = hasPerson ? draft.personnelIds.filter((id) => id !== personnelId) : [...draft.personnelIds, personnelId];
+      onChange(rotatingWorkDraft(draft, ids, automaticRotationHours));
+      return;
+    }
     onChange(withAssignments(draft, hasPerson ? draft.memberAssignments.filter((item) => item.personnelId !== personnelId) : [...draft.memberAssignments, freshAssignment(draft, personnelId)]));
   };
   const addPeriod = (personnelId: number) => onChange(withAssignments(draft, [...draft.memberAssignments, freshAssignment(draft, personnelId)]));
   const patchPeriod = (index: number, patch: Partial<PositionWorkMemberDraft>) => onChange(withAssignments(draft, draft.memberAssignments.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item)));
   const removePeriod = (index: number) => onChange(withAssignments(draft, draft.memberAssignments.filter((_, itemIndex) => itemIndex !== index)));
-  return <section className="position-work-people"><header><div><b>Склад групи</b><small>Для нового залучення доступні лише вільні військовослужбовці зі станом БЧС «ОХ».</small></div><span>{draft.personnelIds.length} обрано</span></header><div>{people.map((person) => {
+  return <section className="position-work-people"><header><div><b>Склад групи</b><small>Доступні всі, хто зараз не перебуває на позиції, не заходить на неї та не вибуває з неї.</small></div><div className="position-work-rotation">{automaticRotationHours && onAutomaticRotationHoursChange && <><span>Чергування</span><Select ariaLabel="Тривалість чергування" value={String(automaticRotationHours)} onChange={(value) => onAutomaticRotationHoursChange(Number(value))} options={rotationHourOptions} /></>}<strong>{draft.personnelIds.length} обрано</strong></div></header><div>{people.map((person) => {
     const periods = draft.memberAssignments.map((assignment, index) => ({ assignment, index })).filter(({ assignment }) => assignment.personnelId === person.personnelId);
     return <article className={periods.length ? "selected" : ""} key={person.personnelId}><div className="position-work-person"><label><input type="checkbox" checked={periods.length > 0} onChange={() => toggle(person.personnelId)} /><span><b>{person.fullName}</b><small>{person.rank} · {person.position}</small></span></label>{periods.length > 0 && <button className="button compact" type="button" aria-label={`Додати період: ${person.fullName}`} onClick={() => addPeriod(person.personnelId)}><Plus />Додати період</button>}</div>{periods.length > 0 && <div className="position-work-periods">{periods.map(({ assignment, index }, periodIndex) => <section className="position-work-period" key={assignment.assignmentId ?? `${person.personnelId}-${index}`}><header><b>Період {periodIndex + 1}</b><button className="icon-button danger" type="button" title="Видалити період" aria-label={`Видалити період ${periodIndex + 1}: ${person.fullName}`} onClick={() => removePeriod(index)}><Trash2 /></button></header><div className="form-field"><span>Завдання</span><Select ariaLabel={`Завдання, період ${periodIndex + 1}: ${person.fullName}`} value={assignment.dutyType} onChange={(value) => patchPeriod(index, { dutyType: value as PositionWorkMemberDraft["dutyType"] })} options={workDutyOptions} /></div><div className="position-work-period__dates"><label><span>Від</span><input aria-label={`Дата початку, період ${periodIndex + 1}: ${person.fullName}`} type="date" value={assignment.startDate} onChange={(event) => patchPeriod(index, { startDate: event.target.value })} /></label><input aria-label={`Час початку, період ${periodIndex + 1}: ${person.fullName}`} type="time" value={assignment.startTime} onChange={(event) => patchPeriod(index, { startTime: event.target.value })} /><label><span>До</span><input aria-label={`Дата завершення, період ${periodIndex + 1}: ${person.fullName}`} type="date" value={assignment.endDate} onChange={(event) => patchPeriod(index, { endDate: event.target.value })} /></label><input aria-label={`Час завершення, період ${periodIndex + 1}: ${person.fullName}`} type="time" value={assignment.endTime} onChange={(event) => patchPeriod(index, { endTime: event.target.value })} /></div></section>)}</div>}</article>;
   })}{!people.length && <div className="position-work-people__empty">Вільних військовослужбовців немає.</div>}</div></section>;
@@ -125,6 +165,7 @@ export function PositionsPage() {
   const [setupPositionId, setSetupPositionId] = useState("");
   const [setupPositionDraft, setSetupPositionDraft] = useState<PositionDraft>(emptyDraft);
   const [setupWorkDraft, setSetupWorkDraft] = useState<PositionWorkDraft>(() => emptyWork(0, "Облаштування"));
+  const [setupRotationHours, setSetupRotationHours] = useState(2);
   const [setupBusy, setSetupBusy] = useState(false);
   const [assetTab, setAssetTab] = useState<PositionAssetTab>("uav");
   const [deleting, setDeleting] = useState<Position | null>(null);
@@ -154,7 +195,7 @@ export function PositionsPage() {
   const openWork = (type: PositionWorkDraft["workType"], work?: PositionWork) => { if (!editing) return; setWorkEditing(work ?? "new"); setWorkDraft(work ? { positionId: work.positionId, workType: work.workType, status: work.status, startDate: work.startDate, startTime: work.startTime, endDate: work.endDate, endTime: work.endTime, battleOrder: work.battleOrder, notes: work.notes, personnelIds: uniquePersonnelIds(work.members), memberAssignments: work.members.map((member) => ({ assignmentId: member.assignmentId, personnelId: member.personnelId, dutyType: member.dutyType || work.workType, startDate: member.startDate || work.startDate, startTime: member.startTime || work.startTime, endDate: member.endDate || work.endDate || work.startDate, endTime: member.endTime || work.endTime })) } : { ...emptyWork(editing.id, type), battleOrder: editing.battleOrder || "" }); };
   const saveWork = async () => { const conflict = workDraft.personnelIds.find((personnelId) => allPositionPersonnelIds.has(personnelId) || !isAvailableForEditedWork(personnelId)); if (conflict) { const person = staffing.find((item) => item.personnelId === conflict); notify(`${person?.fullName || "Обрана людина"} зараз має інше місце служби або завдання. Приберіть її зі складу групи.`, "error"); return; } const invalid = invalidWorkMessage(workDraft); if (invalid) { notify(invalid, "error"); return; } try { await operationsService.savePositionWork(workEditing === "new" ? null : workEditing?.id ?? null, workDraft); const next = await operationsService.listPositionWork(); setPositionWork(next); setStaffing(await operationsService.listStaffingRecords()); setWorkEditing(null); await reloadItems(); notify("Роботи на позиції збережено та БЧС оновлено.", "success"); } catch (error) { notify(typeof error === "string" ? error : "Не вдалося зберегти роботи на позиції.", "error"); } };
   const removeWork = async (id: number) => { try { await operationsService.deletePositionWork(id); setPositionWork(await operationsService.listPositionWork()); setStaffing(await operationsService.listStaffingRecords()); await reloadItems(); notify("Запис робіт видалено.", "success"); } catch (error) { notify(typeof error === "string" ? error : "Не вдалося видалити запис робіт.", "error"); } };
-  const openSetup = () => { setSetupMode(items.length ? "existing" : "new"); setSetupPositionId(""); setSetupPositionDraft(emptyDraft()); setSetupWorkDraft(emptyWork(0, "Облаштування")); setSetupOpen(true); };
+  const openSetup = () => { setSetupMode(items.length ? "existing" : "new"); setSetupPositionId(""); setSetupPositionDraft(emptyDraft()); setSetupWorkDraft(emptyWork(0, "Облаштування")); setSetupRotationHours(2); setSetupOpen(true); };
   const closeSetup = () => { if (setupBusy) return; setSetupOpen(false); setSetupPositionId(""); };
   const chooseSetupPosition = (value: string) => { const position = items.find((item) => item.id === Number(value)); setSetupPositionId(value); setSetupWorkDraft((current) => ({ ...current, positionId: position?.id ?? 0, battleOrder: position?.battleOrder || "" })); };
 
@@ -173,10 +214,9 @@ export function PositionsPage() {
       .filter((crew) => onPositionCrewIds.has(crew.id) && !storedPlanEntries?.[crew.id])
       .flatMap((crew) => (crew.actualMembers ?? []).map((member) => member.personnelId)),
   ]);
-  const occupiedLocationIds = new Set(staffing.filter((person) => ["На позиції", "ЗБЗ"].includes(person.currentLocation)).map((person) => person.personnelId));
   const editingWork = editing ? positionWork.filter((work) => work.positionId === editing.id) : [];
   const originalWorkPersonnelIds = new Set(workEditing && workEditing !== "new" ? workEditing.members.map((member) => member.personnelId) : []);
-  const isAvailableForEditedWork = (personnelId: number) => { const person = staffing.find((item) => item.personnelId === personnelId); if (!person) return false; const location = person.currentLocation.trim(); const completedOriginal = workEditing && workEditing !== "new" && workEditing.status === "Завершили" && originalWorkPersonnelIds.has(personnelId); return freePositionWorkLocations.has(location) || (completedOriginal && !["На позиції", "ЗБЗ"].includes(location)) || (originalWorkPersonnelIds.has(personnelId) && ["Реко", "Облаштування", "Реко та облаштування"].includes(location)); };
+  const isAvailableForEditedWork = (personnelId: number) => { const person = staffing.find((item) => item.personnelId === personnelId); if (!person) return false; const location = person.currentLocation.trim(); const completedOriginal = workEditing && workEditing !== "new" && workEditing.status === "Завершили" && originalWorkPersonnelIds.has(personnelId); return !unavailablePositionWorkLocations.has(location) || completedOriginal || (originalWorkPersonnelIds.has(personnelId) && ["Реко", "Облаштування", "Реко та облаштування"].includes(location)); };
   const availableStaffingWorkPeople: PositionWorkPerson[] = staffing.filter((person) => person.personnelId > 0 && (
     originalWorkPersonnelIds.has(person.personnelId)
     || (!allPositionPersonnelIds.has(person.personnelId) && isAvailableForEditedWork(person.personnelId))
@@ -185,7 +225,12 @@ export function PositionsPage() {
     ? [...new Map(workEditing.members.filter((member) => !staffing.some((person) => person.personnelId === member.personnelId)).map((member) => [member.personnelId, member])).values()].map((member) => ({ personnelId: member.personnelId, fullName: member.fullName, rank: member.rank, position: "Запис відсутній у БЧС" }))
     : [];
   const availableWorkPeople = [...availableStaffingWorkPeople, ...missingOriginalWorkPeople];
-  const availableSetupPeople = staffing.filter((person) => person.personnelId > 0 && !allPositionPersonnelIds.has(person.personnelId) && !occupiedLocationIds.has(person.personnelId) && freePositionWorkLocations.has(person.currentLocation.trim()));
+  const availableSetupPeople = staffing.filter((person) => person.personnelId > 0 && !allPositionPersonnelIds.has(person.personnelId) && !unavailablePositionWorkLocations.has(person.currentLocation.trim()));
+  const updateSetupWorkDraft = (next: PositionWorkDraft) => setSetupWorkDraft((current) => {
+    const scheduleBasisChanged = current.startDate !== next.startDate || current.startTime !== next.startTime || current.workType !== next.workType;
+    return scheduleBasisChanged && next.personnelIds.length ? rotatingWorkDraft(next, next.personnelIds, setupRotationHours) : next;
+  });
+  const updateSetupRotationHours = (hours: number) => { setSetupRotationHours(hours); setSetupWorkDraft((current) => rotatingWorkDraft(current, current.personnelIds, hours)); };
   const saveSetup = async () => {
     const position = setupMode === "existing" ? items.find((item) => item.id === Number(setupPositionId)) : null;
     if (setupMode === "existing" && !position) { notify("Оберіть позицію для облаштування.", "error"); return; }
@@ -243,7 +288,7 @@ export function PositionsPage() {
       </section>}
       {editorTab === "history" && <section className="position-history">{positionIncidents.length ? positionIncidents.map((incident) => { const occurred = incidentDateTimeParts(incident.occurredAt); return <article key={incident.id}><Clock3 /><div><b>{incident.incidentType}</b><span>{occurred.date} · {occurred.time} · {incident.crewName || "екіпаж не вказано"}</span><p>{incident.description || "Без опису"}</p></div></article>; }) : <div className="position-history__empty"><Clock3 /><b>Історія порожня</b><span>Інциденти на цій позиції з’являться тут автоматично.</span></div>}</section>}
     </div><footer className="modal-actions position-editor__actions">{editing && <button className="button danger" onClick={() => { setDeleting(editing); setOpen(false); }}><Trash2 />Видалити позицію</button>}<button className="button" onClick={close}>Скасувати</button><button className="button primary" onClick={() => void savePosition()}>Зберегти позицію</button></footer></Modal>}
-    {setupOpen && <Modal title="Облаштування позиції" subtitle="Створіть нову позицію або переведіть наявну в облаштування" onClose={closeSetup} className="position-setup-modal"><div className="position-setup-modal__body"><section className="position-setup-target"><header><div><b>Позиція</b><small>Екіпаж на цьому етапі не закріплюється.</small></div></header><div className="form-field"><span>Що облаштовуємо</span><Select ariaLabel="Вибір нової або наявної позиції" value={setupMode} onChange={(value) => { const mode = value as SetupPositionMode; setSetupMode(mode); setSetupPositionId(""); setSetupPositionDraft(emptyDraft()); setSetupWorkDraft(emptyWork(0, "Облаштування")); }} options={[{ value: "existing", label: "Наявну позицію" }, { value: "new", label: "Нову позицію" }]} /></div>{setupMode === "existing" ? <div className="form-field"><span>Позиція <b>*</b></span><Select ariaLabel="Позиція для облаштування" value={setupPositionId} onChange={chooseSetupPosition} options={[{ value: "", label: "Оберіть позицію" }, ...items.map((item) => ({ value: String(item.id), label: `${item.name}${item.locality ? ` · ${item.locality}` : ""}` }))]} /></div> : <SetupPositionFields draft={setupPositionDraft} onChange={setSetupPositionDraft} onBattleOrderChange={(battleOrder) => { setSetupPositionDraft({ ...setupPositionDraft, battleOrder }); setSetupWorkDraft({ ...setupWorkDraft, battleOrder }); }} />}</section><section className="position-setup-work"><header><div><b>Подія та графік групи</b><small>Для кожної людини додайте окремі періоди охорони, рекогностування або облаштування.</small></div></header><div className="position-work-modal__body"><PositionWorkFields draft={setupWorkDraft} onChange={setSetupWorkDraft} /><PositionWorkPeople draft={setupWorkDraft} people={availableSetupPeople} onChange={setSetupWorkDraft} /></div></section></div><footer className="modal-actions"><button className="button" disabled={setupBusy} onClick={closeSetup}>Скасувати</button><button className="button primary" disabled={setupBusy} onClick={() => void saveSetup()}><Hammer />{setupBusy ? "Збереження…" : "Розпочати роботи"}</button></footer></Modal>}
+      {setupOpen && <Modal title="Облаштування позиції" subtitle="Створіть нову позицію або переведіть наявну в облаштування" onClose={closeSetup} className="position-setup-modal"><div className="position-setup-modal__body"><section className="position-setup-target"><header><div><b>Позиція</b><small>Екіпаж на цьому етапі не закріплюється.</small></div></header><div className="form-field"><span>Що облаштовуємо</span><Select ariaLabel="Вибір нової або наявної позиції" value={setupMode} onChange={(value) => { const mode = value as SetupPositionMode; setSetupMode(mode); setSetupPositionId(""); setSetupPositionDraft(emptyDraft()); setSetupWorkDraft(emptyWork(0, "Облаштування")); setSetupRotationHours(2); }} options={[{ value: "existing", label: "Наявну позицію" }, { value: "new", label: "Нову позицію" }]} /></div>{setupMode === "existing" ? <div className="form-field"><span>Позиція <b>*</b></span><Select ariaLabel="Позиція для облаштування" value={setupPositionId} onChange={chooseSetupPosition} options={[{ value: "", label: "Оберіть позицію" }, ...items.map((item) => ({ value: String(item.id), label: `${item.name}${item.locality ? ` · ${item.locality}` : ""}` }))]} /></div> : <SetupPositionFields draft={setupPositionDraft} onChange={setSetupPositionDraft} onBattleOrderChange={(battleOrder) => { setSetupPositionDraft({ ...setupPositionDraft, battleOrder }); setSetupWorkDraft({ ...setupWorkDraft, battleOrder }); }} />}</section><section className="position-setup-work"><header><div><b>Подія та графік групи</b><small>Після вибору людей програма створить кожному неперетинні періоди робіт та охорони.</small></div></header><div className="position-work-modal__body"><PositionWorkFields draft={setupWorkDraft} onChange={updateSetupWorkDraft} /><PositionWorkPeople draft={setupWorkDraft} people={availableSetupPeople} onChange={setSetupWorkDraft} automaticRotationHours={setupRotationHours} onAutomaticRotationHoursChange={updateSetupRotationHours} /></div></section></div><footer className="modal-actions"><button className="button" disabled={setupBusy} onClick={closeSetup}>Скасувати</button><button className="button primary" disabled={setupBusy} onClick={() => void saveSetup()}><Hammer />{setupBusy ? "Збереження…" : "Розпочати роботи"}</button></footer></Modal>}
     {workEditing && <Modal title={workDraft.workType} subtitle={`Позиція «${editing?.name || ""}» · оберіть групу та фактичні періоди`} onClose={() => setWorkEditing(null)} className="position-work-modal"><div className="position-work-modal__body"><PositionWorkFields draft={workDraft} onChange={setWorkDraft} /><PositionWorkPeople draft={workDraft} people={availableWorkPeople} onChange={setWorkDraft} /></div><footer className="modal-actions"><button className="button" onClick={() => setWorkEditing(null)}>Скасувати</button><button className="button primary" onClick={() => void saveWork()}>Зберегти групу</button></footer></Modal>}
     {deleting && <ConfirmDialog title="Видалити позицію?" message={`Позицію «${deleting.name}» буде видалено. Екіпажі, які її використовують, залишаться без обраної позиції.`} confirmLabel="Видалити" onConfirm={() => void remove()} onCancel={() => setDeleting(null)} busy={deletingBusy} />}
   </PageFrame>;

@@ -258,19 +258,13 @@ fn validate_person_availability(
         );
     }
     let current_location = current_location.trim();
-    if ["На позиції", "ЗБЗ"].contains(&current_location) {
-        return Err("До робіт не можна залучити людей, які перебувають або заходять на позицію за планом польотів.".into());
+    if ["На позиції", "ЗБЗ", "ПБЗ"].contains(&current_location) {
+        return Err("До робіт не можна залучити людей, які перебувають, заходять на позицію або вибувають з неї за планом польотів.".into());
     }
-    if !draft_is_active && !["", "ОХ"].contains(&current_location) && !belongs_to_current_work {
-        return Err("До робіт можна додати лише вільних військовослужбовців зі станом БЧС «ОХ» або без указаного місця.".into());
-    }
-    if draft_is_active
-        && !["", "ОХ"].contains(&current_location)
-        && !(belongs_to_current_work
-            && current_work_is_active
-            && is_work_location(current_location))
+    if is_work_location(current_location)
+        && !(belongs_to_current_work && current_work_is_active && draft_is_active)
     {
-        return Err("До активних робіт можна залучити лише вільних військовослужбовців; для чинного учасника стан БЧС має відповідати роботам на позиції.".into());
+        return Err("Військовослужбовець уже перебуває на іншій роботі на позиції.".into());
     }
     Ok(())
 }
@@ -870,8 +864,9 @@ mod tests {
         );
         assert!(validate_person_availability("На позиції", true, true, true, false).is_err());
         assert!(validate_person_availability("ЗБЗ", true, true, true, false).is_err());
-        assert!(validate_person_availability("КСП", false, false, true, false).is_err());
-        assert!(validate_person_availability("КСП", false, false, false, false).is_err());
+        assert!(validate_person_availability("ПБЗ", false, false, true, false).is_err());
+        assert!(validate_person_availability("КСП", false, false, true, false).is_ok());
+        assert!(validate_person_availability("КСП", false, false, false, false).is_ok());
         assert!(validate_person_availability("КСП", true, false, false, false).is_ok());
         assert!(validate_person_availability("ОХ", false, false, true, true).is_err());
     }

@@ -6,7 +6,7 @@ import { IncidentsPage } from "./IncidentsPage";
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
-const incident = (id: number) => ({ id, incidentType: `Подія ${id}`, occurredAt: "2026-08-18T09:30", crewId: 4, crewName: "ГРІМ", equipmentId: 8, equipmentName: "VAMPIRE", equipmentIds: [8], equipmentNames: ["VAMPIRE"], positionName: "ХИЖАК", reconnaissanceArea: "СТЕПОВЕ", crewSnapshot: "Іваненко Іван Іванович", vehicleName: "Toyota Hilux АА 2103 КТ", description: `Опис ${id}` });
+const incident = (id: number) => ({ id, incidentType: `Подія ${id}`, occurredAt: "2026-08-18T09:30", crewId: 4, crewName: "ГРІМ", equipmentId: 8, equipmentName: "VAMPIRE", equipmentIds: [8], equipmentNames: ["VAMPIRE"], personnelIds: [12], personnelNames: ["ЖУК Дмитро Петрович"], positionName: "ХИЖАК", reconnaissanceArea: "СТЕПОВЕ", crewSnapshot: "Іваненко Іван Іванович", vehicleName: "Toyota Hilux АА 2103 КТ", description: `Опис ${id}` });
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -24,7 +24,7 @@ describe("Журнал інцидентів", () => {
     await waitFor(() => expect(screen.getByText("Показано 25 із 25")).toBeInTheDocument());
 
     fireEvent.click(screen.getByText("Подія 25"));
-    expect(screen.getByRole("heading", { name: "Інцидент №25" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Подія 25 - ЖУК Д.П. - 18.08.2026" })).toBeInTheDocument();
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("18.08.2026")).toBeInTheDocument();
     expect(within(dialog).getByText("09:30")).toBeInTheDocument();

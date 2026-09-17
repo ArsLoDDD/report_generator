@@ -13,6 +13,8 @@ const availableEquipment = { ...linkedEquipment, id: 18, category: "generator", 
 const freePerson = { personnelId: 42, fullName: "ПЕТРЕНКО Петро Петрович", rank: "солдат", position: "оператор", crewId: null, crewName: null, currentLocation: "ОХ" };
 const kspPerson = { ...freePerson, personnelId: 43, fullName: "КСПОВИЙ Кирило Кирилович", currentLocation: "КСП Роти" };
 const otherWorkPerson = { ...freePerson, personnelId: 44, fullName: "РОБОЧИЙ Роман Романович", currentLocation: "Реко та облаштування" };
+const trainingPerson = { ...freePerson, personnelId: 45, fullName: "НАВЧАЛЬНИЙ Назар Назарович", currentLocation: "НАВЧ" };
+const leavingPositionPerson = { ...freePerson, personnelId: 46, fullName: "ВИБУВАЄ Віктор Вікторович", currentLocation: "ПБЗ" };
 const currentIsoDate = () => new Date().toLocaleDateString("sv-SE");
 const currentPlanDate = () => {
   const [year, month, day] = currentIsoDate().split("-");
@@ -85,10 +87,10 @@ describe("Картка позиції", () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_position", expect.objectContaining({ positionId: 3, draft: expect.objectContaining({ uavIds: [] }) })));
   });
 
-  it("починає облаштування наявної позиції та зберігає кілька окремих періодів однієї людини", async () => {
+  it("автоматично створює неперетинні періоди робіт та охорони і перераховує їхню тривалість", async () => {
     invoke.mockImplementation((command: string) => {
       if (command === "list_positions") return Promise.resolve([position]);
-      if (command === "list_staffing_records") return Promise.resolve([freePerson]);
+      if (command === "list_staffing_records") return Promise.resolve([freePerson, kspPerson, trainingPerson]);
       if (["list_crews", "list_incidents", "list_equipment", "list_vehicles", "list_position_work"].includes(command)) return Promise.resolve([]);
       return Promise.resolve();
     });
@@ -97,13 +99,15 @@ describe("Картка позиції", () => {
     await openPositionSetup();
     fireEvent.change(screen.getByLabelText("Позиція для облаштування"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Час події"), { target: { value: "11:00" } });
-    fireEvent.change(screen.getByLabelText("Дата завершення групи"), { target: { value: currentIsoDate() } });
-    fireEvent.change(screen.getByLabelText("Час завершення групи"), { target: { value: "18:00" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ }));
-    fireEvent.click(screen.getByRole("button", { name: `Додати період: ${freePerson.fullName}` }));
-    fireEvent.change(screen.getByLabelText("Завдання, період 1: ПЕТРЕНКО Петро Петрович"), { target: { value: "Охорона та оборона" } });
-    fireEvent.change(screen.getByLabelText("Час завершення, період 1: ПЕТРЕНКО Петро Петрович"), { target: { value: "14:00" } });
-    fireEvent.change(screen.getByLabelText("Час початку, період 2: ПЕТРЕНКО Петро Петрович"), { target: { value: "14:01" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /КСПОВИЙ Кирило Кирилович/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /НАВЧАЛЬНИЙ Назар Назарович/ }));
+    expect(screen.getAllByText("Період 1")).toHaveLength(3);
+    expect(screen.getAllByText("Період 2")).toHaveLength(3);
+    fireEvent.change(screen.getByLabelText("Тривалість чергування"), { target: { value: "4" } });
+    expect(screen.getByLabelText("Час початку, період 1: ПЕТРЕНКО Петро Петрович")).toHaveValue("11:00");
+    expect(screen.getByLabelText("Час завершення, період 1: ПЕТРЕНКО Петро Петрович")).toHaveValue("15:00");
+    expect(screen.getByLabelText("Час початку, період 2: ПЕТРЕНКО Петро Петрович")).toHaveValue("15:01");
     fireEvent.click(screen.getByRole("button", { name: "Розпочати роботи" }));
 
     await waitFor(() =>
@@ -113,9 +117,12 @@ describe("Картка позиції", () => {
           draft: expect.objectContaining({
             positionId: 3,
             memberAssignments: expect.arrayContaining([
-              expect.objectContaining({ personnelId: 42, dutyType: "Охорона та оборона", endTime: "14:00" }),
-              expect.objectContaining({ personnelId: 42, startTime: "14:01" }),
+              expect.objectContaining({ personnelId: 42, dutyType: "Облаштування", startTime: "11:00", endTime: "15:00" }),
+              expect.objectContaining({ personnelId: 42, dutyType: "Охорона та оборона", startTime: "15:01", endTime: "19:00" }),
+              expect.objectContaining({ personnelId: 43, dutyType: "Облаштування", startTime: "15:00", endTime: "19:00" }),
+              expect.objectContaining({ personnelId: 45, dutyType: "Охорона та оборона", startTime: "11:00", endTime: "15:00" }),
             ]),
+            endTime: "23:00",
           }),
         }),
       ),
@@ -186,10 +193,10 @@ describe("Картка позиції", () => {
     expect(invoke).not.toHaveBeenCalledWith("create_position", expect.anything());
   });
 
-  it("показує у новій групі лише справді вільних людей", async () => {
+  it("показує всіх, хто не перебуває на позиції, але виключає переходи та інші роботи на позиції", async () => {
     invoke.mockImplementation((command: string) => {
       if (command === "list_positions") return Promise.resolve([position]);
-      if (command === "list_staffing_records") return Promise.resolve([freePerson, kspPerson, otherWorkPerson]);
+      if (command === "list_staffing_records") return Promise.resolve([freePerson, kspPerson, otherWorkPerson, trainingPerson, leavingPositionPerson]);
       if (["list_crews", "list_incidents", "list_equipment", "list_vehicles", "list_position_work"].includes(command)) return Promise.resolve([]);
       return Promise.resolve();
     });
@@ -197,8 +204,10 @@ describe("Картка позиції", () => {
 
     await openPositionSetup();
     expect(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ })).toBeInTheDocument();
-    expect(screen.queryByText(kspPerson.fullName)).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /КСПОВИЙ Кирило Кирилович/ })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /НАВЧАЛЬНИЙ Назар Назарович/ })).toBeInTheDocument();
     expect(screen.queryByText(otherWorkPerson.fullName)).not.toBeInTheDocument();
+    expect(screen.queryByText(leavingPositionPerson.fullName)).not.toBeInTheDocument();
   });
 
   it("не вважає склад застарілого плану польотів поточним", async () => {
