@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getGenerationParameter, getSelectionRequirements, getVariable } from "./registry";
+import { customFieldId, getGenerationParameter, getSelectionRequirements, getVariable } from "./registry";
 
 describe("selection requirements", () => {
   it("keeps personnel first and derives exact counts for mixed subjects", () => {
@@ -80,5 +80,23 @@ describe("selection requirements", () => {
     expect(getVariable("умови_передачі")?.category).toBe("Параметри документа");
     expect(getSelectionRequirements(["умови_передачі"])).toEqual([]);
     expect(getGenerationParameter("soldier_name")).toBeUndefined();
+  });
+
+  it("uses immutable keys for custom fields and recognises their selection subjects", () => {
+    expect(customFieldId("unit_code")).toBe("custom_unit_code");
+    expect(getVariable("військовий_1_custom_unit_code")?.category).toBe("Військовослужбовець");
+    expect(getVariable("автомобіль_1_custom_fuel_type")?.category).toBe("Автомобіль");
+    expect(getSelectionRequirements(["військовий_2_custom_unit_code", "автомобіль_3_custom_fuel_type"])).toEqual([
+      expect.objectContaining({ id: "personnel", count: 2 }),
+      expect.objectContaining({ id: "vehicle", count: 3 }),
+    ]);
+  });
+
+  it("does not classify runtime signer values or obvious known-token typos as manual parameters", () => {
+    expect(getGenerationParameter("черговий_частини_піб")).toBeUndefined();
+    expect(getGenerationParameter("черговий_частини_посада")).toBeUndefined();
+    expect(getVariable("черговий_частини_піб")?.category).toBe("Підписант із налаштувань");
+    expect(getGenerationParameter("дата_рапортуа")).toBeUndefined();
+    expect(getGenerationParameter("параметр_особливі_умови")).toBeDefined();
   });
 });

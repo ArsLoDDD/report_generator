@@ -3,7 +3,7 @@ import { BookOpen, Copy } from "lucide-react";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { SearchInput } from "../../shared/ui/SearchInput";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
-import { crewFields, equipmentFields, modifierRegistry, positionFields, signerFields, signerRoles, tokenFor, variableRegistry, vehicleFields, type VariableDefinition } from "../../shared/template-language/registry";
+import { crewFields, customFieldId, equipmentFields, modifierRegistry, positionFields, signerFields, signerRoles, tokenFor, variableRegistry, vehicleFields, type VariableDefinition } from "../../shared/template-language/registry";
 import { morphologyService, type UkrainianCase } from "../../shared/services/morphologyService";
 import { personnelService } from "../../shared/services/personnelService";
 import type { CustomFieldDefinition } from "../../shared/types/domain";
@@ -41,16 +41,14 @@ function Preview({ variable, modifiers }: { variable: VariableDefinition; modifi
 }
 
 const toPersonnelValue = (item: CustomFieldDefinition): VariableDefinition => ({
-  id: `військовий_1_${templateFieldId(item.displayName)}`, name: item.displayName, category: "Військовослужбовець", description: item.description, example: item.initialValue, kind: "text", supportsCases: false
+  id: `військовий_1_${customFieldId(item.fieldKey)}`, name: item.displayName, category: "Військовослужбовець", description: `${item.description}${item.description ? " " : ""}Стабільний ключ: ${item.fieldKey}.`, example: item.initialValue, kind: "text", supportsCases: false
 });
 const toVehicleValue = (item: CustomFieldDefinition): VariableDefinition => ({
-  id: `автомобіль_1_${templateFieldId(item.displayName)}`, name: item.displayName, category: "Автомобіль", description: item.description, example: item.initialValue, kind: "text", supportsCases: false
+  id: `автомобіль_1_${customFieldId(item.fieldKey)}`, name: item.displayName, category: "Автомобіль", description: `${item.description}${item.description ? " " : ""}Стабільний ключ: ${item.fieldKey}.`, example: item.initialValue, kind: "text", supportsCases: false
 });
 const toPersonnelVehicleValue = (item: CustomFieldDefinition): VariableDefinition => ({
-  id: `військовий_1_автомобіль_1_${templateFieldId(item.displayName)}`, name: item.displayName, category: "Автомобіль військовослужбовця", description: item.description, example: item.initialValue, kind: "text", supportsCases: false
+  id: `військовий_1_автомобіль_1_${customFieldId(item.fieldKey)}`, name: item.displayName, category: "Автомобіль військовослужбовця", description: `${item.description}${item.description ? " " : ""}Стабільний ключ: ${item.fieldKey}.`, example: item.initialValue, kind: "text", supportsCases: false
 });
-const templateFieldId = (name: string) => name.toLocaleLowerCase("uk")
-  .replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "");
 
 export function VariableConstructorPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [query, setQuery] = useState("");

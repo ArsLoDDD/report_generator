@@ -464,11 +464,60 @@ mod tests {
         )
         .unwrap();
         assert_eq!(updated.display_name, "Назва підрозділу");
+        let aliases = connection
+            .prepare("SELECT alias FROM custom_field_template_aliases WHERE scope='personnel' AND field_key='unit_name' AND deleted_at IS NULL ORDER BY alias")
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| row.get::<_, String>(0))
+                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+            })
+            .unwrap();
+        assert_eq!(aliases, vec!["назва_підрозділу", "підрозділ"]);
         delete_custom_field(&connection, "unit_name").unwrap();
         assert!(!list_custom_fields(&connection)
             .unwrap()
             .iter()
             .any(|field| field.field_key == "unit_name"));
+        let active_aliases: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM custom_field_template_aliases WHERE scope='personnel' AND field_key='unit_name' AND deleted_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(active_aliases, 0);
+    }
+
+    #[test]
+    fn upgrades_an_old_custom_field_schema_and_seeds_legacy_aliases() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE custom_field_definitions (
+                field_key TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                description TEXT NOT NULL,
+                initial_value TEXT NOT NULL DEFAULT ''
+             );
+             INSERT INTO custom_field_definitions(field_key,display_name,description,initial_value)
+             VALUES('unit_code','Код підрозділу','','А0000');",
+            )
+            .unwrap();
+        initialise(&connection).unwrap();
+        let alias: (String, String, Option<String>) = connection
+            .query_row(
+                "SELECT alias,field_key,deleted_at FROM custom_field_template_aliases WHERE scope='personnel'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(alias, ("код_підрозділу".into(), "unit_code".into(), None));
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            5
+        );
     }
 
     #[test]

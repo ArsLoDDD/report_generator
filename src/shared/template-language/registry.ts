@@ -20,11 +20,41 @@ export const generationParameterFields = source.documentFields as GenerationPara
 export const signerRoles = source.signerRoles;
 export const signerFields = source.signerFields as Field[];
 const subjectPrefixes = ["військовий_", "автомобіль_", "екіпаж_", "позиція_", "генератор_", "бпла_", "звʼязок_", "зброя_та_бк_"];
+const isSignerVariable = (token: string) => signerFields.some((field) => {
+  const suffix = `_${field.id}`;
+  return token.length > suffix.length && token.endsWith(suffix);
+});
+const editDistance = (left: string, right: string) => {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
+    let diagonal = previous[0];
+    previous[0] = leftIndex + 1;
+    for (let rightIndex = 0; rightIndex < right.length; rightIndex += 1) {
+      const old = previous[rightIndex + 1];
+      previous[rightIndex + 1] = Math.min(
+        diagonal + Number(left[leftIndex] !== right[rightIndex]),
+        previous[rightIndex + 1] + 1,
+        previous[rightIndex] + 1,
+      );
+      diagonal = old;
+    }
+  }
+  return previous[right.length];
+};
+const looksLikeKnownTokenTypo = (token: string) => {
+  const known = [
+    ...generationParameterFields.map((field) => field.id),
+    ...signerRoles.flatMap((role) => signerFields.map((field) => `${role.id}_${field.id}`)),
+  ];
+  return known.some((candidate) => candidate !== token && editDistance(token, candidate) === 1);
+};
 const isDynamicDocumentParameter = (token: string) =>
   /^\p{L}[\p{L}\p{N}_]*$/u.test(token)
   && /[а-щьюяєіїґ]/iu.test(token)
   && !subjectPrefixes.some((prefix) => token.startsWith(prefix))
   && !signerRoles.some((role) => token.startsWith(`${role.id}_`))
+  && !isSignerVariable(token)
+  && !looksLikeKnownTokenTypo(token)
   && !generationParameterFields.some((field) => {
     const suffix = token.slice(field.id.length + 1);
     return token.startsWith(`${field.id}_`) && /^\d+$/.test(suffix);
@@ -63,6 +93,8 @@ export function getGenerationParameter(token: string) {
     inputType: "text"
   } satisfies GenerationParameterField;
 }
+/** Stable custom-field suffix. Display-name based tokens remain backend aliases only. */
+export const customFieldId = (fieldKey: string) => `custom_${fieldKey.trim().toLocaleLowerCase("uk-UA")}`;
 export const modifierRegistry: ModifierDefinition[] = source.modifiers.map((item) => ({ ...item, group: item.group as ModifierDefinition["group"], description: item.group === "case" ? `Відмінює значення: ${item.name.toLowerCase()} відмінок.` : `Змінює написання: ${item.name.toLowerCase()}.` }));
 export const tokenFor = (id: string, modifiers: string[] = []) => `{{${[id, ...modifiers].join(":")}}}`;
 
@@ -109,6 +141,12 @@ export function getVariable(id: string) {
   if (direct) return direct;
   const generationParameter = getGenerationParameter(id);
   if (generationParameter) return fieldToVariable(generationParameter, id, "Параметри документа");
+  const runtimeSignerField = signerFields
+    .filter((field) => id.endsWith(`_${field.id}`))
+    .sort((left, right) => right.id.length - left.id.length)[0];
+  if (runtimeSignerField && id.length > runtimeSignerField.id.length + 1) {
+    return fieldToVariable(runtimeSignerField, id, "Підписант із налаштувань");
+  }
   const match = /^військовий_([1-9]\d*)_(.+)$/.exec(id);
   if (!match) {
     const crew = /^екіпаж_(?:[1-9]\d*)_(.+)$/u.exec(id);

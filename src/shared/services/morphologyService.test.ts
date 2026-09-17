@@ -32,6 +32,12 @@ describe("morphologyService", () => {
   });
   it("handles punctuation and complex position heads", () => {
     expect(morphologyService.declinePosition("водій, група", "орудний")).toBe("водієм, група");
-    expect(morphologyService.declinePosition("механік", "місцевий")).toBe("механікі");
+    expect(morphologyService.declinePosition("механік", "місцевий")).toBe("механіку");
+  });
+  it("keeps the shared golden forms used by DOCX generation", () => {
+    expect(morphologyService.declineRank("сержант", "кличний")).toBe("сержанте");
+    expect(morphologyService.declineRank("капітан", "орудний")).toBe("капітаном");
+    expect(morphologyService.declineRank("майор", "давальний")).toBe("майору");
+    expect(morphologyService.declinePosition("механік", "місцевий")).toBe("механіку");
   });
 });

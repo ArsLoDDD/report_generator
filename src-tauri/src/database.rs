@@ -361,12 +361,24 @@ pub fn sync_custom_fields_file(
         if field.scope == "vehicle" {
             connection.execute("INSERT OR IGNORE INTO vehicle_custom_field_definitions (field_key, display_name, description, initial_value) VALUES (?1, ?2, ?3, ?4)", params![field.field_key, field.display_name, field.description, field.initial_value])
                 .map_err(|_| "Не вдалося синхронізувати кастомні поля автомобілів.".to_string())?;
+            remember_custom_field_alias(
+                connection,
+                "vehicle",
+                &field.field_key,
+                &field.display_name,
+            )?;
             connection.execute("INSERT OR IGNORE INTO vehicle_custom_fields (vehicle_id, field_key, field_value) SELECT id, ?1, ?2 FROM vehicles", params![field.field_key, field.initial_value])
                 .map_err(|_| "Не вдалося встановити значення поля автомобіля.".to_string())?;
             continue;
         }
         connection.execute("INSERT OR IGNORE INTO custom_field_definitions (field_key, display_name, description, initial_value) VALUES (?1, ?2, ?3, ?4)", params![field.field_key, field.display_name, field.description, field.initial_value])
             .map_err(|_| "Не вдалося синхронізувати кастомні змінні з базою даних.".to_string())?;
+        remember_custom_field_alias(
+            connection,
+            "personnel",
+            &field.field_key,
+            &field.display_name,
+        )?;
         connection.execute("INSERT OR IGNORE INTO personnel_custom_fields (personnel_id, field_key, field_value) SELECT id, ?1, ?2 FROM personnel", params![field.field_key, field.initial_value])
             .map_err(|_| "Не вдалося встановити значення кастомних змінних.".to_string())?;
     }
@@ -377,6 +389,22 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     connection.execute_batch("CREATE TABLE IF NOT EXISTS vehicles (id INTEGER PRIMARY KEY, name TEXT NOT NULL, registration_number TEXT NOT NULL UNIQUE, notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").map_err(|_| "Не вдалося створити таблицю автомобілів.".to_string())?;
     connection.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS personnel (id INTEGER PRIMARY KEY, rank TEXT NOT NULL, surname TEXT NOT NULL, given_name TEXT NOT NULL, patronymic TEXT NOT NULL DEFAULT '', position TEXT NOT NULL, tax_id TEXT NOT NULL DEFAULT '', birth_date TEXT NOT NULL, education_level TEXT NOT NULL, education_details TEXT NOT NULL, armed_forces_service_start_date TEXT NOT NULL, position_assigned_date TEXT NOT NULL, position_assignment_order TEXT NOT NULL, military_id TEXT NOT NULL, gender TEXT NOT NULL DEFAULT '' CHECK(gender IN ('', 'чоловіча', 'жіноча')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS personnel_custom_fields (personnel_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(personnel_id, field_key), FOREIGN KEY(personnel_id) REFERENCES personnel(id) ON DELETE CASCADE); CREATE TABLE IF NOT EXISTS custom_field_definitions (field_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, description TEXT NOT NULL, initial_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS vehicle_custom_field_definitions (field_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, description TEXT NOT NULL, initial_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS vehicle_custom_fields (vehicle_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(vehicle_id, field_key), FOREIGN KEY(vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE);")
         .map_err(|_| "Не вдалося підготувати базу даних.".to_string())?;
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS custom_field_template_aliases (
+            scope TEXT NOT NULL CHECK(scope IN ('personnel','vehicle')),
+            alias TEXT NOT NULL,
+            field_key TEXT NOT NULL,
+            deleted_at TEXT,
+            PRIMARY KEY(scope,alias,field_key)
+         );
+         CREATE INDEX IF NOT EXISTS custom_field_template_alias_key_idx
+           ON custom_field_template_aliases(scope,field_key);",
+        )
+        .map_err(|_| {
+            "Не вдалося підготувати сумісність додаткових полів із шаблонами.".to_string()
+        })?;
+    seed_custom_field_template_aliases(connection)?;
     migrate_personnel_tax_id_for_import(connection)?;
     connection
         .execute(
@@ -911,7 +939,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             .map_err(|_| "Не вдалося додати стать до бази даних.".to_string())?;
     }
     connection
-        .pragma_update(None, "user_version", 4)
+        .pragma_update(None, "user_version", 5)
         .map_err(|_| "Не вдалося завершити міграцію бази даних.".to_string())?;
     let columns = connection
         .prepare("PRAGMA table_info(personnel)")
@@ -1055,6 +1083,72 @@ pub fn list_custom_fields(connection: &Connection) -> Result<Vec<CustomFieldDefi
     Ok(rows)
 }
 
+fn template_field_alias(name: &str) -> String {
+    name.to_lowercase()
+        .chars()
+        .map(|character| {
+            if character.is_alphanumeric() {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .split('_')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("_")
+}
+
+fn remember_custom_field_alias(
+    connection: &Connection,
+    scope: &str,
+    field_key: &str,
+    display_name: &str,
+) -> Result<(), String> {
+    let alias = template_field_alias(display_name);
+    if alias.is_empty() {
+        return Ok(());
+    }
+    connection
+        .execute(
+            "INSERT INTO custom_field_template_aliases(scope,alias,field_key,deleted_at)
+         VALUES(?1,?2,?3,NULL)
+         ON CONFLICT(scope,alias,field_key) DO UPDATE SET deleted_at=NULL",
+            params![scope, alias, field_key],
+        )
+        .map_err(|_| {
+            "Не вдалося зберегти сумісність назви додаткового поля із шаблонами.".to_string()
+        })?;
+    Ok(())
+}
+
+fn seed_custom_field_template_aliases(connection: &Connection) -> Result<(), String> {
+    for (scope, table) in [
+        ("personnel", "custom_field_definitions"),
+        ("vehicle", "vehicle_custom_field_definitions"),
+    ] {
+        let sql = format!("SELECT field_key,display_name FROM {table}");
+        let definitions = connection
+            .prepare(&sql)
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })
+                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+            })
+            .map_err(|_| {
+                "Не вдалося прочитати додаткові поля для міграції шаблонів.".to_string()
+            })?;
+        for (field_key, display_name) in definitions {
+            remember_custom_field_alias(connection, scope, &field_key, &display_name)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn create_custom_field(
     connection: &Connection,
     field: CustomFieldDefinition,
@@ -1073,6 +1167,7 @@ pub fn create_custom_field(
         return Err("Вкажіть українську назву поля.".into());
     }
     connection.execute("INSERT INTO custom_field_definitions (field_key, display_name, description, initial_value) VALUES (?1, ?2, ?3, ?4)", params![key, field.display_name.trim(), field.description.trim(), field.initial_value]).map_err(|_| "Поле з таким ключем уже існує або не може бути збережене.".to_string())?;
+    remember_custom_field_alias(connection, "personnel", key, field.display_name.trim())?;
     let ids = connection
         .prepare("SELECT id FROM personnel")
         .and_then(|mut statement| {
@@ -1110,10 +1205,19 @@ pub fn update_custom_field(
     if field.display_name.trim().is_empty() {
         return Err("Вкажіть українську назву поля.".into());
     }
+    let previous_name = connection
+        .query_row(
+            "SELECT display_name FROM custom_field_definitions WHERE field_key=?1",
+            [key],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|_| "Поле БД не знайдено.".to_string())?;
+    remember_custom_field_alias(connection, "personnel", key, &previous_name)?;
     let changed = connection.execute("UPDATE custom_field_definitions SET display_name = ?1, description = ?2, initial_value = ?3 WHERE field_key = ?4", params![field.display_name.trim(), field.description.trim(), field.initial_value, key]).map_err(|_| "Не вдалося оновити поле БД.".to_string())?;
     if changed == 0 {
         return Err("Поле БД не знайдено.".into());
     }
+    remember_custom_field_alias(connection, "personnel", key, field.display_name.trim())?;
     Ok(CustomFieldDefinition {
         field_key: key.into(),
         display_name: field.display_name.trim().into(),
@@ -1141,6 +1245,10 @@ pub fn delete_custom_field(connection: &Connection, field_key: &str) -> Result<(
     if changed == 0 {
         return Err("Поле БД не знайдено.".into());
     }
+    tx.execute(
+        "UPDATE custom_field_template_aliases SET deleted_at=CURRENT_TIMESTAMP WHERE scope='personnel' AND field_key=?1",
+        [field_key],
+    ).map_err(|_| "Не вдалося позначити застарілі назви поля.".to_string())?;
     tx.commit()
         .map_err(|_| "Не вдалося завершити видалення поля БД.".to_string())
 }
@@ -1181,6 +1289,7 @@ pub fn create_vehicle_custom_field(
         return Err("Вкажіть українську назву поля.".into());
     }
     connection.execute("INSERT INTO vehicle_custom_field_definitions(field_key,display_name,description,initial_value) VALUES(?1,?2,?3,?4)", params![key, field.display_name.trim(), field.description.trim(), field.initial_value]).map_err(|_| "Поле з таким ключем уже існує або не може бути збережене.".to_string())?;
+    remember_custom_field_alias(connection, "vehicle", key, field.display_name.trim())?;
     connection.execute("INSERT INTO vehicle_custom_fields(vehicle_id,field_key,field_value) SELECT id,?1,?2 FROM vehicles", params![key, field.initial_value]).map_err(|_| "Не вдалося встановити початкові значення поля автомобіля.".to_string())?;
     Ok(CustomFieldDefinition {
         field_key: key.into(),
@@ -1194,10 +1303,24 @@ pub fn update_vehicle_custom_field(
     connection: &Connection,
     field: CustomFieldDefinition,
 ) -> Result<CustomFieldDefinition, String> {
+    let previous_name = connection
+        .query_row(
+            "SELECT display_name FROM vehicle_custom_field_definitions WHERE field_key=?1",
+            [&field.field_key],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|_| "Поле автомобіля не знайдено.".to_string())?;
+    remember_custom_field_alias(connection, "vehicle", &field.field_key, &previous_name)?;
     let changed = connection.execute("UPDATE vehicle_custom_field_definitions SET display_name=?1,description=?2,initial_value=?3 WHERE field_key=?4", params![field.display_name.trim(), field.description.trim(), field.initial_value, field.field_key]).map_err(|_| "Не вдалося оновити поле автомобіля.".to_string())?;
     if changed == 0 {
         return Err("Поле автомобіля не знайдено.".into());
     }
+    remember_custom_field_alias(
+        connection,
+        "vehicle",
+        &field.field_key,
+        field.display_name.trim(),
+    )?;
     Ok(CustomFieldDefinition {
         scope: "vehicle".into(),
         ..field
@@ -1222,6 +1345,10 @@ pub fn delete_vehicle_custom_field(connection: &Connection, field_key: &str) -> 
     {
         return Err("Поле автомобіля не знайдено.".into());
     }
+    tx.execute(
+        "UPDATE custom_field_template_aliases SET deleted_at=CURRENT_TIMESTAMP WHERE scope='vehicle' AND field_key=?1",
+        [field_key],
+    ).map_err(|_| "Не вдалося позначити застарілі назви поля автомобіля.".to_string())?;
     tx.commit()
         .map_err(|_| "Не вдалося завершити видалення поля автомобіля.".to_string())
 }

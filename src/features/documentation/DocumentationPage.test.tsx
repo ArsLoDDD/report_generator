@@ -54,7 +54,7 @@ describe("Конструктор змінних", () => {
     expect(screen.queryByRole("button", { name: /Кастомне поле: Код підрозділу/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Кастомна змінна" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Військовослужбовець/ }));
-    expect(await screen.findByRole("button", { name: /\{\{військовий_1_код_підрозділу\}\}/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /\{\{військовий_1_custom_unit_code\}\}/ })).toBeInTheDocument();
   });
 
   it("allows exactly one grammatical case while text and Word modifiers remain combinable", async () => {

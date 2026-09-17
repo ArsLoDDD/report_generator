@@ -6,12 +6,17 @@ use chrono::{Local, NaiveDate};
 use quick_xml::{events::Event, Reader};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
-    fs::{self, File},
+    fs::{self, File, OpenOptions},
     io::{Read, Write},
-    path::Path,
-    sync::OnceLock,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        OnceLock,
+    },
+    time::{SystemTime, UNIX_EPOCH},
 };
 mod docx;
 mod morphology;
@@ -59,6 +64,43 @@ pub struct TemplateValidationResult {
 pub struct GeneratedReport {
     pub docx_path: String,
     pub folder_path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenerationManifest<'a> {
+    format_version: u8,
+    generated_at: String,
+    app_version: &'static str,
+    template: ManifestTemplate<'a>,
+    selections: ManifestSelections<'a>,
+    report_date: Option<&'a str>,
+    parameters: &'a HashMap<String, String>,
+    output: ManifestOutput,
+}
+
+#[derive(Serialize)]
+struct ManifestTemplate<'a> {
+    name: &'a str,
+    path: &'a str,
+    sha256: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ManifestSelections<'a> {
+    personnel_ids: &'a [i64],
+    vehicle_ids: &'a [i64],
+    crew_ids: &'a [i64],
+    position_ids: &'a [i64],
+    equipment_ids: &'a [i64],
+}
+
+#[derive(Serialize)]
+struct ManifestOutput {
+    path: String,
+    name: String,
+    sha256: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -272,6 +314,11 @@ pub fn validate(
     }
     for token in &result.variables {
         let base = token.split(':').next().unwrap_or_default();
+        if field_for(base).is_none() && custom_field_token(base) {
+            if let Some(error) = validate_custom_field_reference(connection, base) {
+                result.errors.push(error);
+            }
+        }
         if (document_field_for(base).is_some() || dynamic_document_parameter(base))
             && parameters
                 .get(base)
@@ -385,24 +432,226 @@ pub fn generate(
         .map(|p| p.surname.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    let base = safe_name(&format!("{stem} {surnames} {}", now.format("%d.%m.%Y")));
-    let mut name = format!("{base}.docx");
-    if dir.join(&name).exists() {
-        name = format!("{base} ({}).docx", now.format("%H-%M-%S"))
-    }
-    let final_path = dir.join(name);
-    let temp = final_path.with_extension("tmp");
+    let base = safe_report_stem(
+        &format!("{stem} {surnames} {}", now.format("%d.%m.%Y")),
+        140,
+    );
+    let temp = unique_temp_path(&dir, "report", "docx.tmp")?;
     let result = write_docx(Path::new(&request.template_path), &temp, &values);
     if let Err(e) = result {
         let _ = fs::remove_file(&temp);
         return Err(e);
     }
-    fs::rename(&temp, &final_path)
-        .map_err(|_| "Не вдалося завершити створення рапорту.".to_string())?;
+    if let Err(error) = verify_generated_docx(&temp).and_then(|_| sync_file(&temp)) {
+        let _ = fs::remove_file(&temp);
+        return Err(error);
+    }
+    let final_path = match publish_without_overwrite(&temp, &dir, &base, "docx") {
+        Ok(path) => path,
+        Err(error) => {
+            let _ = fs::remove_file(&temp);
+            return Err(error);
+        }
+    };
+    let _ = fs::remove_file(&temp);
+    let manifest_result =
+        write_generation_manifest(&dir, &final_path, stem, &request, &now.to_rfc3339());
+    if let Err(error) = manifest_result {
+        let _ = fs::remove_file(&final_path);
+        return Err(error);
+    }
+    sync_directory(&dir)?;
     Ok(GeneratedReport {
         docx_path: final_path.to_string_lossy().into(),
         folder_path: dir.to_string_lossy().into(),
     })
+}
+
+fn safe_report_stem(value: &str, max_chars: usize) -> String {
+    let cleaned = value
+        .chars()
+        .map(|character| {
+            if matches!(
+                character,
+                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+            ) || character.is_control()
+            {
+                '_'
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    let mut result = cleaned
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim_end_matches([' ', '.'])
+        .chars()
+        .take(max_chars)
+        .collect::<String>()
+        .trim_end_matches([' ', '.'])
+        .to_string();
+    if result.is_empty() {
+        result = "Рапорт".into();
+    }
+    let reserved = [
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+        "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    if reserved
+        .iter()
+        .any(|name| result.eq_ignore_ascii_case(name))
+    {
+        result.push('_');
+    }
+    result
+}
+
+fn unique_temp_path(directory: &Path, label: &str, extension: &str) -> Result<PathBuf, String> {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    for _ in 0..100 {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = directory.join(format!(
+            ".{label}-{}-{nonce}-{sequence}.{extension}",
+            std::process::id()
+        ));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => {
+                drop(file);
+                fs::remove_file(&path)
+                    .map_err(|_| "Не вдалося підготувати тимчасовий файл рапорту.".to_string())?;
+                return Ok(path);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return Err("Не вдалося підготувати тимчасовий файл рапорту.".into()),
+        }
+    }
+    Err("Не вдалося підібрати унікальне ім’я тимчасового файла.".into())
+}
+
+fn publish_without_overwrite(
+    source: &Path,
+    directory: &Path,
+    base: &str,
+    extension: &str,
+) -> Result<PathBuf, String> {
+    for index in 0..10_000_u32 {
+        let suffix = if index == 0 {
+            String::new()
+        } else {
+            format!(" ({})", index + 1)
+        };
+        let candidate = directory.join(format!("{base}{suffix}.{extension}"));
+        match fs::hard_link(source, &candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return Err("Не вдалося безпечно опублікувати створений рапорт.".into()),
+        }
+    }
+    Err("У папці вже надто багато рапортів з однаковою назвою.".into())
+}
+
+fn sha256_file(path: &Path) -> Result<String, String> {
+    let mut file = File::open(path)
+        .map_err(|_| "Не вдалося прочитати файл для контрольної суми.".to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|_| "Не вдалося обчислити контрольну суму файла.".to_string())?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn write_generation_manifest(
+    directory: &Path,
+    output_path: &Path,
+    template_name: &str,
+    request: &GenerateReportRequest,
+    generated_at: &str,
+) -> Result<(), String> {
+    let output_name = output_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("report.docx");
+    let manifest = GenerationManifest {
+        format_version: 1,
+        generated_at: generated_at.to_string(),
+        app_version: env!("CARGO_PKG_VERSION"),
+        template: ManifestTemplate {
+            name: template_name,
+            path: &request.template_path,
+            sha256: sha256_file(Path::new(&request.template_path))?,
+        },
+        selections: ManifestSelections {
+            personnel_ids: &request.personnel_ids,
+            vehicle_ids: &request.vehicle_ids,
+            crew_ids: &request.crew_ids,
+            position_ids: &request.position_ids,
+            equipment_ids: &request.equipment_ids,
+        },
+        report_date: request.report_date.as_deref(),
+        parameters: &request.parameters,
+        output: ManifestOutput {
+            path: output_path.to_string_lossy().into_owned(),
+            name: output_name.to_string(),
+            sha256: sha256_file(output_path)?,
+        },
+    };
+    let bytes = serde_json::to_vec_pretty(&manifest)
+        .map_err(|_| "Не вдалося сформувати паспорт створеного рапорту.".to_string())?;
+    let manifest_path = directory.join(format!("{output_name}.manifest.json"));
+    let temp = unique_temp_path(directory, "manifest", "json.tmp")?;
+    let result = (|| {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+            .map_err(|_| "Не вдалося відкрити тимчасовий паспорт рапорту.".to_string())?;
+        file.write_all(&bytes)
+            .map_err(|_| "Не вдалося записати паспорт рапорту.".to_string())?;
+        file.write_all(b"\n")
+            .map_err(|_| "Не вдалося завершити паспорт рапорту.".to_string())?;
+        file.sync_all()
+            .map_err(|_| "Не вдалося синхронізувати паспорт рапорту.".to_string())?;
+        fs::hard_link(&temp, &manifest_path).map_err(|_| {
+            "Не вдалося опублікувати паспорт рапорту без перезапису наявних даних.".to_string()
+        })?;
+        let _ = fs::remove_file(&temp);
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
+fn sync_file(path: &Path) -> Result<(), String> {
+    File::open(path)
+        .and_then(|file| file.sync_all())
+        .map_err(|_| "Не вдалося синхронізувати створений рапорт.".to_string())
+}
+
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> Result<(), String> {
+    File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| "Не вдалося синхронізувати папку рапортів.".to_string())
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_path: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 fn validate_token(token: &str) -> Vec<String> {
@@ -413,9 +662,10 @@ fn validate_token(token: &str) -> Vec<String> {
     let is_custom = field.is_none() && custom_field_token(base);
     let is_document_parameter = field.is_none() && dynamic_document_parameter(base);
     if field.is_none() && !is_custom && !is_document_parameter {
-        return vec![format!(
-            "Невідома змінна «{{{{{token}}}}}». У v2 старі назви не підтримуються."
-        )];
+        let hint = nearest_known_variable(base)
+            .map(|candidate| format!(" Можливо, ви мали на увазі «{{{{{candidate}}}}}»."))
+            .unwrap_or_default();
+        return vec![format!("Невідома змінна «{{{{{token}}}}}».{hint}")];
     }
     let mut errors = Vec::new();
     let mut seen = HashSet::new();
@@ -506,6 +756,10 @@ fn dynamic_document_parameter(base: &str) -> bool {
         .signer_roles
         .iter()
         .any(|role| base.starts_with(&(role.id.clone() + "_")));
+    let signer_field_suffix = registry()
+        .signer_fields
+        .iter()
+        .any(|field| base.len() > field.id.len() + 1 && base.ends_with(&format!("_{}", field.id)));
     let reserved_document_parameter = registry()
         .document_fields
         .iter()
@@ -520,12 +774,104 @@ fn dynamic_document_parameter(base: &str) -> bool {
 
     !reserved_subject
         && !reserved_signer
+        && !signer_field_suffix
         && !reserved_document_parameter
+        && nearest_known_variable(base).is_none()
         && base.chars().next().is_some_and(char::is_alphabetic)
         && base
             .chars()
             .all(|character| character == '_' || character.is_alphanumeric())
         && has_ukrainian_letter
+}
+
+fn nearest_known_variable(value: &str) -> Option<String> {
+    registry()
+        .document_fields
+        .iter()
+        .map(|field| field.id.clone())
+        .chain(registry().signer_roles.iter().flat_map(|role| {
+            registry()
+                .signer_fields
+                .iter()
+                .map(move |field| format!("{}_{}", role.id, field.id))
+        }))
+        .filter(|candidate| candidate != value)
+        .min_by_key(|candidate| edit_distance(value, candidate))
+        .filter(|candidate| edit_distance(value, candidate) == 1)
+}
+
+fn custom_field_reference(base: &str) -> Option<(&'static str, &str)> {
+    if let Some(rest) = base.strip_prefix("автомобіль_") {
+        let (_number, field) = rest.split_once('_')?;
+        return Some(("vehicle_custom_field_definitions", field));
+    }
+    let rest = base.strip_prefix("військовий_")?;
+    let (_number, field) = rest.split_once('_')?;
+    if let Some(vehicle) = field.strip_prefix("автомобіль_") {
+        let (_vehicle_number, vehicle_field) = vehicle.split_once('_')?;
+        Some(("vehicle_custom_field_definitions", vehicle_field))
+    } else {
+        Some(("custom_field_definitions", field))
+    }
+}
+
+fn validate_custom_field_reference(connection: &Connection, base: &str) -> Option<String> {
+    let (table, token_field) = custom_field_reference(base)?;
+    let scope = if table == "vehicle_custom_field_definitions" {
+        "vehicle"
+    } else {
+        "personnel"
+    };
+    let sql = format!("SELECT field_key, display_name FROM {table}");
+    let mut statement = connection.prepare(&sql).ok()?;
+    let definitions = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .ok()?
+        .filter_map(Result::ok)
+        .collect::<Vec<_>>();
+    let found = token_field
+        .strip_prefix("custom_")
+        .is_some_and(|key| definitions.iter().any(|(field_key, _)| field_key == key))
+        || definitions
+            .iter()
+            .any(|(_, display_name)| custom_template_id(display_name) == token_field);
+    let aliases = connection
+        .prepare("SELECT field_key,deleted_at FROM custom_field_template_aliases WHERE scope=?1 AND alias=?2")
+        .and_then(|mut statement| {
+            statement
+                .query_map(rusqlite::params![scope, token_field], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+                })
+                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        })
+        .unwrap_or_default();
+    let active_aliases = aliases
+        .iter()
+        .filter(|(field_key, deleted_at)| {
+            deleted_at.is_none()
+                && definitions
+                    .iter()
+                    .any(|(defined_key, _)| defined_key == field_key)
+        })
+        .count();
+    if !found && active_aliases > 1 {
+        return Some(format!(
+            "Змінна «{{{{{base}}}}}» неоднозначна: однакову попередню назву мають кілька додаткових полів. Замініть її стабільним токеном із «custom_»."
+        ));
+    }
+    let found = found || active_aliases == 1;
+    if !found && aliases.iter().any(|(_, deleted_at)| deleted_at.is_some()) {
+        return Some(format!(
+            "Змінна «{{{{{base}}}}}» використовує видалене додаткове поле. Відновіть поле або замініть змінну в шаблоні."
+        ));
+    }
+    (!found).then(|| {
+        format!(
+            "Змінна «{{{{{base}}}}}» посилається на відсутнє додаткове поле. Оновіть шаблон або відновіть поле в налаштуваннях."
+        )
+    })
 }
 fn field_for(base: &str) -> Option<&'static Field> {
     if let Some(field) = document_field_for(base) {

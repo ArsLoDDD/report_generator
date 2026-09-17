@@ -76,6 +76,18 @@ pub(super) fn decline_rank(value: &str, case: &str, gender: &str) -> String {
             ],
         ),
         (
+            "старший солдат",
+            [
+                "старший солдат",
+                "старшого солдата",
+                "старшому солдату",
+                "старшого солдата",
+                "старшим солдатом",
+                "старшому солдаті",
+                "старший солдате",
+            ],
+        ),
+        (
             "майор",
             [
                 "майор",
@@ -108,7 +120,7 @@ pub(super) fn decline_rank(value: &str, case: &str, gender: &str) -> String {
                 "сержанта",
                 "сержантом",
                 "сержанті",
-                "серджанте",
+                "сержанте",
             ],
         ),
         (
@@ -362,6 +374,18 @@ pub(super) fn decline_word(word: &str, case: &str, gender: &str) -> String {
             "кличний" => s + "о",
             _ => lower,
         }
+    } else if gender == "жіноча" && lower.ends_with('я') {
+        let s = stem(1);
+        match case {
+            "родовий" | "давальний" | "місцевий" => s + "і",
+            "знахідний" => s + "ю",
+            "орудний" => s + "ею",
+            "кличний" => s + "є",
+            _ => lower,
+        }
+    } else if gender == "жіноча" {
+        // Ukrainian feminine surnames ending in a consonant are indeclinable.
+        lower
     } else if lower.ends_with("ий") {
         let s = stem(2);
         match case {
@@ -371,6 +395,25 @@ pub(super) fn decline_word(word: &str, case: &str, gender: &str) -> String {
             "орудний" => s + "им",
             "місцевий" => s + "ому",
             "кличний" => s + "ий",
+            _ => lower,
+        }
+    } else if lower.ends_with('й') {
+        let s = stem(1);
+        match case {
+            "родовий" | "знахідний" => s + "я",
+            "давальний" | "кличний" => s + "ю",
+            "орудний" => s + "єм",
+            "місцевий" => s + "ї",
+            _ => lower,
+        }
+    } else if lower.ends_with("ок") {
+        let s = stem(2);
+        match case {
+            "родовий" | "знахідний" => s + "ка",
+            "давальний" => s + "ку",
+            "орудний" => s + "ком",
+            "місцевий" => s + "ку",
+            "кличний" => s + "ку",
             _ => lower,
         }
     } else {

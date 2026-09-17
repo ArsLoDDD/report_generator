@@ -162,10 +162,20 @@ fn registry_accepts_every_v2_variable() {
     for field in &registry().crew_fields {
         assert!(validate_token(&format!("екіпаж_1_{}", field.id)).is_empty())
     }
+    for field in &registry().vehicle_fields {
+        assert!(validate_token(&format!("автомобіль_1_{}", field.id)).is_empty());
+        assert!(validate_token(&format!("військовий_1_автомобіль_1_{}", field.id)).is_empty());
+    }
+    for field in &registry().position_fields {
+        assert!(validate_token(&format!("позиція_1_{}", field.id)).is_empty())
+    }
     for prefix in ["генератор", "бпла", "звʼязок", "зброя_та_бк"] {
         for field in &registry().equipment_fields {
             assert!(validate_token(&format!("{prefix}_1_{}", field.id)).is_empty())
         }
+    }
+    for field in &registry().document_fields {
+        assert!(validate_token(&field.id).is_empty())
     }
 }
 
@@ -303,6 +313,126 @@ fn resolves_driver_and_crew_from_a_selected_vehicle() {
 }
 
 #[test]
+fn resolves_stable_and_legacy_custom_field_tokens() {
+    let connection = Connection::open_in_memory().unwrap();
+    crate::database::initialise(&connection).unwrap();
+    crate::database::seed_test_personnel(&connection).unwrap();
+    let person = personnel::list(&connection).unwrap().remove(0);
+    crate::database::create_custom_field(
+        &connection,
+        crate::database::CustomFieldDefinition {
+            field_key: "unit_code".into(),
+            display_name: "Код підрозділу".into(),
+            description: String::new(),
+            initial_value: String::new(),
+            scope: "personnel".into(),
+        },
+    )
+    .unwrap();
+    connection.execute("UPDATE personnel_custom_fields SET field_value='А0000' WHERE personnel_id=?1 AND field_key='unit_code'", [person.id]).unwrap();
+    crate::database::update_custom_field(
+        &connection,
+        crate::database::CustomFieldDefinition {
+            field_key: "unit_code".into(),
+            display_name: "Шифр підрозділу".into(),
+            description: String::new(),
+            initial_value: String::new(),
+            scope: "personnel".into(),
+        },
+    )
+    .unwrap();
+    let mut values = HashMap::new();
+    add_custom_values(&connection, &[person], &mut values).unwrap();
+    assert_eq!(values["військовий_1_custom_unit_code"].text, "А0000");
+    assert_eq!(values["військовий_1_код_підрозділу"].text, "А0000");
+    assert_eq!(values["військовий_1_шифр_підрозділу"].text, "А0000");
+    assert!(
+        validate_custom_field_reference(&connection, "військовий_1_custom_unit_code").is_none()
+    );
+    assert!(validate_custom_field_reference(&connection, "військовий_1_код_підрозділу").is_none());
+    assert!(validate_custom_field_reference(&connection, "військовий_1_custom_missing").is_some());
+}
+
+#[test]
+fn generates_an_existing_template_after_custom_field_was_renamed() {
+    let connection = Connection::open_in_memory().unwrap();
+    crate::database::initialise(&connection).unwrap();
+    crate::database::seed_test_personnel(&connection).unwrap();
+    crate::database::create_custom_field(
+        &connection,
+        crate::database::CustomFieldDefinition {
+            field_key: "unit_code".into(),
+            display_name: "Стара назва".into(),
+            description: String::new(),
+            initial_value: "А0000".into(),
+            scope: "personnel".into(),
+        },
+    )
+    .unwrap();
+    crate::database::update_custom_field(
+        &connection,
+        crate::database::CustomFieldDefinition {
+            field_key: "unit_code".into(),
+            display_name: "Нова назва".into(),
+            description: String::new(),
+            initial_value: "А0000".into(),
+            scope: "personnel".into(),
+        },
+    )
+    .unwrap();
+
+    let root = std::env::temp_dir().join(format!(
+        "shablonizator-legacy-custom-{}-{}",
+        std::process::id(),
+        Local::now().timestamp_nanos_opt().unwrap_or_default()
+    ));
+    fs::create_dir_all(root.join("Налаштування")).unwrap();
+    let template = root.join("legacy.docx");
+    let mut writer = ZipWriter::new(File::create(&template).unwrap());
+    writer
+        .start_file("word/document.xml", SimpleFileOptions::default())
+        .unwrap();
+    writer
+        .write_all("<w:t>{{військовий_1_стара_назва}}</w:t>".as_bytes())
+        .unwrap();
+    writer.finish().unwrap();
+
+    let generated = generate(
+        &connection,
+        &root,
+        GenerateReportRequest {
+            template_path: template.to_string_lossy().into(),
+            personnel_ids: vec![1],
+            report_date: None,
+            vehicle_ids: Vec::new(),
+            crew_ids: Vec::new(),
+            position_ids: Vec::new(),
+            equipment_ids: Vec::new(),
+            parameters: HashMap::new(),
+        },
+    )
+    .unwrap();
+    assert!(read_docx_text(Path::new(&generated.docx_path))
+        .unwrap()
+        .contains("А0000"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn resolves_custom_fields_for_a_standalone_selected_vehicle() {
+    let connection = Connection::open_in_memory().unwrap();
+    crate::database::initialise(&connection).unwrap();
+    connection.execute("INSERT INTO vehicles(name,registration_number,status) VALUES('Тест','АА 0001 АА','Справний')", []).unwrap();
+    let vehicle_id = connection.last_insert_rowid();
+    connection.execute("INSERT INTO vehicle_custom_field_definitions(field_key,display_name,description,initial_value) VALUES('fuel_type','Тип пального','','')", []).unwrap();
+    connection.execute("INSERT INTO vehicle_custom_fields(vehicle_id,field_key,field_value) VALUES(?1,'fuel_type','ДП')", [vehicle_id]).unwrap();
+    let mut values = HashMap::new();
+    add_selected_vehicles(&connection, &[vehicle_id], &mut values).unwrap();
+    assert_eq!(values["автомобіль_1_custom_fuel_type"].text, "ДП");
+    assert_eq!(values["автомобіль_1_тип_пального"].text, "ДП");
+}
+
+#[test]
 fn resolves_variables_for_a_signer_added_in_settings() {
     let connection = Connection::open_in_memory().unwrap();
     let mut configured = settings::defaults();
@@ -398,6 +528,31 @@ fn accepts_a_manual_ukrainian_template_parameter() {
     assert_eq!(
         values["умови_передачі"].text,
         "Згідно з актом приймання-передачі"
+    );
+}
+
+#[test]
+fn protects_runtime_signers_and_rejects_obvious_parameter_typos() {
+    assert!(validate_token("черговий_частини_піб").is_empty());
+    assert!(!validate_token("дата_рапортуа").is_empty());
+    assert!(validate_token("параметр_особливі_умови").is_empty());
+
+    let mut values = HashMap::from([(
+        "черговий_частини_піб".to_string(),
+        Value::new(
+            "ПЕТРЕНКО Петро Петрович".into(),
+            "person-name",
+            Some("чоловіча"),
+        ),
+    )]);
+    let parameters = HashMap::from([(
+        "черговий_частини_піб".to_string(),
+        "НЕ ПОВИННО ПЕРЕЗАПИСАТИСЯ".to_string(),
+    )]);
+    add_generation_parameters(&mut values, &parameters, None).unwrap();
+    assert_eq!(
+        values["черговий_частини_піб"].text,
+        "ПЕТРЕНКО Петро Петрович"
     );
 }
 
@@ -602,6 +757,16 @@ fn rank_and_female_declensions() {
         capitalize_first("оператор безпілотних літальних апаратів"),
         "Оператор безпілотних літальних апаратів"
     );
+    assert_eq!(decline_rank("сержант", "кличний", "чоловіча"), "сержанте");
+    assert_eq!(decline_rank("капітан", "орудний", "чоловіча"), "капітаном");
+    assert_eq!(decline_rank("майор", "давальний", "чоловіча"), "майору");
+    assert_eq!(decline_position_head("механік", "місцевий"), "механіку");
+    assert_eq!(decline_word("Сергій", "родовий", "чоловіча"), "Сергія");
+    assert_eq!(
+        decline_word("ВАСИЛЬОК", "давальний", "чоловіча"),
+        "ВАСИЛЬКУ"
+    );
+    assert_eq!(decline_word("Ковальчук", "родовий", "жіноча"), "Ковальчук");
 }
 
 #[test]
@@ -639,6 +804,36 @@ fn generates_and_revalidates_a_control_docx() {
     let output = fs::read(&generated.docx_path).unwrap();
     assert!(!output.is_empty());
     assert!(inspect(&generated.docx_path).variables.is_empty());
+    let manifest_path = format!("{}.manifest.json", generated.docx_path);
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(manifest_path).unwrap()).unwrap();
+    assert_eq!(manifest["formatVersion"], 1);
+    assert_eq!(manifest["template"]["name"], "control");
+    assert_eq!(
+        manifest["selections"]["personnelIds"],
+        serde_json::json!([1])
+    );
+    assert_eq!(manifest["output"]["sha256"].as_str().unwrap().len(), 64);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn report_file_names_are_portable_bounded_and_non_destructive() {
+    assert_eq!(safe_report_stem("CON", 140), "CON_");
+    assert_eq!(safe_report_stem("  Тест:*?  . ", 140), "Тест___");
+    assert!(safe_report_stem(&"а".repeat(500), 140).chars().count() <= 140);
+
+    let root = std::env::temp_dir().join(format!("shablonizator-publish-{}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    let source = root.join("source.tmp");
+    fs::write(&source, b"new").unwrap();
+    fs::write(root.join("Рапорт.docx"), b"old").unwrap();
+    let published = publish_without_overwrite(&source, &root, "Рапорт", "docx").unwrap();
+    assert_eq!(
+        published.file_name().unwrap().to_string_lossy(),
+        "Рапорт (2).docx"
+    );
+    assert_eq!(fs::read(root.join("Рапорт.docx")).unwrap(), b"old");
     let _ = fs::remove_dir_all(root);
 }
 

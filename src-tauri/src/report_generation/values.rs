@@ -140,19 +140,28 @@ pub(super) fn values_for(
                     Value::new(text, &field.kind, None),
                 );
             }
-            let mut statement = connection.prepare("SELECT d.display_name, v.field_value FROM vehicle_custom_fields v JOIN vehicle_custom_field_definitions d ON d.field_key=v.field_key WHERE v.vehicle_id=?1").map_err(|_| "Не вдалося прочитати додаткові поля автомобіля.".to_string())?;
+            let mut statement = connection.prepare("SELECT d.field_key, d.display_name, v.field_value FROM vehicle_custom_fields v JOIN vehicle_custom_field_definitions d ON d.field_key=v.field_key WHERE v.vehicle_id=?1").map_err(|_| "Не вдалося прочитати додаткові поля автомобіля.".to_string())?;
             let rows = statement
                 .query_map([vehicle_id], |row| {
-                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
                 })
                 .map_err(|_| "Не вдалося прочитати додаткові поля автомобіля.".to_string())?;
             for row in rows {
-                let (display_name, value) =
+                let (field_key, display_name, value) =
                     row.map_err(|_| "Не вдалося прочитати додаткове поле автомобіля.".to_string())?;
-                map.insert(
-                    format!("автомобіль_{}", custom_template_id(&display_name)),
-                    Value::new(value, "text", None),
-                );
+                insert_custom_aliases(
+                    connection,
+                    &mut map,
+                    "vehicle",
+                    "автомобіль",
+                    &field_key,
+                    &display_name,
+                    &value,
+                )?;
             }
         }
     }
@@ -200,6 +209,12 @@ pub(super) fn add_generation_parameters(
     for (token, raw) in parameters {
         let field = document_field_for(token);
         if field.is_none() && !dynamic_document_parameter(token) {
+            continue;
+        }
+        // Values originating from the database/settings are authoritative.
+        // In particular, a runtime signer role must never be overwritten by
+        // an equally named manual parameter sent by an older frontend.
+        if field.is_none() && values.contains_key(token) {
             continue;
         }
         let text = match field.and_then(|item| item.input_type.as_deref()) {
@@ -310,20 +325,29 @@ pub(super) fn add_person_vehicles(
                 Value::new(text, &field.kind, None),
             );
         }
-        let mut fields = connection.prepare("SELECT d.display_name, v.field_value FROM vehicle_custom_fields v JOIN vehicle_custom_field_definitions d ON d.field_key=v.field_key WHERE v.vehicle_id=?1")
+        let mut fields = connection.prepare("SELECT d.field_key, d.display_name, v.field_value FROM vehicle_custom_fields v JOIN vehicle_custom_field_definitions d ON d.field_key=v.field_key WHERE v.vehicle_id=?1")
             .map_err(|_| "Не вдалося прочитати додаткові поля автомобіля.".to_string())?;
         let rows = fields
             .query_map([id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
             })
             .map_err(|_| "Не вдалося прочитати додаткові поля автомобіля.".to_string())?;
         for row in rows {
-            let (display_name, value) =
+            let (field_key, display_name, value) =
                 row.map_err(|_| "Не вдалося прочитати додаткове поле автомобіля.".to_string())?;
-            map.insert(
-                format!("{prefix}_{}", custom_template_id(&display_name)),
-                Value::new(value, "text", None),
-            );
+            insert_custom_aliases(
+                connection,
+                map,
+                "vehicle",
+                &prefix,
+                &field_key,
+                &display_name,
+                &value,
+            )?;
         }
     }
     Ok(())
@@ -516,6 +540,30 @@ pub(super) fn add_selected_vehicles(
                 Value::new(text, &field.kind, None),
             );
         }
+        let mut fields = connection.prepare("SELECT d.field_key, d.display_name, v.field_value FROM vehicle_custom_fields v JOIN vehicle_custom_field_definitions d ON d.field_key=v.field_key WHERE v.vehicle_id=?1")
+            .map_err(|_| "Не вдалося прочитати додаткові поля автомобіля.".to_string())?;
+        let rows = fields
+            .query_map([vehicle_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|_| "Не вдалося прочитати додаткові поля автомобіля.".to_string())?;
+        for row in rows {
+            let (field_key, display_name, value) =
+                row.map_err(|_| "Не вдалося прочитати додаткове поле автомобіля.".to_string())?;
+            insert_custom_aliases(
+                connection,
+                values,
+                "vehicle",
+                &prefix,
+                &field_key,
+                &display_name,
+                &value,
+            )?;
+        }
     }
     Ok(())
 }
@@ -690,16 +738,17 @@ pub(super) fn add_custom_values(
             })
             .map_err(|_| "Не вдалося прочитати додаткові поля.".to_string())?;
         for field in fields {
-            let (_key, display_name, value) =
+            let (field_key, display_name, value) =
                 field.map_err(|_| "Не вдалося прочитати додаткове поле.".to_string())?;
-            values.insert(
-                format!(
-                    "військовий_{}_{}",
-                    index + 1,
-                    custom_template_id(&display_name)
-                ),
-                Value::new(value, "text", None),
-            );
+            insert_custom_aliases(
+                connection,
+                values,
+                "personnel",
+                &format!("військовий_{}", index + 1),
+                &field_key,
+                &display_name,
+                &value,
+            )?;
         }
     }
     Ok(())
@@ -722,6 +771,42 @@ pub(super) fn custom_template_id(name: &str) -> String {
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join("_")
+}
+
+/// Writes the immutable v2 token and the display-name token used by older
+/// templates. The alias can be removed only by a future explicit migration.
+pub(super) fn insert_custom_aliases(
+    connection: &Connection,
+    values: &mut HashMap<String, Value>,
+    scope: &str,
+    prefix: &str,
+    field_key: &str,
+    display_name: &str,
+    value: &str,
+) -> Result<(), String> {
+    let resolved = Value::new(value.to_string(), "text", None);
+    values.insert(
+        format!("{prefix}_custom_{}", field_key.trim().to_lowercase()),
+        resolved.clone(),
+    );
+    let legacy = custom_template_id(display_name);
+    if !legacy.is_empty() {
+        values.insert(format!("{prefix}_{legacy}"), resolved.clone());
+    }
+    let mut statement = connection
+        .prepare("SELECT alias FROM custom_field_template_aliases WHERE scope=?1 AND field_key=?2 AND deleted_at IS NULL")
+        .map_err(|_| "Не вдалося прочитати сумісні назви додаткового поля.".to_string())?;
+    let aliases = statement
+        .query_map(rusqlite::params![scope, field_key], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(|_| "Не вдалося прочитати сумісні назви додаткового поля.".to_string())?;
+    for alias in aliases {
+        let alias = alias
+            .map_err(|_| "Не вдалося прочитати сумісну назву додаткового поля.".to_string())?;
+        values.insert(format!("{prefix}_{alias}"), resolved.clone());
+    }
+    Ok(())
 }
 pub(super) fn add_signer(
     map: &mut HashMap<String, Value>,
