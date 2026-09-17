@@ -258,7 +258,8 @@ fn validate_person_availability(
         );
     }
     let current_location = current_location.trim();
-    if ["На позиції", "ЗБЗ", "ПБЗ", "ГШР"].contains(&current_location) {
+    if ["На позиції", "ЗБЗ", "ПБЗ", "ГШР", "Логістика на позиції"].contains(&current_location)
+    {
         return Err("До робіт не можна залучити людей, які перебувають, заходять на позицію або вибувають з неї за планом польотів.".into());
     }
     if super::is_manual_control_location(current_location) {
@@ -435,6 +436,14 @@ fn save_event_snapshot(
     Ok(())
 }
 
+fn sync_personnel_state_before_position_work(
+    connection: &Connection,
+    local_today: &str,
+) -> Result<(), String> {
+    super::sync_manual_assignments_for_date(connection, local_today)?;
+    super::normalize_stale_daily_locations(connection, local_today)
+}
+
 #[tauri::command]
 pub fn save_position_work(
     state: tauri::State<AppState>,
@@ -443,6 +452,8 @@ pub fn save_position_work(
 ) -> Result<(), String> {
     let assignments = validate_and_assignments(&draft)?;
     let db = state.0.lock().map_err(|_| busy())?;
+    let local_today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    sync_personnel_state_before_position_work(&db.connection, &local_today)?;
     let transaction = db
         .connection
         .unchecked_transaction()
@@ -884,10 +895,41 @@ mod tests {
         assert!(validate_person_availability("На позиції", true, true, true, false).is_err());
         assert!(validate_person_availability("ЗБЗ", true, true, true, false).is_err());
         assert!(validate_person_availability("ПБЗ", false, false, true, false).is_err());
+        assert!(
+            validate_person_availability("Логістика на позиції", false, false, true, false)
+                .is_err()
+        );
         assert!(validate_person_availability("КСП", false, false, true, false).is_ok());
         assert!(validate_person_availability("КСП", false, false, false, false).is_ok());
         assert!(validate_person_availability("КСП", true, false, false, false).is_ok());
         assert!(validate_person_availability("ОХ", false, false, true, true).is_err());
+    }
+
+    #[test]
+    fn expired_manual_assignment_is_synchronized_before_position_work_availability() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection.execute("INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id,current_location) VALUES(1,'солдат','ТЕСТОВИЙ','Тест','Тестович','оператор','1','','','','','','','','ЛІК')", []).unwrap();
+        connection
+            .execute(
+                "INSERT INTO personnel_control_assignments(
+                personnel_id,location_type,institution,start_date,end_date,previous_location
+             ) VALUES(1,'ЛІК','Шпиталь','2026-09-15','2026-09-16','ОХ')",
+                [],
+            )
+            .unwrap();
+
+        sync_personnel_state_before_position_work(&connection, "2026-09-17").unwrap();
+
+        let location: String = connection
+            .query_row(
+                "SELECT current_location FROM personnel WHERE id=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(location, "ОХ");
+        assert!(validate_person_availability(&location, false, false, true, false).is_ok());
     }
 
     #[test]
