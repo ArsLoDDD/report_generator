@@ -587,6 +587,111 @@ mod tests {
     }
 
     #[test]
+    fn upgrades_a_legacy_alias_table_before_seeding() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE custom_field_definitions (
+                    field_key TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    initial_value TEXT NOT NULL DEFAULT ''
+                 );
+                 CREATE TABLE custom_field_template_aliases (
+                    scope TEXT NOT NULL,
+                    alias TEXT NOT NULL,
+                    field_key TEXT NOT NULL,
+                    PRIMARY KEY(scope,alias)
+                 );
+                 INSERT INTO custom_field_definitions(field_key,display_name,description,initial_value)
+                 VALUES('unit_code','Код підрозділу','','А0000');
+                 INSERT INTO custom_field_template_aliases(scope,alias,field_key)
+                 VALUES('personnel','стара_назва','unit_code');",
+            )
+            .unwrap();
+
+        initialise(&connection).unwrap();
+
+        let aliases = connection
+            .prepare(
+                "SELECT alias,field_key,deleted_at
+                 FROM custom_field_template_aliases
+                 WHERE scope='personnel'
+                 ORDER BY alias",
+            )
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    })
+                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+            })
+            .unwrap();
+        assert_eq!(
+            aliases,
+            vec![
+                ("код_підрозділу".into(), "unit_code".into(), None),
+                ("стара_назва".into(), "unit_code".into(), None),
+            ]
+        );
+    }
+
+    #[test]
+    fn removes_a_legacy_unique_alias_constraint_without_losing_aliases() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE custom_field_definitions (
+                    field_key TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    initial_value TEXT NOT NULL DEFAULT ''
+                 );
+                 CREATE TABLE custom_field_template_aliases (
+                    scope TEXT NOT NULL,
+                    alias TEXT NOT NULL,
+                    field_key TEXT NOT NULL,
+                    deleted_at TEXT,
+                    PRIMARY KEY(scope,alias,field_key)
+                 );
+                 CREATE UNIQUE INDEX legacy_alias_unique
+                    ON custom_field_template_aliases(scope,alias);
+                 INSERT INTO custom_field_definitions(field_key,display_name,description,initial_value)
+                 VALUES
+                    ('primary_unit','Підрозділ','',''),
+                    ('secondary_unit','Підрозділ','','');
+                 INSERT INTO custom_field_template_aliases(scope,alias,field_key,deleted_at)
+                 VALUES('personnel','давня_назва','primary_unit','2026-09-01');",
+            )
+            .unwrap();
+
+        initialise(&connection).unwrap();
+
+        let current_aliases: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM custom_field_template_aliases
+                 WHERE scope='personnel' AND alias='підрозділ' AND deleted_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let preserved_tombstone: Option<String> = connection
+            .query_row(
+                "SELECT deleted_at FROM custom_field_template_aliases
+                 WHERE scope='personnel' AND alias='давня_назва' AND field_key='primary_unit'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(current_aliases, 2);
+        assert_eq!(preserved_tombstone.as_deref(), Some("2026-09-01"));
+    }
+
+    #[test]
     fn custom_field_key_does_not_require_a_prefix() {
         let connection = Connection::open_in_memory().unwrap();
         initialise(&connection).unwrap();

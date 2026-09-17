@@ -463,25 +463,147 @@ pub fn sync_custom_fields_file(
     Ok(())
 }
 
+/// Early development builds used more than one shape for the template-alias
+/// table. `CREATE TABLE IF NOT EXISTS` cannot upgrade those databases, and an
+/// incompatible primary key makes the alias UPSERT abort the whole app setup.
+/// Normalize the table before any aliases are seeded so upgrades are safe and
+/// repeatable, while preserving every compatible legacy alias/tombstone.
+fn migrate_custom_field_template_alias_schema(connection: &Connection) -> Result<(), String> {
+    const TABLE: &str = "custom_field_template_aliases";
+    const CREATE_TABLE: &str = "CREATE TABLE custom_field_template_aliases (
+        scope TEXT NOT NULL CHECK(scope IN ('personnel','vehicle')),
+        alias TEXT NOT NULL,
+        field_key TEXT NOT NULL,
+        deleted_at TEXT,
+        PRIMARY KEY(scope,alias,field_key)
+    );";
+
+    let exists = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+            [TABLE],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|_| {
+            "Не вдалося перевірити сумісність додаткових полів із шаблонами.".to_string()
+        })?;
+
+    if !exists {
+        connection.execute_batch(CREATE_TABLE).map_err(|_| {
+            "Не вдалося підготувати сумісність додаткових полів із шаблонами.".to_string()
+        })?;
+    } else {
+        let columns = connection
+            .prepare("PRAGMA table_info(custom_field_template_aliases)")
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| {
+                        Ok((row.get::<_, String>(1)?, row.get::<_, i64>(5)?))
+                    })
+                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+            })
+            .map_err(|_| {
+                "Не вдалося прочитати структуру сумісності додаткових полів.".to_string()
+            })?;
+        let names = columns
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>();
+        let mut primary_key = columns
+            .iter()
+            .filter(|(_, order)| *order > 0)
+            .map(|(name, order)| (*order, name.as_str()))
+            .collect::<Vec<_>>();
+        primary_key.sort_by_key(|(order, _)| *order);
+        let has_extra_unique_index = connection
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM sqlite_master
+                    WHERE type='index'
+                      AND tbl_name='custom_field_template_aliases'
+                      AND sql IS NOT NULL
+                      AND upper(sql) LIKE '%UNIQUE%'
+                )",
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+            .map_err(|_| {
+                "Не вдалося перевірити індекси сумісності додаткових полів.".to_string()
+            })?;
+        let canonical = names.contains(&"scope")
+            && names.contains(&"alias")
+            && names.contains(&"field_key")
+            && names.contains(&"deleted_at")
+            && primary_key == vec![(1, "scope"), (2, "alias"), (3, "field_key")]
+            && !has_extra_unique_index;
+
+        if !canonical {
+            let can_preserve = names.contains(&"scope")
+                && names.contains(&"alias")
+                && names.contains(&"field_key");
+            let has_deleted_at = names.contains(&"deleted_at");
+            let transaction = connection.unchecked_transaction().map_err(|_| {
+                "Не вдалося почати оновлення сумісності додаткових полів.".to_string()
+            })?;
+            transaction
+                .execute_batch(
+                    "DROP TABLE IF EXISTS custom_field_template_aliases_migrated;
+                     CREATE TABLE custom_field_template_aliases_migrated (
+                        scope TEXT NOT NULL CHECK(scope IN ('personnel','vehicle')),
+                        alias TEXT NOT NULL,
+                        field_key TEXT NOT NULL,
+                        deleted_at TEXT,
+                        PRIMARY KEY(scope,alias,field_key)
+                     );",
+                )
+                .map_err(|_| {
+                    "Не вдалося підготувати оновлення сумісності додаткових полів.".to_string()
+                })?;
+            if can_preserve {
+                let deleted_at = if has_deleted_at { "deleted_at" } else { "NULL" };
+                transaction
+                    .execute_batch(&format!(
+                        "INSERT OR IGNORE INTO custom_field_template_aliases_migrated(scope,alias,field_key,deleted_at)
+                         SELECT scope,alias,field_key,{deleted_at}
+                         FROM custom_field_template_aliases
+                         WHERE scope IN ('personnel','vehicle') AND alias <> '' AND field_key <> '';"
+                    ))
+                    .map_err(|_| {
+                        "Не вдалося перенести сумісність назв додаткових полів.".to_string()
+                    })?;
+            }
+            transaction
+                .execute_batch(
+                    "DROP TABLE custom_field_template_aliases;
+                     ALTER TABLE custom_field_template_aliases_migrated
+                        RENAME TO custom_field_template_aliases;",
+                )
+                .map_err(|_| {
+                    "Не вдалося завершити оновлення сумісності додаткових полів.".to_string()
+                })?;
+            transaction.commit().map_err(|_| {
+                "Не вдалося зберегти оновлення сумісності додаткових полів.".to_string()
+            })?;
+        }
+    }
+
+    connection
+        .execute(
+            "CREATE INDEX IF NOT EXISTS custom_field_template_alias_key_idx
+             ON custom_field_template_aliases(scope,field_key)",
+            [],
+        )
+        .map_err(|_| {
+            "Не вдалося індексувати сумісність додаткових полів із шаблонами.".to_string()
+        })?;
+    Ok(())
+}
+
 pub fn initialise(connection: &Connection) -> Result<(), String> {
     connection.execute_batch("CREATE TABLE IF NOT EXISTS vehicles (id INTEGER PRIMARY KEY, name TEXT NOT NULL, registration_number TEXT NOT NULL UNIQUE, notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").map_err(|_| "Не вдалося створити таблицю автомобілів.".to_string())?;
     connection.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS personnel (id INTEGER PRIMARY KEY, rank TEXT NOT NULL, surname TEXT NOT NULL, given_name TEXT NOT NULL, patronymic TEXT NOT NULL DEFAULT '', position TEXT NOT NULL, tax_id TEXT NOT NULL DEFAULT '', birth_date TEXT NOT NULL, education_level TEXT NOT NULL, education_details TEXT NOT NULL, armed_forces_service_start_date TEXT NOT NULL, position_assigned_date TEXT NOT NULL, position_assignment_order TEXT NOT NULL, military_id TEXT NOT NULL, gender TEXT NOT NULL DEFAULT '' CHECK(gender IN ('', 'чоловіча', 'жіноча')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS personnel_custom_fields (personnel_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(personnel_id, field_key), FOREIGN KEY(personnel_id) REFERENCES personnel(id) ON DELETE CASCADE); CREATE TABLE IF NOT EXISTS custom_field_definitions (field_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, description TEXT NOT NULL, initial_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS vehicle_custom_field_definitions (field_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, description TEXT NOT NULL, initial_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS vehicle_custom_fields (vehicle_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(vehicle_id, field_key), FOREIGN KEY(vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE);")
         .map_err(|_| "Не вдалося підготувати базу даних.".to_string())?;
-    connection
-        .execute_batch(
-            "CREATE TABLE IF NOT EXISTS custom_field_template_aliases (
-            scope TEXT NOT NULL CHECK(scope IN ('personnel','vehicle')),
-            alias TEXT NOT NULL,
-            field_key TEXT NOT NULL,
-            deleted_at TEXT,
-            PRIMARY KEY(scope,alias,field_key)
-         );
-         CREATE INDEX IF NOT EXISTS custom_field_template_alias_key_idx
-           ON custom_field_template_aliases(scope,field_key);",
-        )
-        .map_err(|_| {
-            "Не вдалося підготувати сумісність додаткових полів із шаблонами.".to_string()
-        })?;
+    migrate_custom_field_template_alias_schema(connection)?;
     seed_custom_field_template_aliases(connection)?;
     migrate_personnel_tax_id_for_import(connection)?;
     connection
