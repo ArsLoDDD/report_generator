@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TemplateAnalysisProposal } from "../../shared/types/domain";
-import { defaultAnalysisSelection, normaliseAnalysisProposals, tokenSelectedInEditor } from "./ReportAnalyserPage";
+import { defaultAnalysisSelection, normaliseAnalysisProposals, normaliseManualReplacement, normaliseSelectedTokenText, tokenSelectedInEditor } from "./ReportAnalyserPage";
 
 function proposal(overrides: Partial<TemplateAnalysisProposal>): TemplateAnalysisProposal {
   return {
@@ -47,6 +47,23 @@ describe("report analyser confidence", () => {
   it("recognises a selected variable with or without its braces for modifier editing", () => {
     expect(tokenSelectedInEditor("{{військовий_1_звання:родовий}}")).toEqual({ id: "військовий_1_звання", modifiers: ["родовий"] });
     expect(tokenSelectedInEditor("піб_військовий_1")).toEqual({ id: "піб_військовий_1", modifiers: [] });
+    expect(tokenSelectedInEditor("піб_військовий_2")).toEqual({ id: "піб_військовий_2", modifiers: [] });
     expect(tokenSelectedInEditor("звичайний текст")).toBeNull();
+    expect(tokenSelectedInEditor("військовий_1_звання:невідомий")).toBeNull();
+  });
+
+  it("expands a token-body selection without producing double braces", () => {
+    expect(normaliseSelectedTokenText("військовий_1_піб", "Текст {{", "}} далі")).toEqual({
+      value: "{{військовий_1_піб}}",
+      prefix: "Текст ",
+    });
+    expect(normaliseSelectedTokenText("{{військовий_1_піб}}", "Текст ", " далі").value).toBe("{{військовий_1_піб}}");
+  });
+
+  it("wraps a manually entered token exactly once and validates its modifiers", () => {
+    expect(normaliseManualReplacement("військовий_1_піб:родовий")).toEqual({ value: "{{військовий_1_піб:родовий}}" });
+    expect(normaliseManualReplacement("{{військовий_1_піб:родовий}}")).toEqual({ value: "{{військовий_1_піб:родовий}}" });
+    expect(normaliseManualReplacement("{{військовий_1_піб:невідомий}}").error).toContain("Невідомий модифікатор");
+    expect(normaliseManualReplacement("звичайний текст")).toEqual({ value: "звичайний текст" });
   });
 });

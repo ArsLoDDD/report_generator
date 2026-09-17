@@ -221,6 +221,8 @@ pub(crate) fn detected_document_person_proposals(
         "полковник",
         "генерал",
     ];
+    let mut person_slots = HashMap::<String, usize>::new();
+    let mut next_person_slot = 1_usize;
     for (index, triple) in words.windows(3).enumerate() {
         let first = &triple[0];
         let second = &triple[1];
@@ -271,6 +273,12 @@ pub(crate) fn detected_document_person_proposals(
             } else {
                 continue;
             };
+        let identity = normalized_name(&full_name);
+        let slot = *person_slots.entry(identity).or_insert_with(|| {
+            let slot = next_person_slot;
+            next_person_slot += 1;
+            slot
+        });
         let (
             full_name_token,
             surname_token,
@@ -282,24 +290,24 @@ pub(crate) fn detected_document_person_proposals(
             reason,
         ) = if is_simple_edition {
             (
-                "піб_військовий_1",
-                "прізвище_військовий_1",
-                "імя_військовий_1",
-                "по_батькові_військовий_1",
-                "звання_військовий_1",
-                "посада_військовий_1",
-                "Параметри документа",
+                format!("піб_військовий_{slot}"),
+                format!("прізвище_військовий_{slot}"),
+                format!("імя_військовий_{slot}"),
+                format!("по_батькові_військовий_{slot}"),
+                format!("звання_військовий_{slot}"),
+                format!("посада_військовий_{slot}"),
+                format!("Параметри документа · військовослужбовець {slot}"),
                 "ПІБ визначено у документі, але не знайдено в особовому складі.",
             )
         } else {
             (
-                "військовий_1_піб",
-                "військовий_1_прізвище",
-                "військовий_1_імя",
-                "військовий_1_по_батькові",
-                "військовий_1_звання",
-                "військовий_1_посада",
-                "Військовослужбовець",
+                format!("військовий_{slot}_піб"),
+                format!("військовий_{slot}_прізвище"),
+                format!("військовий_{slot}_імя"),
+                format!("військовий_{slot}_по_батькові"),
+                format!("військовий_{slot}_звання"),
+                format!("військовий_{slot}_посада"),
+                format!("Військовослужбовець {slot} · {full_name}"),
                 "ПІБ визначено за структурою тексту, але запис не прив’язаний до бази даних.",
             )
         };
@@ -307,9 +315,9 @@ pub(crate) fn detected_document_person_proposals(
             proposals,
             text,
             &full_name,
-            full_name_token,
+            &full_name_token,
             "ПІБ, знайдений у документі",
-            category,
+            &category,
             "medium",
             reason,
         );
@@ -317,9 +325,9 @@ pub(crate) fn detected_document_person_proposals(
             proposals,
             text,
             surname,
-            surname_token,
+            &surname_token,
             "Прізвище, знайдене у документі",
-            category,
+            &category,
             "medium",
             reason,
         );
@@ -327,9 +335,9 @@ pub(crate) fn detected_document_person_proposals(
             proposals,
             text,
             given_name,
-            given_name_token,
+            &given_name_token,
             "Ім’я, знайдене у документі",
-            category,
+            &category,
             "medium",
             reason,
         );
@@ -337,9 +345,9 @@ pub(crate) fn detected_document_person_proposals(
             proposals,
             text,
             patronymic,
-            patronymic_token,
+            &patronymic_token,
             "По батькові, знайдене у документі",
-            category,
+            &category,
             "medium",
             reason,
         );
@@ -347,9 +355,9 @@ pub(crate) fn detected_document_person_proposals(
             proposals,
             text,
             rank,
-            rank_token,
+            &rank_token,
             "Звання військовослужбовця, знайдене у документі",
-            category,
+            &category,
             "medium",
             reason,
         );
@@ -358,9 +366,9 @@ pub(crate) fn detected_document_person_proposals(
                 proposals,
                 text,
                 &position,
-                position_token,
+                &position_token,
                 "Посада військовослужбовця, знайдена у документі",
-                category,
+                &category,
                 "medium",
                 reason,
             );
@@ -464,6 +472,7 @@ pub(crate) struct SignerNameInDocument {
     given_name: String,
     patronymic: Option<String>,
     has_full_name: bool,
+    fuzzy: bool,
 }
 
 pub(crate) fn normalized_name(value: &str) -> String {
@@ -519,6 +528,7 @@ pub(crate) fn signer_name_in_document(
             given_name: name.given_name.clone(),
             patronymic: name.patronymic.clone(),
             has_full_name: true,
+            fuzzy: false,
         });
     }
     let words = text
@@ -530,25 +540,56 @@ pub(crate) fn signer_name_in_document(
         .collect::<Vec<_>>();
     for pair in words.windows(2) {
         if similar_name(pair[1], &name.surname) && similar_name(pair[0], &name.given_name) {
+            let fuzzy = pair[1].to_lowercase() != name.surname.to_lowercase()
+                || pair[0].to_lowercase() != name.given_name.to_lowercase();
             return Some(SignerNameInDocument {
                 full_name: format!("{} {}", pair[0], pair[1]),
                 surname: pair[1].to_string(),
                 given_name: pair[0].to_string(),
                 patronymic: None,
                 has_full_name: false,
+                fuzzy,
             });
         }
         if similar_name(pair[0], &name.surname) && similar_name(pair[1], &name.given_name) {
+            let fuzzy = pair[0].to_lowercase() != name.surname.to_lowercase()
+                || pair[1].to_lowercase() != name.given_name.to_lowercase();
             return Some(SignerNameInDocument {
                 full_name: format!("{} {}", pair[0], pair[1]),
                 surname: pair[0].to_string(),
                 given_name: pair[1].to_string(),
                 patronymic: None,
                 has_full_name: false,
+                fuzzy,
             });
         }
     }
     None
+}
+
+fn signer_template_analysis_value(
+    proposals: &mut Vec<TemplateAnalysisProposal>,
+    text: &str,
+    value: &str,
+    token: &str,
+    label: &str,
+    category: &str,
+    fuzzy: bool,
+) {
+    if fuzzy {
+        template_analysis_value_with_confidence(
+            proposals,
+            text,
+            value,
+            token,
+            label,
+            category,
+            "medium",
+            "Ім’я підписанта розпізнано за наближеним збігом. Обов’язково перевірте заміну.",
+        );
+    } else {
+        template_analysis_value(proposals, text, value, token, label, category);
+    }
 }
 
 pub(crate) fn detected_signer_block_proposals(
@@ -565,63 +606,69 @@ pub(crate) fn detected_signer_block_proposals(
     };
     let category = format!("Підписант: {}", role.name);
     if name_in_document.has_full_name {
-        template_analysis_value(
+        signer_template_analysis_value(
             proposals,
             text,
             &name_in_document.full_name,
             &format!("{}_піб", role.id),
             &format!("ПІБ: {}", role.name),
             &category,
+            name_in_document.fuzzy,
         );
     }
-    template_analysis_value(
+    signer_template_analysis_value(
         proposals,
         text,
         &name_in_document.surname,
         &format!("{}_прізвище", role.id),
         &format!("Прізвище: {}", role.name),
         &category,
+        name_in_document.fuzzy,
     );
-    template_analysis_value(
+    signer_template_analysis_value(
         proposals,
         text,
         &name_in_document.given_name,
         &format!("{}_імя", role.id),
         &format!("Ім’я: {}", role.name),
         &category,
+        name_in_document.fuzzy,
     );
     if name_in_document.has_full_name {
         if let Some(patronymic) = &name_in_document.patronymic {
-            template_analysis_value(
+            signer_template_analysis_value(
                 proposals,
                 text,
                 patronymic,
                 &format!("{}_по_батькові", role.id),
                 &format!("По батькові: {}", role.name),
                 &category,
+                name_in_document.fuzzy,
             );
         }
     }
     if signer.rank.chars().count() >= 4 {
-        template_analysis_value(
+        signer_template_analysis_value(
             proposals,
             text,
             &signer.rank,
             &format!("{}_звання", role.id),
             &format!("Звання: {}", role.name),
             &category,
+            name_in_document.fuzzy,
         );
     }
     if let Some(position) =
         document_signature_position(text, &name_in_document.full_name, &signer.rank)
     {
-        template_analysis_value(
+        signer_template_analysis_value(
             proposals,
             text,
             &position,
             &format!("{}_посада", role.id),
             &format!("Посада у блоці підпису: {}", role.name),
             &category,
+            name_in_document.fuzzy,
         );
     }
 }

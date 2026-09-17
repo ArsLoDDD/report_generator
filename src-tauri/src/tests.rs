@@ -112,7 +112,7 @@ fn simple_edition_treats_an_unknown_person_as_a_document_parameter() {
     assert!(proposals.iter().any(|proposal| {
         proposal.value == "Максим Петрович ТЕСТОВИЙ"
             && proposal.token == "піб_військовий_1"
-            && proposal.category == "Параметри документа"
+            && proposal.category.starts_with("Параметри документа")
     }));
     assert!(!proposals
         .iter()
@@ -259,6 +259,11 @@ fn analysis_accepts_a_minor_spelling_difference_in_a_signer_name() {
         .iter()
         .any(|proposal| proposal.token == "основний_підписант_посада"
             && proposal.value == "Командир роти"));
+    assert!(proposals.iter().all(|proposal| {
+        proposal.confidence == "medium"
+            && !proposal.auto_select
+            && proposal.reason.contains("наближеним збігом")
+    }));
 }
 
 #[test]

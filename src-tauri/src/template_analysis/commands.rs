@@ -1,280 +1,374 @@
 use super::*;
 
-#[tauri::command]
-pub(crate) fn analyse_report_for_template(
-    app: tauri::AppHandle,
-    state: tauri::State<AppState>,
-    report_path: String,
-) -> Result<TemplateAnalysis, String> {
-    let path = PathBuf::from(&report_path);
-    if !path.is_file()
-        || !path
-            .extension()
-            .and_then(|value| value.to_str())
-            .is_some_and(|value| value.eq_ignore_ascii_case("docx"))
-    {
-        return Err("Оберіть DOCX-файл рапорту.".into());
+#[derive(Clone, Debug)]
+pub(crate) struct AnalysisPerson {
+    pub id: i64,
+    pub full_name: String,
+    pub surname: String,
+    pub given_name: String,
+    pub patronymic: String,
+    pub rank: String,
+    pub position: String,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AnalysisVehicle {
+    pub id: i64,
+    pub name: String,
+    pub registration: String,
+    pub status: String,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AnalysisCrew {
+    pub id: i64,
+    pub name: String,
+    pub platoon: String,
+    pub position: String,
+    pub area: String,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AnalysisPosition {
+    pub id: i64,
+    pub values: Vec<(String, &'static str, &'static str)>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct AnalysisEquipment {
+    pub id: i64,
+    pub category: String,
+    pub name: String,
+    pub inventory: String,
+    pub status: String,
+    pub notes: String,
+}
+
+#[derive(Default)]
+pub(crate) struct AnalysisDataSnapshot {
+    pub people: Vec<AnalysisPerson>,
+    pub vehicles: Vec<AnalysisVehicle>,
+    pub crews: Vec<AnalysisCrew>,
+    pub positions: Vec<AnalysisPosition>,
+    pub equipment: Vec<AnalysisEquipment>,
+}
+
+fn load_analysis_snapshot(
+    connection: &Connection,
+    include_operational_data: bool,
+) -> Result<AnalysisDataSnapshot, String> {
+    let people = personnel::list(connection)?
+        .into_iter()
+        .map(|person| AnalysisPerson {
+            id: person.id,
+            full_name: person.full_name,
+            surname: person.surname,
+            given_name: person.given_name,
+            patronymic: person.patronymic,
+            rank: person.rank,
+            position: person.position,
+        })
+        .collect();
+    if !include_operational_data {
+        return Ok(AnalysisDataSnapshot {
+            people,
+            ..AnalysisDataSnapshot::default()
+        });
     }
-    let text = report_generation::read_docx_text(&path)?;
-    let paragraphs = report_generation::read_docx_paragraphs(&path)?;
-    let database = state
-        .0
-        .lock()
-        .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    let mut proposals = Vec::new();
-    let signer_roles = settings::load(&application_root_from_path(&path)?)?.signer_roles;
-    for role in &signer_roles {
-        detected_signer_block_proposals(&mut proposals, &text, role);
-    }
-    for person in personnel::list(&database.connection)? {
-        // Do not turn a shared rank or position into a military-person token.
-        // A personnel record is relevant only when its complete name appears in
-        // the document. This also leaves a recognized signature block solely
-        // with the appropriate signer variables.
-        if whole_text_match_count(&text, &person.full_name) == 0 {
-            continue;
-        }
-        template_analysis_value(
-            &mut proposals,
-            &text,
-            &person.full_name,
-            "військовий_1_піб",
-            "ПІБ військовослужбовця",
-            "Військовослужбовець",
-        );
-        template_analysis_value(
-            &mut proposals,
-            &text,
-            &person.surname,
-            "військовий_1_прізвище",
-            "Прізвище військовослужбовця",
-            "Військовослужбовець",
-        );
-        template_analysis_value(
-            &mut proposals,
-            &text,
-            &person.given_name,
-            "військовий_1_імя",
-            "Ім’я військовослужбовця",
-            "Військовослужбовець",
-        );
-        template_analysis_value(
-            &mut proposals,
-            &text,
-            &person.patronymic,
-            "військовий_1_по_батькові",
-            "По батькові військовослужбовця",
-            "Військовослужбовець",
-        );
-        template_analysis_value(
-            &mut proposals,
-            &text,
-            &person.rank,
-            "військовий_1_звання",
-            "Звання військовослужбовця",
-            "Військовослужбовець",
-        );
-        template_analysis_value(
-            &mut proposals,
-            &text,
-            &person.position,
-            "військовий_1_посада",
-            "Посада військовослужбовця",
-            "Військовослужбовець",
-        );
-    }
-    if !is_simple_edition(&app) {
-        let mut vehicle_statement = database
-            .connection
-            .prepare("SELECT name, registration_number, status FROM vehicles")
+
+    let vehicles = {
+        let mut statement = connection
+            .prepare("SELECT id,name,registration_number,status FROM vehicles ORDER BY id")
             .map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?;
-        let vehicles = vehicle_statement
+        let rows = statement
             .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
+                Ok(AnalysisVehicle {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    registration: row.get(2)?,
+                    status: row.get(3)?,
+                })
             })
             .map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| "Не вдалося прочитати автомобілі.".to_string())?;
-        for (name, registration, status) in vehicles {
-            if whole_text_match_count(&text, &name) == 0
-                && whole_text_match_count(&text, &registration) == 0
-            {
-                continue;
-            }
-            template_analysis_value(
-                &mut proposals,
-                &text,
-                &name,
-                "автомобіль_1_назва",
-                "Назва автомобіля",
-                "Автомобіль",
-            );
-            template_analysis_value(
-                &mut proposals,
-                &text,
-                &registration,
-                "автомобіль_1_номер",
-                "Номер автомобіля",
-                "Автомобіль",
-            );
-            template_analysis_value(
-                &mut proposals,
-                &text,
-                &status,
-                "автомобіль_1_статус",
-                "Статус автомобіля",
-                "Автомобіль",
-            );
-        }
-        let mut crew_statement = database
-            .connection
-            .prepare("SELECT c.name,c.platoon,COALESCE(p.name,c.position_name),COALESCE(p.locality,c.reconnaissance_area) FROM crews c LEFT JOIN positions p ON p.id=c.position_id")
+        rows
+    };
+    let crews = {
+        let mut statement = connection
+            .prepare("SELECT c.id,c.name,c.platoon,COALESCE(p.name,c.position_name),COALESCE(p.locality,c.reconnaissance_area) FROM crews c LEFT JOIN positions p ON p.id=c.position_id ORDER BY c.id")
             .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?;
-        let crews = crew_statement
+        let rows = statement
             .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
+                Ok(AnalysisCrew {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    platoon: row.get(2)?,
+                    position: row.get(3)?,
+                    area: row.get(4)?,
+                })
             })
             .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| "Не вдалося прочитати екіпажі.".to_string())?;
-        for (name, platoon, position, area) in crews {
-            if whole_text_match_count(&text, &name) == 0 {
-                continue;
-            }
-            for (value, token, label) in [
-                (name, "екіпаж_1_назва", "Назва екіпажу"),
-                (platoon, "екіпаж_1_взвод", "Взвод екіпажу"),
-                (position, "екіпаж_1_позиція", "Позиція екіпажу"),
-                (area, "екіпаж_1_район_розвідки", "Район розвідки"),
-            ] {
-                template_analysis_value(&mut proposals, &text, &value, token, label, "Екіпаж");
-            }
-        }
-        let mut position_statement = database
-        .connection
-        .prepare("SELECT name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,condition_level,field_type FROM positions")
-        .map_err(|_| "Не вдалося прочитати позиції.".to_string())?;
-        let positions = position_statement
+        rows
+    };
+    let positions = {
+        let mut statement = connection
+            .prepare("SELECT id,name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,condition_level,field_type FROM positions ORDER BY id")
+            .map_err(|_| "Не вдалося прочитати позиції.".to_string())?;
+        let rows = statement
             .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, String>(6)?,
-                    row.get::<_, String>(7)?,
-                    row.get::<_, String>(8)?,
-                    row.get::<_, String>(9)?,
-                    row.get::<_, i64>(10)?.to_string(),
-                    row.get::<_, String>(11)?,
-                ))
+                Ok(AnalysisPosition {
+                    id: row.get(0)?,
+                    values: vec![
+                        (row.get(1)?, "назва", "Назва позиції"),
+                        (row.get(2)?, "тип", "Тип позиції"),
+                        (row.get(3)?, "смуга", "Смуга позиції"),
+                        (row.get(4)?, "населений_пункт", "Населений пункт позиції"),
+                        (row.get(5)?, "бро", "БРО позиції"),
+                        (row.get(6)?, "сектор", "Сектор позиції"),
+                        (row.get(7)?, "стан", "Стан позиції"),
+                        (
+                            row.get::<_, i64>(11)?.to_string(),
+                            "стан_відсоток",
+                            "Стан позиції у відсотках",
+                        ),
+                        (row.get(12)?, "тип_поля", "Тип поля позиції"),
+                        (row.get(8)?, "розмір", "Розмір позиції"),
+                        (row.get(9)?, "mgrs", "MGRS позиції"),
+                        (row.get(10)?, "бпла", "Сумісні БпЛА позиції"),
+                    ],
+                })
             })
             .map_err(|_| "Не вдалося прочитати позиції.".to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| "Не вдалося прочитати позиції.".to_string())?;
-        for (
-            name,
-            position_type,
-            strip,
-            locality,
-            battle_order,
-            sector,
-            condition,
-            size,
-            mgrs,
-            suitable_uavs,
-            condition_level,
-            field_type,
-        ) in positions
-        {
-            if whole_text_match_count(&text, &name) == 0 {
-                continue;
-            }
-            for (value, token, label) in [
-                (name, "позиція_1_назва", "Назва позиції"),
-                (position_type, "позиція_1_тип", "Тип позиції"),
-                (strip, "позиція_1_смуга", "Смуга позиції"),
-                (
-                    locality,
-                    "позиція_1_населений_пункт",
-                    "Населений пункт позиції",
-                ),
-                (battle_order, "позиція_1_бро", "БРО позиції"),
-                (sector, "позиція_1_сектор", "Сектор позиції"),
-                (condition, "позиція_1_стан", "Стан позиції"),
-                (
-                    condition_level,
-                    "позиція_1_стан_відсоток",
-                    "Стан позиції у відсотках",
-                ),
-                (field_type, "позиція_1_тип_поля", "Тип поля позиції"),
-                (size, "позиція_1_розмір", "Розмір позиції"),
-                (mgrs, "позиція_1_mgrs", "MGRS позиції"),
-                (suitable_uavs, "позиція_1_бпла", "Сумісні БпЛА позиції"),
-            ] {
-                template_analysis_value(&mut proposals, &text, &value, token, label, "Позиція");
-            }
-        }
-        let mut equipment_statement = database
-            .connection
-            .prepare("SELECT category,name,inventory_number,status,notes FROM equipment")
+        rows
+    };
+    let equipment = {
+        let mut statement = connection
+            .prepare(
+                "SELECT id,category,name,inventory_number,status,notes FROM equipment ORDER BY id",
+            )
             .map_err(|_| "Не вдалося прочитати майно.".to_string())?;
-        let equipment = equipment_statement
+        let rows = statement
             .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                ))
+                Ok(AnalysisEquipment {
+                    id: row.get(0)?,
+                    category: row.get(1)?,
+                    name: row.get(2)?,
+                    inventory: row.get(3)?,
+                    status: row.get(4)?,
+                    notes: row.get(5)?,
+                })
             })
             .map_err(|_| "Не вдалося прочитати майно.".to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| "Не вдалося прочитати майно.".to_string())?;
-        for (category, name, inventory, status, notes) in equipment {
-            if whole_text_match_count(&text, &name) == 0
-                && whole_text_match_count(&text, &inventory) == 0
-            {
-                continue;
-            }
-            let (prefix, category_label) = match category.as_str() {
-                "generator" => ("генератор", "Генератор"),
-                "uav" => ("бпла", "БпЛА"),
-                "communications" => ("звʼязок", "Зв’язок"),
-                "weapon_ammo" => ("зброя_та_бк", "Зброя та БК"),
-                _ => continue,
-            };
-            for (value, field, label) in [
-                (name, "назва", "Назва"),
-                (inventory, "інвентарний_номер", "Інвентарний номер"),
-                (status, "статус", "Статус"),
-                (notes, "примітка", "Примітка"),
-            ] {
-                template_analysis_value(
-                    &mut proposals,
-                    &text,
-                    &value,
-                    &format!("{prefix}_1_{field}"),
-                    &format!("{label}: {category_label}"),
-                    category_label,
-                );
-            }
+        rows
+    };
+    Ok(AnalysisDataSnapshot {
+        people,
+        vehicles,
+        crews,
+        positions,
+        equipment,
+    })
+}
+
+fn first_value_offset(text: &str, values: &[&str]) -> usize {
+    let haystack = text.to_lowercase();
+    values
+        .iter()
+        .filter_map(|value| {
+            let value = value.trim();
+            (!value.is_empty())
+                .then(|| haystack.find(&value.to_lowercase()))
+                .flatten()
+        })
+        .min()
+        .unwrap_or(usize::MAX)
+}
+
+pub(crate) fn detected_database_proposals(
+    proposals: &mut Vec<TemplateAnalysisProposal>,
+    text: &str,
+    snapshot: &AnalysisDataSnapshot,
+) {
+    let mut people = snapshot
+        .people
+        .iter()
+        .filter(|person| whole_text_match_count(text, &person.full_name) > 0)
+        .collect::<Vec<_>>();
+    people.sort_by_key(|person| (first_value_offset(text, &[&person.full_name]), person.id));
+    for (index, person) in people.into_iter().enumerate() {
+        let slot = index + 1;
+        let category = format!("Військовослужбовець {slot} · {}", person.full_name);
+        for (value, field, label) in [
+            (&person.full_name, "піб", "ПІБ військовослужбовця"),
+            (&person.surname, "прізвище", "Прізвище військовослужбовця"),
+            (&person.given_name, "імя", "Ім’я військовослужбовця"),
+            (
+                &person.patronymic,
+                "по_батькові",
+                "По батькові військовослужбовця",
+            ),
+            (&person.rank, "звання", "Звання військовослужбовця"),
+            (&person.position, "посада", "Посада військовослужбовця"),
+        ] {
+            template_analysis_value(
+                proposals,
+                text,
+                value,
+                &format!("військовий_{slot}_{field}"),
+                label,
+                &category,
+            );
         }
     }
-    detected_document_proposals_for_edition(&mut proposals, &text, is_simple_edition(&app));
-    consolidate_analysis_proposals(&mut proposals);
+
+    let mut vehicles = snapshot
+        .vehicles
+        .iter()
+        .filter(|vehicle| {
+            whole_text_match_count(text, &vehicle.name) > 0
+                || whole_text_match_count(text, &vehicle.registration) > 0
+        })
+        .collect::<Vec<_>>();
+    vehicles.sort_by_key(|vehicle| {
+        (
+            first_value_offset(text, &[&vehicle.name, &vehicle.registration]),
+            vehicle.id,
+        )
+    });
+    for (index, vehicle) in vehicles.into_iter().enumerate() {
+        let slot = index + 1;
+        let category = format!("Автомобіль {slot} · {}", vehicle.name);
+        for (value, field, label) in [
+            (&vehicle.name, "назва", "Назва автомобіля"),
+            (&vehicle.registration, "номер", "Номер автомобіля"),
+            (&vehicle.status, "статус", "Статус автомобіля"),
+        ] {
+            template_analysis_value(
+                proposals,
+                text,
+                value,
+                &format!("автомобіль_{slot}_{field}"),
+                label,
+                &category,
+            );
+        }
+    }
+
+    let mut crews = snapshot
+        .crews
+        .iter()
+        .filter(|crew| whole_text_match_count(text, &crew.name) > 0)
+        .collect::<Vec<_>>();
+    crews.sort_by_key(|crew| (first_value_offset(text, &[&crew.name]), crew.id));
+    for (index, crew) in crews.into_iter().enumerate() {
+        let slot = index + 1;
+        let category = format!("Екіпаж {slot} · {}", crew.name);
+        for (value, field, label) in [
+            (&crew.name, "назва", "Назва екіпажу"),
+            (&crew.platoon, "взвод", "Взвод екіпажу"),
+            (&crew.position, "позиція", "Позиція екіпажу"),
+            (&crew.area, "район_розвідки", "Район розвідки"),
+        ] {
+            template_analysis_value(
+                proposals,
+                text,
+                value,
+                &format!("екіпаж_{slot}_{field}"),
+                label,
+                &category,
+            );
+        }
+    }
+
+    let mut positions = snapshot
+        .positions
+        .iter()
+        .filter(|position| {
+            position
+                .values
+                .first()
+                .is_some_and(|(name, _, _)| whole_text_match_count(text, name) > 0)
+        })
+        .collect::<Vec<_>>();
+    positions.sort_by_key(|position| {
+        let name = &position.values[0].0;
+        (first_value_offset(text, &[name]), position.id)
+    });
+    for (index, position) in positions.into_iter().enumerate() {
+        let slot = index + 1;
+        let name = &position.values[0].0;
+        let category = format!("Позиція {slot} · {name}");
+        for (value, field, label) in &position.values {
+            template_analysis_value(
+                proposals,
+                text,
+                value,
+                &format!("позиція_{slot}_{field}"),
+                label,
+                &category,
+            );
+        }
+    }
+
+    let mut equipment = snapshot
+        .equipment
+        .iter()
+        .filter(|item| {
+            whole_text_match_count(text, &item.name) > 0
+                || whole_text_match_count(text, &item.inventory) > 0
+        })
+        .collect::<Vec<_>>();
+    equipment.sort_by_key(|item| {
+        (
+            first_value_offset(text, &[&item.name, &item.inventory]),
+            item.id,
+        )
+    });
+    let mut equipment_slots: HashMap<&str, usize> = HashMap::new();
+    for item in equipment {
+        let (prefix, category_label) = match item.category.as_str() {
+            "generator" => ("генератор", "Генератор"),
+            "uav" => ("бпла", "БпЛА"),
+            "communications" => ("звʼязок", "Зв’язок"),
+            "weapon_ammo" => ("зброя_та_бк", "Зброя та БК"),
+            _ => continue,
+        };
+        let slot = equipment_slots.entry(prefix).or_default();
+        *slot += 1;
+        let slot = *slot;
+        let category = format!("{category_label} {slot} · {}", item.name);
+        for (value, field, label) in [
+            (&item.name, "назва", "Назва"),
+            (&item.inventory, "інвентарний_номер", "Інвентарний номер"),
+            (&item.status, "статус", "Статус"),
+            (&item.notes, "примітка", "Примітка"),
+        ] {
+            template_analysis_value(
+                proposals,
+                text,
+                value,
+                &format!("{prefix}_{slot}_{field}"),
+                &format!("{label}: {category_label}"),
+                &category,
+            );
+        }
+    }
+}
+
+fn finalise_analysis_proposals(
+    proposals: &mut Vec<TemplateAnalysisProposal>,
+    text: &str,
+    simple_edition: bool,
+) {
+    detected_document_proposals_for_edition(proposals, text, simple_edition);
+    consolidate_analysis_proposals(proposals);
     let document_crew_values = proposals
         .iter()
         .filter(|proposal| proposal.token == "назва_екіпажу_1")
@@ -297,8 +391,8 @@ pub(crate) fn analyse_report_for_template(
                 .iter()
                 .any(|position| position.contains(&proposal.value.to_lowercase()))
     });
-    if is_simple_edition(&app) {
-        for proposal in &mut proposals {
+    if simple_edition {
+        for proposal in proposals.iter_mut() {
             proposal.alternatives.retain(|alternative| {
                 !matches!(
                     alternative.token.as_str(),
@@ -318,10 +412,48 @@ pub(crate) fn analyse_report_for_template(
     proposals.sort_by(|left, right| {
         confidence_score(&right.confidence)
             .cmp(&confidence_score(&left.confidence))
-            .then(right.auto_select.cmp(&left.auto_select))
-            .then(right.occurrences.cmp(&left.occurrences))
+            .then(left.category.cmp(&right.category))
+            .then(left.token.cmp(&right.token))
             .then(left.label.cmp(&right.label))
     });
+}
+
+#[tauri::command]
+pub(crate) fn analyse_report_for_template(
+    app: tauri::AppHandle,
+    state: tauri::State<AppState>,
+    report_path: String,
+) -> Result<TemplateAnalysis, String> {
+    let path = PathBuf::from(&report_path);
+    if !path.is_file()
+        || !path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("docx"))
+    {
+        return Err("Оберіть DOCX-файл рапорту.".into());
+    }
+    let initial_fingerprint = source_fingerprint(&path)?;
+    let text = report_generation::read_docx_text(&path)?;
+    let paragraphs = report_generation::read_docx_paragraphs(&path)?;
+    remember_analysed_source(&path, initial_fingerprint)?;
+    let simple_edition = is_simple_edition(&app);
+    // Copy the small, immutable analysis snapshot while holding the database
+    // mutex, then release it before the expensive text matching starts.
+    let snapshot = {
+        let database = state
+            .0
+            .lock()
+            .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
+        load_analysis_snapshot(&database.connection, !simple_edition)?
+    };
+    let mut proposals = Vec::new();
+    let signer_roles = settings::load(&application_root_from_path(&path)?)?.signer_roles;
+    for role in &signer_roles {
+        detected_signer_block_proposals(&mut proposals, &text, role);
+    }
+    detected_database_proposals(&mut proposals, &text, &snapshot);
+    finalise_analysis_proposals(&mut proposals, &text, simple_edition);
     let source_name = path
         .file_name()
         .and_then(|value| value.to_str())
@@ -344,6 +476,7 @@ pub(crate) fn render_report_analysis_preview(
     if !source.is_file() {
         return Err("Вихідний рапорт не знайдено.".into());
     }
+    let source_fingerprint = ensure_analysed_source_unchanged(&source)?;
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -358,6 +491,10 @@ pub(crate) fn render_report_analysis_preview(
         &temporary,
         &replacement_values,
     )?;
+    if let Err(error) = ensure_source_matches(&source, source_fingerprint) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error);
+    }
     let bytes = std::fs::read(&temporary)
         .map_err(|_| "Не вдалося підготувати перегляд документа.".to_string());
     let _ = std::fs::remove_file(temporary);
@@ -389,6 +526,7 @@ pub(crate) async fn create_template_from_report_analysis(
     if !source.is_file() {
         return Err("Вихідний рапорт не знайдено.".into());
     }
+    let source_fingerprint = ensure_analysed_source_unchanged(&source)?;
     let safe_name = template_name.trim().trim_end_matches(".docx");
     if safe_name.is_empty() || safe_name.contains(['/', '\\']) {
         return Err("Вкажіть коректну назву шаблону.".into());
@@ -403,12 +541,17 @@ pub(crate) async fn create_template_from_report_analysis(
     let replacements = ordered_analysis_replacements(replacements);
     let source_for_task = source.clone();
     let destination_for_task = destination.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
         report_generation::create_template_from_literal_replacements(
             &source_for_task,
             &destination_for_task,
             &replacements,
-        )
+        )?;
+        if let Err(error) = ensure_source_matches(&source_for_task, source_fingerprint) {
+            let _ = std::fs::remove_file(&destination_for_task);
+            return Err(error);
+        }
+        Ok(())
     })
     .await
     .map_err(|_| "Не вдалося завершити створення DOCX-шаблону.".to_string())??;
@@ -450,4 +593,55 @@ pub(crate) fn create_validation_example_template(path: &Path) -> Result<(), Stri
         .finish()
         .map_err(|_| "Не вдалося завершити створення тестового шаблону.".to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn person(id: i64, full_name: &str, surname: &str, given_name: &str) -> AnalysisPerson {
+        AnalysisPerson {
+            id,
+            full_name: full_name.into(),
+            surname: surname.into(),
+            given_name: given_name.into(),
+            patronymic: "Тестович".into(),
+            rank: "солдат".into(),
+            position: "оператор".into(),
+        }
+    }
+
+    #[test]
+    fn database_people_receive_stable_slots_in_document_order() {
+        let snapshot = AnalysisDataSnapshot {
+            // Deliberately reverse database order: slots must follow the DOCX.
+            people: vec![
+                person(10, "ІВАНЕНКО Іван Іванович", "ІВАНЕНКО", "Іван"),
+                person(20, "ПЕТРЕНКО Петро Петрович", "ПЕТРЕНКО", "Петро"),
+            ],
+            ..AnalysisDataSnapshot::default()
+        };
+        let text =
+            "ПЕТРЕНКО Петро Петрович виконав завдання. ІВАНЕНКО Іван Іванович прийняв зміну.";
+        let mut proposals = Vec::new();
+
+        detected_database_proposals(&mut proposals, text, &snapshot);
+
+        let petrenko = proposals
+            .iter()
+            .find(|proposal| proposal.value == "ПЕТРЕНКО Петро Петрович")
+            .expect("first person proposal");
+        let ivanenko = proposals
+            .iter()
+            .find(|proposal| proposal.value == "ІВАНЕНКО Іван Іванович")
+            .expect("second person proposal");
+        assert_eq!(petrenko.token, "військовий_1_піб");
+        assert_eq!(ivanenko.token, "військовий_2_піб");
+        assert!(petrenko.category.starts_with("Військовослужбовець 1 ·"));
+        assert!(ivanenko.category.starts_with("Військовослужбовець 2 ·"));
+        assert!(proposals
+            .iter()
+            .filter(|proposal| proposal.token.starts_with("військовий_1_"))
+            .all(|proposal| proposal.category == petrenko.category));
+    }
 }

@@ -1,10 +1,112 @@
 use super::*;
+use std::fs::File;
+use std::sync::OnceLock;
 
 mod commands;
 mod detection;
 
 pub(crate) use commands::*;
 pub(crate) use detection::*;
+
+const SOURCE_FINGERPRINT_OFFSET: u64 = 0xcbf29ce484222325;
+const SOURCE_FINGERPRINT_PRIME: u64 = 0x100000001b3;
+
+fn analysed_source_fingerprints() -> &'static Mutex<HashMap<PathBuf, u64>> {
+    static FINGERPRINTS: OnceLock<Mutex<HashMap<PathBuf, u64>>> = OnceLock::new();
+    FINGERPRINTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// A lightweight in-process fingerprint protects the analyser from writing a
+/// template from a DOCX that Word (or another process) changed after analysis.
+pub(crate) fn source_fingerprint(path: &Path) -> Result<u64, String> {
+    let mut file = File::open(path)
+        .map_err(|_| "Вихідний DOCX більше не доступний. Оберіть файл повторно.".to_string())?;
+    let mut hash = SOURCE_FINGERPRINT_OFFSET;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .map_err(|_| "Не вдалося перевірити вихідний DOCX.".to_string())?;
+        if count == 0 {
+            break;
+        }
+        for byte in &buffer[..count] {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(SOURCE_FINGERPRINT_PRIME);
+        }
+    }
+    Ok(hash)
+}
+
+pub(crate) fn remember_analysed_source(path: &Path, expected: u64) -> Result<(), String> {
+    if source_fingerprint(path)? != expected {
+        return Err(
+            "DOCX змінився під час аналізу. Закрийте його у Word і проаналізуйте повторно.".into(),
+        );
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| "Не вдалося перевірити шлях до вихідного DOCX.".to_string())?;
+    analysed_source_fingerprints()
+        .lock()
+        .map_err(|_| "Не вдалося перевірити стан вихідного DOCX.".to_string())?
+        .insert(canonical, expected);
+    Ok(())
+}
+
+pub(crate) fn ensure_analysed_source_unchanged(path: &Path) -> Result<u64, String> {
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| "Вихідний DOCX більше не доступний. Оберіть файл повторно.".to_string())?;
+    let expected = analysed_source_fingerprints()
+        .lock()
+        .map_err(|_| "Не вдалося перевірити стан вихідного DOCX.".to_string())?
+        .get(&canonical)
+        .copied()
+        .ok_or_else(|| "Спочатку повторно проаналізуйте вихідний DOCX.".to_string())?;
+    if source_fingerprint(path)? != expected {
+        return Err(
+            "Вихідний DOCX змінився після аналізу. Проаналізуйте його повторно перед збереженням."
+                .into(),
+        );
+    }
+    Ok(expected)
+}
+
+pub(crate) fn ensure_source_matches(path: &Path, expected: u64) -> Result<(), String> {
+    if source_fingerprint(path)? == expected {
+        Ok(())
+    } else {
+        Err(
+            "Вихідний DOCX змінився під час підготовки шаблону. Проаналізуйте його повторно."
+                .into(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+
+    #[test]
+    fn analysis_rejects_a_source_changed_after_fingerprinting() {
+        let path = std::env::temp_dir().join(format!(
+            "shablonizator-analysis-source-{}-{}.docx",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::write(&path, b"first version").expect("write source");
+        let fingerprint = source_fingerprint(&path).expect("fingerprint source");
+        remember_analysed_source(&path, fingerprint).expect("remember source");
+        fs::write(&path, b"changed version").expect("change source");
+
+        assert!(ensure_analysed_source_unchanged(&path).is_err());
+        let _ = fs::remove_file(path);
+    }
+}
 
 pub(crate) fn ordered_analysis_replacements(
     items: Vec<TemplateAnalysisReplacement>,

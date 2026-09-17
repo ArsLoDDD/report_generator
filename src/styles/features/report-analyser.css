@@ -135,6 +135,26 @@
 	font-size: 12px;
 	white-space: nowrap;
 }
+.analyser-preview-status {
+	border: 1px solid #35505e;
+	border-radius: 999px;
+	padding: 3px 7px;
+	color: #9fb1bb;
+	font-size: 10px;
+	white-space: nowrap;
+}
+.analyser-preview-status--loading {
+	border-color: #826d35;
+	color: #e4bc62;
+}
+.analyser-preview-status--ready {
+	border-color: #2f783a;
+	color: #68d86c;
+}
+.analyser-preview-status--error {
+	border-color: #813b3b;
+	color: #ff8585;
+}
 .analyser-editor__text {
 	width: 100%;
 	min-height: 0;
@@ -363,6 +383,23 @@
 .analyser-proposal-group--medium > header b {
 	color: #e4bc62;
 }
+.analyser-proposal-category + .analyser-proposal-category {
+	margin-top: 12px;
+}
+.analyser-proposal-category > h3 {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin: 0 2px 7px;
+	color: #b9c7ce;
+	font-size: 11px;
+	font-weight: 650;
+}
+.analyser-proposal-category > h3 span {
+	color: #718792;
+	font-size: 10px;
+}
 .persistent-screen {
 	height: 100%;
 	min-height: 0;
@@ -386,4 +423,3 @@
 	height: auto;
 	min-height: 640px;
 }
-

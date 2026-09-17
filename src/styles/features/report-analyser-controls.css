@@ -25,6 +25,11 @@
 	height: 16px;
 	accent-color: #42b84a;
 }
+.analyser-proposal input:focus-visible,
+.analyser-proposal__alternatives button:focus-visible {
+	outline: 2px solid #68d86c;
+	outline-offset: 2px;
+}
 .analyser-proposal span {
 	display: block;
 	margin-bottom: 4px;
@@ -149,4 +154,3 @@
 		min-height: 540px;
 	}
 }
-
