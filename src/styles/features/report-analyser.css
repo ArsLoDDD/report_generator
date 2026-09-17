@@ -405,7 +405,7 @@
 	height: 100%;
 	min-height: 0;
 }
-.constructor-modal .modal-panel {
+.modal-panel.constructor-modal {
 	width: min(1480px, calc(100vw - 40px));
 	height: min(920px, calc(100vh - 32px));
 	grid-template-rows: auto minmax(0, 1fr);
@@ -445,7 +445,7 @@
 	overflow-x: visible;
 }
 @media (max-width: 980px) {
-	.constructor-modal .modal-panel {
+	.modal-panel.constructor-modal {
 		width: calc(100vw - 24px);
 		height: calc(100vh - 24px);
 	}

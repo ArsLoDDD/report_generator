@@ -158,7 +158,8 @@ pub(crate) fn flight_plan_location_schedule(
     connection: &Connection,
     plan_date: &str,
 ) -> Result<Option<Vec<FlightPlanLocationSchedule>>, String> {
-    let snapshot = connection
+    let mut inferred_from_next_day = false;
+    let mut snapshot = connection
         .query_row(
             "SELECT snapshot_json FROM flight_plan_snapshots
              WHERE plan_date=?1 ORDER BY revision DESC LIMIT 1",
@@ -167,13 +168,43 @@ pub(crate) fn flight_plan_location_schedule(
         )
         .optional()
         .map_err(|_| "Не вдалося прочитати знімок плану для синхронізації БЧС.".to_string())?;
+    if snapshot.is_none() {
+        let next_date = parse_plan_date(plan_date)? + Duration::days(1);
+        snapshot = connection
+            .query_row(
+                "SELECT snapshot_json FROM flight_plan_snapshots
+                 WHERE plan_date=?1 ORDER BY revision DESC LIMIT 1",
+                [next_date.format("%Y-%m-%d").to_string()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|_| "Не вдалося прочитати завтрашній план для підтвердження поточного складу на позиціях.".to_string())?;
+        inferred_from_next_day = snapshot.is_some();
+    }
     let Some(snapshot) = snapshot else {
         return Ok(None);
     };
     let request: StoredLocationRequest = serde_json::from_str(&snapshot)
         .map_err(|_| "Збережений знімок плану польотів пошкоджено.".to_string())?;
+    let mut first_crews = std::collections::HashSet::new();
+    let arriving_crews = request
+        .entries
+        .iter()
+        .filter(|entry| first_crews.insert(entry.crew_id) && entry.arrives_today)
+        .map(|entry| entry.crew_id)
+        .collect::<std::collections::HashSet<_>>();
     let mut schedules = Vec::<FlightPlanLocationSchedule>::new();
     for entry in request.entries {
+        if inferred_from_next_day && arriving_crews.contains(&entry.crew_id) {
+            continue;
+        }
+        if inferred_from_next_day
+            && schedules
+                .iter()
+                .any(|schedule| schedule.crew_id == entry.crew_id)
+        {
+            continue;
+        }
         if let Some(schedule) = schedules
             .iter_mut()
             .find(|schedule| schedule.crew_id == entry.crew_id)
@@ -188,11 +219,19 @@ pub(crate) fn flight_plan_location_schedule(
             crew_id: entry.crew_id,
             stages: vec![FlightPlanLocationStage {
                 member_ids: entry.actual_member_ids,
-                start_time: entry.start_time,
+                start_time: if inferred_from_next_day {
+                    "00:00".into()
+                } else {
+                    entry.start_time
+                },
             }],
-            arrives_on_plan_date: entry.arrives_today,
-            departs_on_plan_date: entry.departs_today,
-            departure_time: entry.departure_time,
+            arrives_on_plan_date: !inferred_from_next_day && entry.arrives_today,
+            departs_on_plan_date: !inferred_from_next_day && entry.departs_today,
+            departure_time: if inferred_from_next_day {
+                String::new()
+            } else {
+                entry.departure_time
+            },
         });
     }
     Ok(Some(schedules))
@@ -956,6 +995,27 @@ mod tests {
             .unwrap();
         assert!(outgoing.departs_today);
         assert_eq!(outgoing.departure_time, "19:00");
+    }
+
+    #[test]
+    fn missing_today_plan_uses_only_crews_already_present_in_tomorrow_plan() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json) VALUES('2026-09-18',1,?1)",
+            [serde_json::json!({"entries":[
+                {"crewId":1,"actualMemberIds":[10,11],"startTime":"05:00","arrivesToday":false},
+                {"crewId":2,"actualMemberIds":[20,21],"startTime":"19:00","arrivesToday":true}
+            ]}).to_string()],
+        ).unwrap();
+        let schedules = flight_plan_location_schedule(&connection, "2026-09-17")
+            .unwrap()
+            .unwrap();
+        assert_eq!(schedules.len(), 1);
+        assert_eq!(schedules[0].crew_id, 1);
+        assert_eq!(schedules[0].stages[0].member_ids, vec![10, 11]);
+        assert_eq!(schedules[0].stages[0].start_time, "00:00");
+        assert!(!schedules[0].arrives_on_plan_date);
     }
 
     #[test]
