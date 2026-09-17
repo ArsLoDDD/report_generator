@@ -51,6 +51,41 @@ describe("Поля автозаповнення", () => {
     expect(screen.getByText("{{військовий_2_піб:родовий:жирним}}")).toBeInTheDocument();
   });
 
+  it("clears a selected field when its source or subject changes", () => {
+    renderPicker();
+    fireEvent.change(screen.getByRole("textbox", { name: /Наприклад/ }), { target: { value: "ПІБ" } });
+    fireEvent.click(screen.getByRole("button", { name: "ПІБ, Військовослужбовець" }));
+    expect(screen.getByRole("button", { name: "Скопіювати поле" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Запитати під час створення/ }));
+    expect(screen.getByText("Оберіть потрібне поле")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Скопіювати поле" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Усі поля/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: /Наприклад/ }), { target: { value: "ПІБ" } });
+    fireEvent.click(screen.getByRole("button", { name: "ПІБ, Військовослужбовець" }));
+    fireEvent.click(screen.getByRole("button", { name: "Автомобіль" }));
+    expect(screen.getByText("Оберіть потрібне поле")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Скопіювати поле" })).not.toBeInTheDocument();
+  });
+
+  it("normalises object numbers to positive integers before creating a token", () => {
+    renderPicker();
+    fireEvent.change(screen.getByRole("textbox", { name: /Наприклад/ }), { target: { value: "ПІБ" } });
+    fireEvent.click(screen.getByRole("button", { name: "ПІБ, Військовослужбовець" }));
+    const numberInput = screen.getByLabelText("Номер вибраного об’єкта");
+    expect(numberInput).toHaveAttribute("step", "1");
+
+    fireEvent.change(numberInput, { target: { value: "2.9" } });
+    expect(numberInput).toHaveValue(2);
+    fireEvent.click(screen.getByText("Додатково: технічний код"));
+    expect(screen.getByText("{{військовий_2_піб}}")).toBeInTheDocument();
+
+    fireEvent.change(numberInput, { target: { value: "-7" } });
+    expect(numberInput).toHaveValue(1);
+    expect(screen.getByText("{{військовий_1_піб}}")).toBeInTheDocument();
+  });
+
   it("includes stable custom fields under accounting instead of making them subjects", async () => {
     personnelService.listCustomFields.mockResolvedValue([{ fieldKey: "unit_code", displayName: "Код підрозділу", description: "Код", initialValue: "А0000" }]);
     renderPicker();

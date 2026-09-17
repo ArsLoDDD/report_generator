@@ -35,6 +35,10 @@ const sourceOptions: Array<{ id: PickerSource; label: string; hint: string; icon
   { id: "signers", label: "Підписанти", hint: "Дані з параметрів програми", icon: Signature },
 ];
 
+function positiveInteger(value: number) {
+  return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1;
+}
+
 const fromField = (
   field: { id: string; name: string; description?: string; example: string; kind: string; cases: boolean },
   options: Omit<PickerVariable, keyof VariableDefinition | "id"> & { id: string },
@@ -151,12 +155,20 @@ export function AutoFillFieldPicker({ embedded = false, mode = "copy", onApply }
       && (!needle || `${item.name} ${item.description} ${item.subjectLabel}`.toLocaleLowerCase("uk-UA").includes(needle)));
   }, [query, source, subjectId, variables]);
   const selected = variables.find((item) => item.id === selectedId);
+  const normalisedItemNumber = positiveInteger(itemNumber);
   const variableId = !selected ? "" : selected.numberedPrefix
-    ? selected.id.replace(`${selected.numberedPrefix}_1_`, `${selected.numberedPrefix}_${Math.max(1, itemNumber)}_`)
+    ? selected.id.replace(`${selected.numberedPrefix}_1_`, `${selected.numberedPrefix}_${normalisedItemNumber}_`)
     : selected.parameterNumberable && Number(parameterNumber) > 0 ? `${selected.id}_${Math.floor(Number(parameterNumber))}` : selected.id;
   const token = selected ? tokenFor(variableId, modifiers) : "";
 
-  const chooseSource = (next: PickerSource) => { setSource(next); setSubjectId("all"); };
+  const resetVariableSelection = () => {
+    setSelectedId("");
+    setModifiers([]);
+    setItemNumber(1);
+    setParameterNumber("");
+  };
+  const chooseSource = (next: PickerSource) => { setSource(next); setSubjectId("all"); resetVariableSelection(); };
+  const chooseSubject = (next: string) => { setSubjectId(next); resetVariableSelection(); };
   const chooseVariable = (id: string) => { setSelectedId(id); setModifiers([]); };
   const toggleModifier = (id: string) => setModifiers((current) => {
     const group = modifierRegistry.find((item) => item.id === id)?.group;
@@ -178,12 +190,12 @@ export function AutoFillFieldPicker({ embedded = false, mode = "copy", onApply }
       <header className="autofill-picker__intro"><div><h2>Які дані мають бути тут?</h2><p>Знайдіть поле за звичною назвою. Технічний код програма складе сама.</p></div><span>{filtered.length} полів</span></header>
       <SearchInput placeholder="Наприклад: ПІБ, звання, дата рапорту…" value={query} onChange={setQuery} />
       <div className="autofill-sources" role="tablist" aria-label="Джерело даних">{sourceOptions.map(({ id, label, hint, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={source === id} className={source === id ? "active" : ""} onClick={() => chooseSource(id)}><Icon /><span><b>{label}</b><small>{hint}</small></span></button>)}</div>
-      {subjectOptions.length > 1 && <div className="autofill-subjects" aria-label="Тип даних"><button type="button" className={subjectId === "all" ? "active" : ""} onClick={() => setSubjectId("all")}>Усе</button>{subjectOptions.map(([id, label]) => <button type="button" key={id} className={subjectId === id ? "active" : ""} onClick={() => setSubjectId(id)}>{label}</button>)}</div>}
+      {subjectOptions.length > 1 && <div className="autofill-subjects" aria-label="Тип даних"><button type="button" className={subjectId === "all" ? "active" : ""} onClick={() => chooseSubject("all")}>Усе</button>{subjectOptions.map(([id, label]) => <button type="button" key={id} className={subjectId === id ? "active" : ""} onClick={() => chooseSubject(id)}>{label}</button>)}</div>}
       <div className="autofill-fields">{filtered.map((item) => <button type="button" key={item.id} aria-label={`${item.name}, ${item.subjectLabel}`} className={selectedId === item.id ? "autofill-field active" : "autofill-field"} onClick={() => chooseVariable(item.id)}><span><small>{item.subjectLabel}</small><b>{item.name}</b></span><p>{item.description}</p><ChevronRight /></button>)}{filtered.length === 0 && <div className="autofill-empty"><Search /><b>Нічого не знайдено</b><span>Спробуйте коротшу назву або оберіть інше джерело.</span></div>}</div>
     </main>
     <aside className="panel autofill-picker__settings">{selected ? <>
       <header><small>{selected.subjectLabel}</small><h3>{selected.name}</h3><p>{selected.description}</p></header>
-      {selected.numberedPrefix && <label className="autofill-order">Кого або що підставити?<small>Номер відповідає порядку вибору під час генерації.</small><span><button type="button" onClick={() => setItemNumber(Math.max(1, itemNumber - 1))}>−</button><input aria-label="Номер вибраного об’єкта" type="number" min="1" value={itemNumber} onChange={(event) => setItemNumber(Math.max(1, Number(event.target.value) || 1))} /><button type="button" onClick={() => setItemNumber(itemNumber + 1)}>+</button></span></label>}
+      {selected.numberedPrefix && <label className="autofill-order">Кого або що підставити?<small>Номер відповідає порядку вибору під час генерації.</small><span><button type="button" onClick={() => setItemNumber(positiveInteger(itemNumber - 1))}>−</button><input aria-label="Номер вибраного об’єкта" type="number" min="1" step="1" value={normalisedItemNumber} onChange={(event) => setItemNumber(positiveInteger(Number(event.target.value)))} /><button type="button" onClick={() => setItemNumber(positiveInteger(itemNumber + 1))}>+</button></span></label>}
       {selected.parameterNumberable && <label className="autofill-parameter-number">Окремий номер значення <small>Залиште порожнім, якщо це поле в документі лише одне.</small><input aria-label="Номер значення параметра" type="number" min="1" value={parameterNumber} onChange={(event) => setParameterNumber(event.target.value)} placeholder="Необов’язково" /></label>}
       <section className="autofill-modifiers"><h4>Як написати значення</h4>{(["case", "text", "style"] as const).map((group) => {
         const choices = modifierRegistry.filter((item) => item.group === group);
