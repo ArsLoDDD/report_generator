@@ -281,6 +281,8 @@ type AutomaticContext = (
     String,
     Option<i64>,
     String,
+    String,
+    String,
 );
 
 fn active_manual_assignment(
@@ -317,6 +319,16 @@ fn automatic_context(
     connection: &Connection,
     personnel_id: i64,
 ) -> Result<AutomaticContext, String> {
+    let flight_plan_date = connection
+        .query_row(
+            "SELECT plan_date FROM flight_plan_personnel_locations
+             WHERE personnel_id=?1 LIMIT 1",
+            [personnel_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|_| "Не вдалося визначити дату плану польотів.".to_string())?
+        .unwrap_or_default();
     let crew = connection
         .query_row(
             "SELECT crew.id,crew.name,
@@ -351,7 +363,8 @@ fn automatic_context(
         .map_err(|_| "Не вдалося визначити екіпаж військовослужбовця.".to_string())?;
     let work = connection
         .query_row(
-            "SELECT work.id,work.work_type,work.position_id,position.name
+            "SELECT work.id,work.work_type,work.position_id,position.name,
+                    work.start_date,work.end_date
              FROM position_work_members member
              JOIN position_work work ON work.id=member.work_id
              JOIN positions position ON position.id=work.position_id
@@ -364,6 +377,8 @@ fn automatic_context(
                     row.get::<_, String>(1)?,
                     row.get::<_, i64>(2)?,
                     row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
                 ))
             },
         )
@@ -372,7 +387,14 @@ fn automatic_context(
     Ok(match (crew, work) {
         (
             Some((crew_id, crew_name, _position_id, _position_name)),
-            Some((work_id, work_type, work_position_id, work_position_name)),
+            Some((
+                work_id,
+                work_type,
+                work_position_id,
+                work_position_name,
+                work_start_date,
+                work_end_date,
+            )),
         ) => (
             Some(crew_id),
             crew_name,
@@ -380,6 +402,8 @@ fn automatic_context(
             work_position_name,
             Some(work_id),
             work_type,
+            work_start_date,
+            work_end_date,
         ),
         (Some((crew_id, crew_name, position_id, position_name)), None) => (
             Some(crew_id),
@@ -388,14 +412,18 @@ fn automatic_context(
             position_name,
             None,
             String::new(),
+            flight_plan_date.clone(),
+            flight_plan_date,
         ),
-        (None, Some((work_id, work_type, position_id, position_name))) => (
+        (None, Some((work_id, work_type, position_id, position_name, start_date, end_date))) => (
             None,
             String::new(),
             Some(position_id),
             position_name,
             Some(work_id),
             work_type,
+            start_date,
+            end_date,
         ),
         (None, None) => (
             None,
@@ -404,6 +432,8 @@ fn automatic_context(
             String::new(),
             None,
             String::new(),
+            flight_plan_date.clone(),
+            flight_plan_date,
         ),
     })
 }
@@ -511,19 +541,34 @@ fn personnel_control_records(
                     "automatic" => "Автоматично з БЧС і плану польотів",
                     _ => "Стан із БЧС",
                 };
-                let (crew_id, crew_name, position_id, position_name, work_id, work_type) =
-                    if automatic {
-                        automatic_context(connection, personnel_id)?
-                    } else {
-                        (
-                            None,
-                            String::new(),
-                            None,
-                            String::new(),
-                            None,
-                            String::new(),
-                        )
-                    };
+                let (
+                    crew_id,
+                    crew_name,
+                    position_id,
+                    position_name,
+                    work_id,
+                    work_type,
+                    automatic_start_date,
+                    automatic_end_date,
+                ) = if automatic {
+                    automatic_context(connection, personnel_id)?
+                } else {
+                    (
+                        None,
+                        String::new(),
+                        None,
+                        String::new(),
+                        None,
+                        String::new(),
+                        String::new(),
+                        String::new(),
+                    )
+                };
+                let (start_date, end_date) = if automatic {
+                    (automatic_start_date, automatic_end_date)
+                } else {
+                    (start_date, end_date)
+                };
                 Ok(PersonnelControlRecord {
                     personnel_id,
                     full_name,
@@ -981,6 +1026,8 @@ mod tests {
         assert_eq!(record.tab, "На позиції");
         assert_eq!(record.location_type, "ЗБЗ");
         assert_eq!(record.source, "automatic");
+        assert_eq!(record.start_date, "2026-09-17");
+        assert_eq!(record.end_date, "2026-09-17");
         assert!(!record.can_edit);
         assert!(save_assignment(
             &connection,
@@ -989,6 +1036,44 @@ mod tests {
             NaiveDate::from_ymd_opt(2026, 9, 17).unwrap()
         )
         .is_err());
+    }
+
+    #[test]
+    fn active_position_work_exposes_its_real_date_range() {
+        let connection = connection();
+        connection
+            .execute("INSERT INTO positions(id,name) VALUES(1,'САПСАН')", [])
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO position_work(
+                id,position_id,work_type,status,start_date,start_time,end_date,end_time
+             ) VALUES(10,1,'Облаштування','Продовжують','2026-09-15','08:00','2026-09-20','18:00')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO position_work_members(work_id,personnel_id) VALUES(10,1)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE personnel SET current_location='Реко та облаштування' WHERE id=1",
+                [],
+            )
+            .unwrap();
+
+        let record = personnel_control_records(&connection, "2026-09-17")
+            .unwrap()
+            .remove(0);
+
+        assert_eq!(record.source, "automatic");
+        assert_eq!(record.work_id, Some(10));
+        assert_eq!(record.work_type, "Облаштування");
+        assert_eq!(record.start_date, "2026-09-15");
+        assert_eq!(record.end_date, "2026-09-20");
     }
 
     #[test]
