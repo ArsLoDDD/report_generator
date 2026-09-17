@@ -1,7 +1,7 @@
 import type { PersonnelControlDraft, PersonnelControlRecord } from "./types";
 import { isOperationallyAvailable } from "../operations/bcs-model";
 
-export const MANUAL_PERSONNEL_LOCATIONS = ["ПУ", "ШТАБ", "УПР", "КСП Роти", "ЗАБ", "ГШР", "ЗХВ", "ВІДП", "НАВЧ", "ВІДР", "ЛІК", "Відкомандировані", "ОХП", "Прикомандирований", "СЗЧ", "ПТЗ Новостав", "Логістика на позиції"] as const;
+export const MANUAL_PERSONNEL_LOCATIONS = ["ПУ", "ШТАБ", "УПР", "КСП Роти", "ЗАБ", "ЗХВ", "ВІДП", "НАВЧ", "ВІДР", "ЛІК", "Відкомандировані", "СЗЧ", "ПТЗ Новостав"] as const;
 export const POSITION_AND_WORK_LOCATIONS = [
   "На позиції",
   "ЗБЗ",
@@ -26,13 +26,31 @@ export const PERSONNEL_CONTROL_TAB_ORDER = [
   "ВІДР",
   "ЛІК",
   "Відкомандировані",
-  "ОХП",
-  "Прикомандирований",
   "СЗЧ",
   "ПТЗ Новостав",
-  "Логістика на позиції",
   "Не вказано",
 ] as const;
+
+const LOCATIONS_WITHOUT_INSTITUTION = ["СЗЧ"] as const;
+const LOCATIONS_WITHOUT_END_DATE = ["ПУ", "ШТАБ", "УПР", "КСП Роти", "ЗАБ", "СЗЧ"] as const;
+const LOCATIONS_REQUIRING_INSTITUTION = ["НАВЧ", "ВІДР", "ЛІК", "Відкомандировані"] as const;
+const LOCATIONS_REQUIRING_END_DATE = ["НАВЧ", "ВІДП"] as const;
+
+export function personnelLocationShowsInstitution(location: string) {
+  return !LOCATIONS_WITHOUT_INSTITUTION.includes(location as typeof LOCATIONS_WITHOUT_INSTITUTION[number]);
+}
+
+export function personnelLocationRequiresInstitution(location: string) {
+  return LOCATIONS_REQUIRING_INSTITUTION.includes(location as typeof LOCATIONS_REQUIRING_INSTITUTION[number]);
+}
+
+export function personnelLocationShowsEndDate(location: string) {
+  return !LOCATIONS_WITHOUT_END_DATE.includes(location as typeof LOCATIONS_WITHOUT_END_DATE[number]);
+}
+
+export function personnelLocationRequiresEndDate(location: string) {
+  return LOCATIONS_REQUIRING_END_DATE.includes(location as typeof LOCATIONS_REQUIRING_END_DATE[number]);
+}
 
 export function todayLocal(now = new Date()) {
   const year = now.getFullYear();
@@ -64,12 +82,12 @@ export function validatePersonnelControlDraft(draft: PersonnelControlDraft) {
   const errors: Partial<Record<keyof PersonnelControlDraft, string>> = {};
   if (!draft.personnelId) errors.personnelId = "Оберіть військовослужбовця.";
   if (!MANUAL_PERSONNEL_LOCATIONS.includes(draft.locationType)) errors.locationType = "Оберіть тип перебування.";
-  if (["НАВЧ", "ВІДР", "ЛІК"].includes(draft.locationType) && !draft.institution.trim()) errors.institution = "Вкажіть заклад або місце перебування.";
+  if (personnelLocationRequiresInstitution(draft.locationType) && !draft.institution.trim()) errors.institution = "Вкажіть заклад або місце перебування.";
   if (!draft.startDate) errors.startDate = "Вкажіть дату початку.";
   else if (draft.startDate > todayLocal()) errors.startDate = "Дата початку не може бути пізніше за сьогодні.";
-  if (draft.locationType === "НАВЧ" && !draft.endDate) errors.endDate = "Для навчання вкажіть дату завершення.";
-  if (draft.startDate && draft.endDate && draft.endDate < draft.startDate) errors.endDate = "Дата завершення не може бути раніше початку.";
-  else if (draft.endDate && draft.endDate < todayLocal()) errors.endDate = "Активний запис не може завершуватися раніше за сьогодні.";
+  if (personnelLocationRequiresEndDate(draft.locationType) && !draft.endDate) errors.endDate = "Для цього стану вкажіть дату завершення.";
+  if (personnelLocationShowsEndDate(draft.locationType) && draft.startDate && draft.endDate && draft.endDate < draft.startDate) errors.endDate = "Дата завершення не може бути раніше початку.";
+  else if (personnelLocationShowsEndDate(draft.locationType) && draft.endDate && draft.endDate < todayLocal()) errors.endDate = "Активний запис не може завершуватися раніше за сьогодні.";
   return errors;
 }
 

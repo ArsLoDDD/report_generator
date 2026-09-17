@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blocksManualPersonnelAssignment, controlPeriod, controlTabs, formatControlDateTime, validatePersonnelControlDraft } from "./personnel-control-model";
+import { blocksManualPersonnelAssignment, controlPeriod, controlTabs, formatControlDateTime, MANUAL_PERSONNEL_LOCATIONS, personnelLocationRequiresEndDate, personnelLocationRequiresInstitution, personnelLocationShowsEndDate, personnelLocationShowsInstitution, validatePersonnelControlDraft } from "./personnel-control-model";
 import type { PersonnelControlRecord } from "./types";
 
 const record = (tab: string, locationType = tab): PersonnelControlRecord => ({
@@ -32,10 +32,19 @@ describe("personnel control model", () => {
     expect(controlTabs([record("ЛІК"), record("На позиції", "ЗБЗ"), record("Інше місце")])).toEqual(["На позиції", "ЛІК", "Інше місце"]);
   });
 
-  it("requires an end date only for training and validates chronology", () => {
+  it("applies the field requirements for each manual location", () => {
     expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "НАВЧ", institution: "Центр", startDate: "2026-09-17", endDate: "", notes: "" })).toMatchObject({ endDate: expect.any(String) });
+    expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "ВІДП", institution: "", startDate: "2026-09-17", endDate: "", notes: "" })).toMatchObject({ endDate: expect.any(String) });
+    expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "Відкомандировані", institution: "", startDate: "2026-09-17", endDate: "", notes: "" })).toMatchObject({ institution: expect.any(String) });
     expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "ВІДР", institution: "Київ", startDate: "2026-09-17", endDate: "", notes: "" })).toEqual({});
     expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "ЛІК", institution: "Шпиталь", startDate: "2026-09-17", endDate: "2026-09-16", notes: "" })).toMatchObject({ endDate: expect.any(String) });
+    expect(personnelLocationShowsEndDate("ПУ")).toBe(false);
+    expect(personnelLocationShowsEndDate("ЗХВ")).toBe(true);
+    expect(personnelLocationRequiresEndDate("НАВЧ")).toBe(true);
+    expect(personnelLocationRequiresEndDate("ВІДП")).toBe(true);
+    expect(personnelLocationShowsInstitution("СЗЧ")).toBe(false);
+    expect(personnelLocationRequiresInstitution("Відкомандировані")).toBe(true);
+    expect(MANUAL_PERSONNEL_LOCATIONS).not.toEqual(expect.arrayContaining(["ГШР", "ОХП", "Прикомандирований", "Логістика на позиції"]));
   });
 
   it("does not allow a manual state to overwrite absence or position ownership", () => {

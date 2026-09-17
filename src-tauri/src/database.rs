@@ -109,6 +109,12 @@ pub(crate) fn normalize_staff_positions(connection: &Connection) -> Result<(), S
 
 fn normalize_bcs_locations(connection: &Connection) -> Result<(), String> {
     for table in ["personnel", "temporary_personnel"] {
+        connection
+            .execute(
+                &format!("UPDATE {table} SET current_location='ОХ' WHERE current_location='Прикомандирований'"),
+                [],
+            )
+            .map_err(|e| e.to_string())?;
         let query = format!(
             "SELECT DISTINCT current_location FROM {table} WHERE trim(current_location)<>''"
         );

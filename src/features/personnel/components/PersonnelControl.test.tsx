@@ -155,7 +155,7 @@ describe("PersonnelControl", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: new RegExp(person.fullName, "u") }));
     fireEvent.change(screen.getByLabelText("Навчальний заклад"), { target: { value: "Центр підготовки" } });
     fireEvent.click(screen.getByRole("button", { name: "Зберегти" }));
-    expect(await screen.findByText("Для навчання вкажіть дату завершення.")).toBeInTheDocument();
+    expect(await screen.findByText("Для цього стану вкажіть дату завершення.")).toBeInTheDocument();
     expect(invoke).not.toHaveBeenCalledWith("save_personnel_control_assignment", expect.anything());
   });
 
@@ -166,10 +166,23 @@ describe("PersonnelControl", () => {
     expect(screen.getByText("Немає доступних військовослужбовців.")).toBeInTheDocument();
   });
 
-  it("offers a legacy GШР state because it is now managed through personnel control", async () => {
+  it("does not offer deferred automatic states in the manual location list", async () => {
     renderControl([bcsPosition]);
     fireEvent.click(await screen.findByRole("button", { name: "Розподілити особовий склад" }));
     expect(screen.getByRole("checkbox", { name: new RegExp(person.fullName, "u") })).toBeEnabled();
+    expect(screen.queryByRole("option", { name: "ГШР" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "ОХП" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Логістика на позиції" })).not.toBeInTheDocument();
+  });
+
+  it("hides fields that do not apply to a permanent post or AWOL", async () => {
+    renderControl([]);
+    fireEvent.click(await screen.findByRole("button", { name: "Розподілити особовий склад" }));
+    fireEvent.change(screen.getByLabelText("Тип перебування"), { target: { value: "ПУ" } });
+    expect(screen.queryByLabelText("По яке число")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Тип перебування"), { target: { value: "СЗЧ" } });
+    expect(screen.queryByLabelText("По яке число")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Місце / уточнення")).not.toBeInTheDocument();
   });
 
   it("closes a manual record instead of deleting its history", async () => {

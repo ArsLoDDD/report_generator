@@ -343,19 +343,27 @@
 
 .personnel-control-editor__people {
 	margin: 0;
-	padding: 0;
-	border: 0;
+	padding: 12px;
+	border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+	border-radius: 14px;
+	background: color-mix(in srgb, var(--accent) 4%, var(--surface-soft));
+	box-shadow: inset 0 -18px 24px -26px var(--text);
 }
 .personnel-control-editor__people legend {
-	margin-bottom: 8px;
-	color: var(--muted);
+	padding: 0 7px;
+	color: var(--text);
+	font-weight: 700;
 }
-.personnel-control-editor__people > div {
+.personnel-control-editor__people-list {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 	gap: 8px;
-	max-height: 260px;
-	overflow: auto;
+	max-height: 280px;
+	padding: 3px 5px 10px 3px;
+	overflow-y: auto;
+	scrollbar-gutter: stable;
+	overscroll-behavior: contain;
+	border-bottom: 1px solid var(--border);
 }
 .personnel-control-editor__people label {
 	display: flex;
@@ -374,6 +382,12 @@
 .personnel-control-editor__people input { margin-top: 3px; }
 .personnel-control-editor__people span { display: grid; min-width: 0; }
 .personnel-control-editor__people small { color: var(--muted); }
+.personnel-control-editor__scroll-hint {
+	display: block;
+	padding: 9px 3px 0;
+	text-align: center;
+	font-size: 12px;
+}
 
 .personnel-control-close {
 	width: min(560px, calc(100vw - 32px));

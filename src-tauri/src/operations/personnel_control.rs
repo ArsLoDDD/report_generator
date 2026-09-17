@@ -5,24 +5,20 @@ use crate::AppState;
 use chrono::{Local, NaiveDate};
 use rusqlite::{params, Connection, OptionalExtension};
 
-const MANUAL_LOCATIONS: [&str; 17] = [
+const MANUAL_LOCATIONS: [&str; 13] = [
     "ПУ",
     "ШТАБ",
     "УПР",
     "КСП Роти",
     "ЗАБ",
-    "ГШР",
     "ЗХВ",
     "ВІДП",
     "НАВЧ",
     "ВІДР",
     "ЛІК",
     "Відкомандировані",
-    "ОХП",
-    "Прикомандирований",
     "СЗЧ",
     "ПТЗ Новостав",
-    "Логістика на позиції",
 ];
 const POSITION_LOCATIONS: [&str; 3] = ["На позиції", "ЗБЗ", "ПБЗ"];
 const POSITION_TAB_LOCATIONS: [&str; 5] =
@@ -64,7 +60,8 @@ fn validate_draft(
     if !is_manual_control_location(location) {
         return Err("Цей стан змінюється автоматично у відповідному робочому розділі.".into());
     }
-    if ["НАВЧ", "ВІДР", "ЛІК"].contains(&location) && draft.institution.trim().is_empty()
+    if ["НАВЧ", "ВІДР", "ЛІК", "Відкомандировані"].contains(&location)
+        && draft.institution.trim().is_empty()
     {
         return Err("Вкажіть заклад або установу, де перебуває військовослужбовець.".into());
     }
@@ -72,13 +69,13 @@ fn validate_draft(
     if start > local_today {
         return Err("Дата початку не може бути пізніше за сьогодні. Заплановані переміщення слід фіксувати після їх фактичного початку.".into());
     }
-    let end = if draft.end_date.trim().is_empty() {
+    let end = if !location_shows_end_date(location) || draft.end_date.trim().is_empty() {
         None
     } else {
         Some(parse_date(&draft.end_date, "Дата завершення")?)
     };
-    if location == "НАВЧ" && end.is_none() {
-        return Err("Для навчання обов’язково вкажіть дату завершення.".into());
+    if ["НАВЧ", "ВІДП"].contains(&location) && end.is_none() {
+        return Err("Для цього стану обов’язково вкажіть дату завершення.".into());
     }
     if let Some(end) = end {
         if end < start {
@@ -89,6 +86,14 @@ fn validate_draft(
         }
     }
     Ok((start, end))
+}
+
+fn location_shows_institution(location: &str) -> bool {
+    location != "СЗЧ"
+}
+
+fn location_shows_end_date(location: &str) -> bool {
+    !["ПУ", "ШТАБ", "УПР", "КСП Роти", "ЗАБ", "СЗЧ"].contains(&location)
 }
 
 fn active_position_work(connection: &Connection, personnel_id: i64) -> bool {
@@ -634,6 +639,15 @@ fn save_assignment(
     local_today: NaiveDate,
 ) -> Result<i64, String> {
     let (start, end) = validate_draft(draft, local_today)?;
+    let location = draft.location_type.trim();
+    let institution = if location_shows_institution(location) {
+        draft.institution.trim()
+    } else {
+        ""
+    };
+    let end_date = end
+        .map(|value| value.format("%Y-%m-%d").to_string())
+        .unwrap_or_default();
     let transaction = connection
         .unchecked_transaction()
         .map_err(|_| "Не вдалося почати збереження переміщення.".to_string())?;
@@ -688,7 +702,7 @@ fn save_assignment(
             "Вказаний період перетинається з іншим переміщенням військовослужбовця.".into(),
         );
     }
-    let until_separate_order = draft.location_type.trim() == "ВІДР" && end.is_none();
+    let until_separate_order = location == "ВІДР" && end.is_none();
     let previous_location = existing
         .as_ref()
         .map(|item| item.2.clone())
@@ -701,10 +715,10 @@ fn save_assignment(
                      until_separate_order=?5,notes=?6,updated_at=CURRENT_TIMESTAMP
                  WHERE id=?7 AND closed_at IS NULL",
                 params![
-                    draft.location_type.trim(),
-                    draft.institution.trim(),
+                    location,
+                    institution,
                     draft.start_date.trim(),
-                    draft.end_date.trim(),
+                    end_date,
                     until_separate_order,
                     draft.notes.trim(),
                     id
@@ -721,10 +735,10 @@ fn save_assignment(
                  ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
                 params![
                     draft.personnel_id,
-                    draft.location_type.trim(),
-                    draft.institution.trim(),
+                    location,
+                    institution,
                     draft.start_date.trim(),
-                    draft.end_date.trim(),
+                    end_date,
                     until_separate_order,
                     draft.notes.trim(),
                     previous_location
@@ -736,7 +750,7 @@ fn save_assignment(
     transaction
         .execute(
             "UPDATE personnel SET current_location=?1,updated_at=CURRENT_TIMESTAMP WHERE id=?2",
-            params![draft.location_type.trim(), draft.personnel_id],
+            params![location, draft.personnel_id],
         )
         .map_err(|_| "Не вдалося синхронізувати переміщення з БЧС.".to_string())?;
     save_event(
@@ -749,10 +763,10 @@ fn save_assignment(
             } else {
                 "created"
             },
-            location_type: draft.location_type.trim(),
-            institution: draft.institution.trim(),
+            location_type: location,
+            institution,
             start_date: draft.start_date.trim(),
-            end_date: draft.end_date.trim(),
+            end_date: &end_date,
             notes: draft.notes.trim(),
             reason: "",
         },
@@ -943,8 +957,11 @@ mod tests {
         assert!(validate_draft(&draft("На позиції", ""), today).is_err());
         assert!(validate_draft(&draft("НАВЧ", ""), today).is_err());
         assert!(validate_draft(&draft("НАВЧ", "2026-09-30"), today).is_ok());
+        assert!(validate_draft(&draft("ВІДП", ""), today).is_err());
+        assert!(validate_draft(&draft("ВІДП", "2026-09-30"), today).is_ok());
         assert!(validate_draft(&draft("ВІДР", ""), today).is_ok());
         assert!(validate_draft(&draft("ЛІК", ""), today).is_ok());
+        assert!(validate_draft(&draft("ГШР", ""), today).is_err());
     }
 
     #[test]
