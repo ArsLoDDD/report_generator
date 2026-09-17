@@ -1,5 +1,35 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { FLIGHT_PLAN_STORAGE_KEY, flightPlanActiveCrewIds, flightPlanActiveMemberIds, flightPlanDateMatches, flightPlanDraftRequest } from "./flight-plan-storage";
+import { FLIGHT_PLAN_PENDING_STORAGE_KEY, FLIGHT_PLAN_STORAGE_KEY, flightPlanActiveCrewIds, flightPlanActiveMemberIds, flightPlanDateMatches, flightPlanDraftRequest, flightPlanPendingDraftRequest } from "./flight-plan-storage";
+
+const pendingDraft = (label: string, updatedAt: number) => ({
+  schemaVersion: 3,
+  unitName: "РБПАК",
+  date: "15.09.2026",
+  selected: [1],
+  entries: {
+    1: {
+      crewId: 1,
+      crewName: "БАРС",
+      actualMemberIds: [7],
+      actualCommanderId: 7,
+      actualVehicleId: null,
+      weather: {},
+      routePoints: [],
+      altitudeFrom: "800",
+      altitudeTo: "1100",
+      areaPoints: ["РАЙОН"],
+      task: "Розвідка",
+      startTime: "07:00",
+      endTime: "12:00",
+      uavSelections: [],
+      payloadSelection: null,
+      positionId: 2,
+      positionName: label,
+    },
+  },
+  rotations: {},
+  pendingSave: { date: "2026-09-15", revision: 2, updatedAt },
+});
 
 describe("активний склад плану польотів", () => {
   beforeEach(() => localStorage.clear());
@@ -117,5 +147,32 @@ describe("активний склад плану польотів", () => {
     expect(flightPlanDateMatches("2026-09-17")).toBe(false);
     expect(flightPlanDraftRequest("2026-09-17")).toBeNull();
     expect(flightPlanDraftRequest("2026-09-18")?.entries[0]?.positionName).toBe("ЗАВТРА");
+  });
+
+  it("reads the newest exact-date pending draft from the main and sidecar stores", () => {
+    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify(pendingDraft("ОСНОВНА", 100)));
+    localStorage.setItem(FLIGHT_PLAN_PENDING_STORAGE_KEY, JSON.stringify({
+      "2026-09-15": pendingDraft("НОВІША", 200),
+      "2026-09-16": { ...pendingDraft("ІНША ДАТА", 300), date: "16.09.2026", pendingSave: { date: "2026-09-16", revision: 3, updatedAt: 300 } },
+    }));
+
+    expect(flightPlanPendingDraftRequest("2026-09-15")?.entries[0]?.positionName).toBe("НОВІША");
+  });
+
+  it("rejects the newest pending draft when its schedule is invalid instead of falling back to an older copy", () => {
+    const invalid = pendingDraft("НЕВАЛІДНА", 200);
+    Object.assign(invalid.entries[1], { departsToday: true, departureTime: "11:00" });
+    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify(pendingDraft("СТАРІША", 100)));
+    localStorage.setItem(FLIGHT_PLAN_PENDING_STORAGE_KEY, JSON.stringify({ "2026-09-15": invalid }));
+
+    expect(flightPlanPendingDraftRequest("2026-09-15")).toBeNull();
+  });
+
+  it("requires both the draft and pending metadata to match the requested date", () => {
+    const mismatched = pendingDraft("ХИБНА ДАТА", 100);
+    mismatched.pendingSave.date = "2026-09-14";
+    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify(mismatched));
+
+    expect(flightPlanPendingDraftRequest("2026-09-15")).toBeNull();
   });
 });

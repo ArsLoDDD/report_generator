@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
+import { FLIGHT_PLAN_PENDING_STORAGE_KEY } from "./flight-plan-storage";
 import { defaultSummaryManual } from "./summary-report-model";
 import { SummaryReportPage } from "./SummaryReportPage";
 
@@ -16,6 +17,46 @@ const settings = {
     reportRecipient: "Командиру 477 ОББпС", kspName: "ОРІОН", kspLocality: "КАЛИНІВКА", kspMgrs: "36U UV 40000 47000",
     armyCorpsNumber: "1", authorizedStrength: 4,
   },
+};
+
+const summaryPlan = (label: string) => ({
+  unitName: "РБАК",
+  entries: [{
+    crewId: 11,
+    crewName: `${label} ЕКІПАЖ`,
+    crewUavType: "Коптер",
+    actualMemberIds: [],
+    actualCommanderId: null,
+    actualVehicleId: null,
+    weather: { temperature: "", windFrom: "", windTo: "", gustFrom: "", gustTo: "", cloudiness: "", cloudHeight: "", precipitation: "" },
+    routePoints: [],
+    altitudeFrom: "",
+    altitudeTo: "",
+    areaPoints: ["РАЙОН"],
+    task: "Розвідка",
+    startTime: "07:00",
+    endTime: "12:00",
+    uavSelections: [],
+    payloadSelection: null,
+    positionId: 21,
+    positionName: `${label} ПОЗИЦІЯ`,
+    workStrip: "СМУГА ПІВНІЧ",
+    battleOrder: "БРО-01",
+  }],
+});
+
+const pendingSummaryDraft = (label: string, invalid = false) => {
+  const plan = summaryPlan(label);
+  const entry = { ...plan.entries[0], ...(invalid ? { departsToday: true, departureTime: "11:00" } : {}) };
+  return {
+    schemaVersion: 3,
+    unitName: plan.unitName,
+    date: "16.09.2026",
+    selected: [entry.crewId],
+    entries: { [entry.crewId]: entry },
+    rotations: {},
+    pendingSave: { date: "2026-09-16", revision: 3, updatedAt: 300 },
+  };
 };
 
 const setupInvoke = () => {
@@ -134,6 +175,44 @@ describe("Підсумкове донесення", () => {
     await act(async () => { await Promise.resolve(); });
     expect(screen.getByText("НОВА ПОЗИЦІЯ", { selector: "b" })).toBeInTheDocument();
     expect(screen.queryByText("СТАРА ПОЗИЦІЯ", { selector: "b" })).not.toBeInTheDocument();
+  });
+
+  it("бере незбережене виправлення вчорашнього плану раніше за старий знімок бази", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 8, 17, 14, 0));
+    localStorage.setItem(FLIGHT_PLAN_PENDING_STORAGE_KEY, JSON.stringify({ "2026-09-16": pendingSummaryDraft("ВИПРАВЛЕНА") }));
+    const baseImplementation = invoke.getMockImplementation();
+    invoke.mockImplementation((command: string, args?: unknown) => {
+      if (command === "get_flight_plan_snapshot") {
+        const planDate = (args as { planDate?: string } | undefined)?.planDate;
+        return Promise.resolve(planDate === "2026-09-16" ? JSON.stringify(summaryPlan("СТАРА")) : null);
+      }
+      return baseImplementation?.(command, args);
+    });
+
+    render(<NotificationProvider><SummaryReportPage /></NotificationProvider>);
+
+    expect(await screen.findByText("ВИПРАВЛЕНА ПОЗИЦІЯ", { selector: "b" })).toBeInTheDocument();
+    expect(screen.queryByText("СТАРА ПОЗИЦІЯ", { selector: "b" })).not.toBeInTheDocument();
+  });
+
+  it("не дозволяє невалідній pending-чернетці підмінити коректний знімок бази", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 8, 17, 14, 0));
+    localStorage.setItem(FLIGHT_PLAN_PENDING_STORAGE_KEY, JSON.stringify({ "2026-09-16": pendingSummaryDraft("НЕВАЛІДНА", true) }));
+    const baseImplementation = invoke.getMockImplementation();
+    invoke.mockImplementation((command: string, args?: unknown) => {
+      if (command === "get_flight_plan_snapshot") {
+        const planDate = (args as { planDate?: string } | undefined)?.planDate;
+        return Promise.resolve(planDate === "2026-09-16" ? JSON.stringify(summaryPlan("БАЗОВА")) : null);
+      }
+      return baseImplementation?.(command, args);
+    });
+
+    render(<NotificationProvider><SummaryReportPage /></NotificationProvider>);
+
+    expect(await screen.findByText("БАЗОВА ПОЗИЦІЯ", { selector: "b" })).toBeInTheDocument();
+    expect(screen.queryByText("НЕВАЛІДНА ПОЗИЦІЯ", { selector: "b" })).not.toBeInTheDocument();
   });
 
   it("дозволяє обрати людину з плану для неперетинного чергування КСП", async () => {
