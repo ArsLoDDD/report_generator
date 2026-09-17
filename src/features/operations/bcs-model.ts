@@ -35,7 +35,7 @@ export function crewWorkingStrength(records: StaffingRecord[], crewId: number | 
   if (crewId == null) return 0;
   return new Set(records.filter((person) => {
     const actualCrewId = person.actualCrewId === undefined ? person.crewId : person.actualCrewId;
-    return !person.isCrewPlaceholder && actualCrewId === crewId && isCrewWorkingLocation(person.currentLocation);
+    return !person.isCrewPlaceholder && actualCrewId === crewId;
   }).map((person) => person.personnelId)).size;
 }
 

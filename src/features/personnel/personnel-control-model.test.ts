@@ -39,12 +39,14 @@ describe("personnel control model", () => {
     expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "ВІДР", institution: "Київ", startDate: "2026-09-17", endDate: "", notes: "" })).toEqual({});
     expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "ЛІК", institution: "Шпиталь", startDate: "2026-09-17", endDate: "2026-09-16", notes: "" })).toMatchObject({ endDate: expect.any(String) });
     expect(personnelLocationShowsEndDate("ПУ")).toBe(false);
+    expect(personnelLocationShowsEndDate("ОХ")).toBe(false);
     expect(personnelLocationShowsEndDate("ЗХВ")).toBe(true);
     expect(personnelLocationRequiresEndDate("НАВЧ")).toBe(true);
     expect(personnelLocationRequiresEndDate("ВІДП")).toBe(true);
     expect(personnelLocationShowsInstitution("СЗЧ")).toBe(false);
     expect(personnelLocationRequiresInstitution("Відкомандировані")).toBe(true);
     expect(MANUAL_PERSONNEL_LOCATIONS).not.toEqual(expect.arrayContaining(["ГШР", "ОХП", "Прикомандирований", "Логістика на позиції"]));
+    expect(MANUAL_PERSONNEL_LOCATIONS).toContain("ОХ");
   });
 
   it("does not allow a manual state to overwrite absence or position ownership", () => {

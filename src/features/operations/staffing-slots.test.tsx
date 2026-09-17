@@ -85,10 +85,10 @@ describe("Конкретні місця у штаті", () => {
 });
 
 describe("БЧС та тимчасово прибулі", () => {
-  it("має 16 полів експорту та окрему ручну кількість", () => {
+  it("показує фактичну чисельність екіпажу незалежно від поточного місця людини", () => {
     const records=[{...person(1,"водій"),crewId:1,crewName:"Тест",actualStrength:2,currentLocation:"На позиції"},{...person(2,"оператор"),crewId:1,crewName:"Тест",actualStrength:2,currentLocation:"ВІДП"}];
     const rows=bcsExportRows(records);
-    expect(rows[0].crewActual).toBe("1"); expect(rows[0].crewOfficial).toBe("2");
+    expect(rows[0].crewActual).toBe("2"); expect(rows[0].crewOfficial).toBe("2");
     expect(rows.map((row)=>row.groupKey)).toEqual(["crew-1","crew-1"]);
     expect(bcsGroups(records)).toHaveLength(1);
   });

@@ -742,6 +742,33 @@ pub(crate) fn import_personnel_xlsx(
                 .map_err(|_| "Не вдалося імпортувати склад екіпажу.".to_string())?;
             count += 1;
         }
+        // Older Excel files contain the official crew list but no separate
+        // actual-composition sheet.  At import time that official list is the
+        // only available factual composition, so use it as the initial actual
+        // composition rather than leaving every crew with zero working people.
+        // Later edits in the crew screen can still set a different actual list.
+        db.connection
+            .execute(
+                "INSERT OR IGNORE INTO crew_actual_members(crew_id,personnel_id)
+             SELECT member.crew_id,member.personnel_id
+             FROM crew_members member
+             WHERE member.left_at IS NULL
+               AND NOT EXISTS(
+                 SELECT 1 FROM crew_actual_members actual
+                 WHERE actual.crew_id=member.crew_id
+               )",
+                [],
+            )
+            .map_err(|_| "Не вдалося сформувати фактичний склад екіпажів з Excel.".to_string())?;
+        db.connection
+            .execute(
+                "UPDATE crews
+             SET working_strength=(
+                 SELECT COUNT(*) FROM crew_actual_members member WHERE member.crew_id=crews.id
+             )",
+                [],
+            )
+            .map_err(|_| "Не вдалося оновити фактичну чисельність екіпажів.".to_string())?;
         for vehicle in data.vehicles {
             let assignee_id = if vehicle.driver_tax_id.trim().is_empty()
                 && vehicle.driver_full_name.trim().is_empty()

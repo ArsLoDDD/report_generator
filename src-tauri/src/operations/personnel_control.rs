@@ -5,7 +5,8 @@ use crate::AppState;
 use chrono::{Local, NaiveDate};
 use rusqlite::{params, Connection, OptionalExtension};
 
-const MANUAL_LOCATIONS: [&str; 13] = [
+const MANUAL_LOCATIONS: [&str; 14] = [
+    "ОХ",
     "ПУ",
     "ШТАБ",
     "УПР",
@@ -93,7 +94,7 @@ fn location_shows_institution(location: &str) -> bool {
 }
 
 fn location_shows_end_date(location: &str) -> bool {
-    !["ПУ", "ШТАБ", "УПР", "КСП Роти", "ЗАБ", "СЗЧ"].contains(&location)
+    !["ОХ", "ПУ", "ШТАБ", "УПР", "КСП Роти", "ЗАБ", "СЗЧ"].contains(&location)
 }
 
 fn active_position_work(connection: &Connection, personnel_id: i64) -> bool {
@@ -959,6 +960,7 @@ mod tests {
         assert!(validate_draft(&draft("НАВЧ", "2026-09-30"), today).is_ok());
         assert!(validate_draft(&draft("ВІДП", ""), today).is_err());
         assert!(validate_draft(&draft("ВІДП", "2026-09-30"), today).is_ok());
+        assert!(validate_draft(&draft("ОХ", ""), today).is_ok());
         assert!(validate_draft(&draft("ВІДР", ""), today).is_ok());
         assert!(validate_draft(&draft("ЛІК", ""), today).is_ok());
         assert!(validate_draft(&draft("ГШР", ""), today).is_err());

@@ -85,7 +85,7 @@ describe("Довідник", () => {
 
   it("explains personnel control as a shared BCS state and blocks manual automatic records", () => {
     expect(topicText("personnel-control")).toMatch(/БЧС і контроль.+одне поточне значення «Де знаходиться»/u);
-    expect(topicText("personnel-control")).toMatch(/Автоматично заповнюються лише «На позиції», «ЗБЗ», «ПБЗ».+Розподілити особовий склад/u);
+    expect(topicText("personnel-control")).toMatch(/Автоматично заповнюються «На позиції», «ЗБЗ», «ПБЗ».+«ОХ» також можна встановити вручну.+Розподілити особовий склад/u);
     expect(topicText("personnel-control")).toMatch(/БЧС тільки відображає результат/u);
     expect(topicText("personnel-control")).toMatch(/ВІДР.+до окремого розпорядження/u);
     expect(topicText("personnel-control")).toMatch(/«ВІДП».+«СЗЧ».+«ПТЗ Новостав».+активним «НАВЧ», «ВІДР», «ЛІК».+не включається до плану польотів/u);

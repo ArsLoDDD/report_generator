@@ -185,6 +185,19 @@ describe("PersonnelControl", () => {
     expect(screen.queryByLabelText("Місце / уточнення")).not.toBeInTheDocument();
   });
 
+  it("allows assigning a person to OХ through personnel control", async () => {
+    renderControl([]);
+    fireEvent.click(await screen.findByRole("button", { name: "Розподілити особовий склад" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: new RegExp(person.fullName, "u") }));
+    fireEvent.change(screen.getByLabelText("Тип перебування"), { target: { value: "ОХ" } });
+    expect(screen.queryByLabelText("По яке число")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("save_personnel_control_assignment", expect.objectContaining({
+      assignmentId: null,
+      draft: expect.objectContaining({ locationType: "ОХ" }),
+    })));
+  });
+
   it("closes a manual record instead of deleting its history", async () => {
     renderControl([manual]);
     fireEvent.click(await screen.findByRole("button", { name: `Завершити ${person.fullName}` }));
