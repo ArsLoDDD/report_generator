@@ -743,26 +743,19 @@ pub(crate) fn import_personnel_xlsx(
             count += 1;
         }
         for vehicle in data.vehicles {
-            let driver_id = if vehicle.driver_tax_id.trim().is_empty()
+            let assignee_id = if vehicle.driver_tax_id.trim().is_empty()
                 && vehicle.driver_full_name.trim().is_empty()
             {
                 None
             } else {
-                let (id, position) =
-                    personnel_id(&vehicle.driver_tax_id, &vehicle.driver_full_name)?.ok_or_else(
-                        || {
-                            format!(
-                                "Для автомобіля «{}» не знайдено водія.",
-                                vehicle.registration_number
-                            )
-                        },
-                    )?;
-                if !position.to_lowercase().contains("водій") {
-                    return Err(format!(
-                        "Закріплений за автомобілем «{}» військовослужбовець не має посади водія.",
-                        vehicle.registration_number
-                    ));
-                }
+                let id = personnel_id(&vehicle.driver_tax_id, &vehicle.driver_full_name)?
+                    .map(|value| value.0)
+                    .ok_or_else(|| {
+                        format!(
+                            "Для автомобіля «{}» не знайдено закріпленого військовослужбовця.",
+                            vehicle.registration_number
+                        )
+                    })?;
                 Some(id)
             };
             let crew_id = if vehicle.crew_name.trim().is_empty() {
@@ -785,7 +778,7 @@ pub(crate) fn import_personnel_xlsx(
                         })?,
                 )
             };
-            db.connection.execute("INSERT INTO vehicles(name, registration_number, status, personnel_id, crew_id) VALUES(?1, ?2, ?3, ?4, ?5)", rusqlite::params![vehicle.name.trim(), vehicle.registration_number.trim(), if vehicle.status.trim().is_empty() { "Справний" } else { vehicle.status.trim() }, driver_id, crew_id]).map_err(|_| format!("Не вдалося додати автомобіль з номером «{}». Перевірте, чи такого номера ще немає в базі.", vehicle.registration_number))?;
+            db.connection.execute("INSERT INTO vehicles(name, registration_number, status, personnel_id, crew_id) VALUES(?1, ?2, ?3, ?4, ?5)", rusqlite::params![vehicle.name.trim(), vehicle.registration_number.trim(), if vehicle.status.trim().is_empty() { "Справний" } else { vehicle.status.trim() }, assignee_id, crew_id]).map_err(|_| format!("Не вдалося додати автомобіль з номером «{}». Перевірте, чи такого номера ще немає в базі.", vehicle.registration_number))?;
             let vehicle_id = db.connection.last_insert_rowid();
             db.connection.execute("INSERT INTO vehicle_custom_fields(vehicle_id,field_key,field_value) SELECT ?1,field_key,initial_value FROM vehicle_custom_field_definitions", [vehicle_id]).map_err(|_| "Не вдалося встановити кастомні поля автомобіля.".to_string())?;
             count += 1;

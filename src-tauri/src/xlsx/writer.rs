@@ -84,8 +84,8 @@ fn vehicle_label(key: &str) -> &str {
         "name" => "Автомобіль",
         "registration_number" => "Державний номер",
         "status" => "Статус",
-        "driver_tax_id" => "ІПН закріпленого водія",
-        "driver_full_name" => "ПІБ закріпленого водія",
+        "driver_tax_id" => "ІПН закріпленого військовослужбовця",
+        "driver_full_name" => "ПІБ закріпленого військовослужбовця",
         "crew_name" => "Екіпаж",
         _ => key,
     }
