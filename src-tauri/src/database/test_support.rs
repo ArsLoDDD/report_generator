@@ -311,7 +311,7 @@ mod tests {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            5
+            6
         );
         let columns = connection
             .prepare("PRAGMA table_info(personnel)")
@@ -322,6 +322,70 @@ mod tests {
             .unwrap();
         assert!(!columns.contains(&"assigned_vehicle_name".to_string()));
         assert!(!columns.contains(&"assigned_vehicle_registration".to_string()));
+    }
+
+    #[test]
+    fn migrates_a_pre_control_bcs_location_without_losing_the_person() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(
+            "CREATE TABLE personnel (
+                id INTEGER PRIMARY KEY,rank TEXT NOT NULL,surname TEXT NOT NULL,
+                given_name TEXT NOT NULL,patronymic TEXT NOT NULL DEFAULT '',position TEXT NOT NULL,
+                tax_id TEXT NOT NULL DEFAULT '',birth_date TEXT NOT NULL,education_level TEXT NOT NULL,
+                education_details TEXT NOT NULL,armed_forces_service_start_date TEXT NOT NULL,
+                position_assigned_date TEXT NOT NULL,position_assignment_order TEXT NOT NULL,
+                military_id TEXT NOT NULL,gender TEXT NOT NULL DEFAULT '',
+                current_location TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             INSERT INTO personnel(
+                id,rank,surname,given_name,patronymic,position,birth_date,education_level,
+                education_details,armed_forces_service_start_date,position_assigned_date,
+                position_assignment_order,military_id,current_location,updated_at
+             ) VALUES(7,'солдат','СТАРИЙ','Іван','Іванович','оператор','','','','','','','','ВІДР','2026-09-10 23:30:00');",
+        ).unwrap();
+
+        initialise(&connection).unwrap();
+
+        let person_count: i64 = connection
+            .query_row("SELECT COUNT(*) FROM personnel WHERE id=7", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let assignment: (String, String, String, i64) = connection
+            .query_row(
+                "SELECT location_type,institution,start_date,until_separate_order
+                 FROM personnel_control_assignments WHERE personnel_id=7",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        let event: (String, String) = connection
+            .query_row(
+                "SELECT action,full_name_snapshot FROM personnel_control_events WHERE personnel_id=7",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let expected_local_date: String = connection
+            .query_row(
+                "SELECT date('2026-09-10 23:30:00','localtime')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(person_count, 1);
+        assert_eq!(assignment.0, "ВІДР");
+        assert_eq!(assignment.1, "Не вказано");
+        assert_eq!(assignment.2, expected_local_date);
+        assert_eq!(assignment.3, 1);
+        assert_eq!(event, ("migrated".into(), "СТАРИЙ Іван Іванович".into()));
+        assert_eq!(
+            connection
+                .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            6
+        );
     }
 
     #[test]
@@ -387,6 +451,8 @@ mod tests {
             "flight_plan_snapshot_entries",
             "summary_report_drafts",
             "flight_plan_personnel_locations",
+            "personnel_control_assignments",
+            "personnel_control_events",
         ] {
             let exists: i64 = connection
                 .query_row(
@@ -516,7 +582,7 @@ mod tests {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            5
+            6
         );
     }
 

@@ -145,7 +145,7 @@ pub(crate) fn import_personnel_xlsx(
     let result = (|| -> Result<u32, String> {
         if mode == "replace" {
             db.connection.execute_batch(
-                "DELETE FROM incidents; DELETE FROM positions; DELETE FROM equipment; DELETE FROM vehicles; DELETE FROM crews; DELETE FROM personnel; DELETE FROM custom_field_definitions; DELETE FROM vehicle_custom_field_definitions;",
+                "DELETE FROM incidents; DELETE FROM positions; DELETE FROM equipment; DELETE FROM vehicles; DELETE FROM crews; DELETE FROM personnel_control_events; DELETE FROM personnel_control_assignments; DELETE FROM personnel; DELETE FROM custom_field_definitions; DELETE FROM vehicle_custom_field_definitions;",
             ).map_err(|_| "Не вдалося очистити дані перед імпортом.".to_string())?;
         }
         let ensure_custom_fields = |scope: &str,
@@ -452,6 +452,7 @@ pub(crate) fn import_personnel_xlsx(
             }
         }
         staffing_exchange::import(&db.connection, &data.staffing, mode == "replace")?;
+        database::migrate_legacy_personnel_control_locations(&db.connection)?;
         Ok(count)
     })();
     match result {

@@ -258,8 +258,11 @@ fn validate_person_availability(
         );
     }
     let current_location = current_location.trim();
-    if ["На позиції", "ЗБЗ", "ПБЗ"].contains(&current_location) {
+    if ["На позиції", "ЗБЗ", "ПБЗ", "ГШР"].contains(&current_location) {
         return Err("До робіт не можна залучити людей, які перебувають, заходять на позицію або вибувають з неї за планом польотів.".into());
+    }
+    if super::is_manual_control_location(current_location) {
+        return Err("До робіт не можна залучити людей, які перебувають на навчанні, у відрядженні або на лікуванні.".into());
     }
     if is_work_location(current_location)
         && !(belongs_to_current_work && current_work_is_active && draft_is_active)

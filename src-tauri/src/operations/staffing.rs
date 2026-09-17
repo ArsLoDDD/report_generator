@@ -8,6 +8,10 @@ use crate::AppState;
 pub fn list_staffing_records(state: tauri::State<AppState>) -> Result<Vec<StaffingRecord>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
     crate::database::normalize_staff_positions(&db.connection)?;
+    super::sync_manual_assignments_for_date(
+        &db.connection,
+        &chrono::Local::now().format("%Y-%m-%d").to_string(),
+    )?;
     normalize_stale_daily_locations(
         &db.connection,
         &chrono::Local::now().format("%Y-%m-%d").to_string(),
@@ -76,7 +80,7 @@ fn staffing_records(connection: &rusqlite::Connection) -> Result<Vec<StaffingRec
     result
 }
 
-fn normalize_stale_daily_locations(
+pub(crate) fn normalize_stale_daily_locations(
     connection: &rusqlite::Connection,
     local_today: &str,
 ) -> Result<(), String> {
@@ -137,6 +141,10 @@ fn apply_flight_plan_locations_for_date(
     plan_date: &str,
 ) -> Result<(), String> {
     use std::collections::HashSet;
+    super::sync_manual_assignments_for_date(
+        connection,
+        &chrono::Local::now().format("%Y-%m-%d").to_string(),
+    )?;
     let transaction = connection
         .unchecked_transaction()
         .map_err(|_| "Не вдалося почати оновлення БЧС.".to_string())?;
@@ -162,6 +170,16 @@ fn apply_flight_plan_locations_for_date(
             return Err("До ротації потрапила людина, яка не входить до екіпажу.".into());
         }
         for personnel_id in &all_ids {
+            let current_location = transaction
+                .query_row(
+                    "SELECT current_location FROM personnel WHERE id=?1",
+                    [personnel_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap_or_default();
+            if super::is_manual_control_location(&current_location) {
+                continue;
+            }
             let entered_during_plan = assignment.stages.windows(2).any(|stages| {
                 !stages[0].contains(personnel_id) && stages[1].contains(personnel_id)
             });
@@ -669,6 +687,55 @@ mod flight_plan_location_tests {
         assert_eq!(location, "На позиції");
         assert_eq!(service_rows, 0);
     }
+
+    #[test]
+    fn a_future_plan_date_does_not_finish_a_current_manual_assignment() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(1,'БАРС')", [])
+            .unwrap();
+        connection.execute("INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id,current_location) VALUES(1,'солдат','ЛЮДИНА','Тест','Тестович','оператор','tax-1','','','','','','','','ВІДР')", []).unwrap();
+        connection
+            .execute(
+                "INSERT INTO crew_members(crew_id,personnel_id) VALUES(1,1)",
+                [],
+            )
+            .unwrap();
+        let today = chrono::Local::now().date_naive();
+        connection
+            .execute(
+                "INSERT INTO personnel_control_assignments(
+                personnel_id,location_type,institution,start_date,end_date,previous_location
+             ) VALUES(1,'ВІДР','Установа',?1,?2,'ОХ')",
+                rusqlite::params![
+                    (today - chrono::Duration::days(1))
+                        .format("%Y-%m-%d")
+                        .to_string(),
+                    today.format("%Y-%m-%d").to_string()
+                ],
+            )
+            .unwrap();
+
+        apply_flight_plan_locations_for_date(
+            &connection,
+            &[FlightPlanCrewLocationAssignment {
+                crew_id: 1,
+                stages: vec![vec![1]],
+                arrives_today: false,
+                departs_today: false,
+            }],
+            "2099-01-01",
+        )
+        .unwrap();
+
+        let (location, still_open): (String, i64) = (
+            connection.query_row("SELECT current_location FROM personnel WHERE id=1", [], |row| row.get(0)).unwrap(),
+            connection.query_row("SELECT COUNT(*) FROM personnel_control_assignments WHERE personnel_id=1 AND closed_at IS NULL", [], |row| row.get(0)).unwrap(),
+        );
+        assert_eq!(location, "ВІДР");
+        assert_eq!(still_open, 1);
+    }
 }
 
 #[tauri::command]
@@ -682,15 +749,118 @@ pub fn update_staffing_personnel(
     notes: String,
 ) -> Result<(), String> {
     let db = state.0.lock().map_err(|_| busy())?;
+    let local_today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    super::sync_manual_assignments_for_date(&db.connection, &local_today)?;
+    normalize_stale_daily_locations(&db.connection, &local_today)?;
     if position.trim().is_empty() {
         return Err("Вкажіть посаду для переміщення.".into());
     }
     if !crate::database::is_valid_bcs_location(&current_location) {
         return Err("Оберіть значення «Де знаходиться» з довідника БЧС.".into());
     }
+    let previous_location = db
+        .connection
+        .query_row(
+            "SELECT current_location FROM personnel WHERE id=?1",
+            [personnel_id],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|_| "Військовослужбовця не знайдено.".to_string())?;
+    let has_manual_source = db
+        .connection
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM personnel_control_assignments
+                WHERE personnel_id=?1 AND closed_at IS NULL
+            )",
+            [personnel_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .unwrap_or(false);
+    let has_position_source = db
+        .connection
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM flight_plan_personnel_locations WHERE personnel_id=?1
+            )",
+            [personnel_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .unwrap_or(false);
+    let has_work_source = db
+        .connection
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM position_work_members member
+                JOIN position_work work ON work.id=member.work_id
+                WHERE member.personnel_id=?1 AND work.status<>'Завершили'
+            )",
+            [personnel_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .unwrap_or(false);
+    validate_controlled_location_change(
+        &previous_location,
+        &current_location,
+        has_manual_source,
+        has_position_source,
+        has_work_source,
+    )?;
     db.connection.execute("UPDATE personnel SET position=?1,current_location=?2,functional_duties=?3,bcs_notes=?4,updated_at=CURRENT_TIMESTAMP WHERE id=?5", rusqlite::params![crate::database::canonical_staff_position(&position), current_location.trim(), functional_duties.trim(), notes.trim(), personnel_id]).map_err(|_| "Не вдалося оновити кадрові дані.".to_string())?;
     db.connection.execute("INSERT INTO personnel_staff_assignments(personnel_id,acting_position,updated_at) VALUES(?1,?2,CURRENT_TIMESTAMP) ON CONFLICT(personnel_id) DO UPDATE SET acting_position=excluded.acting_position,updated_at=CURRENT_TIMESTAMP", rusqlite::params![personnel_id, acting_position.trim()]).map_err(|_| "Не вдалося зберегти ТВО.".to_string())?;
     Ok(())
+}
+
+fn validate_controlled_location_change(
+    previous: &str,
+    next: &str,
+    has_manual_source: bool,
+    has_position_source: bool,
+    has_work_source: bool,
+) -> Result<(), String> {
+    if previous.trim() == next.trim() {
+        return Ok(());
+    }
+    let entering_controlled =
+        super::is_manual_control_location(next) || super::is_automatic_control_location(next);
+    let leaving_owned_state = super::is_manual_control_location(previous) && has_manual_source
+        || ["На позиції", "ЗБЗ", "ПБЗ", "ГШР"].contains(&previous.trim()) && has_position_source
+        || ["Реко", "Облаштування", "Реко та облаштування"].contains(&previous.trim())
+            && has_work_source;
+    if entering_controlled || leaving_owned_state {
+        return Err("Цей стан керується автоматично або через вкладку «Контроль особового складу». Завершіть відповідний процес у його робочому розділі.".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod controlled_location_change_tests {
+    use super::validate_controlled_location_change;
+
+    #[test]
+    fn preserves_control_history_by_rejecting_direct_bcs_location_changes() {
+        assert!(validate_controlled_location_change("ВІДР", "ОХ", true, false, false).is_err());
+        assert!(validate_controlled_location_change("ОХ", "НАВЧ", false, false, false).is_err());
+        assert!(validate_controlled_location_change("ОХ", "ЗБЗ", false, false, false).is_err());
+        assert!(validate_controlled_location_change(
+            "Реко та облаштування",
+            "ОХ",
+            false,
+            false,
+            true
+        )
+        .is_err());
+        assert!(validate_controlled_location_change("ВІДР", "ВІДР", true, false, false).is_ok());
+        assert!(validate_controlled_location_change("ОХ", "ШТАБ", false, false, false).is_ok());
+    }
+
+    #[test]
+    fn legacy_location_without_an_active_owner_can_be_corrected() {
+        assert!(validate_controlled_location_change("ГШР", "ОХ", false, false, false).is_ok());
+        assert!(validate_controlled_location_change("Реко", "ОХ", false, false, false).is_ok());
+        assert!(validate_controlled_location_change("ЛІК", "ОХ", false, false, false).is_ok());
+        assert!(validate_controlled_location_change("ЗБЗ", "ОХ", false, true, false).is_err());
+    }
 }
 
 #[tauri::command]

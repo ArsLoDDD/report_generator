@@ -166,6 +166,84 @@ fn migrate_position_work_event_columns(connection: &Connection) -> Result<(), St
     Ok(())
 }
 
+/// Converts legacy BCS-only manual locations into structured control records.
+/// It is intentionally idempotent so it can run after database and Excel imports.
+pub(crate) fn migrate_legacy_personnel_control_locations(
+    connection: &Connection,
+) -> Result<(), String> {
+    connection
+        .execute_batch(
+            "INSERT OR IGNORE INTO personnel_control_assignments(
+                personnel_id,location_type,institution,start_date,end_date,
+                until_separate_order,notes,previous_location
+            )
+            SELECT id,current_location,'Не вказано',
+                   COALESCE(date(updated_at,'localtime'),'1970-01-01'),'',
+                   CASE current_location WHEN 'ВІДР' THEN 1 ELSE 0 END,
+                   'Перенесено з попередньої версії БЧС','ОХ'
+            FROM personnel
+            WHERE current_location IN ('НАВЧ','ВІДР','ЛІК')
+              AND NOT EXISTS(
+                  SELECT 1 FROM personnel_control_assignments assignment
+                  WHERE assignment.personnel_id=personnel.id AND assignment.closed_at IS NULL
+              );
+            INSERT INTO personnel_control_events(
+                assignment_id,personnel_id,full_name_snapshot,rank_snapshot,position_snapshot,
+                action,location_type,institution,
+                start_date,end_date,notes,reason
+            )
+            SELECT assignment.id,assignment.personnel_id,
+                   trim(person.surname||' '||person.given_name||' '||person.patronymic),
+                   person.rank,person.position,'migrated',assignment.location_type,
+                   assignment.institution,assignment.start_date,assignment.end_date,
+                   assignment.notes,'Перенесено з попередньої версії БЧС'
+            FROM personnel_control_assignments assignment
+            JOIN personnel person ON person.id=assignment.personnel_id
+            WHERE assignment.notes='Перенесено з попередньої версії БЧС'
+              AND NOT EXISTS(
+                  SELECT 1 FROM personnel_control_events event
+                  WHERE event.assignment_id=assignment.id AND event.action='migrated'
+              );",
+        )
+        .map_err(|_| {
+            "Не вдалося перенести ручні стани БЧС до контролю особового складу.".to_string()
+        })
+}
+
+fn migrate_personnel_control_event_columns(connection: &Connection) -> Result<(), String> {
+    let existing_columns = connection
+        .prepare("PRAGMA table_info(personnel_control_events)")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        })
+        .map_err(|_| {
+            "Не вдалося прочитати структуру історії контролю особового складу.".to_string()
+        })?;
+    for column in ["full_name_snapshot", "rank_snapshot", "position_snapshot"] {
+        if !existing_columns.iter().any(|existing| existing == column) {
+            connection
+                .execute(
+                    &format!("ALTER TABLE personnel_control_events ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"),
+                    [],
+                )
+                .map_err(|_| format!("Не вдалося додати поле {column} до історії контролю особового складу."))?;
+        }
+    }
+    connection
+        .execute(
+            "UPDATE personnel_control_events
+             SET full_name_snapshot=COALESCE((SELECT trim(surname||' '||given_name||' '||patronymic) FROM personnel WHERE id=personnel_control_events.personnel_id),full_name_snapshot),
+                 rank_snapshot=COALESCE((SELECT rank FROM personnel WHERE id=personnel_control_events.personnel_id),rank_snapshot),
+                 position_snapshot=COALESCE((SELECT position FROM personnel WHERE id=personnel_control_events.personnel_id),position_snapshot)
+             WHERE trim(full_name_snapshot)=''",
+            [],
+        )
+        .map_err(|_| "Не вдалося доповнити історію контролю особового складу.".to_string())?;
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomFieldDefinition {
@@ -938,9 +1016,6 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             )
             .map_err(|_| "Не вдалося додати стать до бази даних.".to_string())?;
     }
-    connection
-        .pragma_update(None, "user_version", 5)
-        .map_err(|_| "Не вдалося завершити міграцію бази даних.".to_string())?;
     let columns = connection
         .prepare("PRAGMA table_info(personnel)")
         .and_then(|mut statement| {
@@ -991,8 +1066,57 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
                 WHERE current_location IN ('На позиції','ЗБЗ','ПБЗ');",
         )
         .map_err(|_| "Не вдалося підготувати добові стани плану польотів.".to_string())?;
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS personnel_control_assignments (
+                id INTEGER PRIMARY KEY,
+                personnel_id INTEGER NOT NULL REFERENCES personnel(id) ON DELETE CASCADE,
+                location_type TEXT NOT NULL CHECK(location_type IN ('НАВЧ','ВІДР','ЛІК')),
+                institution TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL DEFAULT '',
+                until_separate_order INTEGER NOT NULL DEFAULT 0 CHECK(until_separate_order IN (0,1)),
+                notes TEXT NOT NULL DEFAULT '',
+                previous_location TEXT NOT NULL DEFAULT 'ОХ',
+                closed_on TEXT NOT NULL DEFAULT '',
+                closed_at TEXT,
+                close_reason TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS personnel_control_one_open_idx
+                ON personnel_control_assignments(personnel_id) WHERE closed_at IS NULL;
+            CREATE INDEX IF NOT EXISTS personnel_control_personnel_history_idx
+                ON personnel_control_assignments(personnel_id,start_date DESC,id DESC);
+            CREATE INDEX IF NOT EXISTS personnel_control_location_idx
+                ON personnel_control_assignments(location_type,closed_at);
+            CREATE TABLE IF NOT EXISTS personnel_control_events (
+                id INTEGER PRIMARY KEY,
+                assignment_id INTEGER REFERENCES personnel_control_assignments(id) ON DELETE SET NULL,
+                personnel_id INTEGER NOT NULL,
+                full_name_snapshot TEXT NOT NULL DEFAULT '',
+                rank_snapshot TEXT NOT NULL DEFAULT '',
+                position_snapshot TEXT NOT NULL DEFAULT '',
+                action TEXT NOT NULL CHECK(action IN ('created','updated','closed','migrated')),
+                location_type TEXT NOT NULL,
+                institution TEXT NOT NULL DEFAULT '',
+                start_date TEXT NOT NULL DEFAULT '',
+                end_date TEXT NOT NULL DEFAULT '',
+                notes TEXT NOT NULL DEFAULT '',
+                reason TEXT NOT NULL DEFAULT '',
+                occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS personnel_control_events_personnel_idx
+                ON personnel_control_events(personnel_id,occurred_at DESC,id DESC);",
+        )
+        .map_err(|_| "Не вдалося підготувати контроль особового складу.".to_string())?;
+    migrate_personnel_control_event_columns(connection)?;
+    migrate_legacy_personnel_control_locations(connection)?;
     normalize_bcs_locations(connection)?;
     normalize_staff_positions(connection)?;
+    connection
+        .pragma_update(None, "user_version", 6)
+        .map_err(|_| "Не вдалося завершити міграцію бази даних.".to_string())?;
     Ok(())
 }
 

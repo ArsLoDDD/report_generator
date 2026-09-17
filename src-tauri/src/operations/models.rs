@@ -266,6 +266,66 @@ pub struct StaffingRecord {
     pub recommendation_count: i64,
 }
 
+/// One row in the personnel-control view. `location_type` preserves the exact
+/// BCS value, while `tab` is the stable UI grouping (for example ЗБЗ and ПБЗ
+/// both belong to the "На позиції" tab).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonnelControlRecord {
+    pub personnel_id: i64,
+    pub full_name: String,
+    pub rank: String,
+    pub position: String,
+    pub tab: String,
+    pub location_type: String,
+    pub source: String,
+    pub source_label: String,
+    pub can_edit: bool,
+    pub assignment_id: Option<i64>,
+    pub institution: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub until_separate_order: bool,
+    pub notes: String,
+    pub crew_id: Option<i64>,
+    pub crew_name: String,
+    pub position_id: Option<i64>,
+    pub position_name: String,
+    pub work_id: Option<i64>,
+    pub work_type: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonnelControlAssignmentDraft {
+    pub personnel_id: i64,
+    pub location_type: String,
+    pub institution: String,
+    pub start_date: String,
+    #[serde(default)]
+    pub end_date: String,
+    #[serde(default)]
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonnelControlHistoryEntry {
+    pub id: i64,
+    pub assignment_id: Option<i64>,
+    pub personnel_id: i64,
+    pub full_name: String,
+    pub action: String,
+    pub location_type: String,
+    pub institution: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub notes: String,
+    pub reason: String,
+    pub occurred_at: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FlightPlanCrewLocationAssignment {
