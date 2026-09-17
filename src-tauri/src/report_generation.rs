@@ -661,7 +661,8 @@ fn validate_token(token: &str) -> Vec<String> {
     let field = field_for(base);
     let is_custom = field.is_none() && custom_field_token(base);
     let is_document_parameter = field.is_none() && dynamic_document_parameter(base);
-    if field.is_none() && !is_custom && !is_document_parameter {
+    let is_legacy_signature = base == "mainSignature";
+    if field.is_none() && !is_custom && !is_document_parameter && !is_legacy_signature {
         let hint = nearest_known_variable(base)
             .map(|candidate| format!(" Можливо, ви мали на увазі «{{{{{candidate}}}}}»."))
             .unwrap_or_default();
@@ -874,6 +875,19 @@ fn validate_custom_field_reference(connection: &Connection, base: &str) -> Optio
     })
 }
 fn field_for(base: &str) -> Option<&'static Field> {
+    if let Some((_, source_key)) = legacy_person_parts(base) {
+        let source_key = legacy_person_source_key(source_key)?;
+        return registry()
+            .person_fields
+            .iter()
+            .find(|field| field.source_key.as_deref() == Some(source_key));
+    }
+    if let Some((_, field_id)) = legacy_signer_target(base) {
+        return registry()
+            .signer_fields
+            .iter()
+            .find(|field| field.id == field_id);
+    }
     if let Some(field) = document_field_for(base) {
         return Some(field);
     }
@@ -938,6 +952,76 @@ fn field_for(base: &str) -> Option<&'static Field> {
     None
 }
 
+/// Maps the variable names used by the first template language to the same
+/// source fields as their v2 counterparts. The compatibility layer stays out
+/// of the registry so newly created templates continue to use only v2 names.
+fn legacy_person_source_key(field: &str) -> Option<&'static str> {
+    match field {
+        "rank" => Some("rank"),
+        "surname" => Some("surname"),
+        "givenName" => Some("given_name"),
+        "patronymic" => Some("patronymic"),
+        "fullName" => Some("full_name"),
+        "position" => Some("position"),
+        "taxId" => Some("tax_id"),
+        "birthDate" => Some("birth_date"),
+        "educationLevel" => Some("education_level"),
+        "educationDetails" => Some("education_details"),
+        "armedForcesServiceStartDate" => Some("armed_forces_service_start_date"),
+        "positionAssignedDate" => Some("position_assigned_date"),
+        "positionAssignmentOrder" => Some("position_assignment_order"),
+        "militaryId" => Some("military_id"),
+        "assignedVehicleName" => Some("assigned_vehicle_name"),
+        "assignedVehicleRegistration" => Some("assigned_vehicle_registration"),
+        _ => None,
+    }
+}
+
+fn legacy_person_field_for_source(source_key: &str) -> Option<&'static str> {
+    match source_key {
+        "rank" => Some("rank"),
+        "surname" => Some("surname"),
+        "given_name" => Some("givenName"),
+        "patronymic" => Some("patronymic"),
+        "full_name" => Some("fullName"),
+        "position" => Some("position"),
+        "tax_id" => Some("taxId"),
+        "birth_date" => Some("birthDate"),
+        "education_level" => Some("educationLevel"),
+        "education_details" => Some("educationDetails"),
+        "armed_forces_service_start_date" => Some("armedForcesServiceStartDate"),
+        "position_assigned_date" => Some("positionAssignedDate"),
+        "position_assignment_order" => Some("positionAssignmentOrder"),
+        "military_id" => Some("militaryId"),
+        "assigned_vehicle_name" => Some("assignedVehicleName"),
+        "assigned_vehicle_registration" => Some("assignedVehicleRegistration"),
+        _ => None,
+    }
+}
+
+/// Returns a one-based person number and the v1 field name. `soldiers` used
+/// zero-based indices, while every v2 selection API uses one-based numbers.
+fn legacy_person_parts(base: &str) -> Option<(usize, &str)> {
+    if let Some(field) = base.strip_prefix("soldier.") {
+        return legacy_person_source_key(field).map(|_| (1, field));
+    }
+    let rest = base.strip_prefix("soldiers[")?;
+    let (index, field) = rest.split_once("].")?;
+    let number = index.parse::<usize>().ok()?.checked_add(1)?;
+    legacy_person_source_key(field).map(|_| (number, field))
+}
+
+fn legacy_signer_target(base: &str) -> Option<(&'static str, &'static str)> {
+    match base {
+        "mainRank" => Some(("основний_підписант", "звання")),
+        "mainName" => Some(("основний_підписант", "піб")),
+        "mainPosition" => Some(("основний_підписант", "посада")),
+        "commanderName" => Some(("командир", "піб")),
+        "chiefName" => Some(("начальник_штабу", "піб")),
+        _ => None,
+    }
+}
+
 fn numbered_subject_field(value: &str) -> Option<&str> {
     let (number, field) = value.split_once('_')?;
     number
@@ -948,7 +1032,9 @@ fn numbered_subject_field(value: &str) -> Option<&str> {
 }
 fn selection_kind(token: &str) -> Option<&'static str> {
     let base = token.split(':').next().unwrap_or_default();
-    if document_field_for(base).is_some() || dynamic_document_parameter(base) {
+    if legacy_person_parts(base).is_some() {
+        Some("personnel")
+    } else if document_field_for(base).is_some() || dynamic_document_parameter(base) {
         None
     } else if base.starts_with("військовий_") {
         Some("personnel")
@@ -1035,10 +1121,11 @@ fn document_field_for(base: &str) -> Option<&'static Field> {
         })
 }
 fn person_number(token: &str) -> Option<usize> {
-    token
-        .split(':')
-        .next()?
-        .strip_prefix("військовий_")?
+    let base = token.split(':').next()?;
+    if let Some((number, _)) = legacy_person_parts(base) {
+        return Some(number);
+    }
+    base.strip_prefix("військовий_")?
         .split('_')
         .next()?
         .parse()

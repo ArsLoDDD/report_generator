@@ -454,9 +454,110 @@ fn resolves_variables_for_a_signer_added_in_settings() {
     );
 }
 #[test]
-fn rejects_v1_and_explains_typo() {
+fn accepts_v1_compatibility_variables_and_explains_typos() {
+    for field in [
+        "rank",
+        "surname",
+        "givenName",
+        "patronymic",
+        "fullName",
+        "position",
+        "taxId",
+        "birthDate",
+        "educationLevel",
+        "educationDetails",
+        "armedForcesServiceStartDate",
+        "positionAssignedDate",
+        "positionAssignmentOrder",
+        "militaryId",
+        "assignedVehicleName",
+        "assignedVehicleRegistration",
+    ] {
+        assert!(validate_token(&format!("soldier.{field}")).is_empty());
+        assert!(validate_token(&format!("soldiers[2].{field}")).is_empty());
+    }
+    for token in [
+        "mainRank",
+        "mainName",
+        "mainPosition",
+        "mainSignature",
+        "commanderName",
+        "chiefName",
+    ] {
+        assert!(validate_token(token).is_empty(), "{token}");
+    }
+    assert!(!validate_token("soldier.unknown").is_empty());
+    assert!(!validate_token("soldiers[x].fullName").is_empty());
     assert!(!validate_token("невідома.змінна").is_empty());
     assert!(validate_token("військовий_1_піб:родовийй")[0].contains("родовий"))
+}
+
+#[test]
+fn derives_personnel_count_from_zero_based_v1_variables() {
+    let result = selection_requirements(&[
+        "soldier.fullName".into(),
+        "soldiers[0].rank".into(),
+        "soldiers[2].position".into(),
+        "mainName".into(),
+    ]);
+    assert_eq!(result.get("personnel"), Some(&3));
+    assert_eq!(person_number("soldier.fullName"), Some(1));
+    assert_eq!(person_number("soldiers[2].fullName"), Some(3));
+}
+
+#[test]
+fn resolves_v1_person_and_signer_aliases_from_current_data() {
+    let connection = Connection::open_in_memory().unwrap();
+    crate::database::initialise(&connection).unwrap();
+    crate::database::seed_test_personnel(&connection).unwrap();
+    let people = personnel::list(&connection).unwrap();
+    let mut configured = settings::defaults();
+    for (role, full_name, rank, position) in [
+        (
+            "основний_підписант",
+            "ІВАНЕНКО Іван Іванович",
+            "майор",
+            "командир роти",
+        ),
+        (
+            "командир",
+            "ПЕТРЕНКО Петро Петрович",
+            "полковник",
+            "командир батальйону",
+        ),
+        (
+            "начальник_штабу",
+            "СИДОРЕНКО Сергій Сергійович",
+            "підполковник",
+            "начальник штабу",
+        ),
+    ] {
+        configured
+            .signer_roles
+            .iter_mut()
+            .find(|item| item.id == role)
+            .unwrap()
+            .signer = settings::SignerSettings {
+            full_name: full_name.into(),
+            rank: rank.into(),
+            position: position.into(),
+        };
+    }
+    let values = values_for(&connection, &people[..2], &configured, None, None).unwrap();
+    for (legacy, current) in [
+        ("soldier.fullName", "військовий_1_піб"),
+        ("soldier.assignedVehicleName", "військовий_1_автомобіль"),
+        ("soldiers[0].rank", "військовий_1_звання"),
+        ("soldiers[1].taxId", "військовий_2_іпн"),
+        ("mainRank", "основний_підписант_звання"),
+        ("mainName", "основний_підписант_піб"),
+        ("mainPosition", "основний_підписант_посада"),
+        ("commanderName", "командир_піб"),
+        ("chiefName", "начальник_штабу_піб"),
+    ] {
+        assert_eq!(values[legacy].text, values[current].text, "{legacy}");
+    }
+    assert_eq!(values["mainSignature"].text, "");
 }
 #[test]
 fn validates_duplicates_conflicts_and_types() {
@@ -814,6 +915,59 @@ fn generates_and_revalidates_a_control_docx() {
         serde_json::json!([1])
     );
     assert_eq!(manifest["output"]["sha256"].as_str().unwrap().len(), 64);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn generates_a_report_from_a_v1_template_without_rewriting_it() {
+    use crate::database;
+    let connection = Connection::open_in_memory().unwrap();
+    database::initialise(&connection).unwrap();
+    database::seed_test_personnel(&connection).unwrap();
+    let person = personnel::list(&connection).unwrap().remove(0);
+    let root = std::env::temp_dir().join(format!(
+        "shablonizator-v1-e2e-{}-{}",
+        std::process::id(),
+        Local::now().timestamp_nanos_opt().unwrap_or_default()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let template = root.join("legacy-v1.docx");
+    let mut writer = ZipWriter::new(File::create(&template).unwrap());
+    writer
+        .start_file("word/document.xml", SimpleFileOptions::default())
+        .unwrap();
+    writer
+        .write_all(
+            br#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>{{soldier.fullName}}; {{soldier.rank}}; {{mainName}}; {{mainSignature}}</w:t></w:r></w:p></w:body></w:document>"#,
+        )
+        .unwrap();
+    writer.finish().unwrap();
+
+    let inspection = inspect(template.to_str().unwrap());
+    assert!(inspection.is_valid, "{:?}", inspection.errors);
+    let generated = generate(
+        &connection,
+        &root,
+        GenerateReportRequest {
+            template_path: template.to_string_lossy().into(),
+            personnel_ids: vec![person.id],
+            report_date: None,
+            vehicle_ids: Vec::new(),
+            crew_ids: Vec::new(),
+            position_ids: Vec::new(),
+            equipment_ids: Vec::new(),
+            parameters: HashMap::new(),
+        },
+    )
+    .unwrap();
+    let generated_path = Path::new(&generated.docx_path);
+    assert!(inspect(generated_path.to_str().unwrap())
+        .variables
+        .is_empty());
+    let text = read_docx_text(generated_path).unwrap();
+    assert!(text.contains(&person.surname.to_uppercase()));
+    assert!(!text.contains("{{soldier."));
+    assert!(!text.contains("{{main"));
     let _ = fs::remove_dir_all(root);
 }
 

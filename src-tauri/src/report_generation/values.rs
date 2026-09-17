@@ -89,10 +89,14 @@ pub(super) fn values_for(
                     .unwrap_or_default(),
                 _ => person_value(p, source_key),
             };
-            map.insert(
-                format!("{prefix}_{}", field.id),
-                Value::new(text, &field.kind, gender),
-            );
+            let resolved = Value::new(text, &field.kind, gender);
+            map.insert(format!("{prefix}_{}", field.id), resolved.clone());
+            if let Some(legacy_field) = legacy_person_field_for_source(source_key) {
+                map.insert(format!("soldiers[{i}].{legacy_field}"), resolved.clone());
+                if i == 0 {
+                    map.insert(format!("soldier.{legacy_field}"), resolved.clone());
+                }
+            }
         }
         // Related vehicle variables are valid even when the selected person
         // does not currently have a vehicle assigned. Seed the first relation
@@ -189,6 +193,23 @@ pub(super) fn values_for(
     for role in &roles {
         add_signer(&mut map, &role.id, &role.signer)
     }
+    for (legacy, role, field) in [
+        ("mainRank", "основний_підписант", "звання"),
+        ("mainName", "основний_підписант", "піб"),
+        ("mainPosition", "основний_підписант", "посада"),
+        ("commanderName", "командир", "піб"),
+        ("chiefName", "начальник_штабу", "піб"),
+    ] {
+        if let Some(value) = map.get(&format!("{role}_{field}")).cloned() {
+            map.insert(legacy.into(), value);
+        }
+    }
+    // v1 exposed this placeholder but never populated an image or text value.
+    // Keeping it empty preserves the output of existing templates.
+    map.insert(
+        "mainSignature".into(),
+        Value::new(String::new(), "text", None),
+    );
     let date = match date.filter(|v| !v.is_empty()) {
         Some(v) => NaiveDate::parse_from_str(v, "%Y-%m-%d")
             .map_err(|_| "Не вдалося прочитати дату рапорту.".to_string())?,
