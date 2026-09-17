@@ -7,7 +7,7 @@ const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 const position = { id: 3, name: "БУРЕВІЙ", positionType: "Запасна", stripName: "СМУГА ПІВНІЧ", locality: "НОВОСЕЛІВКА", battleOrder: "БРО-01", sector: "", condition: "", conditionLevel: 0, fieldType: "", size: "", mgrs: "36U UV 12000 67000", suitableUavText: "", isActive: false, crewId: null, crewName: "СОКІЛ", notes: "Тестова позиція", uavIds: [8], uavNames: ["SHARK"] };
-const crew = { id: 9, name: "СОКІЛ", positionId: 3, status: "Працюючий", workingStrength: 3, officialStrength: 4, primaryUavId: 8, uavName: "SHARK", sector: "СМУГА ПІВНІЧ", actualMembers: [] };
+const crew = { id: 9, name: "СОКІЛ", positionId: 3, status: "Працюючий", workingStrength: 3, officialStrength: 4, primaryUavId: 8, uavName: "SHARK", sector: "СМУГА ПІВНІЧ", members: [], actualMembers: [{ personnelId: 99, currentLocation: "На позиції" }] };
 const linkedEquipment = { id: 8, category: "uav", name: "SHARK", inventoryNumber: "UAV-008", status: "Справний", crewId: 9, crewName: "СОКІЛ", personnelId: null, holderName: null, totalQuantity: 1, dayQuantity: 1, nightQuantity: 0, assetKind: "aircraft", componentsJson: "[]", assignedQuantity: 1, notes: "" };
 const availableEquipment = { ...linkedEquipment, id: 18, category: "generator", name: "EcoFlow Delta", inventoryNumber: "GEN-018" };
 const freePerson = { personnelId: 42, fullName: "ПЕТРЕНКО Петро Петрович", rank: "солдат", position: "оператор", crewId: null, crewName: null, currentLocation: "ОХ" };
@@ -30,7 +30,6 @@ afterEach(() => { cleanup(); localStorage.clear(); vi.clearAllMocks(); });
 
 describe("Картка позиції", () => {
   it("показує тип, зайнятість з плану польотів і корисні оперативні дані без дублювання району", async () => {
-    localStorage.setItem("flight-plan-draft-v2", JSON.stringify({ date: currentPlanDate(), selected: [9] }));
     invoke.mockImplementation((command: string) => command === "list_positions" ? Promise.resolve([position]) : command === "list_crews" ? Promise.resolve([crew]) : command === "list_incidents" ? Promise.resolve([]) : Promise.resolve());
     render(<NotificationProvider><PositionsPage /></NotificationProvider>);
 
@@ -62,7 +61,6 @@ describe("Картка позиції", () => {
   });
 
   it("показує екіпажі окремими записами та автоматично збирає майно екіпажу на позиції", async () => {
-    localStorage.setItem("flight-plan-draft-v2", JSON.stringify({ date: currentPlanDate(), selected: [9] }));
     invoke.mockImplementation((command: string, args?: { category?: string }) => {
       if (command === "list_positions") return Promise.resolve([position]);
       if (command === "list_crews") return Promise.resolve([crew]);
@@ -224,12 +222,8 @@ describe("Картка позиції", () => {
     expect(screen.queryByText(leavingPositionPerson.fullName)).not.toBeInTheDocument();
   });
 
-  it("не вважає склад застарілого плану польотів поточним", async () => {
-    localStorage.setItem("flight-plan-draft-v2", JSON.stringify({
-      date: "14.09.2026",
-      selected: [9],
-      entries: { 9: { actualMemberIds: [freePerson.personnelId], startTime: "18:01", endTime: "18:00" } },
-    }));
+  it("не вважає завтрашню локальну чернетку поточним станом", async () => {
+    localStorage.setItem("flight-plan-draft-v2", JSON.stringify({ date: currentPlanDate(), selected: [9], entries: { 9: { actualMemberIds: [freePerson.personnelId] } } }));
     invoke.mockImplementation((command: string) => {
       if (command === "list_positions") return Promise.resolve([position]);
       if (command === "list_crews") return Promise.resolve([{ ...crew, actualMembers: [{ personnelId: freePerson.personnelId }] }]);
@@ -243,7 +237,7 @@ describe("Картка позиції", () => {
     expect(screen.getByRole("checkbox", { name: new RegExp(freePerson.fullName) })).toBeInTheDocument();
   });
 
-  it("резервує склад окремо для екіпажу, запис якого відсутній у поточному плані", async () => {
+  it("резервує склад за поточним станом БЧС, а не за локальною чернеткою", async () => {
     const fallbackPerson = { ...freePerson, personnelId: 43, fullName: "ЗАПАСНИЙ Захар Захарович" };
     const today = new Date().toLocaleDateString("sv-SE");
     const [year, month, day] = today.split("-");
@@ -258,7 +252,7 @@ describe("Картка позиції", () => {
         { ...crew, actualMembers: [{ personnelId: freePerson.personnelId }] },
         { ...crew, id: 10, name: "БАРС", actualMembers: [{ personnelId: fallbackPerson.personnelId }] },
       ]);
-      if (command === "list_staffing_records") return Promise.resolve([freePerson, fallbackPerson]);
+      if (command === "list_staffing_records") return Promise.resolve([{ ...freePerson, currentLocation: "На позиції" }, { ...fallbackPerson, currentLocation: "ЗБЗ" }]);
       if (["list_incidents", "list_equipment", "list_vehicles", "list_position_work"].includes(command)) return Promise.resolve([]);
       return Promise.resolve();
     });

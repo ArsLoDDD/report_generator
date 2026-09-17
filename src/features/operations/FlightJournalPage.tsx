@@ -7,20 +7,17 @@ import { Select } from "../../shared/ui/Select";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { EntityTable, type EntityTableColumn } from "../../shared/ui/data-table/EntityTable";
 import { useEntityCollection } from "../../shared/hooks/useEntityCollection";
-import { FLIGHT_PLAN_STORAGE_KEY } from "./flight-plan-storage";
+import { flightPlanDraftRequest } from "./flight-plan-storage";
 import { operationsService } from "./services/operationsService";
-import type { Crew, Equipment, FlightJournalDraft, FlightJournalEntry, FlightPlanEntry, Position, WorkshopProduct } from "./types";
+import type { Crew, Equipment, FlightJournalDraft, FlightJournalEntry, FlightPlanRequest, Position, WorkshopProduct } from "./types";
 
 type PayloadOption = { key: string; source: "equipment" | "workshop"; id: number; name: string; serial: string };
-type StoredPlan = { date?: string; entries?: Record<string, FlightPlanEntry> };
-
 const todayIso = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 };
 const emptyDraft = (): FlightJournalDraft => ({ flightDate: todayIso(), skyTime: "", groundTime: "", crewId: null, crewName: "", positionId: null, positionName: "", battleOrder: "", workStrip: "", uavId: null, uavName: "", uavType: "", uavSerialNumber: "", mission: "", payloadSource: "", payloadId: null, payloadType: "", payloadSerialNumber: "", notes: "" });
-const storedPlan = (): StoredPlan => { try { return JSON.parse(localStorage.getItem(FLIGHT_PLAN_STORAGE_KEY) ?? "{}"); } catch { return {}; } };
-const planMatches = (planDate: string | undefined, isoDate: string) => { const [year, month, day] = isoDate.split("-"); return !planDate || planDate === isoDate || planDate === `${day}.${month}.${year}`; };
+const parsePlan = (value: string | null | undefined): FlightPlanRequest | null => { try { const parsed = value ? JSON.parse(value) as FlightPlanRequest : null; return parsed && Array.isArray(parsed.entries) ? parsed : null; } catch { return null; } };
 const displayDate = (value: string) => { const [year, month, day] = value.split("-"); return year && month && day ? `${day}.${month}.${year}` : value; };
 
 const columns: EntityTableColumn<FlightJournalEntry>[] = [
@@ -63,11 +60,12 @@ export function FlightJournalPage() {
     ...products.map((item) => ({ key: `workshop:${item.id}`, source: "workshop" as const, id: item.id, name: item.name, serial: "" })),
   ], [ammunition, products]);
 
-  const chooseCrew = (value: string) => {
+  const chooseCrew = async (value: string) => {
     const crew = crews.find((item) => item.id === Number(value));
     if (!crew) { setDraft((current) => ({ ...emptyDraft(), flightDate: current.flightDate })); return; }
-    const plan = storedPlan();
-    const planEntry = planMatches(plan.date, draft.flightDate) ? plan.entries?.[String(crew.id)] : undefined;
+    const storedSnapshot = await operationsService.getFlightPlanSnapshot(draft.flightDate).catch(() => null);
+    const plan: FlightPlanRequest | null = parsePlan(storedSnapshot) ?? flightPlanDraftRequest(draft.flightDate);
+    const planEntry = plan?.entries.find((entry) => entry.crewId === crew.id);
     const selectedUavId = planEntry?.uavSelections?.[0]?.equipmentId ?? crew.primaryUavId ?? uavs.find((item) => item.crewId === crew.id)?.id ?? null;
     const uav = uavs.find((item) => item.id === selectedUavId);
     const payloadKey = planEntry?.payloadSelection ? `${planEntry.payloadSelection.sourceType}:${planEntry.payloadSelection.sourceId}` : "";
@@ -88,8 +86,8 @@ export function FlightJournalPage() {
   return <PageFrame className="flight-journal-page" header={<PageTitle title="Журнал польотів" subtitle="Фактичні польоти екіпажів із даними БпЛА та БК" actions={<button className="button primary" onClick={() => { setDraft(emptyDraft()); setOpen(true); }}><Plus />Додати</button>} />}>
     <section className="panel operation-table data-table flight-journal-table"><EntityTable className="operation-table__table" items={visibleItems} columns={columns} rowKey={(item) => item.id} numberBy={false} selectedKey={selected?.id} onSelect={setSelected} onScroll={onScroll} emptyState={<div className="personnel-state"><BookOpenText /><b>Записів ще немає</b><span>Додайте перший фактичний політ.</span></div>} /><div className="pagination">Показано {visibleItems.length} із {items.length}</div></section>
     {open && <Modal title="Новий запис польоту" subtitle="Поля з плану та картки екіпажу можна змінити перед збереженням." onClose={() => setOpen(false)} className="flight-journal-editor"><div className="operation-editor__body">
-      <label className="form-field"><span>Дата <b>*</b></span><input type="date" value={draft.flightDate} onChange={(event) => setDraft({ ...draft, flightDate: event.target.value })} /></label>
-      <label className="form-field"><span>Екіпаж <b>*</b></span><Select ariaLabel="Екіпаж польоту" value={draft.crewId?.toString() ?? ""} onChange={chooseCrew} options={[{ value: "", label: "Оберіть екіпаж" }, ...crews.map((crew) => ({ value: String(crew.id), label: crew.name }))]} /></label>
+      <label className="form-field"><span>Дата <b>*</b></span><input type="date" value={draft.flightDate} onChange={(event) => setDraft({ ...emptyDraft(), flightDate: event.target.value })} /></label>
+      <label className="form-field"><span>Екіпаж <b>*</b></span><Select ariaLabel="Екіпаж польоту" value={draft.crewId?.toString() ?? ""} onChange={(value)=>{void chooseCrew(value);}} options={[{ value: "", label: "Оберіть екіпаж" }, ...crews.map((crew) => ({ value: String(crew.id), label: crew.name }))]} /></label>
       <label className="form-field"><span>Час «Небо» <b>*</b></span><input aria-label="Час «Небо»" required type="time" value={draft.skyTime} onChange={(event) => setDraft({ ...draft, skyTime: event.target.value })} /></label>
       <label className="form-field"><span>Час «Земля» <b>*</b></span><input aria-label="Час «Земля»" required type="time" value={draft.groundTime} onChange={(event) => setDraft({ ...draft, groundTime: event.target.value })} /></label>
       <label className="form-field"><span>Позиція</span><Select ariaLabel="Позиція польоту" value={draft.positionId?.toString() ?? ""} onChange={choosePosition} options={[{ value: "", label: "Не обрана" }, ...positions.map((position) => ({ value: String(position.id), label: position.name }))]} /></label>

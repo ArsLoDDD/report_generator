@@ -16,7 +16,6 @@ import { operationsService } from "./services/operationsService";
 import type { Crew, CrewDraft, Equipment, EquipmentCategory, Incident, Position } from "./types";
 import { vehiclesService } from "../vehicles/services/vehiclesService";
 import type { Vehicle } from "../vehicles/types";
-import { flightPlanActiveCrewIds } from "./flight-plan-storage";
 import { incidentDateTimeParts } from "./incident-date";
 
 type CrewTab = "overview" | "members" | "assets" | "history";
@@ -24,6 +23,7 @@ type CrewAssetTab = "uav" | "vehicles" | Exclude<EquipmentCategory, "uav">;
 const crewAssetTabs: Array<{ id: CrewAssetTab; label: string }> = [{ id: "uav", label: "БпЛА та БпАК" }, { id: "vehicles", label: "Автомобілі" }, { id: "generator", label: "Генератори" }, { id: "communications", label: "Зв’язок" }, { id: "weapon_ammo", label: "Зброя та БК" }];
 const emptyDraft = (): CrewDraft => ({ name: "", platoon: "", positionName: "", reconnaissanceArea: "", unitType: "Екіпаж", companyName: "", battleOrder: "", sector: "", officialStrength: 0, workingStrength: 0, positionId: null, status: "Формується", uavName: "", uavType: "", primaryUavId: null, functionalDuties: "", currentLocation: "", notes: "", memberIds: [], actualMemberIds: [] });
 const statuses = ["Працюючий", "Формується", "Не активний"];
+const positionLocations = new Set(["На позиції", "ЗБЗ", "ПБЗ"]);
 const includes = (query: string, ...values: (string | null | undefined)[]) => values.join(" ").toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"));
 async function allPersonnel() { const result: Person[] = []; let offset = 0; while (true) { const page = await personnelService.list(offset, 500); result.push(...page.items); offset = result.length; if (offset >= page.totalCount || !page.items.length) return result; } }
 
@@ -100,7 +100,7 @@ export function CrewsPage({ people }: { people: Person[] }) {
   const assetsForTab = assetTab === "uav" ? crewAssets : assetTab === "vehicles" ? crewVehicles : crewOtherAssets.filter((item) => item.category === assetTab);
   const assetCount = (tab: CrewAssetTab) => tab === "uav" ? crewAssets.length : tab === "vehicles" ? crewVehicles.length : crewOtherAssets.filter((item) => item.category === tab).length;
   const crewIncidents = editing ? incidents.filter((incident) => incident.crewId === editing.id) : [];
-  const onPositionCrewIds = flightPlanActiveCrewIds();
+  const onPositionCrewIds = new Set(items.filter((crew) => (crew.actualMembers ?? []).some((member) => positionLocations.has(member.currentLocation?.trim() ?? ""))).map((crew) => crew.id));
 
   return <PageFrame className="crews-page" onContentScroll={onContentScroll} footer={<div className="panel pagination card-registry__pagination">Показано {visibleItems.length} із {filtered.length}</div>} header={<PageTitle title="Екіпажі" subtitle="Єдиний облік екіпажів, позицій, складу та майна" actions={<button className="button primary" onClick={() => edit()}><Plus />Створити екіпаж</button>} />} tools={<RegistryToolbar className="card-registry-toolbar" placeholder="Пошук за назвою, статусом, смугою, БпАК або позицією…" query={query} onQueryChange={setQuery} />}>
     <EntityCardGrid className="crews-grid">{visibleItems.map((crew) => { const assets = uavs.filter((uav) => uav.crewId === crew.id); return <EntityCard className={`crew-card crew-card--${crew.status === "Працюючий" ? "working" : crew.status === "Формується" ? "forming" : "inactive"}`} key={crew.id} onClick={() => edit(crew)}>

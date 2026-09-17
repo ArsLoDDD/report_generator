@@ -7,11 +7,11 @@ import { PageTitle } from "../../shared/ui/PageTitle";
 import { Select } from "../../shared/ui/Select";
 import { EntityTable, type EntityTableColumn } from "../../shared/ui/data-table/EntityTable";
 import { operationsService } from "./services/operationsService";
-import type { Crew, Equipment, EquipmentCategory, Incident } from "./types";
+import type { Crew, Equipment, EquipmentCategory, FlightPlanEntry, FlightPlanRequest, Incident } from "./types";
 import { useEntityCollection } from "../../shared/hooks/useEntityCollection";
 import { incidentDateTimeParts } from "./incident-date";
 import { RecordPickerModal } from "../../shared/ui/record-picker/RecordPickerModal";
-import { flightPlanDateMatches, flightPlanSelectedCrewIds } from "./flight-plan-storage";
+import { flightPlanDraftRequest } from "./flight-plan-storage";
 import { personnelService } from "../../shared/services/personnelService";
 import type { Person } from "../../shared/types/domain";
 
@@ -34,6 +34,7 @@ const incidentPersonShortName = (fullName?: string) => {
   return `${parts[0]}${parts.length > 1 ? ` ${parts.slice(1).map((part) => `${part[0].toLocaleUpperCase("uk")}.`).join("")}` : ""}`;
 };
 const incidentDetailsTitle = (incident: Incident) => `${incident.incidentType} - ${incidentPersonShortName(incident.personnelNames?.[0])} - ${incidentDateTimeParts(incident.occurredAt).date}`;
+const parsePlan = (value: string | null | undefined): FlightPlanRequest | null => { try { const parsed = value ? JSON.parse(value) as FlightPlanRequest : null; return parsed && Array.isArray(parsed.entries) ? parsed : null; } catch { return null; } };
 const emptyDraft = () => ({ category: "БпЛА та польоти", incidentType: "Втрата БпЛА", customEvent: "", status: "Новий", ...localDateParts(), crewId: "", equipmentIds: [] as number[], personnelIds: [] as number[], positionName: "", reconnaissanceArea: "", description: "", immediateActions: "", consequences: "", flightStage: "", preliminaryCause: "", reportedTo: "", reportedDate: "", reportedTime: "" });
 const incidentColumns: EntityTableColumn<Incident>[] = [
   { key: "id", title: "№", render: (_item, rowIndex) => rowIndex + 1 },
@@ -56,6 +57,7 @@ export function IncidentsPage() {
   const [personPickerOpen, setPersonPickerOpen] = useState(false);
   const [people, setPeople] = useState<Person[]>([]);
   const [visibleLimit, setVisibleLimit] = useState(20);
+  const [datedPlanEntries, setDatedPlanEntries] = useState<FlightPlanEntry[]>([]);
   const { notify } = useNotifications();
   const [draft, setDraft] = useState(emptyDraft);
 
@@ -69,10 +71,38 @@ export function IncidentsPage() {
   }, [reloadItems]);
 
   useEffect(() => { void operationsService.listCrews().then(setCrews).catch(() => setCrews([])); void Promise.all(equipmentCategories.map((category) => operationsService.listEquipment(category))).then((groups) => setEquipment(groups.flatMap((group) => group ?? []))).catch(() => setEquipment([])); void personnelService.list(0, 10000).then((result) => setPeople(result.items)).catch(() => setPeople([])); }, []);
+  useEffect(() => {
+    setDatedPlanEntries([]);
+    setDraft((current) => {
+      if (!current.crewId) return current;
+      const crew = crews.find((item) => item.id === Number(current.crewId));
+      return { ...current, positionName: crew?.positionName ?? "" };
+    });
+    if (!open || !draft.incidentDate) return;
+    let active = true;
+    const incidentDate = draft.incidentDate;
+    const applyPlan = (plan: FlightPlanRequest | null) => {
+      const entries = plan?.entries ?? [];
+      setDatedPlanEntries(entries);
+      setDraft((current) => {
+        if (current.incidentDate !== incidentDate || !current.crewId) return current;
+        const crew = crews.find((item) => item.id === Number(current.crewId));
+        const planPositionName = entries.find((entry) => entry.crewId === crew?.id)?.positionName ?? "";
+        return { ...current, positionName: planPositionName || crew?.positionName || "" };
+      });
+    };
+    void operationsService.getFlightPlanSnapshot(incidentDate).then((value) => {
+      if (!active) return;
+      applyPlan(parsePlan(value) ?? flightPlanDraftRequest(incidentDate));
+    }).catch(() => {
+      if (active) applyPlan(flightPlanDraftRequest(incidentDate));
+    });
+    return () => { active = false; };
+  }, [crews, draft.incidentDate, open]);
 
   const chooseCrew = (crewId: string) => {
     const crew = crews.find((item) => item.id === Number(crewId));
-    const planPositionName = crew && flightPlanSelectedCrewIds().has(crew.id) && flightPlanDateMatches(draft.incidentDate) ? crew.positionName : "";
+    const planPositionName = datedPlanEntries.find((entry) => entry.crewId === crew?.id)?.positionName ?? "";
     setDraft((current) => ({ ...current, crewId, equipmentIds: [], positionName: planPositionName || crew?.positionName || "", reconnaissanceArea: crew?.reconnaissanceArea ?? "" }));
   };
 
@@ -81,7 +111,7 @@ export function IncidentsPage() {
     if (!incidentType) { notify("Вкажіть подію для іншого інциденту.", "error"); return; }
     if (!draft.incidentDate || !draft.incidentTime) { notify("Вкажіть обов’язкові дату та час інциденту.", "error"); return; }
     try {
-      await operationsService.createIncident({ category: draft.category, incidentType, status: draft.status, occurredAt: `${draft.incidentDate}T${draft.incidentTime}`, crewId: draft.crewId ? Number(draft.crewId) : null, equipmentId: draft.equipmentIds[0] ?? null, equipmentIds: draft.equipmentIds, personnelIds: draft.personnelIds, positionName: draft.positionName, reconnaissanceArea: draft.reconnaissanceArea, description: draft.description, immediateActions: draft.immediateActions, consequences: draft.consequences, flightStage: draft.flightStage, preliminaryCause: draft.preliminaryCause, snapshotSource: crewOnSelectedDatePlan ? "flight-plan-draft" : "current", reportedTo: draft.reportedTo, reportedAt: draft.reportedDate && draft.reportedTime ? `${draft.reportedDate}T${draft.reportedTime}` : "" });
+      await operationsService.createIncident({ category: draft.category, incidentType, status: draft.status, occurredAt: `${draft.incidentDate}T${draft.incidentTime}`, crewId: draft.crewId ? Number(draft.crewId) : null, equipmentId: draft.equipmentIds[0] ?? null, equipmentIds: draft.equipmentIds, personnelIds: draft.personnelIds, positionName: draft.positionName, reconnaissanceArea: draft.reconnaissanceArea, description: draft.description, immediateActions: draft.immediateActions, consequences: draft.consequences, flightStage: draft.flightStage, preliminaryCause: draft.preliminaryCause, snapshotSource: crewOnSelectedDatePlan ? "flight-plan-snapshot" : "current", reportedTo: draft.reportedTo, reportedAt: draft.reportedDate && draft.reportedTime ? `${draft.reportedDate}T${draft.reportedTime}` : "" });
       setOpen(false);
       setDraft(emptyDraft());
       reload();
@@ -93,7 +123,7 @@ export function IncidentsPage() {
 
   const visibleItems = items.slice(0, visibleLimit);
   const selectedCrew = crews.find((crew) => crew.id === Number(draft.crewId));
-  const crewOnSelectedDatePlan = Boolean(selectedCrew && flightPlanSelectedCrewIds().has(selectedCrew.id) && flightPlanDateMatches(draft.incidentDate));
+  const crewOnSelectedDatePlan = Boolean(selectedCrew && datedPlanEntries.some((entry) => entry.crewId === selectedCrew.id));
   const actualPersonnelIds = new Set(selectedCrew?.actualMembers.map((member) => member.personnelId) ?? []);
   const crewEquipment = equipment.filter((asset) => asset.crewId === selectedCrew?.id || Boolean(asset.personnelId && actualPersonnelIds.has(asset.personnelId)));
   const selectedEquipment = draft.equipmentIds.map((id) => crewEquipment.find((asset) => asset.id === id)).filter((asset): asset is Equipment => Boolean(asset));

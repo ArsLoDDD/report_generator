@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { FLIGHT_PLAN_STORAGE_KEY, flightPlanActiveCrewIds, flightPlanActiveMemberIds, flightPlanDraftRequest } from "./flight-plan-storage";
+import { FLIGHT_PLAN_STORAGE_KEY, flightPlanActiveCrewIds, flightPlanActiveMemberIds, flightPlanDateMatches, flightPlanDraftRequest } from "./flight-plan-storage";
 
 describe("активний склад плану польотів", () => {
   beforeEach(() => localStorage.clear());
@@ -95,5 +95,27 @@ describe("активний склад плану польотів", () => {
 
     expect([...flightPlanActiveMemberIds(new Date(2026, 8, 15, 14, 0))]).toEqual([1]);
     expect(flightPlanDraftRequest("2026-09-15")).toBeNull();
+  });
+
+  it("does not treat an undated legacy draft or tomorrow's draft as the plan for another date", () => {
+    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify({
+      unitName: "РБПАК",
+      selected: [1],
+      entries: { 1: { crewId: 1, actualMemberIds: [1], startTime: "07:00", endTime: "12:00", positionName: "ЗАВТРА" } },
+    }));
+
+    expect(flightPlanDateMatches("2026-09-17")).toBe(false);
+    expect(flightPlanDraftRequest("2026-09-17")).toBeNull();
+
+    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify({
+      date: "18.09.2026",
+      unitName: "РБПАК",
+      selected: [1],
+      entries: { 1: { crewId: 1, actualMemberIds: [1], startTime: "07:00", endTime: "12:00", positionName: "ЗАВТРА" } },
+    }));
+
+    expect(flightPlanDateMatches("2026-09-17")).toBe(false);
+    expect(flightPlanDraftRequest("2026-09-17")).toBeNull();
+    expect(flightPlanDraftRequest("2026-09-18")?.entries[0]?.positionName).toBe("ЗАВТРА");
   });
 });

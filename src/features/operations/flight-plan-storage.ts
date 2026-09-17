@@ -73,7 +73,7 @@ export function flightPlanActiveMemberIds(now = new Date()): Set<number> {
 
 export const flightPlanDateMatches = (isoDate: string) => {
   const { date } = flightPlanSnapshot();
-  if (!date) return true;
+  if (!date) return false;
   const [year, month, day] = isoDate.split("-");
   return date === `${day}.${month}.${year}` || date === isoDate;
 };

@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
 import { operationsService } from "./services/operationsService";
-import { FlightPlanningPage, flightPlanTransitionHasHappened } from "./FlightPlanningPage";
+import { FlightPlanningPage, flightPlanDateForTomorrow, flightPlanTransitionHasHappened } from "./FlightPlanningPage";
 
 const { save } = vi.hoisted(() => ({ save: vi.fn().mockResolvedValue("/tmp/РБПАК_10.09.2026_План_польотів.xlsx") }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save }));
@@ -69,7 +69,7 @@ describe("Планування польотів",()=>{
     expect(screen.queryByText("РЕЗЕРВ")).not.toBeInTheDocument();
   });
 
-  it("excludes unavailable crew members from the plan and BCS synchronization",async()=>{
+  it("excludes unavailable crew members from tomorrow's plan without changing today's BCS",async()=>{
     const available={...crew("СОКІЛ").actualMembers[0],personnelId:2,fullName:"ДОСТУПНИЙ Дмитро Дмитрович",currentLocation:"ОХ"};
     const training={...crew("СОКІЛ").actualMembers[0],personnelId:1,fullName:"НАВЧАЛЬНИЙ Назар Назарович",currentLocation:"НАВЧ"};
     vi.mocked(operationsService.listCrews).mockResolvedValue([{...crew("СОКІЛ"),members:[training,available],actualMembers:[training,available]}]);
@@ -78,14 +78,14 @@ describe("Планування польотів",()=>{
 
     await screen.findByText("БАРС",{selector:"b"});
     expect(screen.getByText("1 недоступні")).toBeInTheDocument();
-    await waitFor(()=>expect(operationsService.syncFlightPlanLocations).toHaveBeenLastCalledWith(expect.any(String),[{crewId:1,stages:[[2]],arrivesToday:false,departsToday:false}]));
     await waitFor(()=>expect(JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}").entries[1].actualMemberIds).toEqual([2]));
+    expect(operationsService.syncFlightPlanLocations).not.toHaveBeenCalled();
   });
 
   it("preserves a conflicting saved composition until the user explicitly refreshes it",async()=>{
     const blocked={...crew("СОКІЛ").actualMembers[0],personnelId:1,fullName:"НАВЧАЛЬНИЙ Назар Назарович",currentLocation:"НАВЧ"};
     const available={...crew("СОКІЛ").actualMembers[0],personnelId:2,fullName:"ДОСТУПНИЙ Дмитро Дмитрович",currentLocation:"ОХ"};
-    localStorage.setItem("flight-plan-draft-v2",JSON.stringify({date:todayForTest(),selected:[1],entries:{1:{...initialStoredEntryForTest(),crewId:1,actualMemberIds:[1,2],actualCommanderId:1}},rotations:{}}));
+    localStorage.setItem("flight-plan-draft-v2",JSON.stringify({date:tomorrowForTest(),selected:[1],entries:{1:{...initialStoredEntryForTest(),crewId:1,actualMemberIds:[1,2],actualCommanderId:1}},rotations:{}}));
     vi.mocked(operationsService.listCrews).mockResolvedValue([{...crew("СОКІЛ"),members:[blocked,available],actualMembers:[blocked,available]}]);
 
     render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
@@ -97,10 +97,10 @@ describe("Планування польотів",()=>{
     expect(screen.getByRole("alert")).toHaveTextContent("Дані не змінено автоматично");
     fireEvent.click(screen.getByRole("button",{name:"Оновити склад етапу"}));
     await waitFor(()=>expect(JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}").entries[1].actualMemberIds).toEqual([2]));
-    await waitFor(()=>expect(operationsService.syncFlightPlanLocations).toHaveBeenLastCalledWith(expect.any(String),[{crewId:1,stages:[[2]],arrivesToday:false,departsToday:false}]));
+    expect(operationsService.syncFlightPlanLocations).not.toHaveBeenCalled();
   });
 
-  it("restores today's plan and its rotation stages from the database snapshot",async()=>{
+  it("restores tomorrow's plan and its rotation stages from the database snapshot",async()=>{
     vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
     vi.mocked(operationsService.getFlightPlanSnapshot).mockResolvedValue(JSON.stringify({unitName:"АРХІВ",entries:[
       {crewId:1,actualMemberIds:[1],actualCommanderId:1,actualVehicleId:null,weather:{},routePoints:["БАЗА"],areaPoints:["РАЙОН"],altitudeFrom:"100",altitudeTo:"200",task:"Розвідка",startTime:"18:01",endTime:"19:00",uavSelections:[],payloadSelection:null},
@@ -111,7 +111,7 @@ describe("Планування польотів",()=>{
     await waitFor(()=>{const stored=JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}");expect(stored.entries[1].routePoints).toEqual(["БАЗА"]);expect(stored.rotations[1][0]).toEqual(expect.objectContaining({rotationId:"saved-rotation",routePoints:["НОВА ТОЧКА"]}));});
   });
 
-  it("opens and upgrades a legacy local plan that has none of the new fields",async()=>{
+  it("does not carry a stale legacy draft into tomorrow's operational plan",async()=>{
     localStorage.setItem("flight-plan-draft-v2",JSON.stringify({
       unitName:"СТАРИЙ ПІДРОЗДІЛ",date:"01.01.2020",selected:[1],
       entries:{1:{crewId:1,actualMemberIds:[1],routePoints:["СТАРИЙ МАРШРУТ"],startTime:"06:00",endTime:"18:00"}},
@@ -123,11 +123,8 @@ describe("Планування польотів",()=>{
     await screen.findByText("БАРС",{selector:"b"});
     await waitFor(()=>{
       const stored=JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}");
-      expect(stored.entries[1]).toEqual(expect.objectContaining({
-        crewId:1,routePoints:["СТАРИЙ МАРШРУТ"],areaPoints:[],uavSelections:[],
-        arrivesToday:false,departsToday:false,departureTime:"",
-        weather:expect.objectContaining({temperature:"20",windFrom:"2"}),
-      }));
+      expect(stored.date).toBe(tomorrowForTest());
+      expect(stored.entries[1]).toEqual(expect.objectContaining({crewId:1,routePoints:[]}));
     });
   });
 
@@ -161,7 +158,6 @@ describe("Планування польотів",()=>{
       expect(stored.rotations[1][0].actualMemberIds).toEqual([1,3]);
       expect(stored.rotations[1][0].actualCommanderId).toBe(1);
     });
-    await waitFor(()=>expect(operationsService.syncFlightPlanLocations).toHaveBeenLastCalledWith(expect.any(String),[{crewId:1,stages:[[1,2],[1,3]],arrivesToday:false,departsToday:false}]));
 
     const firstRotationToggle=screen.getByRole("button",{name:"Розгорнути ротацію 1 екіпажу БАРС"});
     const firstRotationCard=firstRotationToggle.closest("article");
@@ -181,7 +177,6 @@ describe("Планування польотів",()=>{
       expect(stored.rotations[1][0].actualMemberIds).toEqual([1,3]);
       expect(stored.rotations[1][1].actualMemberIds).toEqual([1,4]);
     });
-    await waitFor(()=>expect(operationsService.syncFlightPlanLocations).toHaveBeenLastCalledWith(expect.any(String),[{crewId:1,stages:[[1,2],[1,3],[1,4]],arrivesToday:false,departsToday:false}]));
 
     fireEvent.click(screen.getByRole("button",{name:"Редагувати склад ротації 1 екіпажу БАРС"}));
     const editDialog=screen.getByRole("dialog",{name:/Ротація екіпажу/u});
@@ -212,7 +207,7 @@ describe("Планування польотів",()=>{
 
   it("keeps a departure before a confirmed arrival only in the local draft",async()=>{
     localStorage.setItem("flight-plan-draft-v2",JSON.stringify({
-      date:todayForTest(),selected:[1],
+      date:tomorrowForTest(),selected:[1],
       entries:{1:{...initialStoredEntryForTest(),crewId:1,arrivesToday:true,departsToday:true,departureTime:"06:30",startTime:"07:00",endTime:"12:00"}},
       rotations:{},
     }));
@@ -233,7 +228,7 @@ describe("Планування польотів",()=>{
   it("blocks a departure after the latest rotation starts but before its work ends",async()=>{
     const primary={...initialStoredEntryForTest(),crewId:1,departsToday:true,departureTime:"22:30",startTime:"05:00",endTime:"21:00"};
     localStorage.setItem("flight-plan-draft-v2",JSON.stringify({
-      date:todayForTest(),selected:[1],entries:{1:primary},
+      date:tomorrowForTest(),selected:[1],entries:{1:primary},
       rotations:{1:[{...primary,rotationId:"late",actualMemberIds:[2],startTime:"21:01",endTime:"23:00",departsToday:false,departureTime:""}]},
     }));
     vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
@@ -253,7 +248,7 @@ describe("Планування польотів",()=>{
   it("blocks a rotation that does not start one minute after the previous stage",async()=>{
     const primary={...initialStoredEntryForTest(),crewId:1,startTime:"05:00",endTime:"19:00"};
     localStorage.setItem("flight-plan-draft-v2",JSON.stringify({
-      date:todayForTest(),selected:[1],entries:{1:primary},
+      date:tomorrowForTest(),selected:[1],entries:{1:primary},
       rotations:{1:[{...primary,rotationId:"gap",actualMemberIds:[2],startTime:"19:05",endTime:"22:00"}]},
     }));
     vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
@@ -273,11 +268,11 @@ describe("Планування польотів",()=>{
     render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
     await screen.findByText("БАРС",{selector:"b"});
     fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
-    fireEvent.click(screen.getByText("Виїжджає з позиції сьогодні"));
+    fireEvent.click(screen.getByText("Виїжджає з позиції у день плану"));
     expect(screen.getByLabelText("Час виїзду екіпажу БАРС")).toBeInvalid();
     fireEvent.click(screen.getByRole("button",{name:"Параметри плану польотів"}));
     fireEvent.click(screen.getByRole("button",{name:"Експорт плану"}));
-    expect(await screen.findByText(/Вкажіть фактичний час виїзду екіпажу/u)).toBeInTheDocument();
+    expect(await screen.findByText(/Вкажіть плановий час виїзду екіпажу/u)).toBeInTheDocument();
     expect(save).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText("Час виїзду екіпажу БАРС"),{target:{value:"21:00"}});
     await waitFor(()=>expect(JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}").entries[1]).toEqual(expect.objectContaining({departsToday:true,departureTime:"21:00"})));
@@ -285,10 +280,10 @@ describe("Планування польотів",()=>{
       const calls=vi.mocked(operationsService.saveFlightPlanSnapshot).mock.calls;
       expect(calls[calls.length-1]?.[1].entries[0]).toEqual(expect.objectContaining({departsToday:true,departureTime:"21:00"}));
     });
-    await waitFor(()=>expect(operationsService.syncFlightPlanLocations).toHaveBeenLastCalledWith(expect.any(String),[{crewId:1,stages:[[1]],arrivesToday:false,departsToday:true}]));
+    expect(operationsService.syncFlightPlanLocations).not.toHaveBeenCalled();
   });
 
-  it("marks today's selection as a new arrival when yesterday's same crew had departed",async()=>{
+  it("marks tomorrow's selection as a new arrival when today's same crew departs",async()=>{
     vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
     vi.mocked(operationsService.getFlightPlanSnapshot)
       .mockResolvedValueOnce(null)
@@ -299,12 +294,12 @@ describe("Планування польотів",()=>{
       const calls=vi.mocked(operationsService.saveFlightPlanSnapshot).mock.calls;
       expect(calls[calls.length-1]?.[1].entries[0]).toEqual(expect.objectContaining({arrivesToday:true}));
     });
-    await waitFor(()=>expect(operationsService.syncFlightPlanLocations).toHaveBeenLastCalledWith(expect.any(String),[expect.objectContaining({crewId:1,arrivesToday:true,departsToday:false})]));
+    expect(operationsService.syncFlightPlanLocations).not.toHaveBeenCalled();
   });
 
   it("does not carry a daily departure marker or the departed crew into the next plan",async()=>{
     localStorage.setItem("flight-plan-draft-v2",JSON.stringify({
-      date:"01.01.2020",selected:[1],
+      date:todayForTest(),selected:[1],
       entries:{1:{...initialStoredEntryForTest(),crewId:1,departsToday:true,departureTime:"16:30"}},
       rotations:{},
     }));
@@ -329,26 +324,26 @@ describe("Планування польотів",()=>{
     expect(crewSelection).toBeChecked();
     fireEvent.click(crewSelection);
     expect(await screen.findByText(/Екіпаж «БАРС» підтверджено перебуває на позиції за попереднім планом/u)).toBeInTheDocument();
-    expect(screen.getByText(/позначте «Виїжджає з позиції сьогодні» та вкажіть час/u)).toBeInTheDocument();
+    expect(screen.getByText(/позначте «Виїжджає з позиції у день плану» та вкажіть час/u)).toBeInTheDocument();
     expect(crewSelection).toBeChecked();
     await waitFor(()=>expect(JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}").selected).toEqual([1]));
-    await waitFor(()=>expect(operationsService.syncFlightPlanLocations).toHaveBeenLastCalledWith(expect.any(String),[expect.objectContaining({crewId:1,departsToday:false})]));
+    expect(operationsService.syncFlightPlanLocations).not.toHaveBeenCalled();
     await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledWith(expect.any(String),expect.objectContaining({entries:[expect.objectContaining({crewId:1})]})));
   });
 
   it("keeps a newly arrived crew selected after its inferred arrival time",async()=>{
-    const [day,month,year]=todayForTest().split(".").map(Number);
+    const [day,month,year]=tomorrowForTest().split(".").map(Number);
     const now=vi.spyOn(Date,"now").mockReturnValue(new Date(year,month-1,day,12,0).getTime());
     localStorage.setItem("flight-plan-draft-v2",JSON.stringify({
-      date:todayForTest(),selected:[1],entries:{1:{...initialStoredEntryForTest(),crewId:1,arrivesToday:true,startTime:"07:00",endTime:"12:00"}},rotations:{},
+      date:tomorrowForTest(),selected:[1],entries:{1:{...initialStoredEntryForTest(),crewId:1,arrivesToday:true,startTime:"07:00",endTime:"12:00"}},rotations:{},
     }));
     vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
     render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
     await screen.findByText("БАРС",{selector:"b"});
     fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
     const arrivalNote=screen.getByRole("note");
-    expect(within(arrivalNote).getByText("Заїзд визначено з попереднього плану: о 07:00.")).toBeInTheDocument();
-    expect(within(arrivalNote).getByText("Для нового екіпажу початок роботи є часом заїзду.")).toBeInTheDocument();
+    expect(within(arrivalNote).getByText("Заїзд у день плану визначено з попереднього плану: о 07:00.")).toBeInTheDocument();
+    expect(within(arrivalNote).getByText("Для нового екіпажу початок роботи є плановим часом заїзду.")).toBeInTheDocument();
     const crewSelection=screen.getAllByRole("checkbox")[0];
     fireEvent.click(crewSelection);
     expect(await screen.findByText(/Екіпаж «БАРС» підтверджено заїхав на позицію о 07:00/u)).toBeInTheDocument();
@@ -357,10 +352,10 @@ describe("Планування польотів",()=>{
   });
 
   it("allows cancelling a newly planned arrival before its inferred arrival time",async()=>{
-    const [day,month,year]=todayForTest().split(".").map(Number);
+    const [day,month,year]=tomorrowForTest().split(".").map(Number);
     const now=vi.spyOn(Date,"now").mockReturnValue(new Date(year,month-1,day,6,59).getTime());
     localStorage.setItem("flight-plan-draft-v2",JSON.stringify({
-      date:todayForTest(),selected:[1],entries:{1:{...initialStoredEntryForTest(),crewId:1,arrivesToday:true,startTime:"07:00",endTime:"12:00"}},rotations:{},
+      date:tomorrowForTest(),selected:[1],entries:{1:{...initialStoredEntryForTest(),crewId:1,arrivesToday:true,startTime:"07:00",endTime:"12:00"}},rotations:{},
     }));
     vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
     render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
@@ -374,7 +369,7 @@ describe("Планування польотів",()=>{
   it("does not roll an invalid departure or rotation into the next day",async()=>{
     const primary={...initialStoredEntryForTest(),crewId:1,routePoints:["ПОПЕРЕДНЯ"],departsToday:true,departureTime:"11:00",startTime:"07:00",endTime:"12:00"};
     localStorage.setItem("flight-plan-draft-v2",JSON.stringify({
-      date:"01.01.2020",selected:[1],entries:{1:primary},
+      date:todayForTest(),selected:[1],entries:{1:primary},
       rotations:{1:[{...primary,rotationId:"invalid-gap",actualMemberIds:[2],routePoints:["НЕВАЛІДНА РОТАЦІЯ"],startTime:"12:30",endTime:"16:00",departsToday:false,departureTime:""}]},
     }));
     vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
@@ -398,7 +393,16 @@ function todayForTest(){
   return `${String(value.getDate()).padStart(2,"0")}.${String(value.getMonth()+1).padStart(2,"0")}.${value.getFullYear()}`;
 }
 
+function tomorrowForTest(){
+  const value=new Date();
+  return flightPlanDateForTomorrow(value);
+}
+
 describe("визначення фактичного заїзду",()=>{
+  it("sets the execution date to tomorrow across month and year boundaries",()=>{
+    expect(flightPlanDateForTomorrow(new Date(2026,0,31,23,59))).toBe("01.02.2026");
+    expect(flightPlanDateForTomorrow(new Date(2026,11,31,23,59))).toBe("01.01.2027");
+  });
   it("changes from planned to confirmed exactly at the start time",()=>{
     expect(flightPlanTransitionHasHappened("15.09.2026","07:00",new Date(2026,8,15,6,59))).toBe(false);
     expect(flightPlanTransitionHasHappened("15.09.2026","07:00",new Date(2026,8,15,7,0))).toBe(true);

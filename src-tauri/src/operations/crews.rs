@@ -48,6 +48,7 @@ pub(crate) fn actual_crew_members(
 #[tauri::command]
 pub fn list_crews(state: tauri::State<AppState>) -> Result<Vec<Crew>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
+    super::reconcile_flight_plan_for_now(&db.connection)?;
     let mut s=db.connection.prepare("SELECT c.id,c.name,c.platoon,COALESCE(p.name,c.position_name),COALESCE(p.locality,c.reconnaissance_area),c.unit_type,c.company_name,COALESCE(p.battle_order,c.battle_order),c.sector,c.official_strength,(SELECT COUNT(*) FROM crew_actual_members am WHERE am.crew_id=c.id),c.status,COALESCE(primary_uav.name,c.uav_name),COALESCE(primary_uav.uav_type,c.uav_type),c.functional_duties,c.current_location,c.notes,COUNT(cm.id),c.position_id,c.primary_uav_id FROM crews c LEFT JOIN crew_members cm ON cm.crew_id=c.id AND cm.left_at IS NULL LEFT JOIN positions p ON p.id=c.position_id LEFT JOIN equipment primary_uav ON primary_uav.id=c.primary_uav_id AND primary_uav.crew_id=c.id AND primary_uav.category='uav' GROUP BY c.id ORDER BY c.platoon COLLATE NOCASE,c.name COLLATE NOCASE").map_err(|_|"Не вдалося прочитати екіпажі.".to_string())?;
     let rows = s
         .query_map([], |r| {

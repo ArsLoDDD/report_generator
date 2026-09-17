@@ -1,7 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
-import { FLIGHT_PLAN_STORAGE_KEY } from "./flight-plan-storage";
 import { FlightJournalPage } from "./FlightJournalPage";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
@@ -15,13 +14,13 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
 
 describe("Журнал польотів", () => {
   it("підставляє погоджені поля з плану, не показує джерело та залишає нотатки останніми", async () => {
-    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify({ date: "13.09.2026", entries: { 4: { startTime: "06:10", endTime: "07:25", task: "Розвідка", uavSelections: [{ equipmentId: 8 }], payloadSelection: null } } }));
     invoke.mockImplementation((command: string, args?: { category?: string }) => {
       if (command === "list_flight_journal_entries") return Promise.resolve([]);
       if (command === "list_crews") return Promise.resolve([crew]);
       if (command === "list_positions") return Promise.resolve([position]);
       if (command === "list_equipment") return Promise.resolve(args?.category === "uav" ? [uav] : []);
       if (command === "list_workshop_products") return Promise.resolve([]);
+      if (command === "get_flight_plan_snapshot") return Promise.resolve(JSON.stringify({ unitName: "РБПАК", entries: [{ crewId: 4, startTime: "06:10", endTime: "07:25", task: "Розвідка", uavSelections: [{ equipmentId: 8 }], payloadSelection: null }] }));
       return Promise.resolve();
     });
     render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
@@ -31,7 +30,7 @@ describe("Журнал польотів", () => {
     expect(within(dialog).queryByText(/Джерело даних/i)).not.toBeInTheDocument();
     fireEvent.change(dialog.querySelector<HTMLInputElement>('input[type="date"]')!, { target: { value: "2026-09-13" } });
     fireEvent.change(within(dialog).getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
-    expect(within(dialog).getByDisplayValue("06:10")).toBeInTheDocument();
+    expect(await within(dialog).findByDisplayValue("06:10")).toBeInTheDocument();
     expect(within(dialog).getByDisplayValue("07:25")).toBeInTheDocument();
     expect(within(dialog).getByDisplayValue("СМУГА СХІД")).toBeInTheDocument();
     expect(within(dialog).getByDisplayValue("UAV-008")).toBeInTheDocument();

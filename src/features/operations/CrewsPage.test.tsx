@@ -26,9 +26,10 @@ describe("Склад екіпажу",()=>{
     expect(screen.getByText("Показано 1 із 1")).toBeInTheDocument();
     expect(screen.queryByText("1 записів")).not.toBeInTheDocument();
   });
-  it("позначає екіпаж, вибраний у плані польотів, як такий, що перебуває на позиції",async()=>{
-    localStorage.setItem("flight-plan-draft-v2",JSON.stringify({selected:[9]}));
-    invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve([crew]):command==="list_positions"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):command==="list_equipment"||command==="list_incidents"||command==="list_vehicles"?Promise.resolve([]):Promise.resolve());
+  it("позначає екіпаж за фактичним станом БЧС, а не за завтрашньою чернеткою",async()=>{
+    localStorage.setItem("flight-plan-draft-v2",JSON.stringify({selected:[]}));
+    const activeCrew={...crew,actualMembers:crew.members.map((member)=>({...member,currentLocation:"На позиції"}))};
+    invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve([activeCrew]):command==="list_positions"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):command==="list_equipment"||command==="list_incidents"||command==="list_vehicles"?Promise.resolve([]):Promise.resolve());
     render(<NotificationProvider><CrewsPage people={[first,last]}/></NotificationProvider>);
     expect(await screen.findByText("На позиції")).toBeInTheDocument();
   });

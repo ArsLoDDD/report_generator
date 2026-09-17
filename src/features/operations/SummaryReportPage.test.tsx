@@ -35,6 +35,25 @@ beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); setupInvoke(); });
 afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); });
 
 describe("Підсумкове донесення", () => {
+  it("бере плани за D−1 і D та не підмішує завтрашню локальну чернетку", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 8, 17, 14, 0));
+    localStorage.setItem("flight-plan-draft-v2", JSON.stringify({
+      date: "2026-09-18",
+      unitName: "ЗАВТРАШНІЙ ПЛАН",
+      selected: [99],
+      entries: { 99: { crewId: 99, actualMemberIds: [], startTime: "18:01", endTime: "18:00" } },
+    }));
+
+    render(<NotificationProvider><SummaryReportPage /></NotificationProvider>);
+
+    await screen.findByText("Документ за 17.09.2026");
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("get_flight_plan_snapshot", { planDate: "2026-09-16" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("get_flight_plan_snapshot", { planDate: "2026-09-17" }));
+    expect(invoke).not.toHaveBeenCalledWith("get_flight_plan_snapshot", { planDate: "2026-09-18" });
+    expect(screen.queryByText("ЗАВТРАШНІЙ ПЛАН")).not.toBeInTheDocument();
+  });
+
   it("відновлює відкриті та закриті пункти після повернення на сторінку", async () => {
     localStorage.setItem("summary-report:open-sections:v1", JSON.stringify({ situation: false, issues: true }));
     render(<NotificationProvider><SummaryReportPage /></NotificationProvider>);

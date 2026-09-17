@@ -460,8 +460,8 @@ fn personnel_control_records(
     connection: &Connection,
     local_today: &str,
 ) -> Result<Vec<PersonnelControlRecord>, String> {
-    sync_manual_assignments_for_date(connection, local_today)?;
-    super::normalize_stale_daily_locations(connection, local_today)?;
+    let local_time = Local::now().format("%H:%M").to_string();
+    super::reconcile_flight_plan_for_moment(connection, local_today, &local_time)?;
     let people = {
         let mut statement = connection
             .prepare(
@@ -754,8 +754,8 @@ pub fn save_personnel_control_assignment(
     let db = state.0.lock().map_err(|_| busy())?;
     let local_today = today();
     let local_today_text = local_today.format("%Y-%m-%d").to_string();
-    sync_manual_assignments_for_date(&db.connection, &local_today_text)?;
-    super::normalize_stale_daily_locations(&db.connection, &local_today_text)?;
+    let local_time = Local::now().format("%H:%M").to_string();
+    super::reconcile_flight_plan_for_moment(&db.connection, &local_today_text, &local_time)?;
     save_assignment(&db.connection, assignment_id, &draft, local_today)
 }
 

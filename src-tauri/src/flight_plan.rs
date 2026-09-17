@@ -113,6 +113,88 @@ pub struct FlightPlanRequest {
     entries: Vec<FlightPlanEntry>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct FlightPlanLocationStage {
+    pub member_ids: Vec<i64>,
+    pub start_time: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FlightPlanLocationSchedule {
+    pub crew_id: i64,
+    pub stages: Vec<FlightPlanLocationStage>,
+    pub arrives_on_plan_date: bool,
+    pub departs_on_plan_date: bool,
+    pub departure_time: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredLocationRequest {
+    #[serde(default)]
+    entries: Vec<StoredLocationEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredLocationEntry {
+    crew_id: i64,
+    #[serde(default)]
+    actual_member_ids: Vec<i64>,
+    #[serde(default)]
+    start_time: String,
+    #[serde(default)]
+    arrives_today: bool,
+    #[serde(default)]
+    departs_today: bool,
+    #[serde(default)]
+    departure_time: String,
+}
+
+pub(crate) fn flight_plan_location_schedule(
+    connection: &Connection,
+    plan_date: &str,
+) -> Result<Option<Vec<FlightPlanLocationSchedule>>, String> {
+    let snapshot = connection
+        .query_row(
+            "SELECT snapshot_json FROM flight_plan_snapshots
+             WHERE plan_date=?1 ORDER BY revision DESC LIMIT 1",
+            [plan_date],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|_| "Не вдалося прочитати знімок плану для синхронізації БЧС.".to_string())?;
+    let Some(snapshot) = snapshot else {
+        return Ok(None);
+    };
+    let request: StoredLocationRequest = serde_json::from_str(&snapshot)
+        .map_err(|_| "Збережений знімок плану польотів пошкоджено.".to_string())?;
+    let mut schedules = Vec::<FlightPlanLocationSchedule>::new();
+    for entry in request.entries {
+        if let Some(schedule) = schedules
+            .iter_mut()
+            .find(|schedule| schedule.crew_id == entry.crew_id)
+        {
+            schedule.stages.push(FlightPlanLocationStage {
+                member_ids: entry.actual_member_ids,
+                start_time: entry.start_time,
+            });
+            continue;
+        }
+        schedules.push(FlightPlanLocationSchedule {
+            crew_id: entry.crew_id,
+            stages: vec![FlightPlanLocationStage {
+                member_ids: entry.actual_member_ids,
+                start_time: entry.start_time,
+            }],
+            arrives_on_plan_date: entry.arrives_today,
+            departs_on_plan_date: entry.departs_today,
+            departure_time: entry.departure_time,
+        });
+    }
+    Ok(Some(schedules))
+}
+
 fn normalise_plan_date(value: &str) -> Result<String, String> {
     chrono::NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
         .map(|date| date.format("%Y-%m-%d").to_string())

@@ -445,8 +445,11 @@ fn sync_personnel_state_before_position_work(
     connection: &Connection,
     local_today: &str,
 ) -> Result<(), String> {
-    super::sync_manual_assignments_for_date(connection, local_today)?;
-    super::normalize_stale_daily_locations(connection, local_today)
+    super::reconcile_flight_plan_for_moment(
+        connection,
+        local_today,
+        &chrono::Local::now().format("%H:%M").to_string(),
+    )
 }
 
 #[tauri::command]

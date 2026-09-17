@@ -12,7 +12,6 @@ import { RegistryToolbar } from "../../shared/ui/RegistryToolbar";
 import { Select } from "../../shared/ui/Select";
 import { operationsService } from "./services/operationsService";
 import type { Crew, Equipment, EquipmentCategory, Incident, Position, PositionDraft, PositionWork, PositionWorkDraft, PositionWorkMemberDraft, StaffingRecord } from "./types";
-import { flightPlanActiveCrewIds, flightPlanActiveMemberIds, flightPlanDateMatches, flightPlanSnapshot } from "./flight-plan-storage";
 import { incidentDateTimeParts } from "./incident-date";
 import { isAvailableForPositionWork } from "./bcs-model";
 import { vehiclesService } from "../vehicles/services/vehiclesService";
@@ -25,6 +24,7 @@ type BasePositionType = Extract<Position["positionType"], "Основна" | "З
 type PositionWorkPerson = Pick<StaffingRecord, "personnelId" | "fullName" | "rank" | "position">;
 const emptyDraft = (): PositionDraft => ({ name: "", positionType: "Основна", stripName: "", locality: "", battleOrder: "", sector: "", condition: "", conditionLevel: 0, fieldType: "", size: "", mgrs: "", suitableUavText: "", isActive: false, crewId: null, notes: "", uavIds: [] });
 const includes = (query: string, ...values: (string | null | undefined)[]) => values.join(" ").toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"));
+const positionLocations = new Set(["На позиції", "ЗБЗ", "ПБЗ"]);
 const positionTypeClass = (type: Position["positionType"]) => type === "Основна" ? "primary" : type === "Запасна" ? "reserve" : type === "Облаштовується" ? "building" : type === "Виявлена ворогом" ? "compromised" : "allied";
 const equipmentCategoryLabels: Record<EquipmentCategory, string> = { uav: "БпЛА та БпАК", generator: "Генератори", communications: "Зв’язок", weapon_ammo: "Зброя та БК" };
 const emptyWork = (positionId = 0, workType: PositionWorkDraft["workType"] = "Рекогностування"): PositionWorkDraft => ({ positionId, workType, status: "Приступили", startDate: new Date().toLocaleDateString("sv-SE"), startTime: "", endDate: "", endTime: "", battleOrder: "", notes: "", personnelIds: [], memberAssignments: [] });
@@ -199,21 +199,13 @@ export function PositionsPage() {
   const closeSetup = () => { if (setupBusy) return; setSetupOpen(false); setSetupPositionId(""); };
   const chooseSetupPosition = (value: string) => { const position = items.find((item) => item.id === Number(value)); setSetupPositionId(value); setSetupWorkDraft((current) => ({ ...current, positionId: position?.id ?? 0, battleOrder: position?.battleOrder || "" })); };
 
-  const storedPlan = flightPlanSnapshot();
-  const planIsCurrent = Boolean(storedPlan.date) && flightPlanDateMatches(new Date().toLocaleDateString("sv-SE"));
-  const onPositionCrewIds = planIsCurrent ? flightPlanActiveCrewIds() : new Set<number>();
+  const onPositionCrewIds = new Set(crews.filter((crew) => (crew.actualMembers ?? []).some((member) => positionLocations.has(member.currentLocation?.trim() ?? ""))).map((crew) => crew.id));
   const editingCrews = editing ? crews.filter((crew) => crew.positionId === editing.id) : [];
   const activePositionCrews = editingCrews.filter((crew) => onPositionCrewIds.has(crew.id));
   const activeCrewIds = new Set(activePositionCrews.map((crew) => crew.id));
   const activePersonnelIds = new Set(activePositionCrews.flatMap((crew) => (crew.actualMembers ?? []).map((member) => member.personnelId)));
-  const exactActivePersonnelIds = planIsCurrent ? flightPlanActiveMemberIds() : new Set<number>();
-  const storedPlanEntries = planIsCurrent ? storedPlan.entries : undefined;
-  const allPositionPersonnelIds = new Set([
-    ...exactActivePersonnelIds,
-    ...crews
-      .filter((crew) => onPositionCrewIds.has(crew.id) && !storedPlanEntries?.[crew.id])
-      .flatMap((crew) => (crew.actualMembers ?? []).map((member) => member.personnelId)),
-  ]);
+  const exactActivePersonnelIds = new Set(staffing.filter((person) => positionLocations.has(person.currentLocation.trim())).map((person) => person.personnelId));
+  const allPositionPersonnelIds = exactActivePersonnelIds;
   const editingWork = editing ? positionWork.filter((work) => work.positionId === editing.id) : [];
   const originalWorkPersonnelIds = new Set(workEditing && workEditing !== "new" ? workEditing.members.map((member) => member.personnelId) : []);
   const isAvailableForEditedWork = (personnelId: number) => { const person = staffing.find((item) => item.personnelId === personnelId); if (!person) return false; const location = person.currentLocation.trim(); const completedOriginal = workEditing && workEditing !== "new" && workEditing.status === "Завершили" && originalWorkPersonnelIds.has(personnelId); return isAvailableForPositionWork(location) || completedOriginal || (originalWorkPersonnelIds.has(personnelId) && ["Реко", "Облаштування", "Реко та облаштування"].includes(location)); };
