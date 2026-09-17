@@ -1,4 +1,5 @@
 use crate::AppState;
+use chrono::{Duration, Local, Months, NaiveDate};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -9,6 +10,8 @@ use std::{
 use zip::{write::SimpleFileOptions, ZipArchive, ZipWriter};
 
 const TEMPLATE: &[u8] = include_bytes!("../resources/flight-plan-template.xlsx");
+const FLIGHT_PLAN_RETENTION_MONTHS: u32 = 3;
+const FLIGHT_PLAN_FUTURE_DAYS: i64 = 7;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -195,10 +198,147 @@ pub(crate) fn flight_plan_location_schedule(
     Ok(Some(schedules))
 }
 
-fn normalise_plan_date(value: &str) -> Result<String, String> {
-    chrono::NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
-        .map(|date| date.format("%Y-%m-%d").to_string())
+fn parse_plan_date(value: &str) -> Result<NaiveDate, String> {
+    NaiveDate::parse_from_str(value.trim(), "%Y-%m-%d")
         .map_err(|_| "Некоректна дата плану польотів.".to_string())
+}
+
+fn retention_start(today: NaiveDate) -> NaiveDate {
+    today
+        .checked_sub_months(Months::new(FLIGHT_PLAN_RETENTION_MONTHS))
+        .unwrap_or(NaiveDate::MIN)
+}
+
+fn latest_plannable_date(today: NaiveDate) -> NaiveDate {
+    today
+        .checked_add_signed(Duration::days(FLIGHT_PLAN_FUTURE_DAYS))
+        .unwrap_or(NaiveDate::MAX)
+}
+
+fn retained_snapshot_start(today: NaiveDate) -> NaiveDate {
+    retention_start(today)
+        .checked_sub_signed(Duration::days(1))
+        .unwrap_or(NaiveDate::MIN)
+}
+
+fn validate_plan_date_for_save(plan_date: NaiveDate, today: NaiveDate) -> Result<(), String> {
+    if plan_date < retention_start(today) {
+        return Err(
+            "Знімок плану можна змінювати лише в межах останніх 3 календарних місяців.".to_string(),
+        );
+    }
+    if plan_date > latest_plannable_date(today) {
+        return Err("План польотів можна створити максимум на 7 днів уперед.".to_string());
+    }
+    Ok(())
+}
+
+fn validate_plan_date_for_read(plan_date: NaiveDate, today: NaiveDate) -> Result<bool, String> {
+    if plan_date < retained_snapshot_start(today) {
+        // Старі звіти можуть звертатися до вже очищеного знімка. Відсутній
+        // знімок для них є штатним станом, а не помилкою всього звіту.
+        return Ok(false);
+    }
+    if plan_date > latest_plannable_date(today) {
+        return Err("План польотів доступний максимум на 7 днів уперед.".to_string());
+    }
+    Ok(true)
+}
+
+fn purge_expired_flight_plan_snapshots(
+    connection: &Connection,
+    today: NaiveDate,
+) -> Result<usize, String> {
+    // D−1 is a hidden dependency of the oldest selectable report date, so it
+    // remains readable even though users can no longer edit that plan.
+    let cutoff = retained_snapshot_start(today)
+        .format("%Y-%m-%d")
+        .to_string();
+    connection
+        .execute(
+            "DELETE FROM flight_plan_snapshots WHERE plan_date < ?1",
+            [cutoff],
+        )
+        .map_err(|_| "Не вдалося очистити застарілі знімки планів польотів.".to_string())
+}
+
+fn save_flight_plan_snapshot_at(
+    connection: &Connection,
+    today: NaiveDate,
+    plan_date: &str,
+    request: &FlightPlanRequest,
+) -> Result<(), String> {
+    let plan_date = parse_plan_date(plan_date)?;
+    validate_plan_date_for_save(plan_date, today)?;
+    let snapshot_json = serde_json::to_string(request)
+        .map_err(|_| "Не вдалося підготувати знімок плану польотів.".to_string())?;
+    let plan_date = plan_date.format("%Y-%m-%d").to_string();
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(|_| "Не вдалося розпочати збереження плану польотів.".to_string())?;
+    purge_expired_flight_plan_snapshots(&transaction, today)?;
+    let canonical_id = transaction
+        .query_row(
+            "SELECT id FROM flight_plan_snapshots
+             WHERE plan_date=?1 ORDER BY revision DESC,id DESC LIMIT 1",
+            [&plan_date],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(|_| "Не вдалося перевірити попередній знімок плану польотів.".to_string())?;
+    if let Some(canonical_id) = canonical_id {
+        // Старі версії могли створювати кілька revision на одну дату. Зберігаємо
+        // id найновішої, щоб не розірвати посилання журналу на актуальний знімок.
+        transaction
+            .execute(
+                "DELETE FROM flight_plan_snapshots WHERE plan_date=?1 AND id<>?2",
+                rusqlite::params![plan_date, canonical_id],
+            )
+            .map_err(|_| "Не вдалося узгодити попередні версії плану польотів.".to_string())?;
+        transaction
+            .execute(
+                "DELETE FROM flight_plan_snapshot_entries WHERE snapshot_id=?1",
+                [canonical_id],
+            )
+            .map_err(|_| "Не вдалося очистити застарілий склад знімка плану.".to_string())?;
+        transaction
+            .execute(
+                "UPDATE flight_plan_snapshots
+                 SET revision=1,source='saved',snapshot_json=?1,created_at=CURRENT_TIMESTAMP
+                 WHERE id=?2",
+                rusqlite::params![snapshot_json, canonical_id],
+            )
+            .map_err(|_| "Не вдалося оновити знімок плану польотів.".to_string())?;
+    } else {
+        transaction
+            .execute(
+                "INSERT INTO flight_plan_snapshots(plan_date,revision,source,snapshot_json)
+             VALUES(?1,1,'saved',?2)",
+                rusqlite::params![plan_date, snapshot_json],
+            )
+            .map_err(|_| "Не вдалося зберегти знімок плану польотів.".to_string())?;
+    }
+    transaction
+        .commit()
+        .map_err(|_| "Не вдалося завершити збереження плану польотів.".to_string())?;
+    Ok(())
+}
+
+fn get_flight_plan_snapshot_at(
+    connection: &Connection,
+    today: NaiveDate,
+    plan_date: &str,
+) -> Result<Option<String>, String> {
+    let plan_date = parse_plan_date(plan_date)?;
+    let is_retained = validate_plan_date_for_read(plan_date, today)?;
+    if !is_retained {
+        return Ok(None);
+    }
+    connection.query_row(
+        "SELECT snapshot_json FROM flight_plan_snapshots WHERE plan_date=?1 ORDER BY revision DESC LIMIT 1",
+        [plan_date.format("%Y-%m-%d").to_string()],
+        |row| row.get(0),
+    ).optional().map_err(|_| "Не вдалося прочитати знімок плану польотів.".to_string())
 }
 
 #[tauri::command]
@@ -207,18 +347,16 @@ pub fn save_flight_plan_snapshot(
     plan_date: String,
     request: FlightPlanRequest,
 ) -> Result<(), String> {
-    let plan_date = normalise_plan_date(&plan_date)?;
-    let snapshot_json = serde_json::to_string(&request)
-        .map_err(|_| "Не вдалося підготувати знімок плану польотів.".to_string())?;
     let database = state
         .0
         .lock()
         .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    database.connection.execute(
-        "INSERT INTO flight_plan_snapshots(plan_date,revision,source,snapshot_json) VALUES(?1,1,'saved',?2) ON CONFLICT(plan_date,revision) DO UPDATE SET snapshot_json=excluded.snapshot_json,source='saved',created_at=CURRENT_TIMESTAMP",
-        rusqlite::params![plan_date, snapshot_json],
-    ).map_err(|_| "Не вдалося зберегти знімок плану польотів.".to_string())?;
-    Ok(())
+    save_flight_plan_snapshot_at(
+        &database.connection,
+        Local::now().date_naive(),
+        &plan_date,
+        &request,
+    )
 }
 
 #[tauri::command]
@@ -226,16 +364,11 @@ pub fn get_flight_plan_snapshot(
     state: tauri::State<AppState>,
     plan_date: String,
 ) -> Result<Option<String>, String> {
-    let plan_date = normalise_plan_date(&plan_date)?;
     let database = state
         .0
         .lock()
         .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    database.connection.query_row(
-        "SELECT snapshot_json FROM flight_plan_snapshots WHERE plan_date=?1 ORDER BY revision DESC LIMIT 1",
-        [plan_date],
-        |row| row.get(0),
-    ).optional().map_err(|_| "Не вдалося прочитати знімок плану польотів.".to_string())
+    get_flight_plan_snapshot_at(&database.connection, Local::now().date_naive(), &plan_date)
 }
 
 #[derive(Debug, Clone)]
@@ -704,6 +837,312 @@ pub fn export_flight_plan_excel(
 mod tests {
     use super::*;
     use crate::database;
+
+    fn empty_request(unit_name: &str) -> FlightPlanRequest {
+        FlightPlanRequest {
+            unit_name: unit_name.into(),
+            entries: vec![],
+        }
+    }
+
+    #[test]
+    fn accepts_the_inclusive_retention_and_future_boundaries() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let today = NaiveDate::from_ymd_opt(2024, 5, 31).unwrap();
+
+        save_flight_plan_snapshot_at(
+            &connection,
+            today,
+            "2024-02-29",
+            &empty_request("retention boundary"),
+        )
+        .unwrap();
+        save_flight_plan_snapshot_at(
+            &connection,
+            today,
+            "2024-06-07",
+            &empty_request("future boundary"),
+        )
+        .unwrap();
+
+        assert!(save_flight_plan_snapshot_at(
+            &connection,
+            today,
+            "2024-02-28",
+            &empty_request("expired")
+        )
+        .unwrap_err()
+        .contains("3 календарних місяців"));
+        assert!(save_flight_plan_snapshot_at(
+            &connection,
+            today,
+            "2024-06-08",
+            &empty_request("too far")
+        )
+        .unwrap_err()
+        .contains("7 днів"));
+    }
+
+    #[test]
+    fn read_keeps_the_hidden_summary_dependency_day_without_deleting_older_rows() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 17).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json)
+                VALUES('2026-06-15',1,'{}');
+             INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json)
+                VALUES('2026-06-16',1,'{\"unitName\":\"D-1\",\"entries\":[]}');",
+            )
+            .unwrap();
+
+        assert_eq!(
+            get_flight_plan_snapshot_at(&connection, today, "2026-06-15").unwrap(),
+            None
+        );
+        assert!(
+            get_flight_plan_snapshot_at(&connection, today, "2026-06-16")
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM flight_plan_snapshots WHERE plan_date='2026-06-15'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        assert!(
+            get_flight_plan_snapshot_at(&connection, today, "2026-09-25")
+                .unwrap_err()
+                .contains("7 днів")
+        );
+    }
+
+    #[test]
+    fn cleanup_cascades_snapshot_entries_and_preserves_flight_journal_data() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 17).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO flight_plan_snapshots(id,plan_date,revision,snapshot_json)
+                    VALUES(41,'2026-06-15',1,'{}');
+                 INSERT INTO flight_plan_snapshots(id,plan_date,revision,snapshot_json)
+                    VALUES(42,'2026-06-16',1,'{}');
+                 INSERT INTO flight_plan_snapshots(id,plan_date,revision,snapshot_json)
+                    VALUES(43,'2026-06-17',1,'{}');
+                 INSERT INTO flight_plan_snapshot_entries(
+                    snapshot_id,crew_name_snapshot,entry_json
+                 ) VALUES(41,'БАРС','{}');
+                 INSERT INTO flight_journal_entries(
+                    flight_date,snapshot_id,crew_name_snapshot,mission
+                 ) VALUES('2026-06-15',41,'БАРС','Розвідка');",
+            )
+            .unwrap();
+
+        assert_eq!(
+            purge_expired_flight_plan_snapshots(&connection, today).unwrap(),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM flight_plan_snapshots WHERE id=41",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM flight_plan_snapshots WHERE id IN (42,43)",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM flight_plan_snapshot_entries WHERE snapshot_id=41",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        let journal: (Option<i64>, String, String) = connection
+            .query_row(
+                "SELECT snapshot_id,crew_name_snapshot,mission
+                 FROM flight_journal_entries WHERE flight_date='2026-06-15'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(journal, (None, "БАРС".into(), "Розвідка".into()));
+    }
+
+    #[test]
+    fn saving_the_same_day_overwrites_the_single_current_snapshot() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 17).unwrap();
+
+        save_flight_plan_snapshot_at(&connection, today, "2026-09-18", &empty_request("ПЕРШИЙ"))
+            .unwrap();
+        save_flight_plan_snapshot_at(&connection, today, "2026-09-18", &empty_request("ОСТАННІЙ"))
+            .unwrap();
+
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM flight_plan_snapshots WHERE plan_date='2026-09-18'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        let stored = get_flight_plan_snapshot_at(&connection, today, "2026-09-18")
+            .unwrap()
+            .unwrap();
+        let request: FlightPlanRequest = serde_json::from_str(&stored).unwrap();
+        assert_eq!(request.unit_name, "ОСТАННІЙ");
+    }
+
+    #[test]
+    fn saving_a_legacy_multi_revision_day_keeps_the_latest_snapshot_id() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 17).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO flight_plan_snapshots(id,plan_date,revision,snapshot_json)
+                    VALUES(51,'2026-09-16',1,'{\"unitName\":\"ПЕРШИЙ\",\"entries\":[]}');
+                 INSERT INTO flight_plan_snapshots(id,plan_date,revision,snapshot_json)
+                    VALUES(52,'2026-09-16',2,'{\"unitName\":\"ДРУГИЙ\",\"entries\":[]}');
+                 INSERT INTO flight_plan_snapshot_entries(
+                    snapshot_id,crew_name_snapshot,entry_json
+                 ) VALUES(52,'СТАРИЙ СКЛАД','{}');
+                 INSERT INTO flight_journal_entries(
+                    flight_date,snapshot_id,crew_name_snapshot,mission
+                 ) VALUES('2026-09-16',52,'БАРС','Розвідка');",
+            )
+            .unwrap();
+
+        save_flight_plan_snapshot_at(
+            &connection,
+            today,
+            "2026-09-16",
+            &empty_request("ВИПРАВЛЕНИЙ"),
+        )
+        .unwrap();
+
+        let rows = connection
+            .query_row(
+                "SELECT count(*),min(id),min(revision)
+                 FROM flight_plan_snapshots WHERE plan_date='2026-09-16'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(rows, (1, 52, 1));
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT count(*) FROM flight_plan_snapshot_entries WHERE snapshot_id=52",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT snapshot_id FROM flight_journal_entries
+                     WHERE flight_date='2026-09-16'",
+                    [],
+                    |row| row.get::<_, Option<i64>>(0)
+                )
+                .unwrap(),
+            Some(52)
+        );
+        let stored = get_flight_plan_snapshot_at(&connection, today, "2026-09-16")
+            .unwrap()
+            .unwrap();
+        let request: FlightPlanRequest = serde_json::from_str(&stored).unwrap();
+        assert_eq!(request.unit_name, "ВИПРАВЛЕНИЙ");
+    }
+
+    #[test]
+    fn editing_an_old_plan_does_not_change_the_current_bcs_location() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        database::seed_test_personnel(&connection).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 17).unwrap();
+        connection
+            .execute(
+                "UPDATE personnel SET current_location='На позиції' WHERE id=1",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO flight_plan_personnel_locations(personnel_id,plan_date,location)
+                 VALUES(1,'2026-09-17','На позиції')",
+                [],
+            )
+            .unwrap();
+
+        save_flight_plan_snapshot_at(
+            &connection,
+            today,
+            "2026-08-20",
+            &empty_request("УТОЧНЕНИЙ МИНУЛИЙ ПЛАН"),
+        )
+        .unwrap();
+
+        let current_state = connection
+            .query_row(
+                "SELECT personnel.current_location,state.plan_date,state.location
+                 FROM personnel
+                 JOIN flight_plan_personnel_locations state ON state.personnel_id=personnel.id
+                 WHERE personnel.id=1",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            current_state,
+            (
+                "На позиції".into(),
+                "2026-09-17".into(),
+                "На позиції".into()
+            )
+        );
+    }
 
     #[test]
     fn keeps_position_transition_metadata_in_a_snapshot() {

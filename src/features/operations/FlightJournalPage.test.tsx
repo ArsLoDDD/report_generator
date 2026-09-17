@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
 import { FlightJournalPage } from "./FlightJournalPage";
@@ -104,6 +104,124 @@ describe("Журнал польотів", () => {
     expect(await within(dialog).findByDisplayValue("06:10")).toBeInTheDocument();
     expect(within(dialog).getByDisplayValue("07:25")).toBeInTheDocument();
     expect(within(dialog).getByDisplayValue("Знімок БД")).toBeInTheDocument();
+  });
+
+  it("зберігає датовані назви екіпажу, позиції та БпЛА, навіть якщо пов’язані записи вже змінені або видалені", async () => {
+    invoke.mockImplementation((command: string, args?: { category?: string }) => {
+      if (command === "list_flight_journal_entries") return Promise.resolve([]);
+      if (command === "list_crews") return Promise.resolve([crew]);
+      if (command === "list_positions") return Promise.resolve([position]);
+      if (command === "list_equipment") return Promise.resolve(args?.category === "uav" ? [uav] : []);
+      if (command === "list_workshop_products") return Promise.resolve([]);
+      if (command === "get_flight_plan_snapshot") return Promise.resolve(JSON.stringify({
+        unitName: "РБПАК",
+        entries: [{
+          crewId: 4,
+          crewName: "ГРІМ-СТАРИЙ",
+          crewUavType: "Літакового типу",
+          positionId: 77,
+          positionName: "АРХІВНА ПОЗИЦІЯ",
+          battleOrder: "БРО-77",
+          workStrip: "СМУГА ПІВНІЧ",
+          startTime: "06:10",
+          endTime: "07:25",
+          task: "Архівне завдання",
+          uavSelections: [{ equipmentId: 88 }],
+          uavSnapshots: [{ equipmentId: 88, name: "ЛЕЛЕКА-100", serialNumber: "UAV-OLD" }],
+          payloadSelection: null,
+        }],
+      }));
+      return Promise.resolve();
+    });
+    render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(dialog.querySelector<HTMLInputElement>('input[type="date"]')!, { target: { value: "2026-09-13" } });
+    fireEvent.change(within(dialog).getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
+
+    expect(await within(dialog).findByText(/АРХІВНА ПОЗИЦІЯ · зі знімка/u)).toBeInTheDocument();
+    expect(within(dialog).getByText(/ЛЕЛЕКА-100 · UAV-OLD · зі знімка/u)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Зберегти запис" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_flight_journal_entry", {
+      draft: expect.objectContaining({
+        crewId: 4,
+        crewName: "ГРІМ-СТАРИЙ",
+        positionId: null,
+        positionName: "АРХІВНА ПОЗИЦІЯ",
+        battleOrder: "БРО-77",
+        workStrip: "СМУГА ПІВНІЧ",
+        uavId: null,
+        uavName: "ЛЕЛЕКА-100",
+        uavType: "Літакового типу",
+        uavSerialNumber: "UAV-OLD",
+      }),
+    }));
+  });
+
+  it("не застосовує запізнілу відповідь після зміни дати", async () => {
+    let resolveOld: ((value: string) => void) | undefined;
+    let resolveNew: ((value: string) => void) | undefined;
+    invoke.mockImplementation((command: string, args?: { category?: string; planDate?: string }) => {
+      if (command === "list_flight_journal_entries") return Promise.resolve([]);
+      if (command === "list_crews") return Promise.resolve([crew]);
+      if (command === "list_positions") return Promise.resolve([position]);
+      if (command === "list_equipment") return Promise.resolve(args?.category === "uav" ? [uav] : []);
+      if (command === "list_workshop_products") return Promise.resolve([]);
+      if (command === "get_flight_plan_snapshot") return new Promise<string>((resolve) => {
+        if (args?.planDate === "2026-09-12") resolveOld = resolve;
+        else resolveNew = resolve;
+      });
+      return Promise.resolve();
+    });
+    render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
+    const dialog = screen.getByRole("dialog");
+    const dateInput = dialog.querySelector<HTMLInputElement>('input[type="date"]')!;
+    fireEvent.change(dateInput, { target: { value: "2026-09-12" } });
+    fireEvent.change(within(dialog).getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
+    await waitFor(() => expect(resolveOld).toBeTypeOf("function"));
+
+    fireEvent.change(dateInput, { target: { value: "2026-09-13" } });
+    fireEvent.change(within(dialog).getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
+    await waitFor(() => expect(resolveNew).toBeTypeOf("function"));
+    await act(async () => resolveNew?.(JSON.stringify({ unitName: "РБПАК", entries: [{ crewId: 4, startTime: "08:00", endTime: "09:00", task: "НОВЕ ЗАВДАННЯ" }] })));
+    expect(await within(dialog).findByDisplayValue("НОВЕ ЗАВДАННЯ")).toBeInTheDocument();
+
+    await act(async () => resolveOld?.(JSON.stringify({ unitName: "РБПАК", entries: [{ crewId: 4, startTime: "06:00", endTime: "07:00", task: "СТАРЕ ЗАВДАННЯ" }] })));
+    expect(within(dialog).getByDisplayValue("НОВЕ ЗАВДАННЯ")).toBeInTheDocument();
+    expect(within(dialog).queryByDisplayValue("СТАРЕ ЗАВДАННЯ")).not.toBeInTheDocument();
+  });
+
+  it("не дозволяє повільному запиту попереднього екіпажу перезаписати новий вибір", async () => {
+    const secondCrew = { ...crew, id: 5, name: "БАРС", primaryUavId: null };
+    const resolvers: Array<(value: string) => void> = [];
+    invoke.mockImplementation((command: string, args?: { category?: string }) => {
+      if (command === "list_flight_journal_entries") return Promise.resolve([]);
+      if (command === "list_crews") return Promise.resolve([crew, secondCrew]);
+      if (command === "list_positions") return Promise.resolve([position]);
+      if (command === "list_equipment") return Promise.resolve(args?.category === "uav" ? [uav] : []);
+      if (command === "list_workshop_products") return Promise.resolve([]);
+      if (command === "get_flight_plan_snapshot") return new Promise<string>((resolve) => { resolvers.push(resolve); });
+      return Promise.resolve();
+    });
+    render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
+    const dialog = screen.getByRole("dialog");
+    const crewSelect = within(dialog).getByLabelText("Екіпаж польоту");
+    fireEvent.change(crewSelect, { target: { value: "4" } });
+    fireEvent.change(crewSelect, { target: { value: "5" } });
+    await waitFor(() => expect(resolvers).toHaveLength(2));
+    const snapshot = JSON.stringify({ unitName: "РБПАК", entries: [{ crewId: 4, startTime: "06:00", endTime: "07:00", task: "ЗАВДАННЯ ГРІМ" }, { crewId: 5, startTime: "08:00", endTime: "09:00", task: "ЗАВДАННЯ БАРС" }] });
+
+    await act(async () => resolvers[1](snapshot));
+    expect(await within(dialog).findByDisplayValue("ЗАВДАННЯ БАРС")).toBeInTheDocument();
+    await act(async () => resolvers[0](snapshot));
+    expect(within(dialog).getByDisplayValue("ЗАВДАННЯ БАРС")).toBeInTheDocument();
+    expect(crewSelect).toHaveValue("5");
   });
 
   it("зберігає запис без поля джерела даних", async () => {

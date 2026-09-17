@@ -1,6 +1,6 @@
 import { save } from "@tauri-apps/plugin-dialog";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, Settings2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CalendarDays, ChevronLeft, ChevronRight, Download, Settings2 } from "lucide-react";
 import { Modal } from "../../shared/ui/Modal";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { PageTitle } from "../../shared/ui/PageTitle";
@@ -12,14 +12,33 @@ import type { Vehicle } from "../vehicles/types";
 import { FlightPlanParametersModal } from "./FlightPlanParametersModal";
 import { FlightPlanTable } from "./FlightPlanTable";
 import { flightPlanPreviewRows, initialFlightEntry, initialWeather, isFlightPlanMemberAvailable, missingCrewCallsigns, validateFlightPlanSchedule } from "./flight-plan-model";
-import { FLIGHT_PLAN_STORAGE_KEY } from "./flight-plan-storage";
+import { FLIGHT_PLAN_PENDING_STORAGE_KEY, FLIGHT_PLAN_STORAGE_KEY } from "./flight-plan-storage";
 import { operationsService } from "./services/operationsService";
 import type { Crew, Equipment, FlightPlanEntry, FlightPlanRequest, FlightPlanRotation, Position, WorkshopProduct } from "./types";
 
 const displayDate=(value:Date)=>`${String(value.getDate()).padStart(2,"0")}.${String(value.getMonth()+1).padStart(2,"0")}.${value.getFullYear()}`;
 export const flightPlanDateForTomorrow=(now=new Date())=>displayDate(new Date(now.getFullYear(),now.getMonth(),now.getDate()+1));
-type StoredDraft={unitName?:string;date?:string;zoom?:number;selected?:number[];entries?:Record<number,FlightPlanEntry>;rotations?:Record<number,FlightPlanRotation[]>;rolledFromPreviousDate?:boolean};
+const localIsoDate=(value:Date)=>`${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,"0")}-${String(value.getDate()).padStart(2,"0")}`;
+const shiftCalendarMonths=(value:Date,months:number)=>{
+  const target=new Date(value.getFullYear(),value.getMonth()+months,1);
+  const lastDay=new Date(target.getFullYear(),target.getMonth()+1,0).getDate();
+  return new Date(target.getFullYear(),target.getMonth(),Math.min(value.getDate(),lastDay));
+};
+export const flightPlanDateRange=(now=new Date())=>{
+  const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  return{min:localIsoDate(shiftCalendarMonths(today,-3)),max:localIsoDate(new Date(today.getFullYear(),today.getMonth(),today.getDate()+7))};
+};
+type PendingSaveMetadata={date:string;revision:number;updatedAt:number};
+type StoredDraft={schemaVersion?:number;unitName?:string;date?:string;zoom?:number;selected?:number[];entries?:Record<number,FlightPlanEntry>;rotations?:Record<number,FlightPlanRotation[]>;rolledFromPreviousDate?:boolean;pendingSave?:PendingSaveMetadata};
+type SnapshotSavePayload={date:string;dateIso:string;revision:number;request:FlightPlanRequest;draft:StoredDraft;valid:boolean};
+let flightPlanSnapshotSaveTail:Promise<void>=Promise.resolve();
+const saveFlightPlanSnapshotSerially=(date:string,request:FlightPlanRequest)=>{
+  const operation=flightPlanSnapshotSaveTail.then(()=>operationsService.saveFlightPlanSnapshot(date,request));
+  flightPlanSnapshotSaveTail=operation.then(()=>undefined,()=>undefined);
+  return operation;
+};
 const isRecord=(value:unknown):value is Record<string,unknown>=>Boolean(value)&&typeof value==="object"&&!Array.isArray(value);
+const hasOwn=(value:object,key:PropertyKey)=>Object.prototype.hasOwnProperty.call(value,key);
 const stringArray=(value:unknown)=>Array.isArray(value)?value.filter((item):item is string=>typeof item==="string"):[];
 const numberArray=(value:unknown)=>Array.isArray(value)?value.filter((item):item is number=>typeof item==="number"&&Number.isFinite(item)):[];
 const normaliseEntry=(value:unknown,crewIdFallback=0):FlightPlanEntry=>{
@@ -53,21 +72,33 @@ const normaliseStoredDraft=(value:unknown):StoredDraft=>{
   const entries=Object.fromEntries(Object.entries(rawEntries??{}).flatMap(([key,entry])=>{const crewId=Number(key);return Number.isFinite(crewId)?[[crewId,normaliseEntry(entry,crewId)]]:[];}));
   const rawRotations=isRecord(value.rotations)?value.rotations:null;
   const rotations=Object.fromEntries(Object.entries(rawRotations??{}).flatMap(([key,list])=>{const crewId=Number(key);if(!Number.isFinite(crewId)||!Array.isArray(list))return[];return[[crewId,list.map((entry,index)=>({...normaliseEntry(entry,crewId),rotationId:isRecord(entry)&&typeof entry.rotationId==="string"?entry.rotationId:`legacy-${crewId}-${index}`}))]];}));
-  return{unitName:typeof value.unitName==="string"?value.unitName:undefined,date:typeof value.date==="string"?value.date:undefined,zoom:typeof value.zoom==="number"?value.zoom:undefined,selected:Array.isArray(value.selected)?numberArray(value.selected):undefined,entries:rawEntries?entries:undefined,rotations:rawRotations?rotations:undefined,rolledFromPreviousDate:value.rolledFromPreviousDate===true};
+  const rawPending=isRecord(value.pendingSave)?value.pendingSave:null;
+  const pendingSave=rawPending&&typeof rawPending.date==="string"&&typeof rawPending.revision==="number"&&typeof rawPending.updatedAt==="number"?{date:rawPending.date,revision:rawPending.revision,updatedAt:rawPending.updatedAt}:undefined;
+  return{schemaVersion:typeof value.schemaVersion==="number"?value.schemaVersion:undefined,unitName:typeof value.unitName==="string"?value.unitName:undefined,date:typeof value.date==="string"?value.date:undefined,zoom:typeof value.zoom==="number"?value.zoom:undefined,selected:Array.isArray(value.selected)?numberArray(value.selected):undefined,entries:rawEntries?entries:undefined,rotations:rawRotations?rotations:undefined,rolledFromPreviousDate:value.rolledFromPreviousDate===true,pendingSave};
 };
 const storedDraft=():StoredDraft=>{try{return normaliseStoredDraft(JSON.parse(localStorage.getItem(FLIGHT_PLAN_STORAGE_KEY)??"{}"));}catch{return {};}};
+const pendingDraftStore=():Record<string,StoredDraft>=>{try{const value=JSON.parse(localStorage.getItem(FLIGHT_PLAN_PENDING_STORAGE_KEY)??"{}");if(!isRecord(value))return{};return Object.fromEntries(Object.entries(value).map(([key,draft])=>[key,normaliseStoredDraft(draft)]));}catch{return{};}};
+const pendingDraftFor=(date:string)=>pendingDraftStore()[isoDate(date)]??null;
+const persistPendingDraft=(draft:StoredDraft)=>{if(!draft.date||!draft.pendingSave)return;const drafts=pendingDraftStore();drafts[isoDate(draft.date)]=draft;localStorage.setItem(FLIGHT_PLAN_PENDING_STORAGE_KEY,JSON.stringify(drafts));};
+const clearPendingDraft=(date:string,revision:number,updatedAt:number)=>{const drafts=pendingDraftStore();const pending=drafts[isoDate(date)];if(pending?.pendingSave?.revision===revision&&pending.pendingSave.updatedAt===updatedAt){delete drafts[isoDate(date)];if(Object.keys(drafts).length)localStorage.setItem(FLIGHT_PLAN_PENDING_STORAGE_KEY,JSON.stringify(drafts));else localStorage.removeItem(FLIGHT_PLAN_PENDING_STORAGE_KEY);}const active=storedDraft();if(dateNumber(active.date??"")===dateNumber(date)&&active.pendingSave?.revision===revision&&active.pendingSave.updatedAt===updatedAt)localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY,JSON.stringify({...active,schemaVersion:3,pendingSave:undefined}));};
 const cloneEntry=(entry:FlightPlanEntry):FlightPlanEntry=>({...entry,actualMemberIds:[...entry.actualMemberIds],weather:{...entry.weather},routePoints:[...entry.routePoints],areaPoints:[...entry.areaPoints],uavSelections:entry.uavSelections.map((item)=>({...item})),payloadSelection:entry.payloadSelection?{...entry.payloadSelection}:null});
 const entryFromRotation=(rotation:FlightPlanRotation):FlightPlanEntry=>{const copy={...cloneEntry(rotation)} as FlightPlanEntry&{rotationId?:string};delete copy.rotationId;return copy;};
 const dateNumber=(value:string)=>{const parts=value.includes(".")?value.split(".").reverse():value.split("-");const [year,month,day]=parts.map(Number);return year&&month&&day?year*10000+month*100+day:0;};
 const isoDate=(value:string)=>{const [day,month,year]=value.split(".");return year&&month&&day?`${year}-${month}-${day}`:value;};
+const displayDateFromIso=(value:string)=>{const [year,month,day]=value.split("-");return year&&month&&day?`${day}.${month}.${year}`:value;};
 const shiftIsoDate=(value:string,days:number)=>{const [year,month,day]=value.split("-").map(Number);const shifted=new Date(year,month-1,day+days);return `${shifted.getFullYear()}-${String(shifted.getMonth()+1).padStart(2,"0")}-${String(shifted.getDate()).padStart(2,"0")}`;};
 export const flightPlanTransitionHasHappened=(planDate:string,time:string,now=new Date(Date.now()))=>{const minute=planMinute(time);const parts=planDate.includes(".")?planDate.split(".").reverse():planDate.split("-");const [year,month,day]=parts.map(Number);if(minute===null||!year||!month||!day)return false;return now.getTime()>=new Date(year,month-1,day,Math.floor(minute/60),minute%60).getTime();};
-const parseSnapshot=(value:string|null|undefined):FlightPlanRequest|null=>{try{const parsed=value?JSON.parse(value):null;if(!isRecord(parsed))return null;return{unitName:typeof parsed.unitName==="string"?parsed.unitName:"Підрозділ",entries:Array.isArray(parsed.entries)?parsed.entries.map((entry)=>normaliseEntry(entry)):[]};}catch{return null;}};
+const parseSnapshot=(value:string|null|undefined):FlightPlanRequest|null=>{if(value==null||value.trim()==="")return null;const parsed:unknown=JSON.parse(value);if(!isRecord(parsed)||!Array.isArray(parsed.entries))throw new Error("Invalid flight plan snapshot");return{unitName:typeof parsed.unitName==="string"?parsed.unitName:"Підрозділ",entries:parsed.entries.map((entry)=>normaliseEntry(entry))};};
 const planMinute=(value?:string)=>{const [hours,minutes]=(value??"").split(":").map(Number);return Number.isInteger(hours)&&Number.isInteger(minutes)&&hours>=0&&hours<24&&minutes>=0&&minutes<60?hours*60+minutes:null;};
 const minuteText=(minute:number)=>`${String(Math.floor(minute/60)).padStart(2,"0")}:${String(minute%60).padStart(2,"0")}`;
 const nextRotationTime=(source:FlightPlanEntry)=>{const end=planMinute(source.endTime);const start=planMinute(source.startTime);return end!==null&&end<23*60+59&&start!==null&&end+1>start?minuteText(end+1):"";};
 const sameComposition=(left:FlightPlanEntry,right:FlightPlanEntry)=>left.actualMemberIds.length===right.actualMemberIds.length&&left.actualMemberIds.every((id)=>right.actualMemberIds.includes(id));
 const uniqueCrewMembers=(crew:Crew)=>[...crew.members,...crew.actualMembers].filter((member,index,members)=>members.findIndex((candidate)=>candidate.personnelId===member.personnelId)===index);
+const archivedCrewFromSnapshot=(crewId:number,stages:FlightPlanEntry[]):Crew=>{
+  const primary=stages[0];
+  const members=[...new Map(stages.flatMap((stage)=>stage.memberSnapshots??[]).map((member)=>[member.personnelId,{personnelId:member.personnelId,fullName:member.fullName,rank:member.rank,position:"",callsign:"",currentLocation:""}])).values()];
+  return{id:crewId,name:primary.crewName||`Екіпаж №${crewId}`,platoon:"",positionName:primary.positionName||"",reconnaissanceArea:primary.areaPoints.join(", "),unitType:"Екіпаж",companyName:"",battleOrder:primary.battleOrder||"",sector:primary.workStrip||"",officialStrength:members.length,workingStrength:members.length,positionId:primary.positionId??null,status:"Архівний знімок",uavName:primary.uavSnapshots?.map((item)=>item.name).filter(Boolean).join(", ")||primary.crewUavType||"",uavType:primary.crewUavType||"",functionalDuties:"",currentLocation:"",notes:"Відновлено зі знімка плану польотів",memberCount:members.length,members,actualMembers:members};
+};
 // Never silently rewrite a saved stage when the current personnel state or crew
 // composition has changed. New stages start with available people only, while a
 // restored conflict stays visible until the user resolves it explicitly.
@@ -77,10 +108,22 @@ const preserveEntryMembers=(entry:FlightPlanEntry):FlightPlanEntry=>{
   return {...entry,actualMemberIds,actualCommanderId};
 };
 const currentDraft=():StoredDraft=>{
+  const bounds=flightPlanDateRange();
+  const inEditableRange=(draft:StoredDraft)=>{
+    const planDate=draft.pendingSave?.date;
+    if(!planDate||!/^\d{4}-\d{2}-\d{2}$/u.test(planDate)||isoDate(draft.date??"")!==planDate)return false;
+    const [year,month,day]=planDate.split("-").map(Number);
+    const parsed=new Date(year,month-1,day);
+    if(localIsoDate(parsed)!==planDate)return false;
+    return dateNumber(planDate)>=dateNumber(bounds.min)&&dateNumber(planDate)<=dateNumber(bounds.max);
+  };
   const stored=storedDraft();
+  const pending=[...Object.values(pendingDraftStore()),stored].filter((draft)=>draft.pendingSave&&draft.date&&inEditableRange(draft)).sort((left,right)=>(right.pendingSave?.updatedAt??0)-(left.pendingSave?.updatedAt??0))[0];
+  if(pending)return pending;
   const targetDate=flightPlanDateForTomorrow();
   if(!stored.date)return{...stored,date:targetDate};
   if(dateNumber(stored.date)===dateNumber(targetDate))return{...stored,date:targetDate};
+  if(stored.pendingSave)return inEditableRange(stored)?stored:{schemaVersion:3,unitName:stored.unitName,date:targetDate,zoom:stored.zoom};
   const previousDate=shiftIsoDate(isoDate(targetDate),-1);
   if(isoDate(stored.date)!==previousDate)return{unitName:stored.unitName,date:targetDate,zoom:stored.zoom};
   const departedCrewIds=new Set<number>();
@@ -99,58 +142,157 @@ const currentDraft=():StoredDraft=>{
 export function FlightPlanningPage(){
   const {notify}=useNotifications();
   const [initial]=useState(currentDraft);
+  const initialDraftRef=useRef<StoredDraft|null>(initial);
+  const loadRequestRef=useRef(0);
+  const editRevisionRef=useRef(0);
+  const pendingUpdatedAtRef=useRef(Date.now());
+  const dirtyRef=useRef(false);
+  const latestSavePayloadRef=useRef<SnapshotSavePayload|null>(null);
+  const saveDrainPromiseRef=useRef<Promise<boolean>|null>(null);
+  const activeDraftRef=useRef<StoredDraft|null>(null);
+  const mountedRef=useRef(true);
+  const notifyRef=useRef(notify);
   const [crews,setCrews]=useState<Crew[]>([]);const [positions,setPositions]=useState<Position[]>([]);const [vehicles,setVehicles]=useState<Vehicle[]>([]);const [uavs,setUavs]=useState<Equipment[]>([]);const [ammunition,setAmmunition]=useState<Equipment[]>([]);const [workshopProducts,setWorkshopProducts]=useState<WorkshopProduct[]>([]);
   const [unitName,setUnitName]=useState(initial.unitName??"");const [date,setDate]=useState(initial.date??flightPlanDateForTomorrow);const [zoom,setZoom]=useState(initial.zoom??75);
   const [entries,setEntries]=useState<Record<number,FlightPlanEntry>>(initial.entries??{});const [selected,setSelected]=useState<number[]>(initial.selected??[]);
   const [rotations,setRotations]=useState<Record<number,FlightPlanRotation[]>>(initial.rotations??{});
+  const [rolledSeedDate,setRolledSeedDate]=useState<string|null>(()=>initial.rolledFromPreviousDate?initial.date??null:null);
   const [confirmedPresentCrewIds,setConfirmedPresentCrewIds]=useState<Set<number>>(()=>new Set());
-  const [loaded,setLoaded]=useState(false);const [exporting,setExporting]=useState(false);
+  const [loaded,setLoaded]=useState(false);const [loadedDate,setLoadedDate]=useState<string|null>(null);const [loadFailed,setLoadFailed]=useState(false);const [reloadKey,setReloadKey]=useState(0);const [saveStatus,setSaveStatus]=useState<"loading"|"changed"|"saving"|"saved"|"save-error"|"load-error">("loading");const [exporting,setExporting]=useState(false);
   const [parametersOpen,setParametersOpen]=useState(false);
-  const rollToCurrentDate=useCallback(()=>{const next=currentDraft();if(dateNumber(next.date??"")===dateNumber(date))return;setUnitName(next.unitName??"");setDate(next.date??flightPlanDateForTomorrow());setZoom(next.zoom??75);setEntries(next.entries??{});setSelected(next.selected??[]);setRotations(next.rotations??{});},[date]);
+  const [calendarContext,setCalendarContext]=useState(()=>({today:localIsoDate(new Date()),dateBounds:flightPlanDateRange()}));
+  const {today,dateBounds}=calendarContext;
+  const isHistoricalPlan=dateNumber(date)<dateNumber(today);
+  const markDirty=useCallback(()=>{editRevisionRef.current+=1;pendingUpdatedAtRef.current=Date.now();dirtyRef.current=true;setSaveStatus("changed");},[]);
+  useEffect(()=>{notifyRef.current=notify;},[notify]);
 
-  const load=useCallback(async()=>{try{
-    const planDate=isoDate(date);
+  const load=useCallback(async()=>{
+    const requestedDate=date;
+    const todayAtLoad=localIsoDate(new Date());
+    const requestId=++loadRequestRef.current;
+    setLoaded(false);setLoadedDate(null);setLoadFailed(false);setSaveStatus("loading");
+    try{
+    const planDate=isoDate(requestedDate);
     const [allCrews,nextPositions,nextVehicles,nextUavs,nextAmmunition,nextWorkshopProducts,settings,storedSnapshot,previousStoredSnapshot]=await Promise.all([operationsService.listCrews(),Promise.resolve(operationsService.listPositions?.()??[]),vehiclesService.list(),operationsService.listEquipment("uav"),operationsService.listEquipment("weapon_ammo"),operationsService.listWorkshopProducts(),settingsService.get(),operationsService.getFlightPlanSnapshot(planDate),operationsService.getFlightPlanSnapshot(shiftIsoDate(planDate,-1))]);
-    const nextCrews=allCrews.filter((crew)=>crew.status.trim().toLocaleLowerCase("uk")==="працюючий");
-    const snapshot=Object.keys(initial.entries??{}).length&&!initial.rolledFromPreviousDate?null:parseSnapshot(storedSnapshot);
+    if(requestId!==loadRequestRef.current)return;
+    const snapshot=parseSnapshot(storedSnapshot);
+    const recoveredDraft=pendingDraftFor(requestedDate);
+    const pendingInitial=initialDraftRef.current&&dateNumber(initialDraftRef.current.date??"")===dateNumber(requestedDate)?initialDraftRef.current:null;
+    const newestPending=[recoveredDraft,pendingInitial].filter((draft):draft is StoredDraft=>Boolean(draft?.pendingSave)&&isoDate(draft?.date??"")===planDate&&draft?.pendingSave?.date===planDate).sort((left,right)=>(right.pendingSave?.updatedAt??0)-(left.pendingSave?.updatedAt??0))[0]??null;
+    const initialHasPlan=Boolean(pendingInitial&&(Object.keys(pendingInitial.entries??{}).length||Object.keys(pendingInitial.rotations??{}).length||pendingInitial.selected!==undefined));
+    const legacyDraft=pendingInitial&&initialHasPlan&&(!snapshot&&(pendingInitial.schemaVersion!==3||pendingInitial.rolledFromPreviousDate))?pendingInitial:null;
+    const localDraft=newestPending??legacyDraft;
+    if(pendingInitial)initialDraftRef.current=null;
+    const localCrewIds=Object.keys(localDraft?.entries??{}).map(Number).filter(Number.isFinite);
+    const savedCrewIds=new Set([...(snapshot?.entries.map((entry)=>entry.crewId)??[]),...localCrewIds]);
+    const stagesForCrew=(crewId:number)=>localDraft?.entries?.[crewId]?[localDraft.entries[crewId],...(localDraft.rotations?.[crewId]??[])]:snapshot?.entries.filter((entry)=>entry.crewId===crewId)??[];
+    const deletedSnapshotCrews=[...savedCrewIds].filter((crewId)=>!allCrews.some((crew)=>crew.id===crewId)).map((crewId)=>archivedCrewFromSnapshot(crewId,stagesForCrew(crewId)));
+    const nextCrews=[...allCrews,...deletedSnapshotCrews].filter((crew)=>crew.status.trim().toLocaleLowerCase("uk")==="працюючий"||savedCrewIds.has(crew.id));
     const previousSnapshot=parseSnapshot(previousStoredSnapshot);
     const restoredEntries=Object.fromEntries((snapshot?.entries??[]).filter((entry,index,items)=>items.findIndex((candidate)=>candidate.crewId===entry.crewId)===index).map((entry)=>[entry.crewId,entry]));
     const restoredRotations=Object.fromEntries([...new Set((snapshot?.entries??[]).map((entry)=>entry.crewId))].map((crewId)=>[crewId,(snapshot?.entries??[]).filter((entry)=>entry.crewId===crewId).slice(1).map((entry,index)=>({...entry,rotationId:entry.rotationId||`restored-${crewId}-${index}`}))]));
     const continuingCrewIds=new Set(nextCrews.flatMap((crew)=>{const stages=previousSnapshot?.entries.filter((entry)=>entry.crewId===crew.id)??[];if(!stages.length)return[];const validation=validateFlightPlanSchedule(stages[0],stages.slice(1) as FlightPlanRotation[]);return stages[0].departsToday&&validation.isValid?[]:[crew.id];}));
     setConfirmedPresentCrewIds(continuingCrewIds);
     setCrews(nextCrews);setPositions(nextPositions);setVehicles(nextVehicles);setUavs(nextUavs);setAmmunition(nextAmmunition);setWorkshopProducts(nextWorkshopProducts);
-    setUnitName((current)=>current||snapshot?.unitName||settings.unit.shortName||settings.unit.fullName||"Підрозділ");
-    setEntries((current)=>Object.fromEntries(nextCrews.map((crew)=>{const defaults=initialFlightEntry(crew,nextUavs);const stored=initial.rolledFromPreviousDate&&snapshot?restoredEntries[crew.id]??current[crew.id]:current[crew.id]??restoredEntries[crew.id];const positionId=stored?.positionId??crew.positionId;const positionName=stored?.positionName||crew.positionName;const matchingPrevious=previousSnapshot?.entries.filter((previous)=>{if(previous.crewId!==crew.id)return false;const previousPositionId=previous.positionId;const previousPositionName=previous.positionName;if(positionId!=null&&previousPositionId!=null)return positionId===previousPositionId;if(positionName&&previousPositionName)return positionName===previousPositionName;return true;})??[];const previousValidation=matchingPrevious.length?validateFlightPlanSchedule(matchingPrevious[0],matchingPrevious.slice(1) as FlightPlanRotation[]):null;const wasAtPosition=matchingPrevious.length>0&&!(matchingPrevious[0].departsToday&&previousValidation?.isValid);const arrivesToday=previousSnapshot?!wasAtPosition:Boolean(stored?.arrivesToday);const entry=stored?{...defaults,...stored,actualMemberIds:stored.actualMemberIds??defaults.actualMemberIds,uavSelections:stored.uavSelections??defaults.uavSelections,weather:{...defaults.weather,...stored.weather},arrivesToday}: {...defaults,arrivesToday};return [crew.id,preserveEntryMembers(entry)];})));
-    setRotations((current)=>{const source=Object.keys(current).length?current:restoredRotations;return Object.fromEntries(nextCrews.flatMap((crew)=>{const stages=(source[crew.id]??[]).map((rotation)=>preserveEntryMembers(rotation) as FlightPlanRotation);return stages.length?[[crew.id,stages]]:[];}));});
-    setSelected((current)=>{const requested=initial.selected===undefined?(snapshot?[...new Set(snapshot.entries.map((entry)=>entry.crewId))]:nextCrews.map((crew)=>crew.id)):current;const available=requested.filter((id)=>nextCrews.some((crew)=>crew.id===id));return[...new Set([...available,...continuingCrewIds])];});
-  }catch{notify("Не вдалося завантажити дані для плану польотів.","error");}finally{setLoaded(true);}},[date,initial.entries,initial.rolledFromPreviousDate,initial.selected,notify]);
-  useEffect(()=>{void load();},[load]);
-  useEffect(()=>{let timer=0;const schedule=()=>{window.clearTimeout(timer);const now=new Date();const midnight=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1).getTime();timer=window.setTimeout(()=>{rollToCurrentDate();schedule();},Math.max(250,midnight-now.getTime()+50));};const refresh=()=>{rollToCurrentDate();schedule();};const visibility=()=>{if(document.visibilityState==="visible")refresh();};schedule();window.addEventListener("focus",refresh);document.addEventListener("visibilitychange",visibility);return()=>{window.clearTimeout(timer);window.removeEventListener("focus",refresh);document.removeEventListener("visibilitychange",visibility);};},[rollToCurrentDate]);
-  useEffect(()=>{if(loaded){localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY,JSON.stringify({unitName,date,zoom,selected,entries,rotations}));window.dispatchEvent(new CustomEvent("flight-plan-updated"));}},[date,entries,loaded,rotations,selected,unitName,zoom]);
+    setUnitName(localDraft?localDraft.unitName??"":snapshot?.unitName||settings.unit.shortName||settings.unit.fullName||"Підрозділ");
+    const localEntries=localDraft?.entries??{};
+    const nextEntries=Object.fromEntries(nextCrews.map((crew)=>{const defaults=initialFlightEntry(crew,nextUavs);const stored=localEntries[crew.id]??restoredEntries[crew.id];const positionId=stored?.positionId??crew.positionId;const positionName=stored?.positionName||crew.positionName;const matchingPrevious=previousSnapshot?.entries.filter((previous)=>{if(previous.crewId!==crew.id)return false;const previousPositionId=previous.positionId;const previousPositionName=previous.positionName;if(positionId!=null&&previousPositionId!=null)return positionId===previousPositionId;if(positionName&&previousPositionName)return positionName===previousPositionName;return true;})??[];const previousValidation=matchingPrevious.length?validateFlightPlanSchedule(matchingPrevious[0],matchingPrevious.slice(1) as FlightPlanRotation[]):null;const wasAtPosition=matchingPrevious.length>0&&!(matchingPrevious[0].departsToday&&previousValidation?.isValid);const inferredArrival=previousSnapshot?!wasAtPosition:Boolean(stored?.arrivesToday);const arrivesToday=stored?Boolean(stored.arrivesToday):inferredArrival;const entry=stored?{...defaults,...stored,actualMemberIds:stored.actualMemberIds??defaults.actualMemberIds,uavSelections:stored.uavSelections??defaults.uavSelections,weather:{...defaults.weather,...stored.weather},arrivesToday}: {...defaults,arrivesToday};return [crew.id,preserveEntryMembers(entry)];}));
+    const rotationSource=localDraft?.rotations??restoredRotations;
+    const nextRotations=Object.fromEntries(nextCrews.flatMap((crew)=>{const stages=(rotationSource[crew.id]??[]).map((rotation)=>preserveEntryMembers(rotation) as FlightPlanRotation);return stages.length?[[crew.id,stages]]:[];}));
+    const snapshotCrewIds=snapshot?[...new Set(snapshot.entries.map((entry)=>entry.crewId))]:null;
+    const requested=localDraft?.selected??snapshotCrewIds??(dateNumber(requestedDate)<dateNumber(todayAtLoad)?[]:nextCrews.map((crew)=>crew.id));
+    const available=requested.filter((id)=>nextCrews.some((crew)=>crew.id===id));
+    const requestedWithContinuity=snapshot&&dateNumber(requestedDate)<dateNumber(todayAtLoad)?available:[...available,...continuingCrewIds];
+    const nextSelected=localDraft?[...new Set(available)]:[...new Set(requestedWithContinuity)];
+    setEntries(nextEntries);setRotations(nextRotations);setSelected(nextSelected);
+    const needsSave=Boolean(localDraft?.pendingSave);
+    const recoveredRevision=localDraft?.pendingSave?.revision??(needsSave?1:0);
+    editRevisionRef.current=recoveredRevision;pendingUpdatedAtRef.current=localDraft?.pendingSave?.updatedAt??Date.now();dirtyRef.current=needsSave;latestSavePayloadRef.current=null;
+    setRolledSeedDate(localDraft?.rolledFromPreviousDate?requestedDate:null);
+    setLoadedDate(requestedDate);setLoaded(true);setLoadFailed(false);setSaveStatus(needsSave?"changed":"saved");
+  }catch{
+    if(requestId!==loadRequestRef.current)return;
+    setLoadedDate(null);setLoaded(true);setLoadFailed(true);setSaveStatus("load-error");notify("Не вдалося завантажити дані для плану польотів.","error");
+  }},[date,notify]);
+  useEffect(()=>{void reloadKey;void load();},[load,reloadKey]);
+  useEffect(()=>{let timer=0;const refresh=()=>{const next={today:localIsoDate(new Date()),dateBounds:flightPlanDateRange()};setCalendarContext((current)=>current.today===next.today&&current.dateBounds.min===next.dateBounds.min&&current.dateBounds.max===next.dateBounds.max?current:next);};const schedule=()=>{window.clearTimeout(timer);const now=new Date();const midnight=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1).getTime();timer=window.setTimeout(()=>{refresh();schedule();},Math.max(250,midnight-now.getTime()+50));};const visible=()=>{if(document.visibilityState==="visible")refresh();};schedule();window.addEventListener("focus",refresh);document.addEventListener("visibilitychange",visible);return()=>{window.clearTimeout(timer);window.removeEventListener("focus",refresh);document.removeEventListener("visibilitychange",visible);};},[]);
 
   const missingCallsigns=useMemo(()=>missingCrewCallsigns(crews),[crews]);
   const selectedMissing=useMemo(()=>missingCrewCallsigns(crews.filter((crew)=>selected.includes(crew.id))),[crews,selected]);
   const scheduleValidations=useMemo(()=>Object.fromEntries(Object.entries(entries).map(([crewId,entry])=>[Number(crewId),validateFlightPlanSchedule(entry,rotations[Number(crewId)]??[])])),[entries,rotations]);
   const hasInvalidSelectedSchedule=useMemo(()=>selected.some((crewId)=>scheduleValidations[crewId]&&!scheduleValidations[crewId].isValid),[scheduleValidations,selected]);
-  const invalidSelectedMemberState=useMemo(()=>selected.flatMap((crewId)=>{const crew=crews.find((item)=>item.id===crewId);if(!crew)return[];const members=new Map(uniqueCrewMembers(crew).map((member)=>[member.personnelId,member]));const stages=[entries[crewId],...(rotations[crewId]??[])].filter((stage):stage is FlightPlanEntry=>Boolean(stage));if(stages.some((stage)=>stage.actualMemberIds.length===0))return [`В екіпажі «${crew.name}» є етап без доступного складу.`];const blocked=stages.flatMap((stage)=>stage.actualMemberIds.flatMap((id)=>{const member=members.get(id);if(member&&!isFlightPlanMemberAvailable(member))return[`${member.fullName} — ${member.currentLocation}`];if(!member){const snapshot=stage.memberSnapshots?.find((item)=>item.personnelId===id);return[`${snapshot?.fullName||`учасник №${id}`} — відсутній у поточному складі екіпажу`];}return[];}));return [...new Set(blocked)].map((value)=>`Екіпаж «${crew.name}»: ${value}.`);}),[crews,entries,rotations,selected]);
-  const selectedEntries=useMemo(()=>selected.flatMap((id)=>{const crew=crews.find((item)=>item.id===id);const entry=entries[id];if(!crew||!entry)return[];const position=positions.find((item)=>item.id===crew.positionId);const snapshot=(stage:FlightPlanEntry):FlightPlanEntry=>({...stage,crewName:crew.name,crewUavType:crew.uavType,positionId:position?.id??crew.positionId,positionName:position?.name||crew.positionName,positionMgrs:position?.mgrs||"",positionLocality:position?.locality||"",workStrip:position?.stripName||crew.sector,battleOrder:position?.battleOrder||crew.battleOrder,uavSnapshots:(stage.uavSelections??[]).flatMap((selection)=>{const uav=uavs.find((item)=>item.id===selection.equipmentId);return uav?[{equipmentId:uav.id,name:uav.name,serialNumber:uav.inventoryNumber}]:[]}),memberSnapshots:(stage.actualMemberIds??[]).flatMap((personnelId)=>{const member=[...(crew.members??[]),...(crew.actualMembers??[])].find((item)=>item.personnelId===personnelId);if(member)return[{personnelId,fullName:member.fullName,rank:member.rank}];const previous=stage.memberSnapshots?.find((item)=>item.personnelId===personnelId);return previous?[previous]:[];})});return[snapshot(entry),...(rotations[id]??[]).map(snapshot)];}),[crews,entries,positions,rotations,selected,uavs]);
-  useEffect(()=>{if(!loaded||hasInvalidSelectedSchedule||invalidSelectedMemberState.length||!/^\d{2}\.\d{2}\.\d{4}$/u.test(date))return;const timer=window.setTimeout(()=>{void operationsService.saveFlightPlanSnapshot(isoDate(date),{unitName,entries:selectedEntries}).catch(()=>notify("Не вдалося зберегти знімок плану польотів.","error"));},350);return()=>window.clearTimeout(timer);},[date,hasInvalidSelectedSchedule,invalidSelectedMemberState.length,loaded,notify,selectedEntries,unitName]);
+  const invalidSelectedMemberState=useMemo(()=>selected.flatMap((crewId)=>{const crew=crews.find((item)=>item.id===crewId);if(!crew)return[];const members=new Map(uniqueCrewMembers(crew).map((member)=>[member.personnelId,member]));const stages=[entries[crewId],...(rotations[crewId]??[])].filter((stage):stage is FlightPlanEntry=>Boolean(stage));if(stages.some((stage)=>stage.actualMemberIds.length===0))return [`В екіпажі «${crew.name}» є етап без доступного складу.`];if(isHistoricalPlan)return[];const blocked=stages.flatMap((stage)=>stage.actualMemberIds.flatMap((id)=>{const member=members.get(id);if(member&&!isFlightPlanMemberAvailable(member))return[`${member.fullName} — ${member.currentLocation}`];if(!member){const snapshot=stage.memberSnapshots?.find((item)=>item.personnelId===id);return[`${snapshot?.fullName||`учасник №${id}`} — відсутній у поточному складі екіпажу`];}return[];}));return [...new Set(blocked)].map((value)=>`Екіпаж «${crew.name}»: ${value}.`);}),[crews,entries,isHistoricalPlan,rotations,selected]);
+  const selectedEntries=useMemo(()=>selected.flatMap((id)=>{const crew=crews.find((item)=>item.id===id);const entry=entries[id];if(!crew||!entry)return[];const position=positions.find((item)=>item.id===crew.positionId);const snapshot=(stage:FlightPlanEntry):FlightPlanEntry=>({...stage,crewName:isHistoricalPlan&&hasOwn(stage,"crewName")?stage.crewName:crew.name,crewUavType:isHistoricalPlan&&hasOwn(stage,"crewUavType")?stage.crewUavType:crew.uavType,positionId:isHistoricalPlan&&hasOwn(stage,"positionId")?stage.positionId:position?.id??crew.positionId,positionName:isHistoricalPlan&&hasOwn(stage,"positionName")?stage.positionName:position?.name||crew.positionName,positionMgrs:isHistoricalPlan&&hasOwn(stage,"positionMgrs")?stage.positionMgrs:position?.mgrs||"",positionLocality:isHistoricalPlan&&hasOwn(stage,"positionLocality")?stage.positionLocality:position?.locality||"",workStrip:isHistoricalPlan&&hasOwn(stage,"workStrip")?stage.workStrip:position?.stripName||crew.sector,battleOrder:isHistoricalPlan&&hasOwn(stage,"battleOrder")?stage.battleOrder:position?.battleOrder||crew.battleOrder,uavSnapshots:isHistoricalPlan&&hasOwn(stage,"uavSnapshots")?stage.uavSnapshots:(stage.uavSelections??[]).flatMap((selection)=>{const uav=uavs.find((item)=>item.id===selection.equipmentId);return uav?[{equipmentId:uav.id,name:uav.name,serialNumber:uav.inventoryNumber}]:stage.uavSnapshots?.filter((item)=>item.equipmentId===selection.equipmentId)??[];}),memberSnapshots:isHistoricalPlan&&hasOwn(stage,"memberSnapshots")?stage.memberSnapshots:(stage.actualMemberIds??[]).flatMap((personnelId)=>{const previous=stage.memberSnapshots?.find((item)=>item.personnelId===personnelId);const member=[...(crew.members??[]),...(crew.actualMembers??[])].find((item)=>item.personnelId===personnelId);if(member)return[{personnelId,fullName:member.fullName,rank:member.rank}];return previous?[previous]:[];})});return[snapshot(entry),...(rotations[id]??[]).map(snapshot)];}),[crews,entries,isHistoricalPlan,positions,rotations,selected,uavs]);
+  const saveValid=!hasInvalidSelectedSchedule&&!invalidSelectedMemberState.length&&/^\d{2}\.\d{2}\.\d{4}$/u.test(date);
+  const activeDraft:StoredDraft={schemaVersion:3,unitName,date,zoom,selected,entries,rotations,rolledFromPreviousDate:(rolledSeedDate===date&&!dirtyRef.current)||undefined,pendingSave:dirtyRef.current?{date:isoDate(date),revision:editRevisionRef.current,updatedAt:pendingUpdatedAtRef.current}:undefined};
+  if(loaded&&loadedDate===date&&!loadFailed){
+    activeDraftRef.current=activeDraft;
+    if(dirtyRef.current)latestSavePayloadRef.current={date,dateIso:isoDate(date),revision:editRevisionRef.current,request:{unitName,entries:selectedEntries},draft:activeDraft,valid:saveValid};
+    else if(latestSavePayloadRef.current?.date===date)latestSavePayloadRef.current=null;
+  }
+  useEffect(()=>{if(!loaded||loadedDate!==date||loadFailed)return;const draft=activeDraftRef.current;if(!draft)return;localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY,JSON.stringify(draft));if(draft.pendingSave)persistPendingDraft(draft);},[date,entries,loaded,loadedDate,loadFailed,rolledSeedDate,rotations,saveStatus,selected,unitName,zoom]);
+  const drainSaveQueue=useCallback(():Promise<boolean>=>{
+    if(saveDrainPromiseRef.current)return saveDrainPromiseRef.current;
+    const run=async()=>{
+      while(true){
+        const candidate=latestSavePayloadRef.current;
+        if(!candidate)return true;
+        if(!candidate.valid)return false;
+        if(mountedRef.current)setSaveStatus("saving");
+        try{await saveFlightPlanSnapshotSerially(candidate.dateIso,candidate.request);}
+        catch{if(mountedRef.current)setSaveStatus("save-error");if(mountedRef.current)notifyRef.current("Не вдалося зберегти знімок плану польотів.","error");return false;}
+        const newest=latestSavePayloadRef.current;
+        if(newest?.dateIso===candidate.dateIso&&newest.revision===candidate.revision){
+          latestSavePayloadRef.current=null;dirtyRef.current=false;clearPendingDraft(candidate.date,candidate.revision,candidate.draft.pendingSave?.updatedAt??0);
+          activeDraftRef.current={...candidate.draft,pendingSave:undefined};
+          if(mountedRef.current)setSaveStatus("saved");
+          return true;
+        }
+        // A disposed page may finish the request it already sent, but it must
+        // never enqueue a later revision behind a newly mounted page.
+        if(!mountedRef.current)return false;
+      }
+    };
+    const tracked=run().finally(()=>{if(saveDrainPromiseRef.current===tracked)saveDrainPromiseRef.current=null;});
+    saveDrainPromiseRef.current=tracked;
+    return tracked;
+  },[]);
+  useEffect(()=>{if(!loaded||loadedDate!==date||loadFailed||!dirtyRef.current||!saveValid)return;const timer=window.setTimeout(()=>{void drainSaveQueue();},350);return()=>window.clearTimeout(timer);},[date,drainSaveQueue,entries,loaded,loadedDate,loadFailed,rotations,saveValid,selected,unitName]);
+  useEffect(()=>{mountedRef.current=true;return()=>{
+    mountedRef.current=false;
+    const draft=activeDraftRef.current;
+    if(draft?.pendingSave)persistPendingDraft(draft);
+    const candidate=latestSavePayloadRef.current;
+    if(!candidate?.valid)return;
+    void saveFlightPlanSnapshotSerially(candidate.dateIso,candidate.request)
+      .then(()=>clearPendingDraft(candidate.date,candidate.revision,candidate.draft.pendingSave?.updatedAt??0))
+      .catch(()=>undefined);
+  };},[]);
   const rows=useMemo(()=>flightPlanPreviewRows(unitName,selectedEntries,crews,uavs,vehicles,ammunition,workshopProducts),[ammunition,crews,selectedEntries,uavs,unitName,vehicles,workshopProducts]);
-  const patchEntry=(crewId:number,patch:Partial<FlightPlanEntry>)=>setEntries((current)=>({...current,[crewId]:{...current[crewId],...patch}}));
-  const patchRotation=(crewId:number,rotationId:string,patch:Partial<FlightPlanEntry>)=>setRotations((current)=>({...current,[crewId]:(current[crewId]??[]).map((rotation)=>rotation.rotationId===rotationId?{...rotation,...patch}:rotation)}));
-  const saveRotation=(crewId:number,memberIds:number[],commanderId:number,rotationId?:string)=>setRotations((current)=>{const existing=current[crewId]??[];if(rotationId)return{...current,[crewId]:existing.map((rotation)=>rotation.rotationId===rotationId?{...rotation,actualMemberIds:memberIds,actualCommanderId:commanderId}:rotation)};const source=existing[existing.length-1]??entries[crewId];if(!source)return current;const next={...cloneEntry(source),rotationId:`${crewId}-${Date.now()}`,actualMemberIds:memberIds,actualCommanderId:commanderId,startTime:nextRotationTime(source),arrivesToday:false,departsToday:false,departureTime:""};return{...current,[crewId]:[...existing,next]};});
-  const deleteRotation=(crewId:number,rotationId:string)=>{const existing=rotations[crewId]??[];const index=existing.findIndex((rotation)=>rotation.rotationId===rotationId);const previous=index>0?existing[index-1]:entries[crewId];const next=existing[index+1];if(previous&&next&&sameComposition(previous,next)){notify(`Не можна видалити ротацію ${index+1} екіпажу «${crews.find((crew)=>crew.id===crewId)?.name||crewId}»: сусідні етапи матимуть однаковий склад.`,"error");return;}setRotations((current)=>({...current,[crewId]:(current[crewId]??[]).filter((rotation)=>rotation.rotationId!==rotationId)}));};
+  const patchEntry=(crewId:number,patch:Partial<FlightPlanEntry>)=>{markDirty();setEntries((current)=>({...current,[crewId]:{...current[crewId],...patch}}));};
+  const patchRotation=(crewId:number,rotationId:string,patch:Partial<FlightPlanEntry>)=>{markDirty();setRotations((current)=>({...current,[crewId]:(current[crewId]??[]).map((rotation)=>rotation.rotationId===rotationId?{...rotation,...patch}:rotation)}));};
+  const saveRotation=(crewId:number,memberIds:number[],commanderId:number,rotationId?:string)=>{markDirty();setRotations((current)=>{const existing=current[crewId]??[];if(rotationId)return{...current,[crewId]:existing.map((rotation)=>rotation.rotationId===rotationId?{...rotation,actualMemberIds:memberIds,actualCommanderId:commanderId}:rotation)};const source=existing[existing.length-1]??entries[crewId];if(!source)return current;const next={...cloneEntry(source),rotationId:`${crewId}-${Date.now()}`,actualMemberIds:memberIds,actualCommanderId:commanderId,startTime:nextRotationTime(source),arrivesToday:false,departsToday:false,departureTime:""};return{...current,[crewId]:[...existing,next]};});};
+  const deleteRotation=(crewId:number,rotationId:string)=>{const existing=rotations[crewId]??[];const index=existing.findIndex((rotation)=>rotation.rotationId===rotationId);const previous=index>0?existing[index-1]:entries[crewId];const next=existing[index+1];if(previous&&next&&sameComposition(previous,next)){notify(`Не можна видалити ротацію ${index+1} екіпажу «${crews.find((crew)=>crew.id===crewId)?.name||crewId}»: сусідні етапи матимуть однаковий склад.`,"error");return;}markDirty();setRotations((current)=>({...current,[crewId]:(current[crewId]??[]).filter((rotation)=>rotation.rotationId!==rotationId)}));};
   const toggleCrew=(crewId:number)=>{
     const entry=entries[crewId];
     const confirmedArrival=Boolean(entry?.arrivesToday&&flightPlanTransitionHasHappened(date,entry.startTime));
-    if(selected.includes(crewId)&&(confirmedPresentCrewIds.has(crewId)||confirmedArrival)){
+    if(!isHistoricalPlan&&selected.includes(crewId)&&(confirmedPresentCrewIds.has(crewId)||confirmedArrival)){
       const crewName=crews.find((crew)=>crew.id===crewId)?.name||String(crewId);
       const reason=confirmedPresentCrewIds.has(crewId)?"перебуває на позиції за попереднім планом":`заїхав на позицію о ${entry.startTime}`;
       notify(`Екіпаж «${crewName}» підтверджено ${reason}. Щоб вивести його, позначте «Виїжджає з позиції у день плану» та вкажіть час. Екіпаж залишиться в плані до наступного дня.`,"error");
       return;
     }
+    markDirty();
     setSelected((current)=>current.includes(crewId)?current.filter((id)=>id!==crewId):[...current,crewId]);
   };
+  const selectPlanDate=useCallback(async(targetIsoDate:string)=>{
+    if(targetIsoDate<dateBounds.min||targetIsoDate>dateBounds.max||targetIsoDate===isoDate(date))return;
+    if(dirtyRef.current&&!latestSavePayloadRef.current?.valid){notify("Спочатку виправте помилки у поточному плані. Незбережені зміни залишаються на цій даті.","error");return;}
+    if(!await drainSaveQueue())return;
+    setParametersOpen(false);setLoaded(false);setLoadedDate(null);setLoadFailed(false);setSaveStatus("loading");setDate(displayDateFromIso(targetIsoDate));
+  },[date,dateBounds.max,dateBounds.min,drainSaveQueue,notify]);
+  const shiftSelectedDate=(days:number)=>void selectPlanDate(shiftIsoDate(isoDate(date),days));
+  const statusText=saveStatus==="loading"?"Завантаження…":saveStatus==="saving"?"Збереження…":saveStatus==="changed"?"Є незбережені зміни":saveStatus==="load-error"?"Не вдалося завантажити":saveStatus==="save-error"?"Не вдалося зберегти":"Збережено";
   const exportPlan=async()=>{
     if(!selectedEntries.length){notify("Оберіть хоча б один екіпаж.","error");return;}
     if(selectedMissing.length){notify("Заповніть позивні всіх офіційних і фактичних учасників вибраних екіпажів.","error");return;}
@@ -178,8 +320,8 @@ export function FlightPlanningPage(){
     try{await operationsService.exportFlightPlan(path.endsWith(".xlsx")?path:`${path}.xlsx`,{unitName,entries:selectedEntries});notify("План польотів сформовано за наданим шаблоном.","success");}catch(error){notify(typeof error==="string"?error:"Не вдалося сформувати план польотів.","error");}finally{setExporting(false);}
   };
 
-  return <PageFrame className="flight-planning-page" header={<PageTitle title="План польотів" subtitle="Підготовка екіпажів, маршрутів і засобів для виконання завдань" />} tools={<div className="flight-plan-toolbar"><span>Вибрано екіпажів: <b>{selected.length}</b></span><button className="button" onClick={()=>setParametersOpen(true)}><Settings2/>Параметри плану польотів</button></div>}>
-    {!loaded?<CardGridSkeleton count={4}/>:<div className="flight-planning-layout"><div className="flight-planning-layout__preview"><FlightPlanTable rows={rows} zoom={zoom}/></div><div className="flight-planning-layout__settings"><FlightPlanParametersModal crews={crews} vehicles={vehicles} uavs={uavs} ammunition={ammunition} workshopProducts={workshopProducts} selected={selected} entries={entries} rotations={rotations} validations={scheduleValidations} missingCallsignCount={missingCallsigns.length} onToggle={toggleCrew} onPatch={patchEntry} onPatchRotation={patchRotation} onSaveRotation={saveRotation} onDeleteRotation={deleteRotation}/></div></div>}
-    {parametersOpen&&<Modal title="Параметри плану польотів" subtitle="Зміни зберігаються автоматично та прив’язуються до кожного екіпажу." onClose={()=>setParametersOpen(false)} className="flight-plan-parameters-modal"><div className="flight-plan-general-modal"><section className="flight-plan-parameters__general"><label className="form-field"><span>Коротка назва підрозділу</span><input value={unitName} onChange={(event)=>setUnitName(event.target.value)}/></label><label className="form-field"><span>Дата виконання плану</span><input readOnly value={date}/><small>План готується сьогодні на завтра. У день виконання знімок автоматично активує БЧС.</small></label><label className="form-field"><span>Масштаб таблиці · {zoom}%</span><input type="range" min="35" max="100" step="5" value={zoom} onChange={(event)=>setZoom(Number(event.target.value))}/></label></section><footer className="modal-actions"><button data-modal-enter-action className="button" onClick={()=>setParametersOpen(false)}>Закрити</button><button className="button primary" onClick={()=>void exportPlan()} disabled={exporting||!selected.length}><Download/>{exporting?"Формування…":"Експорт плану"}</button></footer></div></Modal>}
+  return <PageFrame className="flight-planning-page" header={<PageTitle title="План польотів" subtitle="Підготовка екіпажів, маршрутів і засобів для виконання завдань" />} tools={<div className="flight-plan-toolbar"><div className="flight-plan-date-navigator" aria-label="Перемикання планів за датою"><button type="button" className="icon-button" aria-label="Попередній день" disabled={!loaded||isoDate(date)<=dateBounds.min} onClick={()=>shiftSelectedDate(-1)}><ChevronLeft/></button><label className="flight-plan-date-navigator__field"><CalendarDays/><span>Дата плану</span><input aria-label="Дата плану" type="date" min={dateBounds.min} max={dateBounds.max} value={isoDate(date)} disabled={!loaded} onChange={(event)=>void selectPlanDate(event.target.value)}/></label><button type="button" className="icon-button" aria-label="Наступний день" disabled={!loaded||isoDate(date)>=dateBounds.max} onClick={()=>shiftSelectedDate(1)}><ChevronRight/></button><button type="button" className="button compact" disabled={!loaded||isoDate(date)===today} onClick={()=>void selectPlanDate(today)}>Сьогодні</button><button type="button" className="button compact" disabled={!loaded||isoDate(date)===shiftIsoDate(today,1)} onClick={()=>void selectPlanDate(shiftIsoDate(today,1))}>Завтра</button></div><div className="flight-plan-toolbar__actions"><span className={`flight-plan-save-status is-${saveStatus}`} role="status">{statusText}</span>{saveStatus==="save-error"&&<button type="button" className="button compact" onClick={()=>void drainSaveQueue()}>Повторити збереження</button>}<span>Вибрано екіпажів: <b>{selected.length}</b></span><button className="button" disabled={loadFailed} onClick={()=>setParametersOpen(true)}><Settings2/>Параметри плану польотів</button></div></div>}>
+    {!loaded?<CardGridSkeleton count={4}/>:loadFailed?<section className="panel flight-plan-load-error" role="alert"><h2>План за {date} не завантажено</h2><p>Локальні незбережені зміни не видалено. Повторіть завантаження або оберіть іншу дату.</p><button type="button" className="button" onClick={()=>setReloadKey((value)=>value+1)}>Повторити</button></section>:<div className="flight-planning-layout"><div className="flight-planning-layout__preview"><FlightPlanTable rows={rows} zoom={zoom}/></div><div className="flight-planning-layout__settings"><FlightPlanParametersModal crews={crews} vehicles={vehicles} uavs={uavs} ammunition={ammunition} workshopProducts={workshopProducts} selected={selected} entries={entries} rotations={rotations} validations={scheduleValidations} missingCallsignCount={missingCallsigns.length} onToggle={toggleCrew} onPatch={patchEntry} onPatchRotation={patchRotation} onSaveRotation={saveRotation} onDeleteRotation={deleteRotation}/></div></div>}
+    {parametersOpen&&<Modal title="Параметри плану польотів" subtitle="Зміни зберігаються автоматично та прив’язуються до вибраної дати." onClose={()=>setParametersOpen(false)} className="flight-plan-parameters-modal"><div className="flight-plan-general-modal"><section className="flight-plan-parameters__general"><label className="form-field"><span>Коротка назва підрозділу</span><input value={unitName} onChange={(event)=>{markDirty();setUnitName(event.target.value);}}/></label><label className="form-field"><span>Дата виконання плану</span><input type="date" min={dateBounds.min} max={dateBounds.max} value={isoDate(date)} onChange={(event)=>void selectPlanDate(event.target.value)}/><small>За замовчуванням відкривається завтра. Доступно від трьох місяців тому до семи днів наперед.</small></label><label className="form-field"><span>Масштаб таблиці · {zoom}%</span><input type="range" min="35" max="100" step="5" value={zoom} onChange={(event)=>setZoom(Number(event.target.value))}/></label></section><footer className="modal-actions"><button data-modal-enter-action className="button" onClick={()=>setParametersOpen(false)}>Закрити</button><button className="button primary" onClick={()=>void exportPlan()} disabled={exporting||!selected.length}><Download/>{exporting?"Формування…":"Експорт плану"}</button></footer></div></Modal>}
   </PageFrame>;
 }

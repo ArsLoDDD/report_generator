@@ -5,11 +5,104 @@
 	gap: 16px;
 	width: 100%;
 }
-.flight-plan-toolbar > span {
+.flight-plan-toolbar__actions,
+.flight-plan-date-navigator {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.flight-plan-toolbar__actions {
+	justify-content: flex-end;
+}
+.flight-plan-toolbar__actions > span {
 	color: var(--muted);
 }
 .flight-plan-toolbar b {
 	color: var(--green);
+}
+.flight-plan-date-navigator .icon-button {
+	width: 38px;
+	height: 38px;
+	min-width: 38px;
+}
+.flight-plan-date-navigator .button.compact {
+	min-height: 38px;
+	padding: 7px 11px;
+}
+.flight-plan-date-navigator__field {
+	display: grid;
+	grid-template-columns: auto auto;
+	align-items: center;
+	column-gap: 7px;
+	min-height: 42px;
+	padding: 5px 10px;
+	border: 1px solid var(--line);
+	border-radius: 9px;
+	background: #11140f;
+	cursor: pointer;
+}
+.flight-plan-date-navigator__field > svg {
+	grid-row: 1 / span 2;
+	width: 18px;
+	color: var(--accent);
+}
+.flight-plan-date-navigator__field > span {
+	color: var(--muted);
+	font-size: 10px;
+	font-weight: 800;
+	line-height: 1;
+}
+.flight-plan-date-navigator__field input {
+	width: 132px;
+	padding: 0;
+	border: 0;
+	outline: 0;
+	background: transparent;
+	color: var(--text);
+	color-scheme: dark;
+	font: inherit;
+	font-size: 13px;
+	font-weight: 800;
+	cursor: pointer;
+}
+.flight-plan-save-status {
+	display: inline-flex;
+	align-items: center;
+	min-height: 28px;
+	padding: 4px 9px;
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 800;
+	white-space: nowrap;
+}
+.flight-plan-save-status.is-saved { border-color: rgb(74 205 89 / 35%); color: #7be184; }
+.flight-plan-save-status.is-saving,
+.flight-plan-save-status.is-loading,
+.flight-plan-save-status.is-changed { border-color: rgb(225 177 67 / 40%); color: #e7c466; }
+.flight-plan-save-status.is-save-error,
+.flight-plan-save-status.is-load-error { border-color: rgb(231 99 87 / 45%); color: #ff968c; }
+.flight-plan-load-error {
+	display: grid;
+	place-items: center;
+	align-content: center;
+	gap: 10px;
+	min-height: 280px;
+	padding: 32px;
+	text-align: center;
+}
+.flight-plan-load-error h2,
+.flight-plan-load-error p { margin: 0; }
+.flight-plan-load-error p { max-width: 620px; color: var(--muted); }
+.flight-plan-load-error .button { margin-top: 8px; }
+@media (max-width: 1320px) {
+	.flight-plan-toolbar { align-items: flex-start; flex-direction: column; }
+	.flight-plan-toolbar__actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+}
+@media (max-width: 760px) {
+	.flight-plan-date-navigator { width: 100%; flex-wrap: wrap; }
+	.flight-plan-date-navigator__field { flex: 1; }
+	.flight-plan-date-navigator__field input { width: 100%; }
 }
 .flight-plan-scale {
 	--flight-plan-zoom: 1;

@@ -3,6 +3,7 @@ use super::{
     StaffingRecord, VacancyRecommendation,
 };
 use crate::AppState;
+use rusqlite::OptionalExtension;
 use std::collections::{HashMap, HashSet};
 
 #[tauri::command]
@@ -216,14 +217,69 @@ pub(crate) fn reconcile_flight_plan_for_moment(
     let transaction = connection
         .unchecked_transaction()
         .map_err(|_| "Не вдалося почати активацію плану польотів у БЧС.".to_string())?;
+
+    let tracked_locations = {
+        let mut statement = transaction
+            .prepare(
+                "SELECT state.personnel_id,state.location,COALESCE(personnel.current_location,'')
+                 FROM flight_plan_personnel_locations state
+                 JOIN personnel ON personnel.id=state.personnel_id
+                 WHERE date(state.plan_date)=date(?1)",
+            )
+            .map_err(|_| "Не вдалося прочитати попередні стани плану польотів.".to_string())?;
+        let rows = statement
+            .query_map([local_date], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|_| "Не вдалося прочитати попередні стани плану польотів.".to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "Не вдалося прочитати попередні стани плану польотів.".to_string())?;
+        rows
+    };
+    for (personnel_id, source_location, current_location) in tracked_locations {
+        if desired.contains_key(&personnel_id) {
+            continue;
+        }
+        if current_location.trim() == source_location.trim()
+            && matches!(source_location.trim(), "На позиції" | "ЗБЗ" | "ПБЗ")
+        {
+            transaction
+                .execute(
+                    "UPDATE personnel
+                     SET current_location='ОХ',updated_at=CURRENT_TIMESTAMP
+                     WHERE id=?1",
+                    [personnel_id],
+                )
+                .map_err(|_| {
+                    "Не вдалося нормалізувати стан людини з попереднього плану польотів."
+                        .to_string()
+                })?;
+        }
+        transaction
+            .execute(
+                "DELETE FROM flight_plan_personnel_locations
+                 WHERE personnel_id=?1 AND date(plan_date)=date(?2)",
+                rusqlite::params![personnel_id, local_date],
+            )
+            .map_err(|_| "Не вдалося очистити попереднє джерело стану БЧС.".to_string())?;
+    }
+
     for (personnel_id, location) in desired {
-        let current_location = transaction
+        let Some(current_location) = transaction
             .query_row(
                 "SELECT COALESCE(current_location,'') FROM personnel WHERE id=?1",
                 [personnel_id],
                 |row| row.get::<_, String>(0),
             )
-            .unwrap_or_default();
+            .optional()
+            .map_err(|_| "Не вдалося перевірити стан людини з плану польотів.".to_string())?
+        else {
+            continue;
+        };
         let has_active_position_work = transaction
             .query_row(
                 "SELECT EXISTS(
@@ -419,6 +475,37 @@ fn apply_flight_plan_locations(
 #[cfg(test)]
 mod flight_plan_location_tests {
     use super::*;
+
+    fn insert_test_personnel(connection: &rusqlite::Connection, personnel_id: i64, location: &str) {
+        connection.execute("INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id,current_location) VALUES(?1,'солдат',?2,'Тест','Тестович','оператор',?3,'','','','','','','',?4)", rusqlite::params![personnel_id,format!("ЛЮДИНА{personnel_id}"),format!("tax-{personnel_id}"),location]).unwrap();
+    }
+
+    fn insert_location_snapshot(connection: &rusqlite::Connection, member_ids: &[i64]) {
+        connection
+            .execute(
+                "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json)
+                 VALUES('2026-09-18',1,?1)
+                 ON CONFLICT(plan_date,revision) DO UPDATE SET
+                   snapshot_json=excluded.snapshot_json",
+                rusqlite::params![serde_json::json!({"entries":[{
+                    "crewId":1,
+                    "actualMemberIds":member_ids,
+                    "startTime":"07:00",
+                    "arrivesToday":true
+                }]})
+                .to_string()],
+            )
+            .unwrap();
+    }
+
+    fn listed_location(records: &[StaffingRecord], personnel_id: i64) -> &str {
+        records
+            .iter()
+            .find(|record| record.personnel_id == personnel_id)
+            .unwrap()
+            .current_location
+            .as_str()
+    }
 
     #[test]
     fn staffing_uses_the_official_crew_and_keeps_the_actual_crew_separate() {
@@ -1139,6 +1226,131 @@ mod flight_plan_location_tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(locations, vec!["НАВЧ", "Реко", "ЗБЗ"]);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM flight_plan_personnel_locations",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn replacing_current_snapshot_reconciles_obsolete_plan_sources_only() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(1,'БАРС')", [])
+            .unwrap();
+        connection
+            .execute("INSERT INTO positions(id,name) VALUES(1,'САПСАН')", [])
+            .unwrap();
+        for (id, location) in [
+            (1, "ОХ"),
+            (2, "ОХ"),
+            (3, "НАВЧ"),
+            (4, "Реко"),
+            (5, "ВІДП"),
+            (6, "На позиції"),
+        ] {
+            insert_test_personnel(&connection, id, location);
+        }
+        connection.execute("INSERT INTO personnel_control_assignments(personnel_id,location_type,institution,start_date,end_date,previous_location) VALUES(3,'НАВЧ','Центр','2026-09-17','2026-09-19','ОХ')", []).unwrap();
+        connection.execute("INSERT INTO position_work(id,position_id,work_type,status,start_date,start_time) VALUES(10,1,'Рекогностування','Продовжують','2026-09-18','08:00')", []).unwrap();
+        connection
+            .execute(
+                "INSERT INTO position_work_members(work_id,personnel_id) VALUES(10,4)",
+                [],
+            )
+            .unwrap();
+
+        insert_location_snapshot(&connection, &[1]);
+        reconcile_flight_plan_for_moment(&connection, "2026-09-18", "09:00").unwrap();
+        assert_eq!(
+            listed_location(&staffing_records(&connection).unwrap(), 1),
+            "ЗБЗ"
+        );
+
+        for personnel_id in 3..=5 {
+            connection
+                .execute(
+                    "INSERT INTO flight_plan_personnel_locations(personnel_id,plan_date,location)
+                 VALUES(?1,'2026-09-18','ЗБЗ')",
+                    [personnel_id],
+                )
+                .unwrap();
+        }
+        insert_location_snapshot(&connection, &[2]);
+        reconcile_flight_plan_for_moment(&connection, "2026-09-18", "09:00").unwrap();
+
+        let records = staffing_records(&connection).unwrap();
+        assert_eq!(listed_location(&records, 1), "ОХ");
+        assert_eq!(listed_location(&records, 2), "ЗБЗ");
+        assert_eq!(listed_location(&records, 3), "НАВЧ");
+        assert_eq!(listed_location(&records, 4), "Реко");
+        assert_eq!(listed_location(&records, 5), "ВІДП");
+        assert_eq!(listed_location(&records, 6), "На позиції");
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM flight_plan_personnel_locations",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT personnel_id FROM flight_plan_personnel_locations",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            2
+        );
+
+        connection
+            .execute(
+                "UPDATE flight_plan_snapshots SET snapshot_json='{\"entries\":[]}'
+                 WHERE plan_date='2026-09-18'",
+                [],
+            )
+            .unwrap();
+        reconcile_flight_plan_for_moment(&connection, "2026-09-18", "09:00").unwrap();
+        let records = staffing_records(&connection).unwrap();
+        assert_eq!(listed_location(&records, 2), "ОХ");
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM flight_plan_personnel_locations",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn orphan_snapshot_personnel_are_skipped_without_breaking_bcs_listing() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(1,'БАРС')", [])
+            .unwrap();
+        insert_test_personnel(&connection, 1, "ОХ");
+        insert_location_snapshot(&connection, &[1, 999]);
+
+        reconcile_flight_plan_for_moment(&connection, "2026-09-18", "09:00").unwrap();
+
+        let records = staffing_records(&connection).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(listed_location(&records, 1), "ЗБЗ");
         assert_eq!(
             connection
                 .query_row(

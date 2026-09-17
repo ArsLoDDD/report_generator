@@ -9,7 +9,7 @@ import { settingsService } from "../settings/services/settingsService";
 import type { UnitSettings } from "../../shared/types/domain";
 import { structureWithUnmappedPositions, usableUnitStructure } from "../../shared/unit-structure";
 import { operationsService } from "./services/operationsService";
-import type { Crew, StaffingRecord, TemporaryPerson, VacancyRecommendation } from "./types";
+import type { Crew, FlightPlanEntry, FlightPlanRequest, StaffingRecord, TemporaryPerson, VacancyRecommendation } from "./types";
 import { buildStaffSlots, actingForSlot, type StaffSlot, type SlotTransfer, type ActingChange } from "./staffing-slots";
 import { StaffTransferModal } from "./StaffTransferModal";
 import { BcsTable } from "./BcsTable";
@@ -18,6 +18,43 @@ import { BcsParametersModal } from "./BcsParametersModal";
 import { bcsExportRows, bcsSection, specializedStructuralGroup, temporaryStaffingRecord } from "./bcs-model";
 
 export { BCS_LOCATIONS } from "./bcs-model";
+
+const localIsoDate = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+const validPlanTime = (value: unknown): value is string => {
+  if (typeof value !== "string" || !/^\d{2}:\d{2}$/u.test(value)) return false;
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60;
+};
+const parseTransitionPlan = (value: string | null): FlightPlanRequest | null => {
+  try {
+    if (!value) return null;
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || !Array.isArray((parsed as { entries?: unknown }).entries)) return null;
+    const entries = (parsed as { entries: unknown[] }).entries;
+    if (entries.some((entry) => !entry || typeof entry !== "object" || !Number.isInteger((entry as { crewId?: unknown }).crewId))) return null;
+    return parsed as FlightPlanRequest;
+  } catch { return null; }
+};
+const nextFlightPlanTransition = (snapshot: string | null, planDate: string, now: Date): number | null => {
+  const plan = parseTransitionPlan(snapshot);
+  if (!plan) return null;
+  const [year, month, day] = planDate.split("-").map(Number);
+  if (!year || !month || !day) return null;
+  const byCrew = new Map<number, FlightPlanEntry[]>();
+  plan.entries.forEach((entry) => byCrew.set(entry.crewId, [...(byCrew.get(entry.crewId) ?? []), entry]));
+  const times: string[] = [];
+  byCrew.forEach((stages) => {
+    const first = stages[0];
+    if (first?.arrivesToday && validPlanTime(first.startTime)) times.push(first.startTime);
+    stages.slice(1).forEach((rotation) => { if (validPlanTime(rotation.startTime)) times.push(rotation.startTime); });
+    if (first?.departsToday && validPlanTime(first.departureTime)) times.push(first.departureTime);
+  });
+  const future = [...new Set(times)].map((time) => {
+    const [hours, minutes] = time.split(":").map(Number);
+    return new Date(year, month - 1, day, hours, minutes).getTime();
+  }).filter((timestamp) => timestamp > now.getTime()).sort((left, right) => left - right);
+  return future[0] ?? null;
+};
 
 function bcsPositionName(slot: StaffSlot | undefined, fallback: string) {
   if (!slot) return fallback;
@@ -90,6 +127,69 @@ export function StaffingBcsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const reload = useCallback(async () => { setIsLoading(true); try { const [nextRecords, nextSettings, recommendations, externals, nextCrews] = await Promise.all([operationsService.listStaffingRecords(), settingsService.get(), operationsService.listVacancyRecommendations(), operationsService.listTemporaryPersonnel(), operationsService.listCrews()]); const nextUnit=nextSettings.unit ?? { kind: "Рота" as const, shortName: "", authorizedStrength: 0 }; const defaultName = nextUnit.shortName || nextUnit.fullName || "Підрозділ"; setRecords(nextRecords); setUnit(nextUnit); setBcsUnitName((current)=>current||defaultName); setBcsFileName((current)=>current||`${defaultName} ${bcsDate}`); setVacancyRecommendations(recommendations); setTemporaryPeople(externals); setCrews(nextCrews); } catch { notify("Не вдалося завантажити штат та БЧС.", "error"); } finally { setIsLoading(false); } }, [bcsDate, notify]);
   useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    let midnightTimer = 0;
+    let refreshTimer = 0;
+    let transitionTimer = 0;
+    let refreshQueued = false;
+    let scheduleRevision = 0;
+    let active = true;
+    const scheduleTransitionRefresh = async () => {
+      const revision = ++scheduleRevision;
+      window.clearTimeout(transitionTimer);
+      transitionTimer = 0;
+      const today = localIsoDate(new Date());
+      const snapshot = await operationsService.getFlightPlanSnapshot(today).catch(() => null);
+      if (!active || revision !== scheduleRevision) return;
+      const now = new Date();
+      if (localIsoDate(now) !== today) { queueRefresh(); return; }
+      const transition = nextFlightPlanTransition(snapshot, today, now);
+      if (transition === null) return;
+      transitionTimer = window.setTimeout(() => {
+        transitionTimer = 0;
+        queueRefresh();
+      }, Math.max(250, transition - now.getTime() + 50));
+    };
+    const queueRefresh = () => {
+      if (refreshQueued) return;
+      refreshQueued = true;
+      refreshTimer = window.setTimeout(() => {
+        refreshQueued = false;
+        refreshTimer = 0;
+        void reload();
+        void scheduleTransitionRefresh();
+      }, 0);
+    };
+    const scheduleMidnightRefresh = () => {
+      window.clearTimeout(midnightTimer);
+      const now = new Date();
+      const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
+      midnightTimer = window.setTimeout(() => {
+        queueRefresh();
+        scheduleMidnightRefresh();
+      }, Math.max(250, nextMidnight - now.getTime() + 50));
+    };
+    const refreshAfterPlanSave = (event: Event) => {
+      const command = (event as CustomEvent<{ command?: string }>).detail?.command;
+      if (command === "save_flight_plan_snapshot") queueRefresh();
+    };
+    const refreshWhenVisible = () => { if (document.visibilityState === "visible") queueRefresh(); };
+    scheduleMidnightRefresh();
+    void scheduleTransitionRefresh();
+    window.addEventListener("operational-data-updated", refreshAfterPlanSave);
+    window.addEventListener("focus", queueRefresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      active = false;
+      scheduleRevision += 1;
+      window.clearTimeout(midnightTimer);
+      window.clearTimeout(refreshTimer);
+      window.clearTimeout(transitionTimer);
+      window.removeEventListener("operational-data-updated", refreshAfterPlanSave);
+      window.removeEventListener("focus", queueRefresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [reload]);
   const structure = useMemo(() => structureWithUnmappedPositions(unit, records.map((person) => ({ position: person.position, slotId: person.staffSlotId }))), [unit, records]);
   const slots = useMemo(() => buildStaffSlots(records, { ...unit, structure }), [records, unit, structure]);
   const hierarchy = useMemo(() => buildStaffingHierarchy(records, [], unit.kind, structure, unit), [records, structure, unit]);

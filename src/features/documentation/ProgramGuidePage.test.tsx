@@ -65,6 +65,9 @@ describe("Довідник", () => {
     expect(topicText("custom-fields")).toMatch(/починатися з малої латинської літери.+a–z, цифри або знак підкреслення/u);
     expect(topicText("flight-plan")).toMatch(/Чернетка автоматично зберігається.+коректний графік переходів/u);
     expect(topicText("flight-plan")).toMatch(/експорт.+додатково перевіряє позивні, маршрут, район, висоту та робочі години/ui);
+    expect(topicText("flight-plan")).toMatch(/останні три.+місяц.+семи днів наперед/ui);
+    expect(topicText("flight-plan")).toMatch(/минулого знімка.+не змінює поточну БЧС заднім числом/ui);
+    expect(topicText("flight-plan")).toMatch(/Є незбережені зміни.+Повторити збереження/u);
   });
 
   it("explains official crew grouping and composed BCS notes", () => {

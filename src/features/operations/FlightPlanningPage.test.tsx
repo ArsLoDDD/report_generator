@@ -1,8 +1,8 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
 import { operationsService } from "./services/operationsService";
-import { FlightPlanningPage, flightPlanDateForTomorrow, flightPlanTransitionHasHappened } from "./FlightPlanningPage";
+import { FlightPlanningPage, flightPlanDateForTomorrow, flightPlanDateRange, flightPlanTransitionHasHappened } from "./FlightPlanningPage";
 
 const { save } = vi.hoisted(() => ({ save: vi.fn().mockResolvedValue("/tmp/РБПАК_10.09.2026_План_польотів.xlsx") }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save }));
@@ -12,7 +12,7 @@ vi.mock("../settings/services/settingsService", () => ({ settingsService: { get:
 
 const crew = (callsign: string) => ({ id:1,name:"БАРС",platoon:"1 взвод",positionName:"САПСАН",reconnaissanceArea:"Охтирка",unitType:"Екіпаж",companyName:"РБПАК",battleOrder:"БРО-02",sector:"Схід",officialStrength:1,workingStrength:1,positionId:1,status:"Працюючий",uavName:"MAVIC 3",uavType:"Коптер",functionalDuties:"",currentLocation:"",notes:"",memberCount:1,members:[{personnelId:1,fullName:"ТЕСТОВИЙ Тест Тестович",rank:"капітан",position:"командир екіпажу",callsign}],actualMembers:[{personnelId:1,fullName:"ТЕСТОВИЙ Тест Тестович",rank:"капітан",position:"командир екіпажу",callsign}]});
 
-beforeEach(()=>{vi.clearAllMocks();localStorage.clear();vi.mocked(operationsService.listEquipment).mockResolvedValue([]);vi.mocked(operationsService.getFlightPlanSnapshot).mockResolvedValue(null);vi.mocked(operationsService.exportFlightPlan).mockResolvedValue();});
+beforeEach(()=>{vi.clearAllMocks();localStorage.clear();vi.mocked(operationsService.listEquipment).mockResolvedValue([]);vi.mocked(operationsService.getFlightPlanSnapshot).mockResolvedValue(null);vi.mocked(operationsService.saveFlightPlanSnapshot).mockResolvedValue(undefined);vi.mocked(operationsService.exportFlightPlan).mockResolvedValue();});
 afterEach(cleanup);
 
 describe("Планування польотів",()=>{
@@ -109,6 +109,363 @@ describe("Планування польотів",()=>{
     render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
     await screen.findByText("БАРС",{selector:"b"});
     await waitFor(()=>{const stored=JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}");expect(stored.entries[1].routePoints).toEqual(["БАЗА"]);expect(stored.rotations[1][0]).toEqual(expect.objectContaining({rotationId:"saved-rotation",routePoints:["НОВА ТОЧКА"]}));});
+  });
+
+  it("loads the selected database snapshot without leaking another date's draft and preserves a deleted archived crew",async()=>{
+    const tomorrowIso=isoDateForTest(1);
+    const historicalIso=isoDateForTest(-2);
+    const tomorrowSnapshot=JSON.stringify({unitName:"ЗАВТРА",entries:[{...initialStoredEntryForTest(),crewId:1,routePoints:["МАРШРУТ ЗАВТРА"],areaPoints:["РАЙОН"],crewName:"БАРС"}]});
+    const historicalSnapshot=JSON.stringify({unitName:"АРХІВ",entries:[
+      {...initialStoredEntryForTest(),crewId:99,routePoints:["АРХІВНИЙ МАРШРУТ"],areaPoints:["АРХІВНИЙ РАЙОН"],crewName:"ВИДАЛЕНИЙ ЕКІПАЖ",crewUavType:"Коптер",positionId:null,positionName:"",positionMgrs:"",positionLocality:"",workStrip:"",battleOrder:"",uavSnapshots:[],memberSnapshots:[{personnelId:991,fullName:"АРХІВНИЙ Артем Андрійович",rank:"солдат"}],actualMemberIds:[991],actualCommanderId:991},
+      {...initialStoredEntryForTest(),crewId:1,routePoints:["ПОТОЧНИЙ ЕКІПАЖ"],areaPoints:["АРХІВНИЙ РАЙОН"],crewName:"БАРС",memberSnapshots:[]},
+    ]});
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanSnapshot).mockImplementation(async(planDate)=>planDate===tomorrowIso?tomorrowSnapshot:planDate===historicalIso?historicalSnapshot:null);
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+
+    expect(await screen.findByText(/МАРШРУТ ЗАВТРА/u)).toBeInTheDocument();
+    const dateInput=screen.getByLabelText("Дата плану");
+    fireEvent.change(dateInput,{target:{value:historicalIso}});
+    expect(await screen.findByText("ВИДАЛЕНИЙ ЕКІПАЖ",{selector:"b"})).toBeInTheDocument();
+    expect(screen.getByText(/АРХІВНИЙ МАРШРУТ/u)).toBeInTheDocument();
+    expect(vi.mocked(operationsService.saveFlightPlanSnapshot).mock.calls.filter(([planDate])=>planDate===historicalIso)).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути ВИДАЛЕНИЙ ЕКІПАЖ"}));
+    const route=screen.getByLabelText("Маршрут — населені пункти");
+    fireEvent.change(route,{target:{value:"Виправлена точка"}});fireEvent.keyDown(route,{key:"Enter"});
+    await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledWith(historicalIso,expect.objectContaining({entries:expect.arrayContaining([
+      expect.objectContaining({crewId:99,routePoints:["АРХІВНИЙ МАРШРУТ","ВИПРАВЛЕНА ТОЧКА"],positionId:null,positionName:"",positionMgrs:"",positionLocality:"",workStrip:"",battleOrder:"",uavSnapshots:[]}),
+      expect.objectContaining({crewId:1,memberSnapshots:[]}),
+    ])})));
+
+    fireEvent.click(screen.getByRole("button",{name:"Завтра"}));
+    expect(await screen.findByText(/МАРШРУТ ЗАВТРА/u)).toBeInTheDocument();
+    expect(screen.queryByText(/АРХІВНИЙ МАРШРУТ/u)).not.toBeInTheDocument();
+  });
+
+  it("flushes the last valid change before switching to another date",async()=>{
+    const tomorrowIso=isoDateForTest(1);
+    const todayIso=isoDateForTest(0);
+    const snapshot=JSON.stringify({unitName:"РБПАК",entries:[{...initialStoredEntryForTest(),crewId:1,routePoints:["БАЗА"],areaPoints:["РАЙОН"],crewName:"БАРС"}]});
+    let finishSave:()=>void=()=>undefined;
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanSnapshot).mockImplementation(async(planDate)=>planDate===tomorrowIso?snapshot:null);
+    vi.mocked(operationsService.saveFlightPlanSnapshot).mockImplementation(()=>new Promise<void>((resolve)=>{finishSave=resolve;}));
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText(/БАЗА/u);
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    const route=screen.getByLabelText("Маршрут — населені пункти");
+    fireEvent.change(route,{target:{value:"Остання зміна"}});fireEvent.keyDown(route,{key:"Enter"});
+    fireEvent.click(screen.getByRole("button",{name:"Сьогодні"}));
+    await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledWith(tomorrowIso,expect.objectContaining({entries:[expect.objectContaining({routePoints:["БАЗА","ОСТАННЯ ЗМІНА"]})]})));
+    expect(screen.getByLabelText("Дата плану")).toHaveValue(tomorrowIso);
+    finishSave();
+    await waitFor(()=>expect(screen.getByLabelText("Дата плану")).toHaveValue(todayIso));
+  });
+
+  it("recovers a sub-debounce historical edit after unmount even when the database has an older snapshot",async()=>{
+    const tomorrowIso=isoDateForTest(1);
+    const historicalIso=isoDateForTest(-2);
+    const tomorrowSnapshot=JSON.stringify({unitName:"ЗАВТРА",entries:[{...initialStoredEntryForTest(),crewId:1,routePoints:["ЗАВТРА"],areaPoints:["РАЙОН"],crewName:"БАРС"}]});
+    let historicalSnapshot=JSON.stringify({unitName:"АРХІВ",entries:[{...initialStoredEntryForTest(),crewId:1,routePoints:["СТАРИЙ ЗНІМОК"],areaPoints:["РАЙОН"],crewName:"БАРС"}]});
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanSnapshot).mockImplementation(async(planDate)=>planDate===tomorrowIso?tomorrowSnapshot:planDate===historicalIso?historicalSnapshot:null);
+    vi.mocked(operationsService.saveFlightPlanSnapshot).mockImplementation(async(planDate,request)=>{if(planDate===historicalIso)historicalSnapshot=JSON.stringify(request);});
+    const first=render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText("ЗАВТРА",{selector:"td"});
+    fireEvent.change(screen.getByLabelText("Дата плану"),{target:{value:historicalIso}});
+    await screen.findByText(/СТАРИЙ ЗНІМОК/u);
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    const route=screen.getByLabelText("Маршрут — населені пункти");
+    fireEvent.change(route,{target:{value:"Не втратити"}});fireEvent.keyDown(route,{key:"Enter"});
+    first.unmount();
+    await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledWith(historicalIso,expect.objectContaining({entries:[expect.objectContaining({routePoints:["СТАРИЙ ЗНІМОК","НЕ ВТРАТИТИ"]})]})));
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText("ЗАВТРА",{selector:"td"});
+    fireEvent.change(screen.getByLabelText("Дата плану"),{target:{value:historicalIso}});
+    expect(await screen.findByText(/НЕ ВТРАТИТИ/u)).toBeInTheDocument();
+  });
+
+  it("keeps a sub-debounce pending draft recoverable when the unmount flush fails",async()=>{
+    const historicalIso=isoDateForTest(-2);
+    const snapshot=JSON.stringify({unitName:"АРХІВ",entries:[{...initialStoredEntryForTest(),crewId:1,routePoints:["СТАРИЙ ЗНІМОК"],areaPoints:["РАЙОН"],crewName:"БАРС"}]});
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanSnapshot).mockImplementation(async(planDate)=>planDate===historicalIso?snapshot:null);
+    vi.mocked(operationsService.saveFlightPlanSnapshot).mockRejectedValueOnce(new Error("offline")).mockResolvedValue(undefined);
+    const first=render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText("БАРС",{selector:"b"});
+    fireEvent.change(screen.getByLabelText("Дата плану"),{target:{value:historicalIso}});
+    await screen.findByText(/СТАРИЙ ЗНІМОК/u);
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    const route=screen.getByLabelText("Маршрут — населені пункти");
+    fireEvent.change(route,{target:{value:"Локальна правка"}});fireEvent.keyDown(route,{key:"Enter"});
+    first.unmount();
+    await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledTimes(1));
+    const pending=JSON.parse(localStorage.getItem("flight-plan-draft-v2-pending-v1")??"{}");
+    expect(pending[historicalIso]).toEqual(expect.objectContaining({entries:expect.objectContaining({1:expect.objectContaining({routePoints:["СТАРИЙ ЗНІМОК","ЛОКАЛЬНА ПРАВКА"]})})}));
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    expect(await screen.findByText(/ЛОКАЛЬНА ПРАВКА/u)).toBeInTheDocument();
+    expect(screen.getByLabelText("Дата плану")).toHaveValue(historicalIso);
+  });
+
+  it("serializes saves and drains the newest edit after an older request finishes",async()=>{
+    const tomorrowIso=isoDateForTest(1);
+    const snapshot=JSON.stringify({unitName:"РБПАК",entries:[{...initialStoredEntryForTest(),crewId:1,routePoints:["БАЗА"],areaPoints:["РАЙОН"],crewName:"БАРС"}]});
+    let finishFirst:()=>void=()=>undefined;
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanSnapshot).mockImplementation(async(planDate)=>planDate===tomorrowIso?snapshot:null);
+    vi.mocked(operationsService.saveFlightPlanSnapshot)
+      .mockImplementationOnce(()=>new Promise<void>((resolve)=>{finishFirst=resolve;}))
+      .mockResolvedValue(undefined);
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText(/БАЗА/u);
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    const route=screen.getByLabelText("Маршрут — населені пункти");
+    fireEvent.change(route,{target:{value:"Перша"}});fireEvent.keyDown(route,{key:"Enter"});
+    await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledTimes(1));
+    fireEvent.change(route,{target:{value:"Друга"}});fireEvent.keyDown(route,{key:"Enter"});
+    await new Promise((resolve)=>window.setTimeout(resolve,420));
+    expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledTimes(1);
+    finishFirst();
+    await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(operationsService.saveFlightPlanSnapshot).mock.calls[1]).toEqual([tomorrowIso,expect.objectContaining({entries:[expect.objectContaining({routePoints:["БАЗА","ПЕРША","ДРУГА"]})]})]);
+  });
+
+  it("keeps saves serialized across unmount and remount so an older request cannot commit last",async()=>{
+    const tomorrowIso=isoDateForTest(1);
+    const snapshot=JSON.stringify({unitName:"РБПАК",entries:[{...initialStoredEntryForTest(),crewId:1,routePoints:["БАЗА"],areaPoints:["РАЙОН"],crewName:"БАРС"}]});
+    const committedRoutes:string[][]=[];
+    let finishFirst:()=>void=()=>undefined;
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanSnapshot).mockImplementation(async(planDate)=>planDate===tomorrowIso?snapshot:null);
+    vi.mocked(operationsService.saveFlightPlanSnapshot)
+      .mockImplementationOnce((_planDate,request)=>new Promise<void>((resolve)=>{finishFirst=()=>{committedRoutes.push(request.entries[0].routePoints);resolve();};}))
+      .mockImplementation(async(_planDate,request)=>{committedRoutes.push(request.entries[0].routePoints);});
+    const first=render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText(/БАЗА/u);
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    let route=screen.getByLabelText("Маршрут — населені пункти");
+    fireEvent.change(route,{target:{value:"Стара зміна"}});fireEvent.keyDown(route,{key:"Enter"});
+    await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    expect(await screen.findByText(/СТАРА ЗМІНА/u)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    route=screen.getByLabelText("Маршрут — населені пункти");
+    fireEvent.change(route,{target:{value:"Нова зміна"}});fireEvent.keyDown(route,{key:"Enter"});
+    await new Promise((resolve)=>window.setTimeout(resolve,420));
+    expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledTimes(1);
+    finishFirst();
+    await waitFor(()=>expect(screen.getByRole("status")).toHaveTextContent("Збережено"));
+    await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledTimes(3));
+    expect(committedRoutes[committedRoutes.length-1]).toEqual(["БАЗА","СТАРА ЗМІНА","НОВА ЗМІНА"]);
+  });
+
+  it("does not let an unmounted drain enqueue its newer stale revision behind the remounted page",async()=>{
+    const tomorrowIso=isoDateForTest(1);
+    const snapshot=JSON.stringify({unitName:"РБПАК",entries:[{...initialStoredEntryForTest(),crewId:1,routePoints:["БАЗА"],areaPoints:["РАЙОН"],crewName:"БАРС"}]});
+    const committedRoutes:string[][]=[];
+    let finishFirst:()=>void=()=>undefined;
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanSnapshot).mockImplementation(async(planDate)=>planDate===tomorrowIso?snapshot:null);
+    vi.mocked(operationsService.saveFlightPlanSnapshot)
+      .mockImplementationOnce((_planDate,request)=>new Promise<void>((resolve)=>{finishFirst=()=>{committedRoutes.push(request.entries[0].routePoints);resolve();};}))
+      .mockImplementation(async(_planDate,request)=>{committedRoutes.push(request.entries[0].routePoints);});
+
+    const first=render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText(/БАЗА/u);
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    let route=screen.getByLabelText("Маршрут — населені пункти");
+    fireEvent.change(route,{target:{value:"REV 1"}});fireEvent.keyDown(route,{key:"Enter"});
+    await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledTimes(1));
+    fireEvent.change(route,{target:{value:"REV 2"}});fireEvent.keyDown(route,{key:"Enter"});
+    await waitFor(()=>{
+      const pending=JSON.parse(localStorage.getItem("flight-plan-draft-v2-pending-v1")??"{}");
+      expect(pending[tomorrowIso]).toEqual(expect.objectContaining({pendingSave:expect.objectContaining({revision:2}),entries:expect.objectContaining({1:expect.objectContaining({routePoints:["БАЗА","REV 1","REV 2"]})})}));
+    });
+    first.unmount();
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    expect(await screen.findByText(/REV 2/u)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    route=screen.getByLabelText("Маршрут — населені пункти");
+    fireEvent.change(route,{target:{value:"REV 3"}});fireEvent.keyDown(route,{key:"Enter"});
+    await new Promise((resolve)=>window.setTimeout(resolve,420));
+    expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledTimes(1);
+
+    finishFirst();
+    await waitFor(()=>expect(screen.getByRole("status")).toHaveTextContent("Збережено"));
+    await new Promise((resolve)=>window.setTimeout(resolve,50));
+    expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledTimes(3);
+    expect(committedRoutes).toEqual([["БАЗА","REV 1"],["БАЗА","REV 1","REV 2"],["БАЗА","REV 1","REV 2","REV 3"]]);
+  });
+
+  it("recovers a main-key pending draft when its sidecar copy is missing",async()=>{
+    const historicalDisplay=displayDateForTest(-2);
+    const historicalIso=isoDateForTest(-2);
+    const draft={schemaVersion:3,unitName:"ЛОКАЛЬНО",date:historicalDisplay,zoom:75,selected:[1],entries:{1:{...initialStoredEntryForTest(),crewId:1,routePoints:["ЛОКАЛЬНА ЗМІНА"],areaPoints:["РАЙОН"]}},rotations:{},pendingSave:{date:historicalIso,revision:4,updatedAt:456}};
+    const databaseSnapshot=JSON.stringify({unitName:"АРХІВ",entries:[{...initialStoredEntryForTest(),crewId:1,routePoints:["СТАРА БАЗА"],areaPoints:["РАЙОН"],crewName:"БАРС"}]});
+    localStorage.setItem("flight-plan-draft-v2",JSON.stringify(draft));
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanSnapshot).mockImplementation(async(planDate)=>planDate===historicalIso?databaseSnapshot:null);
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    expect(await screen.findByText(/ЛОКАЛЬНА ЗМІНА/u)).toBeInTheDocument();
+    expect(screen.getByLabelText("Дата плану")).toHaveValue(historicalIso);
+    const sidecar=JSON.parse(localStorage.getItem("flight-plan-draft-v2-pending-v1")??"{}");
+    expect(sidecar[historicalIso]).toEqual(expect.objectContaining({pendingSave:expect.objectContaining({revision:4}),entries:expect.objectContaining({1:expect.objectContaining({routePoints:["ЛОКАЛЬНА ЗМІНА"]})})}));
+  });
+
+  it("restores the newest pending revision when the main key is newer than its sidecar copy",async()=>{
+    const historicalDisplay=displayDateForTest(-2);
+    const historicalIso=isoDateForTest(-2);
+    const pendingDraft=(route:string,revision:number,updatedAt:number)=>({schemaVersion:3,unitName:"ЛОКАЛЬНО",date:historicalDisplay,zoom:75,selected:[1],entries:{1:{...initialStoredEntryForTest(),crewId:1,routePoints:[route],areaPoints:["РАЙОН"]}},rotations:{},pendingSave:{date:historicalIso,revision,updatedAt}});
+    const olderSidecar=pendingDraft("СТАРІША РЕЗЕРВНА КОПІЯ",4,400);
+    const newerMain=pendingDraft("ОСТАННЯ ЗМІНА",5,500);
+    localStorage.setItem("flight-plan-draft-v2",JSON.stringify(newerMain));
+    localStorage.setItem("flight-plan-draft-v2-pending-v1",JSON.stringify({[historicalIso]:olderSidecar}));
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+
+    expect(await screen.findByText(/ОСТАННЯ ЗМІНА/u)).toBeInTheDocument();
+    expect(screen.queryByText(/СТАРІША РЕЗЕРВНА КОПІЯ/u)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Дата плану")).toHaveValue(historicalIso);
+  });
+
+  it("ignores out-of-range and malformed pending drafts without deleting their sidecar copies",async()=>{
+    const {min}=flightPlanDateRange();
+    const [year,month,day]=min.split("-").map(Number);
+    const staleValue=new Date(year,month-1,day-1);
+    const staleIso=`${staleValue.getFullYear()}-${String(staleValue.getMonth()+1).padStart(2,"0")}-${String(staleValue.getDate()).padStart(2,"0")}`;
+    const staleDisplay=`${String(staleValue.getDate()).padStart(2,"0")}.${String(staleValue.getMonth()+1).padStart(2,"0")}.${staleValue.getFullYear()}`;
+    const tomorrowIso=isoDateForTest(1);
+    const staleDraft={schemaVersion:3,unitName:"СТАРИЙ",date:staleDisplay,selected:[1],entries:{1:{...initialStoredEntryForTest(),crewId:1,routePoints:["ПРОСТРОЧЕНА ЧЕРНЕТКА"],areaPoints:["РАЙОН"]}},rotations:{},pendingSave:{date:staleIso,revision:9,updatedAt:900}};
+    const malformedDraft={...staleDraft,date:"99.99.2026",pendingSave:{date:"2026-99-99",revision:10,updatedAt:1000}};
+    const mismatchedDraft={...staleDraft,pendingSave:{date:tomorrowIso,revision:11,updatedAt:1100}};
+    localStorage.setItem("flight-plan-draft-v2",JSON.stringify(staleDraft));
+    localStorage.setItem("flight-plan-draft-v2-pending-v1",JSON.stringify({[staleIso]:staleDraft,malformed:malformedDraft,mismatched:mismatchedDraft}));
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+
+    await screen.findByText("БАРС",{selector:"b"});
+    expect(screen.getByLabelText("Дата плану")).toHaveValue(tomorrowIso);
+    expect(screen.queryByText(/ПРОСТРОЧЕНА ЧЕРНЕТКА/u)).not.toBeInTheDocument();
+    const retained=JSON.parse(localStorage.getItem("flight-plan-draft-v2-pending-v1")??"{}");
+    expect(retained[staleIso]).toBeDefined();
+    expect(retained.malformed).toBeDefined();
+    expect(retained.mismatched).toBeDefined();
+    expect(operationsService.saveFlightPlanSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("keeps a pending local draft intact when loading fails",async()=>{
+    const historicalDisplay=displayDateForTest(-2);
+    const historicalIso=isoDateForTest(-2);
+    const draft={schemaVersion:3,unitName:"ЛОКАЛЬНО",date:historicalDisplay,zoom:75,selected:[1],entries:{1:{...initialStoredEntryForTest(),crewId:1,routePoints:["НЕ ВТРАТИТИ"],areaPoints:["РАЙОН"]}},rotations:{},pendingSave:{date:historicalIso,revision:7,updatedAt:123}};
+    localStorage.setItem("flight-plan-draft-v2",JSON.stringify(draft));
+    localStorage.setItem("flight-plan-draft-v2-pending-v1",JSON.stringify({[historicalIso]:draft}));
+    const activeBefore=localStorage.getItem("flight-plan-draft-v2");
+    const pendingBefore=localStorage.getItem("flight-plan-draft-v2-pending-v1");
+    vi.mocked(operationsService.listCrews).mockRejectedValue(new Error("offline"));
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    expect(await screen.findByRole("alert")).toHaveTextContent(`План за ${historicalDisplay} не завантажено`);
+    expect(localStorage.getItem("flight-plan-draft-v2")).toBe(activeBefore);
+    expect(localStorage.getItem("flight-plan-draft-v2-pending-v1")).toBe(pendingBefore);
+  });
+
+  it("treats a malformed nonempty database snapshot as a load failure instead of an empty plan",async()=>{
+    const tomorrowIso=isoDateForTest(1);
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanSnapshot).mockImplementation(async(planDate)=>planDate===tomorrowIso?"{malformed":null);
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/не завантажено/u);
+    expect(operationsService.saveFlightPlanSnapshot).not.toHaveBeenCalled();
+    expect(screen.queryByText("БАРС",{selector:"b"})).not.toBeInTheDocument();
+  });
+
+  it("allows retrying a failed autosave without requiring another edit",async()=>{
+    const tomorrowIso=isoDateForTest(1);
+    const snapshot=JSON.stringify({unitName:"РБПАК",entries:[{...initialStoredEntryForTest(),crewId:1,routePoints:["БАЗА"],areaPoints:["РАЙОН"],crewName:"БАРС"}]});
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanSnapshot).mockImplementation(async(planDate)=>planDate===tomorrowIso?snapshot:null);
+    vi.mocked(operationsService.saveFlightPlanSnapshot).mockRejectedValueOnce(new Error("offline")).mockResolvedValue(undefined);
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText(/БАЗА/u);
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    const route=screen.getByLabelText("Маршрут — населені пункти");
+    fireEvent.change(route,{target:{value:"Зберегти після повтору"}});fireEvent.keyDown(route,{key:"Enter"});
+    const retry=await screen.findByRole("button",{name:"Повторити збереження"});
+    expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledTimes(1);
+    fireEvent.click(retry);
+    await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledTimes(2));
+    await waitFor(()=>expect(screen.getByRole("status")).toHaveTextContent("Збережено"));
+  });
+
+  it("does not create a populated snapshot merely by viewing an empty date",async()=>{
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText("БАРС",{selector:"b"});
+    await new Promise((resolve)=>window.setTimeout(resolve,420));
+    expect(operationsService.saveFlightPlanSnapshot).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    const route=screen.getByLabelText("Маршрут — населені пункти");
+    fireEvent.change(route,{target:{value:"Перша зміна"}});fireEvent.keyDown(route,{key:"Enter"});
+    await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledTimes(1));
+  });
+
+  it("blocks date switching while the active dirty plan is invalid",async()=>{
+    const tomorrowIso=isoDateForTest(1);
+    const snapshot=JSON.stringify({unitName:"РБПАК",entries:[{...initialStoredEntryForTest(),crewId:1,routePoints:["БАЗА"],areaPoints:["РАЙОН"],crewName:"БАРС"}]});
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanSnapshot).mockImplementation(async(planDate)=>planDate===tomorrowIso?snapshot:null);
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText(/БАЗА/u);
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    fireEvent.click(screen.getByText("Виїжджає з позиції у день плану"));
+    fireEvent.click(screen.getByRole("button",{name:"Сьогодні"}));
+    expect(screen.getByLabelText("Дата плану")).toHaveValue(tomorrowIso);
+    expect(await screen.findByText(/Спочатку виправте помилки/u)).toBeInTheDocument();
+    expect(operationsService.saveFlightPlanSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("refreshes calendar bounds after midnight without reloading or replacing the active dirty plan",async()=>{
+    vi.useFakeTimers({shouldAdvanceTime:true});
+    try{
+      vi.setSystemTime(new Date(2026,8,17,23,59,30));
+      const planIso="2026-09-18";
+      const snapshot=JSON.stringify({unitName:"РБПАК",entries:[{...initialStoredEntryForTest(),crewId:1,routePoints:["БАЗА"],areaPoints:["РАЙОН"],crewName:"БАРС"}]});
+      vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+      vi.mocked(operationsService.getFlightPlanSnapshot).mockImplementation(async(planDate)=>planDate===planIso?snapshot:null);
+      render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+      await screen.findByText(/БАЗА/u);
+      const dateInput=screen.getByLabelText("Дата плану");
+      expect(dateInput).toHaveValue(planIso);
+      expect(dateInput).toHaveAttribute("min","2026-06-17");
+      expect(dateInput).toHaveAttribute("max","2026-09-24");
+      fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+      fireEvent.click(screen.getByText("Виїжджає з позиції у день плану"));
+      expect(screen.getByLabelText("Час виїзду екіпажу БАРС")).toBeInvalid();
+      const loadCalls=vi.mocked(operationsService.getFlightPlanSnapshot).mock.calls.length;
+
+      await act(async()=>{
+        vi.setSystemTime(new Date(2026,8,18,0,0,5));
+        window.dispatchEvent(new Event("focus"));
+      });
+
+      await waitFor(()=>expect(dateInput).toHaveAttribute("min","2026-06-18"));
+      expect(dateInput).toHaveAttribute("max","2026-09-25");
+      expect(dateInput).toHaveValue(planIso);
+      expect(screen.getByLabelText("Час виїзду екіпажу БАРС")).toBeInvalid();
+      expect(operationsService.getFlightPlanSnapshot).toHaveBeenCalledTimes(loadCalls);
+      expect(operationsService.saveFlightPlanSnapshot).not.toHaveBeenCalled();
+    }finally{
+      cleanup();
+      vi.useRealTimers();
+    }
   });
 
   it("does not carry a stale legacy draft into tomorrow's operational plan",async()=>{
@@ -291,9 +648,10 @@ describe("Планування польотів",()=>{
     render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
     await screen.findByText("БАРС",{selector:"b"});
     await waitFor(()=>{
-      const calls=vi.mocked(operationsService.saveFlightPlanSnapshot).mock.calls;
-      expect(calls[calls.length-1]?.[1].entries[0]).toEqual(expect.objectContaining({arrivesToday:true}));
+      const stored=JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}");
+      expect(stored.entries[1]).toEqual(expect.objectContaining({arrivesToday:true}));
     });
+    expect(operationsService.saveFlightPlanSnapshot).not.toHaveBeenCalled();
     expect(operationsService.syncFlightPlanLocations).not.toHaveBeenCalled();
   });
 
@@ -311,6 +669,8 @@ describe("Планування польотів",()=>{
       expect(stored.selected).toEqual([]);
       expect(stored.entries[1]).toEqual(expect.objectContaining({departsToday:false,departureTime:""}));
     });
+    await new Promise((resolve)=>window.setTimeout(resolve,420));
+    expect(operationsService.saveFlightPlanSnapshot).not.toHaveBeenCalled();
   });
 
   it("keeps a crew confirmed by yesterday's snapshot selected until an explicit departure",async()=>{
@@ -328,7 +688,7 @@ describe("Планування польотів",()=>{
     expect(crewSelection).toBeChecked();
     await waitFor(()=>expect(JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}").selected).toEqual([1]));
     expect(operationsService.syncFlightPlanLocations).not.toHaveBeenCalled();
-    await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledWith(expect.any(String),expect.objectContaining({entries:[expect.objectContaining({crewId:1})]})));
+    expect(operationsService.saveFlightPlanSnapshot).not.toHaveBeenCalled();
   });
 
   it("keeps a newly arrived crew selected after its inferred arrival time",async()=>{
@@ -403,8 +763,23 @@ describe("визначення фактичного заїзду",()=>{
     expect(flightPlanDateForTomorrow(new Date(2026,0,31,23,59))).toBe("01.02.2026");
     expect(flightPlanDateForTomorrow(new Date(2026,11,31,23,59))).toBe("01.01.2027");
   });
+  it("limits selectable snapshots to three calendar months back and seven days ahead",()=>{
+    expect(flightPlanDateRange(new Date(2026,4,31,23,59))).toEqual({min:"2026-02-28",max:"2026-06-07"});
+  });
   it("changes from planned to confirmed exactly at the start time",()=>{
     expect(flightPlanTransitionHasHappened("15.09.2026","07:00",new Date(2026,8,15,6,59))).toBe(false);
     expect(flightPlanTransitionHasHappened("15.09.2026","07:00",new Date(2026,8,15,7,0))).toBe(true);
   });
 });
+
+function isoDateForTest(dayOffset:number){
+  const value=new Date();
+  value.setDate(value.getDate()+dayOffset);
+  return `${value.getFullYear()}-${String(value.getMonth()+1).padStart(2,"0")}-${String(value.getDate()).padStart(2,"0")}`;
+}
+
+function displayDateForTest(dayOffset:number){
+  const value=new Date();
+  value.setDate(value.getDate()+dayOffset);
+  return `${String(value.getDate()).padStart(2,"0")}.${String(value.getMonth()+1).padStart(2,"0")}.${value.getFullYear()}`;
+}
