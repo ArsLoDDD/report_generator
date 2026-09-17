@@ -969,7 +969,8 @@ pub(crate) fn import_personnel_xlsx(
         }
         staffing_exchange::import(&db.connection, &data.staffing, mode == "replace")?;
         if let Some(control) = data.personnel_control.as_ref() {
-            let (control_count, control_warnings) = import_personnel_control_sheets(&db.connection, control)?;
+            let (control_count, control_warnings) =
+                import_personnel_control_sheets(&db.connection, control)?;
             count += control_count;
             warnings.extend(control_warnings);
         } else {
