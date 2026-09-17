@@ -149,6 +149,25 @@ describe("активний склад плану польотів", () => {
     expect(flightPlanDraftRequest("2026-09-18")?.entries[0]?.positionName).toBe("ЗАВТРА");
   });
 
+  it("does not expose a clean schema-v3 draft as an ordinary summary fallback", () => {
+    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify({
+      schemaVersion: 3,
+      date: "15.09.2026",
+      unitName: "РБПАК",
+      selected: [1],
+      entries: { 1: { crewId: 1, actualMemberIds: [1], startTime: "07:00", endTime: "12:00", positionName: "ФАНТОМ" } },
+      rotations: {},
+    }));
+
+    expect(flightPlanDraftRequest("2026-09-15")).toBeNull();
+    expect(flightPlanPendingDraftRequest("2026-09-15")).toBeNull();
+
+    const legacy = JSON.parse(localStorage.getItem(FLIGHT_PLAN_STORAGE_KEY) ?? "{}");
+    delete legacy.schemaVersion;
+    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify(legacy));
+    expect(flightPlanDraftRequest("2026-09-15")?.entries[0]?.positionName).toBe("ФАНТОМ");
+  });
+
   it("reads the newest exact-date pending draft from the main and sidecar stores", () => {
     localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify(pendingDraft("ОСНОВНА", 100)));
     localStorage.setItem(FLIGHT_PLAN_PENDING_STORAGE_KEY, JSON.stringify({

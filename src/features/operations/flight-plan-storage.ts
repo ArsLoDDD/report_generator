@@ -5,7 +5,7 @@ export const FLIGHT_PLAN_STORAGE_KEY = "flight-plan-draft-v2";
 export const FLIGHT_PLAN_PENDING_STORAGE_KEY = `${FLIGHT_PLAN_STORAGE_KEY}-pending-v1`;
 
 type PendingSaveMetadata = { date?: unknown; revision?: unknown; updatedAt?: unknown };
-type StoredFlightPlan = { unitName?: string; date?: string; selected?: unknown[]; entries?: Record<number, FlightPlanEntry>; rotations?: Record<number, FlightPlanRotation[]>; pendingSave?: PendingSaveMetadata };
+type StoredFlightPlan = { schemaVersion?: number; unitName?: string; date?: string; selected?: unknown[]; entries?: Record<number, FlightPlanEntry>; rotations?: Record<number, FlightPlanRotation[]>; pendingSave?: PendingSaveMetadata };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
@@ -137,6 +137,7 @@ export const flightPlanDateMatches = (isoDate: string) => {
 
 export function flightPlanDraftRequest(isoDate: string): FlightPlanRequest | null {
   const stored = flightPlanSnapshot();
+  if (stored.schemaVersion != null) return null;
   if (!flightPlanDateMatches(isoDate) || !Array.isArray(stored.selected) || !stored.entries) return null;
   const selected = stored.selected.filter((id: unknown): id is number => Number.isInteger(id));
   if (selected.some((crewId) => {
