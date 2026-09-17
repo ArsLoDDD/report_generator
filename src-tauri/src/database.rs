@@ -182,7 +182,10 @@ pub(crate) fn migrate_legacy_personnel_control_locations(
                    CASE current_location WHEN 'ВІДР' THEN 1 ELSE 0 END,
                    'Перенесено з попередньої версії БЧС','ОХ'
             FROM personnel
-            WHERE current_location IN ('НАВЧ','ВІДР','ЛІК')
+            WHERE current_location IN (
+                'ПУ','ШТАБ','УПР','КСП Роти','ЗАБ','ГШР','ЗХВ','ВІДП','НАВЧ','ВІДР','ЛІК',
+                'Відкомандировані','ОХП','Прикомандирований','СЗЧ','ПТЗ Новостав','Логістика на позиції'
+            )
               AND NOT EXISTS(
                   SELECT 1 FROM personnel_control_assignments assignment
                   WHERE assignment.personnel_id=personnel.id AND assignment.closed_at IS NULL
@@ -242,6 +245,65 @@ fn migrate_personnel_control_event_columns(connection: &Connection) -> Result<()
         )
         .map_err(|_| "Не вдалося доповнити історію контролю особового складу.".to_string())?;
     Ok(())
+}
+
+fn migrate_personnel_control_location_constraint(connection: &Connection) -> Result<(), String> {
+    let sql = connection
+        .query_row(
+            "SELECT COALESCE(sql,'') FROM sqlite_master WHERE type='table' AND name='personnel_control_assignments'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap_or_default();
+    if !sql.contains("location_type IN ('НАВЧ','ВІДР','ЛІК')") {
+        return Ok(());
+    }
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN IMMEDIATE;
+             ALTER TABLE personnel_control_events RENAME TO personnel_control_events_legacy;
+             ALTER TABLE personnel_control_assignments RENAME TO personnel_control_assignments_legacy;
+             CREATE TABLE personnel_control_assignments (
+                id INTEGER PRIMARY KEY,
+                personnel_id INTEGER NOT NULL REFERENCES personnel(id) ON DELETE CASCADE,
+                location_type TEXT NOT NULL,
+                institution TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL DEFAULT '',
+                until_separate_order INTEGER NOT NULL DEFAULT 0 CHECK(until_separate_order IN (0,1)),
+                notes TEXT NOT NULL DEFAULT '', previous_location TEXT NOT NULL DEFAULT 'ОХ',
+                closed_on TEXT NOT NULL DEFAULT '', closed_at TEXT,
+                close_reason TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             INSERT INTO personnel_control_assignments SELECT * FROM personnel_control_assignments_legacy;
+             CREATE TABLE personnel_control_events (
+                id INTEGER PRIMARY KEY,
+                assignment_id INTEGER REFERENCES personnel_control_assignments(id) ON DELETE SET NULL,
+                personnel_id INTEGER NOT NULL,
+                full_name_snapshot TEXT NOT NULL DEFAULT '', rank_snapshot TEXT NOT NULL DEFAULT '',
+                position_snapshot TEXT NOT NULL DEFAULT '',
+                action TEXT NOT NULL CHECK(action IN ('created','updated','closed','migrated')),
+                location_type TEXT NOT NULL, institution TEXT NOT NULL DEFAULT '',
+                start_date TEXT NOT NULL DEFAULT '', end_date TEXT NOT NULL DEFAULT '',
+                notes TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '',
+                occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             INSERT INTO personnel_control_events SELECT * FROM personnel_control_events_legacy;
+             DROP TABLE personnel_control_events_legacy;
+             DROP TABLE personnel_control_assignments_legacy;
+             CREATE UNIQUE INDEX personnel_control_one_open_idx ON personnel_control_assignments(personnel_id) WHERE closed_at IS NULL;
+             CREATE INDEX personnel_control_personnel_history_idx ON personnel_control_assignments(personnel_id,start_date DESC,id DESC);
+             CREATE INDEX personnel_control_location_idx ON personnel_control_assignments(location_type,closed_at);
+             CREATE INDEX personnel_control_events_personnel_idx ON personnel_control_events(personnel_id,occurred_at DESC,id DESC);
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        )
+        .map_err(|error| {
+            let _ = connection.execute_batch("ROLLBACK; PRAGMA foreign_keys=ON;");
+            format!("Не вдалося розширити довідник контролю особового складу: {error}")
+        })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1193,7 +1255,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             "CREATE TABLE IF NOT EXISTS personnel_control_assignments (
                 id INTEGER PRIMARY KEY,
                 personnel_id INTEGER NOT NULL REFERENCES personnel(id) ON DELETE CASCADE,
-                location_type TEXT NOT NULL CHECK(location_type IN ('НАВЧ','ВІДР','ЛІК')),
+                location_type TEXT NOT NULL,
                 institution TEXT NOT NULL,
                 start_date TEXT NOT NULL,
                 end_date TEXT NOT NULL DEFAULT '',
@@ -1233,6 +1295,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         )
         .map_err(|_| "Не вдалося підготувати контроль особового складу.".to_string())?;
     migrate_personnel_control_event_columns(connection)?;
+    migrate_personnel_control_location_constraint(connection)?;
     migrate_legacy_personnel_control_locations(connection)?;
     normalize_bcs_locations(connection)?;
     normalize_staff_positions(connection)?;

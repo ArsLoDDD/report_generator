@@ -262,9 +262,6 @@ fn validate_person_availability(
     {
         return Err("До робіт не можна залучити людей, які перебувають, заходять на позицію або вибувають з неї за планом польотів.".into());
     }
-    if super::is_manual_control_location(current_location) {
-        return Err("До робіт не можна залучити людей, які перебувають на навчанні, у відрядженні або на лікуванні.".into());
-    }
     if !super::is_operationally_available(current_location) {
         return Err(format!(
             "До робіт не можна залучити військовослужбовця зі станом «{current_location}». Спочатку завершіть або змініть цей стан у його джерелі."

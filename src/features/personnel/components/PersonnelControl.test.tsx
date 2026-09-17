@@ -136,8 +136,8 @@ describe("PersonnelControl", () => {
 
   it("creates an open-ended business trip through the custom selects", async () => {
     renderControl([]);
-    fireEvent.click(await screen.findByRole("button", { name: "Додати місце перебування" }));
-    fireEvent.change(screen.getByLabelText("Військовослужбовець"), { target: { value: "1" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Розподілити особовий склад" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: new RegExp(person.fullName, "u") }));
     fireEvent.change(screen.getByLabelText("Тип перебування"), { target: { value: "ВІДР" } });
     fireEvent.change(screen.getByLabelText("Місце / установа відрядження"), { target: { value: "Центр підготовки" } });
     fireEvent.change(screen.getByLabelText("З якого числа"), { target: { value: "2026-09-17" } });
@@ -151,8 +151,8 @@ describe("PersonnelControl", () => {
 
   it("does not save training without its required completion date", async () => {
     renderControl([]);
-    fireEvent.click(await screen.findByRole("button", { name: "Додати місце перебування" }));
-    fireEvent.change(screen.getByLabelText("Військовослужбовець"), { target: { value: "1" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Розподілити особовий склад" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: new RegExp(person.fullName, "u") }));
     fireEvent.change(screen.getByLabelText("Навчальний заклад"), { target: { value: "Центр підготовки" } });
     fireEvent.click(screen.getByRole("button", { name: "Зберегти" }));
     expect(await screen.findByText("Для навчання вкажіть дату завершення.")).toBeInTheDocument();
@@ -161,15 +161,15 @@ describe("PersonnelControl", () => {
 
   it("does not offer a person whose location is controlled automatically", async () => {
     renderControl([automatic]);
-    fireEvent.click(await screen.findByRole("button", { name: "Додати місце перебування" }));
-    expect(screen.getByLabelText("Військовослужбовець")).toBeDisabled();
-    expect(screen.getByText("Люди з автоматичним бойовим станом або активним ручним записом недоступні.")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Розподілити особовий склад" }));
+    expect(screen.queryByRole("checkbox", { name: new RegExp(person.fullName, "u") })).not.toBeInTheDocument();
+    expect(screen.getByText("Немає доступних військовослужбовців.")).toBeInTheDocument();
   });
 
-  it("does not offer a BCS-sourced position state for a manual assignment", async () => {
+  it("offers a legacy GШР state because it is now managed through personnel control", async () => {
     renderControl([bcsPosition]);
-    fireEvent.click(await screen.findByRole("button", { name: "Додати місце перебування" }));
-    expect(screen.getByLabelText("Військовослужбовець")).toBeDisabled();
+    fireEvent.click(await screen.findByRole("button", { name: "Розподілити особовий склад" }));
+    expect(screen.getByRole("checkbox", { name: new RegExp(person.fullName, "u") })).toBeEnabled();
   });
 
   it("closes a manual record instead of deleting its history", async () => {

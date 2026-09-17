@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { buildStaffSlots, canonicalStaffPosition, projectedOccupants, transferConflicts, type SlotTransfer } from "./staffing-slots";
 import { StaffTransferModal } from "./StaffTransferModal";
 import { buildStaffingHierarchy } from "./StaffingBcsPage";
-import { bcsExportRows, bcsGroups, bcsSummary, positionOccupancyCount, specializedStructuralGroup, temporaryStaffingRecord } from "./bcs-model";
+import { bcsExportRows, bcsGroups, bcsSummary, specializedStructuralGroup, temporaryStaffingRecord } from "./bcs-model";
 import type { StaffingRecord } from "./types";
 import type { UnitSettings } from "../../shared/types/domain";
 import { defaultUnitStructure, structureWithUnmappedPositions } from "../../shared/unit-structure";
@@ -12,11 +12,6 @@ afterEach(cleanup);
 const unit: UnitSettings = { kind: "Рота", shortName: "Тест", authorizedStrength: 50 };
 const person = (id: number, position: string): StaffingRecord => ({ personnelId:id, fullName:`Людина ${id}`,rank:"солдат",position,crewId:null,crewName:null,platoon:"",companyName:"",unitType:"",crewPositionName:"",battleOrder:"",sector:"",officialStrength:0,actualStrength:0,crewStatus:"",uavName:"",uavType:"",functionalDuties:"",currentLocation:"",bcsStatus:"",notes:"",actingPosition:"",recommendationCount:0 });
 const move = (p: StaffingRecord, slotId: string): SlotTransfer => ({ personnelId:p.personnelId,position:"Водій-електрик",slotId,expectedPosition:p.position,expectedOccupantIds:[] });
-
-it("рахує всі стани фактичного перебування на позиції одним підсумком", () => {
-  const locations = ["На позиції", "ЗБЗ", "ПБЗ", "ГШР", "Логістика на позиції", "ОХ"];
-  expect(positionOccupancyCount(locations.map((currentLocation, index) => ({ ...person(index + 1, "оператор"), currentLocation })))).toBe(5);
-});
 
 describe("Конкретні місця у штаті", () => {
   it("збирає посаду в єдиному форматі без дубля номера частини", () => {

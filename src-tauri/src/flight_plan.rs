@@ -268,15 +268,16 @@ fn save_flight_plan_snapshot_at(
     plan_date: &str,
     request: &FlightPlanRequest,
 ) -> Result<(), String> {
-    let plan_date = parse_plan_date(plan_date)?;
-    validate_plan_date_for_save(plan_date, today)?;
+    let parsed_plan_date = parse_plan_date(plan_date)?;
+    validate_plan_date_for_save(parsed_plan_date, today)?;
     let snapshot_json = serde_json::to_string(request)
         .map_err(|_| "Не вдалося підготувати знімок плану польотів.".to_string())?;
-    let plan_date = plan_date.format("%Y-%m-%d").to_string();
+    let plan_date = parsed_plan_date.format("%Y-%m-%d").to_string();
     let transaction = connection
         .unchecked_transaction()
         .map_err(|_| "Не вдалося розпочати збереження плану польотів.".to_string())?;
     purge_expired_flight_plan_snapshots(&transaction, today)?;
+    infer_previous_day_departures(&transaction, parsed_plan_date, request)?;
     let canonical_id = transaction
         .query_row(
             "SELECT id FROM flight_plan_snapshots
@@ -322,6 +323,84 @@ fn save_flight_plan_snapshot_at(
         .commit()
         .map_err(|_| "Не вдалося завершити збереження плану польотів.".to_string())?;
     Ok(())
+}
+
+fn entry_position_key(entry: &FlightPlanEntry) -> String {
+    entry
+        .position_id
+        .map(|id| format!("id:{id}"))
+        .unwrap_or_else(|| format!("name:{}", entry.position_name.trim().to_uppercase()))
+}
+
+fn infer_previous_day_departures(
+    connection: &Connection,
+    plan_date: NaiveDate,
+    current: &FlightPlanRequest,
+) -> Result<(), String> {
+    let previous_date = (plan_date - Duration::days(1))
+        .format("%Y-%m-%d")
+        .to_string();
+    let Some((snapshot_id, snapshot_json)) = connection.query_row(
+        "SELECT id,snapshot_json FROM flight_plan_snapshots WHERE plan_date=?1 ORDER BY revision DESC,id DESC LIMIT 1",
+        [&previous_date],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+    ).optional().map_err(|_| "Не вдалося прочитати попередній план для визначення заміни екіпажів.".to_string())? else {
+        return Ok(());
+    };
+    let mut previous: FlightPlanRequest = serde_json::from_str(&snapshot_json)
+        .map_err(|_| "Попередній знімок плану польотів пошкоджено.".to_string())?;
+    let current_crews = current
+        .entries
+        .iter()
+        .map(|entry| entry.crew_id)
+        .collect::<std::collections::HashSet<_>>();
+    let mut changed = false;
+    let previous_copy = previous.entries.clone();
+    for entry in &mut previous.entries {
+        if entry.rotation_id.is_some()
+            || entry.departs_today
+            || current_crews.contains(&entry.crew_id)
+        {
+            continue;
+        }
+        let key = entry_position_key(entry);
+        let replacement_time = previous_copy
+            .iter()
+            .filter(|candidate| {
+                candidate.crew_id != entry.crew_id
+                    && current_crews.contains(&candidate.crew_id)
+                    && entry_position_key(candidate) == key
+            })
+            .filter_map(|candidate| {
+                minute_value(&candidate.start_time)
+                    .map(|minute| (minute, candidate.start_time.clone()))
+            })
+            .min_by_key(|(minute, _)| *minute)
+            .map(|(_, value)| value);
+        if let Some(departure_time) = replacement_time {
+            entry.departs_today = true;
+            entry.departure_time = departure_time;
+            changed = true;
+        }
+    }
+    if changed {
+        let updated = serde_json::to_string(&previous)
+            .map_err(|_| "Не вдалося оновити попередній план заміни екіпажів.".to_string())?;
+        connection
+            .execute(
+                "UPDATE flight_plan_snapshots SET snapshot_json=?1 WHERE id=?2",
+                rusqlite::params![updated, snapshot_id],
+            )
+            .map_err(|_| "Не вдалося зберегти автоматично визначений виїзд екіпажу.".to_string())?;
+    }
+    Ok(())
+}
+
+fn minute_value(value: &str) -> Option<u32> {
+    let (hour, minute) = value.trim().split_once(':')?;
+    let hour = hour.parse::<u32>().ok()?;
+    let minute = minute.parse::<u32>().ok()?;
+    (hour < 24 && minute < 60).then_some(hour * 60 + minute)
 }
 
 fn get_flight_plan_snapshot_at(
@@ -843,6 +922,40 @@ mod tests {
             unit_name: unit_name.into(),
             entries: vec![],
         }
+    }
+
+    #[test]
+    fn saving_tomorrows_plan_marks_the_replaced_crew_departure_in_today_plan() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 17).unwrap();
+        let base = |crew_id: i64, start: &str| {
+            serde_json::json!({
+                "crewId":crew_id,"actualMemberIds":[crew_id],"weather":{"temperature":"","windFrom":"","windTo":"","gustFrom":"","gustTo":"","cloudiness":"","cloudHeight":"","precipitation":""},
+                "routePoints":[],"altitudeFrom":"","altitudeTo":"","areaPoints":[],"task":"","startTime":start,"endTime":"21:00","uavSelections":[],"positionId":7,"positionName":"ТЕСТ"
+            })
+        };
+        let today_request: FlightPlanRequest = serde_json::from_value(
+            serde_json::json!({"unitName":"РБАК","entries":[base(1,"05:00"),base(2,"19:00")]}),
+        )
+        .unwrap();
+        let tomorrow_request: FlightPlanRequest = serde_json::from_value(
+            serde_json::json!({"unitName":"РБАК","entries":[base(2,"05:00")]}),
+        )
+        .unwrap();
+        save_flight_plan_snapshot_at(&connection, today, "2026-09-17", &today_request).unwrap();
+        save_flight_plan_snapshot_at(&connection, today, "2026-09-18", &tomorrow_request).unwrap();
+        let saved = get_flight_plan_snapshot_at(&connection, today, "2026-09-17")
+            .unwrap()
+            .unwrap();
+        let saved: FlightPlanRequest = serde_json::from_str(&saved).unwrap();
+        let outgoing = saved
+            .entries
+            .iter()
+            .find(|entry| entry.crew_id == 1)
+            .unwrap();
+        assert!(outgoing.departs_today);
+        assert_eq!(outgoing.departure_time, "19:00");
     }
 
     #[test]

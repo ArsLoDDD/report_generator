@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarClock, CheckCircle2, CircleAlert, History, ListChecks, LockKeyhole, Pencil, Plus, RefreshCw, Search, UsersRound } from "lucide-react";
+import { CheckCircle2, CircleAlert, History, ListChecks, LockKeyhole, Pencil, Plus, RefreshCw, Search, UsersRound } from "lucide-react";
 import type { Person } from "../../../shared/types/domain";
 import { Modal } from "../../../shared/ui/Modal";
 import { Select } from "../../../shared/ui/Select";
@@ -58,6 +58,7 @@ function ManualAssignmentModal({ people, unavailablePersonnelIds, record, onClos
   onSaved: () => Promise<void>;
 }) {
   const { notify } = useNotifications();
+  const [selectedPersonnelIds, setSelectedPersonnelIds] = useState<number[]>(() => record ? [record.personnelId] : []);
   const [draft, setDraft] = useState<PersonnelControlDraft>(() => record ? {
     personnelId: record.personnelId,
     locationType: record.locationType as ManualPersonnelLocation,
@@ -73,14 +74,16 @@ function ManualAssignmentModal({ people, unavailablePersonnelIds, record, onClos
     setErrors((current) => ({ ...current, [key]: undefined }));
   };
   const save = async () => {
-    const nextErrors = validatePersonnelControlDraft(draft);
+    const personnelIds = record ? [record.personnelId] : selectedPersonnelIds;
+    const nextErrors = validatePersonnelControlDraft({ ...draft, personnelId: personnelIds[0] ?? 0 });
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
     setSaving(true);
     try {
-      await personnelControlService.save(record?.assignmentId ?? null, draft);
+      if (record) await personnelControlService.save(record.assignmentId, draft);
+      else await Promise.all(personnelIds.map((personnelId) => personnelControlService.save(null, { ...draft, personnelId })));
       await onSaved();
-      notify(record ? "Запис контролю оновлено." : "Місце перебування додано до контролю та БЧС.", "success");
+      notify(record ? "Запис контролю оновлено." : `${personnelIds.length} осіб розподілено. БЧС оновлено автоматично.`, "success");
       onClose();
     } catch (error) {
       notify(errorText(error), "error");
@@ -89,12 +92,13 @@ function ManualAssignmentModal({ people, unavailablePersonnelIds, record, onClos
     }
   };
   const sortedPeople = useMemo(() => people.filter((person) => person.id === record?.personnelId || !unavailablePersonnelIds.has(person.id)).sort((left, right) => left.fullName.localeCompare(right.fullName, "uk")), [people, record?.personnelId, unavailablePersonnelIds]);
-  const institutionLabel = draft.locationType === "НАВЧ" ? "Навчальний заклад" : draft.locationType === "ЛІК" ? "Заклад лікування" : "Місце / установа відрядження";
-  return <Modal title={record ? "Редагування місця перебування" : "Додати місце перебування"} subtitle="Ручні записи синхронізуються з полем «Де знаходиться» у БЧС." onClose={onClose} className="personnel-control-editor">
+  const requiresInstitution = ["НАВЧ", "ВІДР", "ЛІК"].includes(draft.locationType);
+  const institutionLabel = draft.locationType === "НАВЧ" ? "Навчальний заклад" : draft.locationType === "ЛІК" ? "Заклад лікування" : draft.locationType === "ВІДР" ? "Місце / установа відрядження" : "Місце / уточнення";
+  return <Modal title={record ? "Редагування місця перебування" : "Розподілити особовий склад"} subtitle="Оберіть неавтоматичну вкладку й одразу всіх потрібних людей. БЧС оновиться автоматично." onClose={onClose} className="personnel-control-editor">
     <div className="personnel-control-editor__body">
-      <label className="form-field form-field--wide"><span>Військовослужбовець *</span><Select ariaLabel="Військовослужбовець" value={draft.personnelId ? String(draft.personnelId) : ""} disabled={Boolean(record) || sortedPeople.length === 0} onChange={(value) => set("personnelId", Number(value))} options={[{ value: "", label: sortedPeople.length ? "Оберіть зі списку" : "Немає доступних військовослужбовців" }, ...sortedPeople.map((person) => ({ value: String(person.id), label: `${person.fullName} · ${person.rank}` }))]} />{errors.personnelId && <small className="form-error">{errors.personnelId}</small>}{!record && sortedPeople.length === 0 && <small className="form-hint">Люди з автоматичним бойовим станом або активним ручним записом недоступні.</small>}</label>
+      {record ? <label className="form-field form-field--wide"><span>Військовослужбовець</span><input value={record.fullName} readOnly /></label> : <fieldset className="personnel-control-editor__people form-field--wide"><legend>Військовослужбовці * · обрано {selectedPersonnelIds.length}</legend>{sortedPeople.length ? <div>{sortedPeople.map((person) => <label key={person.id}><input type="checkbox" checked={selectedPersonnelIds.includes(person.id)} onChange={(event) => { setSelectedPersonnelIds((current) => event.target.checked ? [...current, person.id] : current.filter((id) => id !== person.id)); setErrors((current) => ({ ...current, personnelId: undefined })); }} /><span><strong>{person.fullName}</strong><small>{person.rank} · {person.position}</small></span></label>)}</div> : <small className="form-hint">Немає доступних військовослужбовців.</small>}{errors.personnelId && <small className="form-error">{errors.personnelId}</small>}</fieldset>}
       <label className="form-field"><span>Тип перебування *</span><Select ariaLabel="Тип перебування" value={draft.locationType} onChange={(value) => set("locationType", value as ManualPersonnelLocation)} options={MANUAL_PERSONNEL_LOCATIONS.map((value) => ({ value, label: value }))} />{errors.locationType && <small className="form-error">{errors.locationType}</small>}</label>
-      <label className="form-field"><span>{institutionLabel} *</span><input aria-label={institutionLabel} value={draft.institution} onChange={(event) => set("institution", event.target.value)} placeholder="Вкажіть назву та населений пункт" />{errors.institution && <small className="form-error">{errors.institution}</small>}</label>
+      <label className="form-field"><span>{institutionLabel}{requiresInstitution ? " *" : ""}</span><input aria-label={institutionLabel} value={draft.institution} onChange={(event) => set("institution", event.target.value)} placeholder={requiresInstitution ? "Вкажіть назву та населений пункт" : "Необов’язково"} />{errors.institution && <small className="form-error">{errors.institution}</small>}</label>
       <label className="form-field"><span>З якого числа *</span><input aria-label="З якого числа" type="date" value={draft.startDate} onChange={(event) => set("startDate", event.target.value)} />{errors.startDate && <small className="form-error">{errors.startDate}</small>}</label>
       <label className="form-field"><span>По яке число{draft.locationType === "НАВЧ" ? " *" : ""}</span><input aria-label="По яке число" type="date" value={draft.endDate} onChange={(event) => set("endDate", event.target.value)} />{errors.endDate && <small className="form-error">{errors.endDate}</small>}{draft.locationType === "ВІДР" && !draft.endDate && <small className="form-hint">Без дати — до окремого розпорядження.</small>}</label>
       <label className="form-field form-field--wide"><span>Примітка</span><textarea aria-label="Примітка" value={draft.notes} onChange={(event) => set("notes", event.target.value)} placeholder="Необов’язкове уточнення" /></label>
@@ -196,19 +200,12 @@ export function PersonnelControl({ people, hasMorePeople, onLoadMorePeople }: Pe
   const tabCount = (tab: string) => tab === "Усі" ? records.length : records.filter((record) => controlTab(record) === tab).length;
   const shown = records.filter((record) => (activeTab === "Усі" || controlTab(record) === activeTab) && includesSearch(query, record.fullName, record.rank, record.position, record.locationType, record.institution, record.positionName, record.crewName, record.sourceLabel, record.notes));
   const shownHistory = historyRecords.filter((record) => includesSearch(query, record.fullName, record.locationType, record.institution, record.notes, record.reason, record.action));
-  const automaticCount = records.filter((record) => record.source === "automatic").length;
-  const manualCount = records.filter((record) => record.source === "manual").length;
   const unavailablePersonnelIds = useMemo(() => new Set(records.filter(blocksManualPersonnelAssignment).map((record) => record.personnelId)), [records]);
 
   return <section className="personnel-control" aria-label="Контроль особового складу">
-    <div className="personnel-control__summary">
-      <article><UsersRound /><span>Під контролем<strong>{records.length}</strong></span></article>
-      <article><LockKeyhole /><span>Автоматично<strong>{automaticCount}</strong></span></article>
-      <article><CalendarClock /><span>НАВЧ / ВІДР / ЛІК<strong>{manualCount}</strong></span></article>
-      <button className="button primary" onClick={() => setEditing("new")}><Plus />Додати місце перебування</button>
-    </div>
     <div className="personnel-control__toolbar">
       <label className="search"><Search /><input aria-label="Пошук у контролі особового складу" placeholder="Пошук за ПІБ, місцем або закладом…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+      <button className="button primary" onClick={() => setEditing("new")}><Plus />Розподілити особовий склад</button>
       <button className="button" onClick={() => void (view === "current" ? reload() : loadHistory(false))} disabled={view === "current" ? loading : historyLoading}><RefreshCw className={loading || historyLoading ? "spin" : ""} />Оновити</button>
     </div>
     <div className="personnel-control__filters">

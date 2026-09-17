@@ -1,5 +1,5 @@
 export type PersonnelControlSource = "automatic" | "manual" | "bcs";
-export type ManualPersonnelLocation = "НАВЧ" | "ВІДР" | "ЛІК";
+export type ManualPersonnelLocation = "ПУ" | "ШТАБ" | "УПР" | "КСП Роти" | "ЗАБ" | "ГШР" | "ЗХВ" | "ВІДП" | "НАВЧ" | "ВІДР" | "ЛІК" | "Відкомандировані" | "ОХП" | "Прикомандирований" | "СЗЧ" | "ПТЗ Новостав" | "Логістика на позиції";
 
 export type PersonnelControlRecord = {
   personnelId: number;

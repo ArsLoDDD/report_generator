@@ -5,8 +5,26 @@ use crate::AppState;
 use chrono::{Local, NaiveDate};
 use rusqlite::{params, Connection, OptionalExtension};
 
-const MANUAL_LOCATIONS: [&str; 3] = ["НАВЧ", "ВІДР", "ЛІК"];
-const POSITION_LOCATIONS: [&str; 4] = ["На позиції", "ЗБЗ", "ПБЗ", "ГШР"];
+const MANUAL_LOCATIONS: [&str; 17] = [
+    "ПУ",
+    "ШТАБ",
+    "УПР",
+    "КСП Роти",
+    "ЗАБ",
+    "ГШР",
+    "ЗХВ",
+    "ВІДП",
+    "НАВЧ",
+    "ВІДР",
+    "ЛІК",
+    "Відкомандировані",
+    "ОХП",
+    "Прикомандирований",
+    "СЗЧ",
+    "ПТЗ Новостав",
+    "Логістика на позиції",
+];
+const POSITION_LOCATIONS: [&str; 3] = ["На позиції", "ЗБЗ", "ПБЗ"];
 const POSITION_TAB_LOCATIONS: [&str; 5] =
     ["На позиції", "ЗБЗ", "ПБЗ", "ГШР", "Логістика на позиції"];
 const POSITION_WORK_LOCATIONS: [&str; 3] = ["Реко", "Облаштування", "Реко та облаштування"];
@@ -44,9 +62,10 @@ fn validate_draft(
 ) -> Result<(NaiveDate, Option<NaiveDate>), String> {
     let location = draft.location_type.trim();
     if !is_manual_control_location(location) {
-        return Err("У контролі особового складу вручну доступні лише НАВЧ, ВІДР і ЛІК. Автоматичні стани змінюються у відповідному робочому розділі.".into());
+        return Err("Цей стан змінюється автоматично у відповідному робочому розділі.".into());
     }
-    if draft.institution.trim().is_empty() {
+    if ["НАВЧ", "ВІДР", "ЛІК"].contains(&location) && draft.institution.trim().is_empty()
+    {
         return Err("Вкажіть заклад або установу, де перебуває військовослужбовець.".into());
     }
     let start = parse_date(&draft.start_date, "Дата початку")?;
@@ -652,9 +671,6 @@ fn save_assignment(
             return Err("Завершений запис не редагується. Створіть нове переміщення.".into());
         }
     } else {
-        if is_manual_control_location(&current_location) {
-            return Err("Для військовослужбовця вже вказано ручний стан. Відредагуйте або завершіть чинний запис.".into());
-        }
         if !super::is_operationally_available(&current_location) {
             return Err(format!(
                 "Не можна встановити ручний стан: військовослужбовець має стан «{}». Спочатку завершіть або змініть його у джерелі.",

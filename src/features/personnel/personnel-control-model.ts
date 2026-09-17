@@ -1,16 +1,14 @@
 import type { PersonnelControlDraft, PersonnelControlRecord } from "./types";
 import { isOperationallyAvailable } from "../operations/bcs-model";
 
-export const MANUAL_PERSONNEL_LOCATIONS = ["НАВЧ", "ВІДР", "ЛІК"] as const;
+export const MANUAL_PERSONNEL_LOCATIONS = ["ПУ", "ШТАБ", "УПР", "КСП Роти", "ЗАБ", "ГШР", "ЗХВ", "ВІДП", "НАВЧ", "ВІДР", "ЛІК", "Відкомандировані", "ОХП", "Прикомандирований", "СЗЧ", "ПТЗ Новостав", "Логістика на позиції"] as const;
 export const POSITION_AND_WORK_LOCATIONS = [
   "На позиції",
   "ЗБЗ",
   "ПБЗ",
-  "ГШР",
   "Реко",
   "Облаштування",
   "Реко та облаштування",
-  "Логістика на позиції",
 ] as const;
 
 export const PERSONNEL_CONTROL_TAB_ORDER = [
@@ -66,7 +64,7 @@ export function validatePersonnelControlDraft(draft: PersonnelControlDraft) {
   const errors: Partial<Record<keyof PersonnelControlDraft, string>> = {};
   if (!draft.personnelId) errors.personnelId = "Оберіть військовослужбовця.";
   if (!MANUAL_PERSONNEL_LOCATIONS.includes(draft.locationType)) errors.locationType = "Оберіть тип перебування.";
-  if (!draft.institution.trim()) errors.institution = "Вкажіть заклад або місце перебування.";
+  if (["НАВЧ", "ВІДР", "ЛІК"].includes(draft.locationType) && !draft.institution.trim()) errors.institution = "Вкажіть заклад або місце перебування.";
   if (!draft.startDate) errors.startDate = "Вкажіть дату початку.";
   else if (draft.startDate > todayLocal()) errors.startDate = "Дата початку не може бути пізніше за сьогодні.";
   if (draft.locationType === "НАВЧ" && !draft.endDate) errors.endDate = "Для навчання вкажіть дату завершення.";
