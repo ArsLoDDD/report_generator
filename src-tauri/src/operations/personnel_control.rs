@@ -7,6 +7,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 const MANUAL_LOCATIONS: [&str; 3] = ["НАВЧ", "ВІДР", "ЛІК"];
 const POSITION_LOCATIONS: [&str; 4] = ["На позиції", "ЗБЗ", "ПБЗ", "ГШР"];
+const POSITION_TAB_LOCATIONS: [&str; 5] =
+    ["На позиції", "ЗБЗ", "ПБЗ", "ГШР", "Логістика на позиції"];
 const POSITION_WORK_LOCATIONS: [&str; 3] = ["Реко", "Облаштування", "Реко та облаштування"];
 
 pub(crate) fn is_manual_control_location(value: &str) -> bool {
@@ -262,7 +264,7 @@ pub(crate) fn sync_manual_assignments_for_date(
 }
 
 fn tab_for(location: &str) -> String {
-    if POSITION_LOCATIONS.contains(&location) {
+    if POSITION_TAB_LOCATIONS.contains(&location) {
         "На позиції".into()
     } else if POSITION_WORK_LOCATIONS.contains(&location) {
         "Реко та облаштування".into()
@@ -1136,16 +1138,21 @@ mod tests {
 
     #[test]
     fn legacy_position_label_without_a_source_is_grouped_but_not_claimed_as_automatic() {
-        let connection = connection();
-        connection
-            .execute("UPDATE personnel SET current_location='ГШР' WHERE id=1", [])
-            .unwrap();
-        let record = personnel_control_records(&connection, "2026-09-17")
-            .unwrap()
-            .remove(0);
-        assert_eq!(record.tab, "На позиції");
-        assert_eq!(record.source, "bcs");
-        assert_eq!(record.source_label, "Стан із БЧС");
+        for location in ["ГШР", "Логістика на позиції"] {
+            let connection = connection();
+            connection
+                .execute(
+                    "UPDATE personnel SET current_location=?1 WHERE id=1",
+                    [location],
+                )
+                .unwrap();
+            let record = personnel_control_records(&connection, "2026-09-17")
+                .unwrap()
+                .remove(0);
+            assert_eq!(record.tab, "На позиції", "{location}");
+            assert_eq!(record.source, "bcs", "{location}");
+            assert_eq!(record.source_label, "Стан із БЧС", "{location}");
+        }
     }
 
     #[test]

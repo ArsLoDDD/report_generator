@@ -142,6 +142,11 @@
 	width: 52px;
 	order: 2;
 }
+.bcs-summary--locations .bcs-summary__aggregate th,
+.bcs-summary--locations .bcs-summary__aggregate td {
+	background: #e7f0d0;
+	font-weight: 750;
+}
 .bcs-reference__summaries caption {
 	text-align: left;
 	font-weight: 700;

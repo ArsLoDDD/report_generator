@@ -24,6 +24,11 @@ export function isAvailableForPositionWork(value: string) {
     && !POSITION_OCCUPANCY_LOCATIONS.includes(location as typeof POSITION_OCCUPANCY_LOCATIONS[number])
     && !POSITION_WORK_LOCATIONS.includes(location as typeof POSITION_WORK_LOCATIONS[number]);
 }
+export function positionOccupancyCount(records: StaffingRecord[]) {
+  return new Set(records.filter((person) => !person.isCrewPlaceholder
+    && POSITION_OCCUPANCY_LOCATIONS.includes(person.currentLocation.trim() as typeof POSITION_OCCUPANCY_LOCATIONS[number]))
+    .map((person) => person.personnelId)).size;
+}
 export function isAvailableInUnit(value: string) {
   return isOperationallyAvailable(value);
 }

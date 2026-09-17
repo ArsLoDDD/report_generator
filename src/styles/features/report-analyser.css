@@ -406,8 +406,8 @@
 	min-height: 0;
 }
 .constructor-modal .modal-panel {
-	width: min(1200px, calc(100vw - 56px));
-	height: min(860px, calc(100vh - 56px));
+	width: min(1480px, calc(100vw - 40px));
+	height: min(920px, calc(100vh - 32px));
 	grid-template-rows: auto minmax(0, 1fr);
 }
 .constructor-modal .modal-header p {
@@ -417,8 +417,8 @@
 }
 .constructor-modal__content {
 	min-height: 0;
-	overflow: auto;
-	padding: 18px;
+	overflow: hidden;
+	padding: 16px;
 }
 .constructor-modal__content .documentation-layout {
 	height: auto;
@@ -427,6 +427,44 @@
 .constructor-modal__content .autofill-picker {
 	height: 100%;
 	min-height: 0;
+	grid-template-columns: minmax(560px, 1.45fr) minmax(360px, .85fr);
+}
+.constructor-modal__content .autofill-sources {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.constructor-modal__content .autofill-sources > button {
+	min-height: 72px;
+}
+.constructor-modal__content .autofill-sources b,
+.constructor-modal__content .autofill-sources small {
+	overflow: visible;
+	white-space: normal;
+}
+.constructor-modal__content .autofill-subjects {
+	flex-wrap: wrap;
+	overflow-x: visible;
+}
+@media (max-width: 980px) {
+	.constructor-modal .modal-panel {
+		width: calc(100vw - 24px);
+		height: calc(100vh - 24px);
+	}
+	.constructor-modal__content {
+		overflow-y: auto;
+	}
+	.constructor-modal__content .autofill-picker {
+		grid-template-columns: 1fr;
+		height: auto;
+	}
+	.constructor-modal__content .autofill-picker__catalog {
+		min-height: 680px;
+	}
+}
+@media (max-width: 620px) {
+	.constructor-modal__content .autofill-sources,
+	.constructor-modal__content .autofill-fields {
+		grid-template-columns: 1fr;
+	}
 }
 @media (max-width: 1250px) {
 	.analyser-selection { grid-template-columns: minmax(0, 1fr) auto minmax(150px, .7fr) auto auto; }
