@@ -4,7 +4,7 @@ use super::{
 };
 use crate::AppState;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 
 fn members(connection: &Connection, work_id: i64) -> Result<Vec<PositionWorkMember>, String> {
@@ -305,19 +305,35 @@ fn refresh_person_location(
     let location = if has_active {
         Some("Реко та облаштування".to_string())
     } else if is_work_location(&current) {
-        let stored = previous_location.or_else(|| {
-            connection
-                .query_row(
-                    "SELECT previous_location FROM position_work_members
-                     WHERE personnel_id=?1 AND previous_location IS NOT NULL
-                     ORDER BY work_id DESC LIMIT 1",
-                    [personnel_id],
-                    |row| row.get::<_, Option<String>>(0),
-                )
-                .ok()
-                .flatten()
-        });
-        Some(safe_previous_location(stored))
+        let flight_plan_location = connection
+            .query_row(
+                "SELECT location FROM flight_plan_personnel_locations
+                 WHERE personnel_id=?1
+                   AND date(plan_date)=date('now','localtime')
+                   AND location IN ('На позиції','ЗБЗ','ПБЗ')
+                 LIMIT 1",
+                [personnel_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|_| "Не вдалося перевірити актуальний стан із плану польотів.".to_string())?;
+        if let Some(location) = flight_plan_location {
+            Some(location)
+        } else {
+            let stored = previous_location.or_else(|| {
+                connection
+                    .query_row(
+                        "SELECT previous_location FROM position_work_members
+                         WHERE personnel_id=?1 AND previous_location IS NOT NULL
+                         ORDER BY work_id DESC LIMIT 1",
+                        [personnel_id],
+                        |row| row.get::<_, Option<String>>(0),
+                    )
+                    .ok()
+                    .flatten()
+            });
+            Some(safe_previous_location(stored))
+        }
     } else {
         None
     };
@@ -934,6 +950,51 @@ mod tests {
             )
             .unwrap();
         assert_eq!(restored, "");
+    }
+
+    #[test]
+    fn restores_the_current_flight_plan_location_after_the_last_work() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection.execute("INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id,current_location) VALUES(1,'солдат','ТЕСТОВИЙ','Тест','Тестович','оператор','1','','','','','','','','Реко та облаштування')", []).unwrap();
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        connection.execute(
+            "INSERT INTO flight_plan_personnel_locations(personnel_id,plan_date,location) VALUES(1,?1,'ЗБЗ')",
+            [today],
+        ).unwrap();
+
+        refresh_person_location(&connection, 1, None, Some("ОХ".into())).unwrap();
+
+        let restored: String = connection
+            .query_row(
+                "SELECT current_location FROM personnel WHERE id=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(restored, "ЗБЗ");
+    }
+
+    #[test]
+    fn ignores_a_stale_flight_plan_location_when_restoring_work() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection.execute("INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id,current_location) VALUES(1,'солдат','ТЕСТОВИЙ','Тест','Тестович','оператор','1','','','','','','','','Реко та облаштування')", []).unwrap();
+        connection.execute(
+            "INSERT INTO flight_plan_personnel_locations(personnel_id,plan_date,location) VALUES(1,'2000-01-01','ЗБЗ')",
+            [],
+        ).unwrap();
+
+        refresh_person_location(&connection, 1, None, Some("ОХ".into())).unwrap();
+
+        let restored: String = connection
+            .query_row(
+                "SELECT current_location FROM personnel WHERE id=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(restored, "ОХ");
     }
 
     #[test]

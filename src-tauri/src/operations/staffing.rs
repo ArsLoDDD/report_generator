@@ -149,7 +149,16 @@ fn apply_flight_plan_locations_for_date(
         .unchecked_transaction()
         .map_err(|_| "Не вдалося почати оновлення БЧС.".to_string())?;
     transaction
-        .execute("UPDATE personnel SET current_location='ОХ' WHERE current_location IN ('На позиції','ЗБЗ','ПБЗ')", [])
+        .execute(
+            "UPDATE personnel
+             SET current_location='ОХ'
+             WHERE current_location IN ('На позиції','ЗБЗ','ПБЗ')
+               AND EXISTS(
+                 SELECT 1 FROM flight_plan_personnel_locations state
+                 WHERE state.personnel_id=personnel.id
+               )",
+            [],
+        )
         .map_err(|_| "Не вдалося оновити попередні добові стани БЧС.".to_string())?;
     transaction
         .execute("DELETE FROM flight_plan_personnel_locations", [])
@@ -178,7 +187,21 @@ fn apply_flight_plan_locations_for_date(
                 )
                 .unwrap_or_default();
             if super::is_manual_control_location(&current_location) {
-                continue;
+                return Err("До плану польотів не можна додати військовослужбовця з активним НАВЧ, ВІДР або ЛІК. Спочатку завершіть запис у «Контролі особового складу».".into());
+            }
+            let has_active_position_work = transaction
+                .query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM position_work_members member
+                        JOIN position_work work ON work.id=member.work_id
+                        WHERE member.personnel_id=?1 AND work.status<>'Завершили'
+                    )",
+                    [personnel_id],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap_or(false);
+            if has_active_position_work {
+                return Err("До плану польотів не можна додати військовослужбовця, залученого до активного рекогностування або облаштування позиції. Спочатку завершіть роботи на позиції.".into());
             }
             let entered_during_plan = assignment.stages.windows(2).any(|stages| {
                 !stages[0].contains(personnel_id) && stages[1].contains(personnel_id)
@@ -200,14 +223,8 @@ fn apply_flight_plan_locations_for_date(
             transaction
                 .execute(
                     "UPDATE personnel
-                 SET current_location=?1,updated_at=CURRENT_TIMESTAMP
-                 WHERE id=?2
-                   AND NOT EXISTS(
-                     SELECT 1
-                     FROM position_work_members pwm
-                     JOIN position_work w ON w.id=pwm.work_id
-                     WHERE pwm.personnel_id=?2 AND w.status<>'Завершили'
-                   )",
+                     SET current_location=?1,updated_at=CURRENT_TIMESTAMP
+                     WHERE id=?2",
                     rusqlite::params![location, personnel_id],
                 )
                 .map_err(|_| "Не вдалося оновити стан людини у БЧС.".to_string())?;
@@ -406,6 +423,43 @@ mod flight_plan_location_tests {
     }
 
     #[test]
+    fn replacing_a_plan_resets_only_locations_owned_by_the_previous_plan() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        for id in 1..=2 {
+            connection.execute("INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id,current_location) VALUES(?1,'солдат',?2,'Тест','Тестович','оператор',?3,'','','','','','','','На позиції')", rusqlite::params![id,format!("ЛЮДИНА{id}"),format!("tax-{id}")]).unwrap();
+        }
+        connection.execute(
+            "INSERT INTO flight_plan_personnel_locations(personnel_id,plan_date,location) VALUES(1,'2026-09-15','На позиції')",
+            [],
+        ).unwrap();
+
+        apply_flight_plan_locations(&connection, &[]).unwrap();
+
+        let location = |id| {
+            connection
+                .query_row(
+                    "SELECT current_location FROM personnel WHERE id=?1",
+                    [id],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(location(1), "ОХ");
+        assert_eq!(location(2), "На позиції");
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM flight_plan_personnel_locations",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
     fn marks_a_new_arrival_as_zbz_then_on_position_in_the_next_plan() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         crate::database::initialise(&connection).unwrap();
@@ -466,6 +520,12 @@ mod flight_plan_location_tests {
                 .execute(
                     "INSERT INTO crew_members(crew_id,personnel_id) VALUES(1,?1)",
                     [id],
+                )
+                .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO flight_plan_personnel_locations(personnel_id,plan_date,location) VALUES(?1,'2026-09-14',?2)",
+                    rusqlite::params![id, location],
                 )
                 .unwrap();
         }
@@ -536,7 +596,7 @@ mod flight_plan_location_tests {
     }
 
     #[test]
-    fn active_position_work_location_is_not_overwritten_by_flight_plan() {
+    fn active_position_work_is_rejected_without_creating_a_flight_plan_source() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         crate::database::initialise(&connection).unwrap();
         connection
@@ -562,7 +622,7 @@ mod flight_plan_location_tests {
             )
             .unwrap();
 
-        apply_flight_plan_locations(
+        let error = apply_flight_plan_locations(
             &connection,
             &[FlightPlanCrewLocationAssignment {
                 crew_id: 1,
@@ -571,7 +631,7 @@ mod flight_plan_location_tests {
                 departs_today: false,
             }],
         )
-        .unwrap();
+        .unwrap_err();
 
         let locations = (1..=2)
             .map(|id| {
@@ -584,7 +644,18 @@ mod flight_plan_location_tests {
                     .unwrap()
             })
             .collect::<Vec<_>>();
-        assert_eq!(locations, vec!["Реко та облаштування", "На позиції"]);
+        assert!(error.contains("активного рекогностування або облаштування"));
+        assert_eq!(locations, vec!["Реко та облаштування", "ОХ"]);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM flight_plan_personnel_locations",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -717,7 +788,7 @@ mod flight_plan_location_tests {
             )
             .unwrap();
 
-        apply_flight_plan_locations_for_date(
+        let error = apply_flight_plan_locations_for_date(
             &connection,
             &[FlightPlanCrewLocationAssignment {
                 crew_id: 1,
@@ -727,7 +798,7 @@ mod flight_plan_location_tests {
             }],
             "2099-01-01",
         )
-        .unwrap();
+        .unwrap_err();
 
         let (location, still_open): (String, i64) = (
             connection.query_row("SELECT current_location FROM personnel WHERE id=1", [], |row| row.get(0)).unwrap(),
@@ -735,6 +806,17 @@ mod flight_plan_location_tests {
         );
         assert_eq!(location, "ВІДР");
         assert_eq!(still_open, 1);
+        assert!(error.contains("активним НАВЧ, ВІДР або ЛІК"));
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM flight_plan_personnel_locations",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            0
+        );
     }
 }
 
@@ -821,8 +903,14 @@ fn validate_controlled_location_change(
     if previous.trim() == next.trim() {
         return Ok(());
     }
-    let entering_controlled =
-        super::is_manual_control_location(next) || super::is_automatic_control_location(next);
+    // Structured manual states must be created in Personnel Control so their
+    // period and institution are not lost. Position states may still be set in
+    // BCS when no live workflow owns them; in that case BCS itself is the
+    // source shown by Personnel Control.
+    let entering_controlled = super::is_manual_control_location(next)
+        || ["На позиції", "ЗБЗ", "ПБЗ", "ГШР"].contains(&next.trim()) && has_position_source
+        || ["Реко", "Облаштування", "Реко та облаштування"].contains(&next.trim())
+            && has_work_source;
     let leaving_owned_state = super::is_manual_control_location(previous) && has_manual_source
         || ["На позиції", "ЗБЗ", "ПБЗ", "ГШР"].contains(&previous.trim()) && has_position_source
         || ["Реко", "Облаштування", "Реко та облаштування"].contains(&previous.trim())
@@ -841,7 +929,7 @@ mod controlled_location_change_tests {
     fn preserves_control_history_by_rejecting_direct_bcs_location_changes() {
         assert!(validate_controlled_location_change("ВІДР", "ОХ", true, false, false).is_err());
         assert!(validate_controlled_location_change("ОХ", "НАВЧ", false, false, false).is_err());
-        assert!(validate_controlled_location_change("ОХ", "ЗБЗ", false, false, false).is_err());
+        assert!(validate_controlled_location_change("ОХ", "ЗБЗ", false, true, false).is_err());
         assert!(validate_controlled_location_change(
             "Реко та облаштування",
             "ОХ",
@@ -856,6 +944,10 @@ mod controlled_location_change_tests {
 
     #[test]
     fn legacy_location_without_an_active_owner_can_be_corrected() {
+        assert!(
+            validate_controlled_location_change("ОХ", "На позиції", false, false, false).is_ok()
+        );
+        assert!(validate_controlled_location_change("ОХ", "ГШР", false, false, false).is_ok());
         assert!(validate_controlled_location_change("ГШР", "ОХ", false, false, false).is_ok());
         assert!(validate_controlled_location_change("Реко", "ОХ", false, false, false).is_ok());
         assert!(validate_controlled_location_change("ЛІК", "ОХ", false, false, false).is_ok());
