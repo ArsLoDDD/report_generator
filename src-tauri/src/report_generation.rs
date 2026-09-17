@@ -637,7 +637,13 @@ fn write_generation_manifest(
 }
 
 fn sync_file(path: &Path) -> Result<(), String> {
-    File::open(path)
+    // Windows requires a writable handle for FlushFileBuffers (used by
+    // `sync_all`). `File::open` is read-only there, so report generation
+    // otherwise succeeds but is reported as failed during its final sync.
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
         .and_then(|file| file.sync_all())
         .map_err(|_| "Не вдалося синхронізувати створений рапорт.".to_string())
 }

@@ -1118,7 +1118,10 @@ fn ignores_tokens_in_comments_but_replaces_supported_word_stories() {
     let root = std::env::temp_dir().join(format!(
         "shablonizator-story-boundary-{}-{}",
         std::process::id(),
-        std::thread::current().name().unwrap_or("test")
+        std::thread::current()
+            .name()
+            .unwrap_or("test")
+            .replace(':', "_")
     ));
     fs::create_dir_all(&root).unwrap();
     let source = root.join("source.docx");
