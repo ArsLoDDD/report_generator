@@ -3,6 +3,14 @@ use super::*;
 const PERSONNEL_CONTROL_LOCATIONS: [&str; 3] = ["НАВЧ", "ВІДР", "ЛІК"];
 const PERSONNEL_CONTROL_ACTIONS: [&str; 4] = ["created", "updated", "closed", "migrated"];
 
+/// Outcome returned after the workbook has been committed.  A malformed row
+/// should be visible to the user, but must not discard valid imported data.
+#[derive(Serialize)]
+pub(crate) struct PersonnelExcelImportResult {
+    pub imported: u32,
+    pub warnings: Vec<String>,
+}
+
 fn parse_control_date(
     value: &str,
     label: &str,
@@ -522,8 +530,9 @@ pub(crate) fn import_personnel_xlsx(
     state: tauri::State<AppState>,
     path: String,
     mode: String,
-) -> Result<u32, String> {
+) -> Result<PersonnelExcelImportResult, String> {
     let data = xlsx::import(std::path::Path::new(&path))?;
+    let mut warnings = Vec::new();
     let imported_custom_fields = data
         .personnel_custom_field_maps
         .iter()
@@ -592,10 +601,14 @@ pub(crate) fn import_personnel_xlsx(
             && equipment.holder_tax_id.trim().is_empty()
             && equipment.holder_full_name.trim().is_empty()
         {
-            return Err(
-                "Для запису на аркуші «Зброя та БК» вкажіть відповідального військовослужбовця."
-                    .into(),
-            );
+            let name = if equipment.name.trim().is_empty() {
+                "без назви"
+            } else {
+                equipment.name.trim()
+            };
+            warnings.push(format!(
+                "«Зброя та БК»: запис «{name}» імпортовано без відповідального військовослужбовця."
+            ));
         }
     }
     let mut db = state
@@ -834,10 +847,23 @@ pub(crate) fn import_personnel_xlsx(
             let holder_id = personnel_id(&equipment.holder_tax_id, &equipment.holder_full_name)?
                 .map(|value| value.0);
             if equipment.category == "weapon_ammo" && holder_id.is_none() {
-                return Err(format!(
-                    "Для «{}» не знайдено відповідального військовослужбовця.",
-                    equipment.name
-                ));
+                let has_holder_reference = !equipment.holder_tax_id.trim().is_empty()
+                    || !equipment.holder_full_name.trim().is_empty();
+                if has_holder_reference {
+                    let name = if equipment.name.trim().is_empty() {
+                        "без назви"
+                    } else {
+                        equipment.name.trim()
+                    };
+                    let reference = if !equipment.holder_tax_id.trim().is_empty() {
+                        equipment.holder_tax_id.trim()
+                    } else {
+                        equipment.holder_full_name.trim()
+                    };
+                    warnings.push(format!(
+                        "«Зброя та БК»: для «{name}» не знайдено відповідального «{reference}». Запис імпортовано без відповідального."
+                    ));
+                }
             }
             let day = equipment.day_quantity.parse::<i64>().unwrap_or(0).max(0);
             let night = equipment.night_quantity.parse::<i64>().unwrap_or(0).max(0);
@@ -971,7 +997,10 @@ pub(crate) fn import_personnel_xlsx(
                 };
                 database::replace_custom_fields_file(&root, CUSTOM_VARIABLES_FILE_NAME, fields)?;
             }
-            Ok(count)
+            Ok(PersonnelExcelImportResult {
+                imported: count,
+                warnings,
+            })
         }
         Err(error) => {
             let _ = db.connection.execute_batch("ROLLBACK");
