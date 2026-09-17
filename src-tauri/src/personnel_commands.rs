@@ -608,9 +608,7 @@ pub(crate) fn import_personnel_xlsx(
         .map_err(|_| "Не вдалося почати імпорт.".to_string())?;
     let result = (|| -> Result<u32, String> {
         if mode == "replace" {
-            db.connection.execute_batch(
-                "DELETE FROM incidents; DELETE FROM positions; DELETE FROM equipment; DELETE FROM vehicles; DELETE FROM crews; DELETE FROM personnel_control_events; DELETE FROM personnel_control_assignments; DELETE FROM personnel; DELETE FROM custom_field_definitions; DELETE FROM vehicle_custom_field_definitions;",
-            ).map_err(|_| "Не вдалося очистити дані перед імпортом.".to_string())?;
+            clear_replace_import_data(&db.connection)?;
         }
         let ensure_custom_fields = |scope: &str,
                                     fields: &[xlsx::CustomFieldMapRow]|
@@ -962,6 +960,54 @@ pub(crate) fn import_personnel_xlsx(
     }
 }
 
+/// Clears every data set whose records either refer to imported entities or are
+/// derived from them.  Keep this list explicit: a replace import must keep
+/// working as new operational registers gain foreign keys to personnel,
+/// equipment, crews, or positions.
+fn clear_replace_import_data(connection: &Connection) -> Result<(), String> {
+    const TABLES: &[&str] = &[
+        "workshop_ingredients",
+        "workshop_products",
+        "incident_equipment",
+        "incident_personnel",
+        "incidents",
+        "flight_journal_entries",
+        "flight_plan_snapshot_entries",
+        "flight_plan_personnel_locations",
+        "flight_plan_snapshots",
+        "summary_report_drafts",
+        "position_work_periods",
+        "position_work_members",
+        "position_work_status_history",
+        "position_work_events",
+        "position_work",
+        "position_uavs",
+        "crew_actual_members",
+        "crew_members",
+        "personnel_staff_assignments",
+        "staff_recommendations",
+        "staff_position_recommendations",
+        "temporary_personnel",
+        "vehicle_custom_fields",
+        "personnel_custom_fields",
+        "personnel_control_events",
+        "personnel_control_assignments",
+        "positions",
+        "equipment",
+        "vehicles",
+        "crews",
+        "personnel",
+        "custom_field_definitions",
+        "vehicle_custom_field_definitions",
+    ];
+    for table in TABLES {
+        connection
+            .execute(&format!("DELETE FROM {table}"), [])
+            .map_err(|error| format!("Не вдалося очистити «{table}» перед імпортом: {error}"))?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) fn export_personnel_xlsx(
     state: tauri::State<AppState>,
@@ -1291,6 +1337,53 @@ mod personnel_control_excel_tests {
                 rusqlite::params![id, surname, tax_id],
             )
             .unwrap();
+    }
+
+    #[test]
+    fn replace_cleanup_removes_new_dependency_records_before_importing() {
+        let connection = connection();
+        connection
+            .execute(
+                "INSERT INTO equipment(category,name) VALUES('generator','Генератор')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO workshop_products(name,quantity) VALUES('Тестовий виріб',1)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO workshop_ingredients(product_id,equipment_id,quantity,measurement_unit) VALUES(1,1,1,'шт')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO temporary_personnel(full_name,arrived_at) VALUES('Тимчасовий Тест','2026-09-17')",
+                [],
+            )
+            .unwrap();
+
+        clear_replace_import_data(&connection).unwrap();
+
+        for table in [
+            "workshop_ingredients",
+            "workshop_products",
+            "equipment",
+            "temporary_personnel",
+            "flight_plan_snapshots",
+            "position_work",
+        ] {
+            let count: i64 = connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0, "table {table} should be empty");
+        }
     }
 
     #[test]
