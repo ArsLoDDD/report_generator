@@ -162,13 +162,16 @@ export function SummaryReportPage() {
   const [switchingReport, setSwitchingReport] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
   const sourceSignatureRef = useRef("");
+  const sourceLoadGenerationRef = useRef(0);
   const manualRef = useRef(manual);
   const switchingReportRef = useRef(false);
 
   useLayoutEffect(() => { manualRef.current = manual; }, [manual]);
 
   const loadSources = useCallback(async (date: string) => {
+    const generation = ++sourceLoadGenerationRef.current;
     const [nextSettings, nextCrews, nextPositions, nextEquipment, nextJournal, nextStaffing, nextPositionWork, nextPositionWorkHistory, previousStored, currentStored] = await Promise.all([settingsService.get(), operationsService.listCrews(), operationsService.listPositions(), operationsService.listEquipment("uav"), operationsService.listFlightJournalEntries(), operationsService.listStaffingRecords(), Promise.resolve(operationsService.listPositionWork?.() ?? []), operationsService.listPositionWorkStatusHistory(), operationsService.getFlightPlanSnapshot(shiftDate(date, -1)), operationsService.getFlightPlanSnapshot(date)]);
+    if (generation !== sourceLoadGenerationRef.current) return false;
     const previousSnapshot = parseSnapshot(previousStored) ?? flightPlanDraftRequest(shiftDate(date, -1));
     const currentSnapshot = parseSnapshot(currentStored) ?? flightPlanDraftRequest(date);
     const nextSnapshots = [previousSnapshot, currentSnapshot];

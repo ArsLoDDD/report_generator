@@ -80,6 +80,62 @@ describe("Підсумкове донесення", () => {
     expect(renderAsync).toHaveBeenCalledTimes(1);
   });
 
+  it("не дозволяє повільнішому старому запиту замінити новіший знімок плану", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 8, 17, 14, 0));
+    render(<NotificationProvider><SummaryReportPage /></NotificationProvider>);
+    await waitFor(() => expect(renderAsync).toHaveBeenCalledTimes(1));
+
+    const baseImplementation = invoke.getMockImplementation();
+    const resolvers: Array<(value: string) => void> = [];
+    let currentSnapshotRequests = 0;
+    const snapshot = (label: string) => JSON.stringify({
+      unitName: "РБАК",
+      entries: [{
+        crewId: 11,
+        crewName: `${label} ЕКІПАЖ`,
+        crewUavType: "Коптер",
+        actualMemberIds: [],
+        actualCommanderId: null,
+        actualVehicleId: null,
+        weather: { temperature: "", windFrom: "", windTo: "", gustFrom: "", gustTo: "", cloudiness: "", cloudHeight: "", precipitation: "" },
+        routePoints: [],
+        altitudeFrom: "",
+        altitudeTo: "",
+        areaPoints: [],
+        task: "Розвідка",
+        startTime: "07:00",
+        endTime: "12:00",
+        uavSelections: [],
+        payloadSelection: null,
+        positionId: 21,
+        positionName: `${label} ПОЗИЦІЯ`,
+        workStrip: "СМУГА ПІВНІЧ",
+        battleOrder: "БРО-01",
+      }],
+    });
+    invoke.mockImplementation((command: string, args?: { planDate?: string }) => {
+      if (command === "get_flight_plan_snapshot" && args?.planDate === "2026-09-17") {
+        currentSnapshotRequests += 1;
+        return new Promise<string>((resolve) => { resolvers.push(resolve); });
+      }
+      return baseImplementation?.(command, args);
+    });
+
+    act(() => { window.dispatchEvent(new CustomEvent("flight-plan-updated")); });
+    await waitFor(() => expect(currentSnapshotRequests).toBe(1));
+    act(() => { window.dispatchEvent(new CustomEvent("flight-plan-updated")); });
+    await waitFor(() => expect(currentSnapshotRequests).toBe(2));
+
+    await act(async () => { resolvers[1](snapshot("НОВА")); });
+    expect(await screen.findByText("НОВА ПОЗИЦІЯ", { selector: "b" })).toBeInTheDocument();
+
+    await act(async () => { resolvers[0](snapshot("СТАРА")); });
+    await act(async () => { await Promise.resolve(); });
+    expect(screen.getByText("НОВА ПОЗИЦІЯ", { selector: "b" })).toBeInTheDocument();
+    expect(screen.queryByText("СТАРА ПОЗИЦІЯ", { selector: "b" })).not.toBeInTheDocument();
+  });
+
   it("дозволяє обрати людину з плану для неперетинного чергування КСП", async () => {
     const baseImplementation = invoke.getMockImplementation();
     const positionPerson = { personnelId: 7, fullName: "ПОЗИЦІЙНИЙ Петро Петрович", rank: "солдат" };
