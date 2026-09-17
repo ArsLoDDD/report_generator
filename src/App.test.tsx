@@ -102,7 +102,7 @@ describe("navigation and report generation", () => {
     expect(generate).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: /Відкрити шаблон з файлу/ }));
     await waitFor(() => expect(screen.getByRole("heading", { name: "Нагородний рапорт" })).toBeInTheDocument());
-    fireEvent.click(screen.getAllByRole("button", { name: "Обрати" })[1]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Обрати ВАСИЛЬОК Іван Аркадійович" }));
     expect(generate).toBeEnabled();
   });
 
@@ -112,7 +112,7 @@ describe("navigation and report generation", () => {
     const vacationTemplate = screen.getByRole("button", { name: /Рапорт на відпустку/ });
     fireEvent.click(vacationTemplate);
     expect(vacationTemplate).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(screen.getByRole("button", { name: "Параметри значень" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("ВАСИЛЬОК Іван Аркадійович")).toBeInTheDocument());
     fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
     expect(screen.getByRole("button", { name: "Параметри значень" })).toBeInTheDocument();
     fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
@@ -120,7 +120,7 @@ describe("navigation and report generation", () => {
     expect(vacationTemplate).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("heading", { name: "Оберіть шаблон" })).toBeInTheDocument();
     fireEvent.click(vacationTemplate);
-    fireEvent.click(screen.getByText("ВАСИЛЬОК Іван Аркадійович"));
+    fireEvent.click(await screen.findByText("ВАСИЛЬОК Іван Аркадійович"));
     expect(screen.getByText("Вибрано:").parentElement).toHaveTextContent("Вибрано: 1");
     expect(screen.getByRole("button", { name: "Очистити вибір" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Очистити вибір" }));
@@ -182,7 +182,7 @@ describe("navigation and report generation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Видалити" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Видалити" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Видалити" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Перемістити" }));
     await waitFor(() => expect(templateService.delete).toHaveBeenCalledWith("/templates/Рапорт на відпустку.docx"));
   });
 
@@ -200,10 +200,10 @@ describe("navigation and report generation", () => {
     await waitFor(() => expect(screen.getByText("Показано 1 із 1")).toBeInTheDocument());
     const deleteButton = screen.getByRole("button", { name: "Видалити" });
     expect(deleteButton).toBeDisabled();
-    fireEvent.click(screen.getAllByRole("button", { name: "Обрати" })[1]);
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Обрати" })[1]);
     expect(screen.getByRole("button", { name: "Видалити (1)" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Видалити (1)" }));
-    fireEvent.click(screen.getByRole("button", { name: "Видалити" }));
+    fireEvent.click(screen.getByRole("button", { name: "Перемістити" }));
     await waitFor(() => expect(generatedReportsService.delete).toHaveBeenCalledWith(["/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30/Рапорт на відпустку.docx"]));
   });
 
@@ -221,7 +221,7 @@ describe("navigation and report generation", () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
     await waitFor(() => expect(screen.getByText("Використовувані змінні")).toBeInTheDocument());
-    expect(screen.getByText("Військовослужбовці")).toBeInTheDocument();
+    expect(screen.getByText("Військовослужбовець")).toBeInTheDocument();
     expect(screen.getByText("Останні рапорти")).toBeInTheDocument();
     expect(screen.queryByText("Усього шаблонів")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Шаблони" })).not.toBeInTheDocument();

@@ -78,6 +78,8 @@
 .generation-selection-modal__body tr { cursor: pointer; }
 .generation-selection-modal__body tr:hover { background: #12232c; }
 .generation-selection-modal .modal-actions { justify-content: flex-end; gap: 18px; }
+.generation-order-controls { display: inline-flex; gap: 5px; }
+.generation-order-controls .icon-button { width: 32px; height: 32px; }
+.generation-order-controls .icon-button svg { width: 15px; height: 15px; }
 
 @media (max-width: 760px) { .generation-parameters-fields { grid-template-columns: 1fr; } }
-

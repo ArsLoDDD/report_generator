@@ -4,7 +4,7 @@ import { ReportGenerationPage } from "./ReportGenerationPage";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
 
 const { generation } = vi.hoisted(() => ({ generation: {
-  error: null as string | null, generatedReport: null, inspection: { isValid: true, errors: [], variables: ["дата_рапорту"] }, isGenerating: false,
+  error: null as string | null, generatedReport: null, inspection: { isValid: true, errors: [], variables: ["дата_рапорту"] }, inspectedPath: "/templates/report.docx", isGenerating: false, isInspecting: false,
   selectTemplateFile: vi.fn(), inspectTemplate: vi.fn(), validation: null, generate: vi.fn(), openReport: vi.fn(), openReportFolder: vi.fn(), resetResult: vi.fn()
 } }));
 vi.mock("./hooks/useReportGeneration", () => ({ useReportGeneration: () => generation }));
@@ -19,7 +19,11 @@ const template = { name: "Рапорт", description: "Тест", changed: "сь
 const person = { id: 1, fullName: "ІВАНЕНКО Іван Іванович", rank: "майор", surname: "ІВАНЕНКО", givenName: "Іван", patronymic: "Іванович", position: "командир", taxId: "1234567890", birthDate: "", educationLevel: "", educationDetails: "", armedForcesServiceStartDate: "", positionAssignedDate: "", positionAssignmentOrder: "", militaryId: "", assignedVehicleName: "", assignedVehicleRegistration: "" };
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
-beforeEach(() => { generation.inspection = { isValid: true, errors: [], variables: ["військовий_1_піб", "дата_рапорту"] }; });
+beforeEach(() => {
+  generation.inspection = { isValid: true, errors: [], variables: ["військовий_1_піб", "дата_рапорту"] };
+  generation.inspectedPath = "/templates/report.docx";
+  generation.isInspecting = false;
+});
 
 describe("Генерація рапорту", () => {
   it("opens document parameters in a modal when personnel selection is required", () => {

@@ -26,6 +26,22 @@
 .template-row .status-pill.ready { background: #12381e; border-color: #276737; }
 .template-row .status-pill.warning { background: #382b13; border-color: #755e27; }
 .template-row .status-pill.error { background: #371819; border-color: #743536; }
+
+.template-load-warning {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid #743536;
+  border-radius: 8px;
+  background: #371819;
+  color: #ffd7d7;
+}
+
+.template-load-warning svg { flex: 0 0 auto; }
+.template-load-warning span { flex: 1; }
+.template-load-warning .button { min-height: 34px; }
 .template-row b { padding-right: 112px; }
 
 .validation {
@@ -46,4 +62,3 @@
   letter-spacing: .02em;
   text-transform: uppercase;
 }
-

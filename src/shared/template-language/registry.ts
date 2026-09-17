@@ -64,6 +64,39 @@ const dynamicParameterName = (token: string) => token
   .filter(Boolean)
   .map((part) => `${part.slice(0, 1).toLocaleUpperCase("uk-UA")}${part.slice(1)}`)
   .join(" ");
+const legacyPersonFields: Record<string, string> = {
+  rank: "звання",
+  surname: "прізвище",
+  givenName: "імя",
+  patronymic: "по_батькові",
+  fullName: "піб",
+  position: "посада",
+  taxId: "іпн",
+  birthDate: "дата_народження",
+  educationLevel: "освіта",
+  educationDetails: "де_отримана_освіта",
+  armedForcesServiceStartDate: "служба_в_зсу",
+  positionAssignedDate: "дата_призначення",
+  positionAssignmentOrder: "наказ_призначення",
+  militaryId: "військовий_квиток",
+  assignedVehicleName: "автомобіль",
+  assignedVehicleRegistration: "номер_автомобіля",
+};
+const legacySignerFields: Record<string, string> = {
+  mainRank: "звання",
+  mainName: "піб",
+  mainPosition: "посада",
+  commanderName: "піб",
+  chiefName: "піб",
+};
+const legacyPersonVariable = (id: string) => {
+  const single = /^soldier\.([A-Za-z][A-Za-z0-9]*)$/.exec(id);
+  const multiple = /^soldiers\[(\d+)]\.([A-Za-z][A-Za-z0-9]*)$/.exec(id);
+  const legacyField = single?.[1] ?? multiple?.[2];
+  const currentField = legacyField ? legacyPersonFields[legacyField] : undefined;
+  const field = currentField ? personFields.find((item) => item.id === currentField) : undefined;
+  return field ? fieldToVariable(field, id, "Застаріла сумісність · Військовослужбовець") : undefined;
+};
 export const variableRegistry: VariableDefinition[] = [
   ...personFields.map((field) => fieldToVariable(field, `військовий_1_${field.id}`, "Військовослужбовець")),
   ...vehicleFields.map((field) => fieldToVariable(field, `військовий_1_автомобіль_1_${field.id}`, "Автомобіль військовослужбовця")),
@@ -117,6 +150,13 @@ export function getSelectionRequirements(tokens: string[]): SelectionRequirement
   const isFieldToken = (value: string) => /^\p{L}[\p{L}\p{N}_]*$/u.test(value);
   for (const raw of tokens) {
     const base = raw.split(":")[0];
+    const legacySingle = /^soldier\.([A-Za-z][A-Za-z0-9]*)$/.exec(base);
+    const legacyMultiple = /^soldiers\[(\d+)]\.([A-Za-z][A-Za-z0-9]*)$/.exec(base);
+    if ((legacySingle && legacyPersonFields[legacySingle[1]]) || (legacyMultiple && legacyPersonFields[legacyMultiple[2]])) {
+      const count = legacyMultiple ? Number(legacyMultiple[1]) + 1 : 1;
+      counts.set("personnel", Math.max(counts.get("personnel") ?? 0, count));
+      continue;
+    }
     if (getGenerationParameter(base)) continue;
     for (const subject of selectionSubjects) {
       let index = 0;
@@ -139,12 +179,24 @@ export function getSelectionRequirements(tokens: string[]): SelectionRequirement
 export function getVariable(id: string) {
   const direct = variableRegistry.find((item) => item.id === id);
   if (direct) return direct;
+  const legacyPerson = legacyPersonVariable(id);
+  if (legacyPerson) return legacyPerson;
+  const legacySignerField = legacySignerFields[id];
+  if (legacySignerField) {
+    const field = signerFields.find((item) => item.id === legacySignerField);
+    if (field) return fieldToVariable(field, id, "Застаріла сумісність · Підписант");
+  }
+  if (id === "mainSignature") return { id, name: "Підпис основного підписанта", category: "Застаріла сумісність · Підписант", description: "Застарілий маркер підпису. Як і в попередній версії, замінюється порожнім значенням.", example: "", kind: "text", supportsCases: false } satisfies VariableDefinition;
   const generationParameter = getGenerationParameter(id);
   if (generationParameter) return fieldToVariable(generationParameter, id, "Параметри документа");
   const runtimeSignerField = signerFields
     .filter((field) => id.endsWith(`_${field.id}`))
     .sort((left, right) => right.id.length - left.id.length)[0];
-  if (runtimeSignerField && id.length > runtimeSignerField.id.length + 1) {
+  if (
+    runtimeSignerField
+    && id.length > runtimeSignerField.id.length + 1
+    && !subjectPrefixes.some((prefix) => id.startsWith(prefix))
+  ) {
     return fieldToVariable(runtimeSignerField, id, "Підписант із налаштувань");
   }
   const match = /^військовий_([1-9]\d*)_(.+)$/.exec(id);

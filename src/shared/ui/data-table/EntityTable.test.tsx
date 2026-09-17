@@ -32,7 +32,7 @@ describe("EntityTable", () => {
     const onToggleAll = vi.fn();
     const { rerender } = render(<EntityTable items={[{ id: 1, name: "Перший" }]} columns={columns} rowKey={(item) => item.id} selectedKeys={new Set([1])} onToggleSelection={onToggleSelection} onToggleAll={onToggleAll} />);
 
-    const checks = screen.getAllByRole("button");
+    const checks = screen.getAllByRole("checkbox");
     fireEvent.click(checks[0]);
     fireEvent.click(checks[1]);
     expect(onToggleAll).toHaveBeenCalledOnce();

@@ -20,7 +20,10 @@ describe("Template Language v2 registry and validator", () => {
     expect(validateToken(parseTemplateTokens("{{військовий_1_піб:родовий:родовий}}")[0]).length).toBeGreaterThan(0);
     expect(validateToken(parseTemplateTokens("{{військовий_1_піб:великими:маленькими}}")[0]).length).toBeGreaterThan(0);
   });
-  it("rejects v1, invalid numbers, types and misspelled modifiers", () => {
+  it("keeps v1 aliases readable while rejecting invalid numbers, types and misspelled modifiers", () => {
+    expect(validateToken(parseTemplateTokens("{{soldier.fullName}}")[0])).toEqual([]);
+    expect(validateToken(parseTemplateTokens("{{soldiers[1].rank}}")[0])).toEqual([]);
+    expect(validateToken(parseTemplateTokens("{{mainName}}")[0])).toEqual([]);
     expect(validateToken(parseTemplateTokens("{{невідома.змінна}}")[0])[0].message).toContain("Невідома змінна");
     expect(validateToken(parseTemplateTokens("{{військовий_0_піб}}")[0]).length).toBeGreaterThan(0);
     expect(validateToken(parseTemplateTokens("{{військовий_1_іпн:родовий}}")[0]).length).toBeGreaterThan(0);

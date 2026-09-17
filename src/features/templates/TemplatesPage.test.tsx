@@ -19,13 +19,13 @@ describe("Шаблони", () => {
     templateService.open.mockResolvedValue(undefined); templateService.delete.mockResolvedValue(undefined);
     const onSelect = vi.fn(); const onRefresh = vi.fn().mockResolvedValue([invalid]);
     render(<NotificationProvider><TemplatesPage templates={[first, invalid]} totalCount={2} hasMore={false} isRefreshing={false} isLoadingMore={false} onLoadMore={vi.fn()} selected={first} onSelect={onSelect} onRefresh={onRefresh} /></NotificationProvider>);
-    expect(await screen.findByText("Військовослужбовці")).toBeInTheDocument();
+    expect(await screen.findByText("Військовослужбовець")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Відкрити" }));
     await waitFor(() => expect(templateService.open).toHaveBeenCalledWith("/templates/a.docx"));
     fireEvent.click(screen.getByRole("button", { name: "Перевірити шаблон" }));
     await waitFor(() => expect(templateService.inspect).toHaveBeenCalledWith("/templates/a.docx"));
     fireEvent.click(screen.getByRole("button", { name: "Видалити" }));
-    fireEvent.click(screen.getAllByRole("button", { name: "Видалити" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Перемістити" }));
     await waitFor(() => expect(templateService.delete).toHaveBeenCalledWith("/templates/a.docx"));
   });
 

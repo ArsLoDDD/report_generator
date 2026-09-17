@@ -1,6 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { reportGenerationService, type GeneratedReport, type TemplateValidationResult } from "../services/reportGenerationService";
 import { invalidateGeneratedReports } from "../../generated-reports/hooks/useGeneratedReports";
+
+const messageFrom = (reason: unknown, fallback: string) =>
+  typeof reason === "string" ? reason : reason instanceof Error ? reason.message : fallback;
 
 export function useReportGeneration() {
   const [validation, setValidation] = useState<TemplateValidationResult | null>(null);
@@ -8,22 +11,39 @@ export function useReportGeneration() {
   const [generatedReport, setGeneratedReport] = useState<GeneratedReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isInspecting, setIsInspecting] = useState(false);
+  const [inspectedPath, setInspectedPath] = useState<string | null>(null);
+  const inspectionRequest = useRef(0);
 
   const selectTemplateFile = async () => {
     setError(null);
-    return reportGenerationService.selectTemplateFile();
+    try {
+      return await reportGenerationService.selectTemplateFile();
+    } catch (reason) {
+      setError(messageFrom(reason, "Не вдалося відкрити вибір шаблону."));
+      return null;
+    }
   };
 
   const inspectTemplate = useCallback(async (templatePath: string) => {
+    const request = ++inspectionRequest.current;
     setError(null);
+    setInspection(null);
+    setInspectedPath(null);
+    setIsInspecting(true);
     try {
       const result = await reportGenerationService.inspectTemplate(templatePath);
+      if (request !== inspectionRequest.current) return null;
       setInspection(result);
+      setInspectedPath(templatePath);
       return result;
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : "Не вдалося прочитати шаблон.";
-      setError(message);
+      if (request === inspectionRequest.current) {
+        setError(messageFrom(reason, "Не вдалося прочитати шаблон."));
+      }
       return null;
+    } finally {
+      if (request === inspectionRequest.current) setIsInspecting(false);
     }
   }, []);
 
@@ -41,7 +61,7 @@ export function useReportGeneration() {
       setGeneratedReport(generated);
       invalidateGeneratedReports();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не вдалося створити рапорт. Спробуйте ще раз.");
+      setError(messageFrom(reason, "Не вдалося створити рапорт. Спробуйте ще раз."));
     } finally {
       setIsGenerating(false);
     }
@@ -49,12 +69,12 @@ export function useReportGeneration() {
 
   const openReport = async (reportPath: string) => {
     try { await reportGenerationService.openGeneratedReport(reportPath); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Не вдалося відкрити рапорт."); }
+    catch (reason) { setError(messageFrom(reason, "Не вдалося відкрити рапорт.")); }
   };
 
   const openReportFolder = async (folderPath: string) => {
     try { await reportGenerationService.openGeneratedReportFolder(folderPath); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Не вдалося відкрити папку рапорту."); }
+    catch (reason) { setError(messageFrom(reason, "Не вдалося відкрити папку рапорту.")); }
   };
 
   const resetResult = useCallback(() => {
@@ -63,5 +83,5 @@ export function useReportGeneration() {
     setError(null);
   }, []);
 
-  return { error, generatedReport, inspection, isGenerating, selectTemplateFile, inspectTemplate, validation, generate, openReport, openReportFolder, resetResult };
+  return { error, generatedReport, inspection, inspectedPath, isGenerating, isInspecting, selectTemplateFile, inspectTemplate, validation, generate, openReport, openReportFolder, resetResult };
 }

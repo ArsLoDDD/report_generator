@@ -99,4 +99,13 @@ describe("selection requirements", () => {
     expect(getGenerationParameter("дата_рапортуа")).toBeUndefined();
     expect(getGenerationParameter("параметр_особливі_умови")).toBeDefined();
   });
+
+  it("derives selections for legacy v1 templates without exposing aliases in the constructor", () => {
+    expect(getVariable("soldier.fullName")?.category).toContain("Застаріла сумісність");
+    expect(getVariable("soldiers[2].rank")?.name).toBe("Звання");
+    expect(getVariable("mainName")?.category).toContain("Підписант");
+    expect(getSelectionRequirements(["soldiers[0].fullName", "soldiers[2].rank"])).toEqual([
+      expect.objectContaining({ id: "personnel", count: 3 }),
+    ]);
+  });
 });
