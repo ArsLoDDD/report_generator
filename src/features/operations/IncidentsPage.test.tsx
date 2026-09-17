@@ -8,6 +8,26 @@ const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 const incident = (id: number) => ({ id, incidentType: `Подія ${id}`, occurredAt: "2026-08-18T09:30", crewId: 4, crewName: "ГРІМ", equipmentId: 8, equipmentName: "VAMPIRE", equipmentIds: [8], equipmentNames: ["VAMPIRE"], personnelIds: [12], personnelNames: ["ЖУК Дмитро Петрович"], positionName: "ХИЖАК", reconnaissanceArea: "СТЕПОВЕ", crewSnapshot: "Іваненко Іван Іванович", vehicleName: "Toyota Hilux АА 2103 КТ", description: `Опис ${id}` });
+const pendingPlan = (overrides: Record<string, unknown> = {}) => ({
+  schemaVersion: 3,
+  date: "12.09.2026",
+  unitName: "РБПАК",
+  selected: [4],
+  entries: {
+    4: {
+      crewId: 4,
+      actualMemberIds: [],
+      startTime: "07:00",
+      endTime: "12:00",
+      areaPoints: [],
+      uavSelections: [],
+      positionName: "ВИПРАВЛЕНА",
+      ...overrides,
+    },
+  },
+  rotations: {},
+  pendingSave: { date: "2026-09-12", revision: 2, updatedAt: 200 },
+});
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
 
@@ -123,6 +143,44 @@ describe("Журнал інцидентів", () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", {
       draft: expect.objectContaining({ occurredAt: expect.stringMatching(/^2026-09-12T/u), positionName: "АРХІВНА", snapshotSource: "flight-plan-snapshot" }),
     }));
+  });
+
+  it("надає валідному pending-виправленню пріоритет над старим знімком БД", async () => {
+    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify(pendingPlan()));
+    const crew = { id: 4, name: "ГРІМ", positionName: "ПОТОЧНА", reconnaissanceArea: "СТЕПОВЕ", actualMembers: [] };
+    invoke.mockImplementation((command: string) => {
+      if (command === "list_incidents" || command === "list_equipment") return Promise.resolve([]);
+      if (command === "list_crews") return Promise.resolve([crew]);
+      if (command === "get_flight_plan_snapshot") return Promise.resolve(JSON.stringify({ unitName: "РБПАК", entries: [{ crewId: 4, positionName: "СТАРА З БД" }] }));
+      return Promise.resolve();
+    });
+    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
+    fireEvent.change(screen.getByLabelText("Екіпаж інциденту"), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("Дата"), { target: { value: "2026-09-12" } });
+
+    await waitFor(() => expect(screen.getByDisplayValue("ВИПРАВЛЕНА")).toBeInTheDocument());
+    expect(screen.queryByDisplayValue("СТАРА З БД")).not.toBeInTheDocument();
+  });
+
+  it("ігнорує невалідний pending і використовує знімок БД", async () => {
+    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify(pendingPlan({ areaPoints: "не масив" })));
+    const crew = { id: 4, name: "ГРІМ", positionName: "ПОТОЧНА", reconnaissanceArea: "СТЕПОВЕ", actualMembers: [] };
+    invoke.mockImplementation((command: string) => {
+      if (command === "list_incidents" || command === "list_equipment") return Promise.resolve([]);
+      if (command === "list_crews") return Promise.resolve([crew]);
+      if (command === "get_flight_plan_snapshot") return Promise.resolve(JSON.stringify({ unitName: "РБПАК", entries: [{ crewId: 4, positionName: "АКТУАЛЬНА З БД" }] }));
+      return Promise.resolve();
+    });
+    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
+    fireEvent.change(screen.getByLabelText("Екіпаж інциденту"), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("Дата"), { target: { value: "2026-09-12" } });
+
+    await waitFor(() => expect(screen.getByDisplayValue("АКТУАЛЬНА З БД")).toBeInTheDocument());
+    expect(screen.queryByDisplayValue("ВИПРАВЛЕНА")).not.toBeInTheDocument();
   });
 
   it("не підмішує завтрашню локальну чернетку до інциденту за іншу дату", async () => {

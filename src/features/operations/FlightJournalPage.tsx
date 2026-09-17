@@ -7,7 +7,7 @@ import { Select } from "../../shared/ui/Select";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { EntityTable, type EntityTableColumn } from "../../shared/ui/data-table/EntityTable";
 import { useEntityCollection } from "../../shared/hooks/useEntityCollection";
-import { flightPlanDraftRequest } from "./flight-plan-storage";
+import { flightPlanDraftRequest, flightPlanPendingDraftRequest } from "./flight-plan-storage";
 import { operationsService } from "./services/operationsService";
 import type { Crew, Equipment, FlightJournalDraft, FlightJournalEntry, FlightPlanRequest, Position, WorkshopProduct } from "./types";
 
@@ -64,7 +64,7 @@ export function FlightJournalPage() {
     const crew = crews.find((item) => item.id === Number(value));
     if (!crew) { setDraft((current) => ({ ...emptyDraft(), flightDate: current.flightDate })); return; }
     const storedSnapshot = await operationsService.getFlightPlanSnapshot(draft.flightDate).catch(() => null);
-    const plan: FlightPlanRequest | null = parsePlan(storedSnapshot) ?? flightPlanDraftRequest(draft.flightDate);
+    const plan: FlightPlanRequest | null = flightPlanPendingDraftRequest(draft.flightDate) ?? parsePlan(storedSnapshot) ?? flightPlanDraftRequest(draft.flightDate);
     const planEntry = plan?.entries.find((entry) => entry.crewId === crew.id);
     const selectedUavId = planEntry?.uavSelections?.[0]?.equipmentId ?? crew.primaryUavId ?? uavs.find((item) => item.crewId === crew.id)?.id ?? null;
     const uav = uavs.find((item) => item.id === selectedUavId);

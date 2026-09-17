@@ -11,7 +11,7 @@ import type { Crew, Equipment, EquipmentCategory, FlightPlanEntry, FlightPlanReq
 import { useEntityCollection } from "../../shared/hooks/useEntityCollection";
 import { incidentDateTimeParts } from "./incident-date";
 import { RecordPickerModal } from "../../shared/ui/record-picker/RecordPickerModal";
-import { flightPlanDraftRequest } from "./flight-plan-storage";
+import { flightPlanDraftRequest, flightPlanPendingDraftRequest } from "./flight-plan-storage";
 import { personnelService } from "../../shared/services/personnelService";
 import type { Person } from "../../shared/types/domain";
 
@@ -93,9 +93,9 @@ export function IncidentsPage() {
     };
     void operationsService.getFlightPlanSnapshot(incidentDate).then((value) => {
       if (!active) return;
-      applyPlan(parsePlan(value) ?? flightPlanDraftRequest(incidentDate));
+      applyPlan(flightPlanPendingDraftRequest(incidentDate) ?? parsePlan(value) ?? flightPlanDraftRequest(incidentDate));
     }).catch(() => {
-      if (active) applyPlan(flightPlanDraftRequest(incidentDate));
+      if (active) applyPlan(flightPlanPendingDraftRequest(incidentDate) ?? flightPlanDraftRequest(incidentDate));
     });
     return () => { active = false; };
   }, [crews, draft.incidentDate, open]);
