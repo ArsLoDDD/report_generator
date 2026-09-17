@@ -1,6 +1,17 @@
 import type { PersonnelControlDraft, PersonnelControlRecord } from "./types";
+import { isOperationallyAvailable } from "../operations/bcs-model";
 
 export const MANUAL_PERSONNEL_LOCATIONS = ["НАВЧ", "ВІДР", "ЛІК"] as const;
+export const POSITION_AND_WORK_LOCATIONS = [
+  "На позиції",
+  "ЗБЗ",
+  "ПБЗ",
+  "ГШР",
+  "Реко",
+  "Облаштування",
+  "Реко та облаштування",
+  "Логістика на позиції",
+] as const;
 
 export const PERSONNEL_CONTROL_TAB_ORDER = [
   "На позиції",
@@ -34,6 +45,13 @@ export function todayLocal(now = new Date()) {
 
 export function controlTab(record: PersonnelControlRecord) {
   return record.tab.trim() || record.locationType.trim() || "Не вказано";
+}
+
+export function blocksManualPersonnelAssignment(record: PersonnelControlRecord) {
+  return record.source === "automatic"
+    || (record.source === "manual" && record.assignmentId != null)
+    || !isOperationallyAvailable(record.locationType)
+    || POSITION_AND_WORK_LOCATIONS.includes(record.locationType as typeof POSITION_AND_WORK_LOCATIONS[number]);
 }
 
 export function controlTabs(records: PersonnelControlRecord[]) {

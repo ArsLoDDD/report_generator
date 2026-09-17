@@ -101,9 +101,9 @@ describe("Картка позиції", () => {
     fireEvent.change(screen.getByLabelText("Час події"), { target: { value: "11:00" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: /КСПОВИЙ Кирило Кирилович/ }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /НАВЧАЛЬНИЙ Назар Назарович/ }));
-    expect(screen.getAllByText("Період 1")).toHaveLength(3);
-    expect(screen.getAllByText("Період 2")).toHaveLength(3);
+    expect(screen.queryByText(trainingPerson.fullName)).not.toBeInTheDocument();
+    expect(screen.getAllByText("Період 1")).toHaveLength(2);
+    expect(screen.getAllByText("Період 2")).toHaveLength(2);
     fireEvent.change(screen.getByLabelText("Тривалість чергування"), { target: { value: "4" } });
     expect(screen.getByLabelText("Час початку, період 1: ПЕТРЕНКО Петро Петрович")).toHaveValue("11:00");
     expect(screen.getByLabelText("Час завершення, період 1: ПЕТРЕНКО Петро Петрович")).toHaveValue("15:00");
@@ -119,10 +119,10 @@ describe("Картка позиції", () => {
             memberAssignments: expect.arrayContaining([
               expect.objectContaining({ personnelId: 42, dutyType: "Облаштування", startTime: "11:00", endTime: "15:00" }),
               expect.objectContaining({ personnelId: 42, dutyType: "Охорона та оборона", startTime: "15:01", endTime: "19:00" }),
-              expect.objectContaining({ personnelId: 43, dutyType: "Облаштування", startTime: "15:00", endTime: "19:00" }),
-              expect.objectContaining({ personnelId: 45, dutyType: "Охорона та оборона", startTime: "11:00", endTime: "15:00" }),
+              expect.objectContaining({ personnelId: 43, dutyType: "Охорона та оборона", startTime: "11:00", endTime: "15:00" }),
+              expect.objectContaining({ personnelId: 43, dutyType: "Облаштування", startTime: "15:01", endTime: "19:00" }),
             ]),
-            endTime: "23:00",
+            endTime: "19:00",
           }),
         }),
       ),
@@ -193,10 +193,17 @@ describe("Картка позиції", () => {
     expect(invoke).not.toHaveBeenCalledWith("create_position", expect.anything());
   });
 
-  it("показує всіх, хто не перебуває на позиції, але виключає переходи та інші роботи на позиції", async () => {
+  it("показує лише доступних людей і виключає позицію, переходи, роботи та відсутні стани", async () => {
+    const tripPerson = { ...freePerson, personnelId: 47, fullName: "ВІДРЯДЖЕНИЙ Василь Васильович", currentLocation: "ВІДР" };
+    const treatmentPerson = { ...freePerson, personnelId: 48, fullName: "ЛІКУЄТЬСЯ Леонід Леонідович", currentLocation: "ЛІК" };
+    const rapidResponsePerson = { ...freePerson, personnelId: 49, fullName: "РЕАГУВАННЯ Руслан Русланович", currentLocation: "ГШР" };
+    const leavePerson = { ...freePerson, personnelId: 50, fullName: "ВІДПУСТКА Вадим Васильович", currentLocation: "ВІДП" };
+    const absentPerson = { ...freePerson, personnelId: 51, fullName: "ВІДСУТНІЙ Степан Степанович", currentLocation: "СЗЧ" };
+    const detachedPerson = { ...freePerson, personnelId: 52, fullName: "ВІДКОМАНДИРОВАНИЙ Олег Олегович", currentLocation: "Відкомандировані" };
+    const ptzPerson = { ...freePerson, personnelId: 53, fullName: "ПТЗ Павло Павлович", currentLocation: "ПТЗ Новостав" };
     invoke.mockImplementation((command: string) => {
       if (command === "list_positions") return Promise.resolve([position]);
-      if (command === "list_staffing_records") return Promise.resolve([freePerson, kspPerson, otherWorkPerson, trainingPerson, leavingPositionPerson]);
+      if (command === "list_staffing_records") return Promise.resolve([freePerson, kspPerson, otherWorkPerson, trainingPerson, leavingPositionPerson, tripPerson, treatmentPerson, rapidResponsePerson, leavePerson, absentPerson, detachedPerson, ptzPerson]);
       if (["list_crews", "list_incidents", "list_equipment", "list_vehicles", "list_position_work"].includes(command)) return Promise.resolve([]);
       return Promise.resolve();
     });
@@ -205,7 +212,14 @@ describe("Картка позиції", () => {
     await openPositionSetup();
     expect(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: /КСПОВИЙ Кирило Кирилович/ })).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /НАВЧАЛЬНИЙ Назар Назарович/ })).toBeInTheDocument();
+    expect(screen.queryByText(trainingPerson.fullName)).not.toBeInTheDocument();
+    expect(screen.queryByText(tripPerson.fullName)).not.toBeInTheDocument();
+    expect(screen.queryByText(treatmentPerson.fullName)).not.toBeInTheDocument();
+    expect(screen.queryByText(rapidResponsePerson.fullName)).not.toBeInTheDocument();
+    expect(screen.queryByText(leavePerson.fullName)).not.toBeInTheDocument();
+    expect(screen.queryByText(absentPerson.fullName)).not.toBeInTheDocument();
+    expect(screen.queryByText(detachedPerson.fullName)).not.toBeInTheDocument();
+    expect(screen.queryByText(ptzPerson.fullName)).not.toBeInTheDocument();
     expect(screen.queryByText(otherWorkPerson.fullName)).not.toBeInTheDocument();
     expect(screen.queryByText(leavingPositionPerson.fullName)).not.toBeInTheDocument();
   });

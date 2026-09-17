@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { controlPeriod, controlTabs, formatControlDateTime, validatePersonnelControlDraft } from "./personnel-control-model";
+import { blocksManualPersonnelAssignment, controlPeriod, controlTabs, formatControlDateTime, validatePersonnelControlDraft } from "./personnel-control-model";
 import type { PersonnelControlRecord } from "./types";
 
 const record = (tab: string, locationType = tab): PersonnelControlRecord => ({
@@ -36,6 +36,15 @@ describe("personnel control model", () => {
     expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "НАВЧ", institution: "Центр", startDate: "2026-09-17", endDate: "", notes: "" })).toMatchObject({ endDate: expect.any(String) });
     expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "ВІДР", institution: "Київ", startDate: "2026-09-17", endDate: "", notes: "" })).toEqual({});
     expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "ЛІК", institution: "Шпиталь", startDate: "2026-09-17", endDate: "2026-09-16", notes: "" })).toMatchObject({ endDate: expect.any(String) });
+  });
+
+  it("does not allow a manual state to overwrite absence or position ownership", () => {
+    for (const location of ["ВІДП", "Відкомандировані", "СЗЧ", "ПТЗ Новостав", "Логістика на позиції"]) {
+      expect(blocksManualPersonnelAssignment({ ...record(location), source: "bcs" })).toBe(true);
+    }
+    expect(blocksManualPersonnelAssignment({ ...record("ОХ"), source: "bcs" })).toBe(false);
+    expect(blocksManualPersonnelAssignment({ ...record("ЗАБ"), source: "bcs" })).toBe(false);
+    expect(blocksManualPersonnelAssignment({ ...record("", ""), source: "bcs" })).toBe(false);
   });
 
   it("explains an open-ended business trip in the period", () => {

@@ -189,6 +189,12 @@ fn apply_flight_plan_locations_for_date(
             if super::is_manual_control_location(&current_location) {
                 return Err("До плану польотів не можна додати військовослужбовця з активним НАВЧ, ВІДР або ЛІК. Спочатку завершіть запис у «Контролі особового складу».".into());
             }
+            if !super::is_operationally_available(&current_location) {
+                return Err(format!(
+                    "До плану польотів не можна додати військовослужбовця зі станом «{}». Спочатку завершіть або змініть цей стан у його джерелі.",
+                    current_location.trim()
+                ));
+            }
             let has_active_position_work = transaction
                 .query_row(
                     "SELECT EXISTS(
@@ -337,6 +343,54 @@ mod flight_plan_location_tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(locations, vec!["На позиції", "ПБЗ", "ЗБЗ", "ОХ"]);
+    }
+
+    #[test]
+    fn rejects_absent_people_before_changing_flight_plan_locations() {
+        for (index, location) in [
+            "ВІДП",
+            "Відкомандировані",
+            "СЗЧ",
+            "ПТЗ Новостав",
+            "НАВЧ",
+            "ВІДР",
+            "ЛІК",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let connection = rusqlite::Connection::open_in_memory().unwrap();
+            crate::database::initialise(&connection).unwrap();
+            connection
+                .execute("INSERT INTO crews(id,name) VALUES(1,'БАРС')", [])
+                .unwrap();
+            connection.execute("INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id,current_location) VALUES(1,'солдат','ЛЮДИНА','Тест','Тестович','оператор',?1,'','','','','','','',?2)", rusqlite::params![format!("tax-{index}"), location]).unwrap();
+            connection
+                .execute(
+                    "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(1,1)",
+                    [],
+                )
+                .unwrap();
+
+            assert!(apply_flight_plan_locations(
+                &connection,
+                &[FlightPlanCrewLocationAssignment {
+                    crew_id: 1,
+                    stages: vec![vec![1]],
+                    arrives_today: true,
+                    departs_today: false,
+                }],
+            )
+            .is_err());
+            let stored: String = connection
+                .query_row(
+                    "SELECT current_location FROM personnel WHERE id=1",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(stored, location);
+        }
     }
 
     #[test]

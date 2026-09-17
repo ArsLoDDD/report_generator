@@ -9,8 +9,23 @@ const normalize = (value: string) => value.toLocaleLowerCase("uk").replace(/[’
 export const bcsCaps = (value: string | null | undefined) => (value ?? "").toLocaleUpperCase("uk");
 export const CREW_WORKING_LOCATIONS = ["На позиції", "ЗБЗ", "ПБЗ", "Реко та облаштування", "Реко", "Облаштування", "Логістика на позиції", "ГШР", "ОХ", "ЗАБ"] as const;
 export const BCS_ABSENCE_LOCATIONS = ["ВІДП", "ЛІК", "НАВЧ", "ВІДР", "Відкомандировані", "СЗЧ"] as const;
+export const OPERATIONAL_ABSENCE_LOCATIONS = [...BCS_ABSENCE_LOCATIONS, "ПТЗ Новостав"] as const;
+export const POSITION_WORK_LOCATIONS = ["Реко", "Облаштування", "Реко та облаштування"] as const;
+export const POSITION_OCCUPANCY_LOCATIONS = ["На позиції", "ЗБЗ", "ПБЗ", "ГШР", "Логістика на позиції"] as const;
+export function isOperationallyAvailable(value: string) {
+  return !OPERATIONAL_ABSENCE_LOCATIONS.includes(value.trim() as typeof OPERATIONAL_ABSENCE_LOCATIONS[number]);
+}
+export function isAvailableForFlightPlan(value: string) {
+  return isOperationallyAvailable(value) && !POSITION_WORK_LOCATIONS.includes(value.trim() as typeof POSITION_WORK_LOCATIONS[number]);
+}
+export function isAvailableForPositionWork(value: string) {
+  const location = value.trim();
+  return isOperationallyAvailable(location)
+    && !POSITION_OCCUPANCY_LOCATIONS.includes(location as typeof POSITION_OCCUPANCY_LOCATIONS[number])
+    && !POSITION_WORK_LOCATIONS.includes(location as typeof POSITION_WORK_LOCATIONS[number]);
+}
 export function isAvailableInUnit(value: string) {
-  return !BCS_ABSENCE_LOCATIONS.includes(value as typeof BCS_ABSENCE_LOCATIONS[number]) && value !== "ПТЗ Новостав";
+  return isOperationallyAvailable(value);
 }
 export function isCrewWorkingLocation(value: string) {
   const location = normalize(value);

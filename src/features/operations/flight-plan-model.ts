@@ -1,4 +1,5 @@
 import type { Vehicle } from "../vehicles/types";
+import { isAvailableForFlightPlan } from "./bcs-model";
 import type { Crew, Equipment, FlightPlanEntry, FlightPlanRotation, FlightPlanWeather, WorkshopProduct } from "./types";
 
 export const FLIGHT_PLAN_HEADERS = [
@@ -11,9 +12,13 @@ export const FLIGHT_PLAN_HEADERS = [
 ] as const;
 
 export const FLIGHT_TASKS = ["Розвідка противника та місцевості", "Ураження противника"];
+export const isFlightPlanMemberAvailable = (member: Crew["members"][number]) => isAvailableForFlightPlan(member.currentLocation ?? "");
 export const initialWeather = (): FlightPlanWeather => ({ temperature:"20",windFrom:"2",windTo:"4",gustFrom:"5",gustTo:"7",cloudiness:"10",cloudHeight:"2000",precipitation:"0" });
 export const splitPoints = (value: string) => value.split(/[,;\n]+/u).map((part) => part.trim()).filter(Boolean);
-export const initialFlightEntry = (crew: Crew, uavs:Equipment[]=[]): FlightPlanEntry => ({ crewId:crew.id,actualMemberIds:crew.actualMembers.map((member)=>member.personnelId),actualCommanderId:crew.actualMembers.find((member)=>member.position.toLocaleLowerCase("uk").includes("командир"))?.personnelId??crew.actualMembers[0]?.personnelId??null,actualVehicleId:null,weather:initialWeather(),routePoints:[],altitudeFrom:"800",altitudeTo:"1100",areaPoints:splitPoints(crew.reconnaissanceArea),task:FLIGHT_TASKS[0],startTime:"05:00",endTime:"21:00",uavSelections:uavs.filter((item)=>item.crewId===crew.id).map((item)=>({equipmentId:item.id,dayQuantity:item.dayQuantity,nightQuantity:item.nightQuantity})),payloadSelection:null,arrivesToday:false,departsToday:false,departureTime:"" });
+export const initialFlightEntry = (crew: Crew, uavs:Equipment[]=[]): FlightPlanEntry => {
+  const availableMembers = crew.actualMembers.filter(isFlightPlanMemberAvailable);
+  return { crewId:crew.id,actualMemberIds:availableMembers.map((member)=>member.personnelId),actualCommanderId:availableMembers.find((member)=>member.position.toLocaleLowerCase("uk").includes("командир"))?.personnelId??availableMembers[0]?.personnelId??null,actualVehicleId:null,weather:initialWeather(),routePoints:[],altitudeFrom:"800",altitudeTo:"1100",areaPoints:splitPoints(crew.reconnaissanceArea),task:FLIGHT_TASKS[0],startTime:"05:00",endTime:"21:00",uavSelections:uavs.filter((item)=>item.crewId===crew.id).map((item)=>({equipmentId:item.id,dayQuantity:item.dayQuantity,nightQuantity:item.nightQuantity})),payloadSelection:null,arrivesToday:false,departsToday:false,departureTime:"" };
+};
 
 export type FlightPlanScheduleValidation = {
   isValid: boolean;

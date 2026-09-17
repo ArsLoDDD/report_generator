@@ -650,13 +650,19 @@ fn save_assignment(
             return Err("Завершений запис не редагується. Створіть нове переміщення.".into());
         }
     } else {
-        if is_automatic_control_location(&current_location)
+        if is_manual_control_location(&current_location) {
+            return Err("Для військовослужбовця вже вказано ручний стан. Відредагуйте або завершіть чинний запис.".into());
+        }
+        if !super::is_operationally_available(&current_location) {
+            return Err(format!(
+                "Не можна встановити ручний стан: військовослужбовець має стан «{}». Спочатку завершіть або змініть його у джерелі.",
+                current_location.trim()
+            ));
+        }
+        if super::is_protected_manual_control_origin(&current_location)
             || active_position_work(&transaction, draft.personnel_id)
         {
             return Err("Військовослужбовець зараз перебуває у системному процесі. Спочатку завершіть перебування на позиції, ротацію або роботи з рекогностування/облаштування.".into());
-        }
-        if is_manual_control_location(&current_location) {
-            return Err("Для військовослужбовця вже вказано ручний стан. Відредагуйте або завершіть чинний запис.".into());
         }
     }
     if overlaps_existing_assignment(&transaction, draft.personnel_id, assignment_id, start, end)? {
@@ -1036,6 +1042,53 @@ mod tests {
             NaiveDate::from_ymd_opt(2026, 9, 17).unwrap()
         )
         .is_err());
+    }
+
+    #[test]
+    fn manual_assignment_does_not_overwrite_absence_or_logistics() {
+        let today = NaiveDate::from_ymd_opt(2026, 9, 17).unwrap();
+        for location in [
+            "ВІДП",
+            "Відкомандировані",
+            "СЗЧ",
+            "ПТЗ Новостав",
+            "Логістика на позиції",
+        ] {
+            let connection = connection();
+            connection
+                .execute(
+                    "UPDATE personnel SET current_location=?1 WHERE id=1",
+                    [location],
+                )
+                .unwrap();
+
+            let error =
+                save_assignment(&connection, None, &draft("ЛІК", ""), today).expect_err(location);
+            if location == "Логістика на позиції" {
+                assert!(error.contains("системному процесі"));
+            } else {
+                assert!(error.contains(location), "{error}");
+                assert!(error.contains("у джерелі"), "{error}");
+            }
+            let (current_location, assignments): (String, i64) = (
+                connection
+                    .query_row(
+                        "SELECT current_location FROM personnel WHERE id=1",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap(),
+                connection
+                    .query_row(
+                        "SELECT COUNT(*) FROM personnel_control_assignments",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .unwrap(),
+            );
+            assert_eq!(current_location, location);
+            assert_eq!(assignments, 0);
+        }
     }
 
     #[test]

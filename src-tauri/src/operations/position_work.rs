@@ -265,6 +265,11 @@ fn validate_person_availability(
     if super::is_manual_control_location(current_location) {
         return Err("До робіт не можна залучити людей, які перебувають на навчанні, у відрядженні або на лікуванні.".into());
     }
+    if !super::is_operationally_available(current_location) {
+        return Err(format!(
+            "До робіт не можна залучити військовослужбовця зі станом «{current_location}». Спочатку завершіть або змініть цей стан у його джерелі."
+        ));
+    }
     if is_work_location(current_location)
         && !(belongs_to_current_work && current_work_is_active && draft_is_active)
     {
@@ -889,6 +894,21 @@ mod tests {
     fn only_free_people_or_members_of_the_current_active_work_are_allowed() {
         assert!(validate_person_availability("ОХ", false, false, true, false).is_ok());
         assert!(validate_person_availability("", false, false, true, false).is_ok());
+        assert!(validate_person_availability("ЗАБ", false, false, true, false).is_ok());
+        for location in [
+            "ВІДП",
+            "Відкомандировані",
+            "СЗЧ",
+            "ПТЗ Новостав",
+            "НАВЧ",
+            "ВІДР",
+            "ЛІК",
+        ] {
+            assert!(
+                validate_person_availability(location, false, false, true, false).is_err(),
+                "{location}"
+            );
+        }
         assert!(
             validate_person_availability("Реко та облаштування", true, true, true, false).is_ok()
         );

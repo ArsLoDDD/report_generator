@@ -14,6 +14,7 @@ import { operationsService } from "./services/operationsService";
 import type { Crew, Equipment, EquipmentCategory, Incident, Position, PositionDraft, PositionWork, PositionWorkDraft, PositionWorkMemberDraft, StaffingRecord } from "./types";
 import { flightPlanActiveCrewIds, flightPlanActiveMemberIds, flightPlanDateMatches, flightPlanSnapshot } from "./flight-plan-storage";
 import { incidentDateTimeParts } from "./incident-date";
+import { isAvailableForPositionWork } from "./bcs-model";
 import { vehiclesService } from "../vehicles/services/vehiclesService";
 import type { Vehicle } from "../vehicles/types";
 
@@ -32,7 +33,6 @@ const workTypeOptions = [{ value: "Рекогностування", label: "Ре
 const workStatusOptions = [{ value: "Приступили", label: "Приступили" }, { value: "Продовжують", label: "Продовжують" }, { value: "Завершили", label: "Завершили" }];
 const workDutyOptions = [{ value: "Охорона та оборона", label: "Охорона та оборона" }, ...workTypeOptions];
 const basePositionTypeOptions = [{ value: "Основна", label: "Основна" }, { value: "Запасна", label: "Запасна" }];
-const unavailablePositionWorkLocations = new Set(["На позиції", "ЗБЗ", "ПБЗ", "Реко", "Облаштування", "Реко та облаштування"]);
 const rotationHourOptions = [1, 2, 3, 4, 6, 8, 12].map((hours) => ({ value: String(hours), label: `${hours} год` }));
 const uniquePersonnelIds = (assignments: PositionWorkMemberDraft[]) => [...new Set(assignments.map((item) => item.personnelId))];
 const withAssignments = (draft: PositionWorkDraft, memberAssignments: PositionWorkMemberDraft[]): PositionWorkDraft => ({ ...draft, personnelIds: uniquePersonnelIds(memberAssignments), memberAssignments });
@@ -216,7 +216,7 @@ export function PositionsPage() {
   ]);
   const editingWork = editing ? positionWork.filter((work) => work.positionId === editing.id) : [];
   const originalWorkPersonnelIds = new Set(workEditing && workEditing !== "new" ? workEditing.members.map((member) => member.personnelId) : []);
-  const isAvailableForEditedWork = (personnelId: number) => { const person = staffing.find((item) => item.personnelId === personnelId); if (!person) return false; const location = person.currentLocation.trim(); const completedOriginal = workEditing && workEditing !== "new" && workEditing.status === "Завершили" && originalWorkPersonnelIds.has(personnelId); return !unavailablePositionWorkLocations.has(location) || completedOriginal || (originalWorkPersonnelIds.has(personnelId) && ["Реко", "Облаштування", "Реко та облаштування"].includes(location)); };
+  const isAvailableForEditedWork = (personnelId: number) => { const person = staffing.find((item) => item.personnelId === personnelId); if (!person) return false; const location = person.currentLocation.trim(); const completedOriginal = workEditing && workEditing !== "new" && workEditing.status === "Завершили" && originalWorkPersonnelIds.has(personnelId); return isAvailableForPositionWork(location) || completedOriginal || (originalWorkPersonnelIds.has(personnelId) && ["Реко", "Облаштування", "Реко та облаштування"].includes(location)); };
   const availableStaffingWorkPeople: PositionWorkPerson[] = staffing.filter((person) => person.personnelId > 0 && (
     originalWorkPersonnelIds.has(person.personnelId)
     || (!allPositionPersonnelIds.has(person.personnelId) && isAvailableForEditedWork(person.personnelId))
@@ -225,7 +225,7 @@ export function PositionsPage() {
     ? [...new Map(workEditing.members.filter((member) => !staffing.some((person) => person.personnelId === member.personnelId)).map((member) => [member.personnelId, member])).values()].map((member) => ({ personnelId: member.personnelId, fullName: member.fullName, rank: member.rank, position: "Запис відсутній у БЧС" }))
     : [];
   const availableWorkPeople = [...availableStaffingWorkPeople, ...missingOriginalWorkPeople];
-  const availableSetupPeople = staffing.filter((person) => person.personnelId > 0 && !allPositionPersonnelIds.has(person.personnelId) && !unavailablePositionWorkLocations.has(person.currentLocation.trim()));
+  const availableSetupPeople = staffing.filter((person) => person.personnelId > 0 && !allPositionPersonnelIds.has(person.personnelId) && isAvailableForPositionWork(person.currentLocation));
   const updateSetupWorkDraft = (next: PositionWorkDraft) => setSetupWorkDraft((current) => {
     const scheduleBasisChanged = current.startDate !== next.startDate || current.startTime !== next.startTime || current.workType !== next.workType;
     return scheduleBasisChanged && next.personnelIds.length ? rotatingWorkDraft(next, next.personnelIds, setupRotationHours) : next;
