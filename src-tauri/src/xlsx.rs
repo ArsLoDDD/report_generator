@@ -139,6 +139,42 @@ pub const INCIDENT_KEYS: &[&str] = &[
     "reconnaissance_area",
     "description",
 ];
+pub const PERSONNEL_CONTROL_ASSIGNMENT_KEYS: &[&str] = &[
+    "assignment_reference",
+    "personnel_tax_id",
+    "personnel_full_name",
+    "location_type",
+    "institution",
+    "start_date",
+    "end_date",
+    "until_separate_order",
+    "notes",
+    "previous_location",
+    "closed_on",
+    "closed_at",
+    "close_reason",
+    "created_at",
+    "updated_at",
+];
+pub const PERSONNEL_CONTROL_EVENT_KEYS: &[&str] = &[
+    "assignment_reference",
+    "personnel_tax_id",
+    "personnel_full_name",
+    "personnel_legacy_id",
+    "full_name_snapshot",
+    "rank_snapshot",
+    "position_snapshot",
+    "action",
+    "location_type",
+    "institution",
+    "start_date",
+    "end_date",
+    "notes",
+    "reason",
+    "occurred_at",
+];
+pub const PERSONNEL_CONTROL_ASSIGNMENTS_SHEET: &str = "Контроль ОС";
+pub const PERSONNEL_CONTROL_EVENTS_SHEET: &str = "Історія контролю ОС";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VehicleRow {
@@ -260,6 +296,52 @@ pub struct IncidentRow {
     pub description: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PersonnelControlAssignmentRow {
+    /// Workbook-local identity used to reconnect history after database IDs change.
+    pub assignment_reference: String,
+    pub personnel_tax_id: String,
+    pub personnel_full_name: String,
+    pub location_type: String,
+    pub institution: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub until_separate_order: String,
+    pub notes: String,
+    pub previous_location: String,
+    pub closed_on: String,
+    pub closed_at: String,
+    pub close_reason: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PersonnelControlEventRow {
+    pub assignment_reference: String,
+    pub personnel_tax_id: String,
+    pub personnel_full_name: String,
+    /// Original ID is retained only to keep events for personnel deleted before export grouped.
+    pub personnel_legacy_id: String,
+    pub full_name_snapshot: String,
+    pub rank_snapshot: String,
+    pub position_snapshot: String,
+    pub action: String,
+    pub location_type: String,
+    pub institution: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub notes: String,
+    pub reason: String,
+    pub occurred_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PersonnelControlSheets {
+    pub assignments: Vec<PersonnelControlAssignmentRow>,
+    pub events: Vec<PersonnelControlEventRow>,
+}
+
 pub struct ImportData {
     pub staffing: crate::staffing_exchange::ExtraSheets,
     pub personnel: Vec<PersonnelDraft>,
@@ -269,6 +351,10 @@ pub struct ImportData {
     pub equipment: Vec<EquipmentRow>,
     pub incidents: Vec<IncidentRow>,
     pub positions: Vec<PositionRow>,
+    /// `None` means a legacy workbook without either structured control sheet.
+    /// `Some(empty)` is intentionally different: a new export declares that no
+    /// structured control data exists and must not trigger legacy reconstruction.
+    pub personnel_control: Option<PersonnelControlSheets>,
     pub personnel_custom_fields: Vec<CustomValueRow>,
     pub vehicle_custom_fields: Vec<CustomValueRow>,
     pub personnel_custom_field_maps: Vec<CustomFieldMapRow>,

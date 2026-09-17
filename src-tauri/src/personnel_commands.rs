@@ -1,5 +1,469 @@
 use super::*;
 
+const PERSONNEL_CONTROL_LOCATIONS: [&str; 3] = ["НАВЧ", "ВІДР", "ЛІК"];
+const PERSONNEL_CONTROL_ACTIONS: [&str; 4] = ["created", "updated", "closed", "migrated"];
+
+fn parse_control_date(
+    value: &str,
+    label: &str,
+    sheet: &str,
+    row_number: usize,
+) -> Result<Option<chrono::NaiveDate>, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .map(Some)
+        .map_err(|_| {
+            format!(
+                "На аркуші «{sheet}», рядок {row_number}, поле «{label}» має бути у форматі РРРР-ММ-ДД."
+            )
+        })
+}
+
+fn validate_control_timestamp(
+    value: &str,
+    label: &str,
+    sheet: &str,
+    row_number: usize,
+    required: bool,
+) -> Result<(), String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return if required {
+            Err(format!(
+                "На аркуші «{sheet}», рядок {row_number}, не заповнено поле «{label}»."
+            ))
+        } else {
+            Ok(())
+        };
+    }
+    let valid = [
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S%.f",
+    ]
+    .iter()
+    .any(|format| chrono::NaiveDateTime::parse_from_str(value, format).is_ok())
+        || chrono::DateTime::parse_from_rfc3339(value).is_ok();
+    if valid {
+        Ok(())
+    } else {
+        Err(format!(
+            "На аркуші «{sheet}», рядок {row_number}, поле «{label}» містить некоректні дату й час."
+        ))
+    }
+}
+
+fn parse_control_bool(value: &str, row_number: usize) -> Result<i64, String> {
+    match value.trim().to_lowercase().as_str() {
+        "" | "0" | "ні" | "false" => Ok(0),
+        "1" | "так" | "true" => Ok(1),
+        _ => Err(format!(
+            "На аркуші «{}», рядок {row_number}, поле «До окремого розпорядження» має містити Так або Ні.",
+            xlsx::PERSONNEL_CONTROL_ASSIGNMENTS_SHEET
+        )),
+    }
+}
+
+fn resolve_control_personnel(
+    connection: &Connection,
+    tax_id: &str,
+    full_name: &str,
+) -> Result<Option<i64>, String> {
+    let (query, reference, error_label) = if !tax_id.trim().is_empty() {
+        (
+            "SELECT id FROM personnel WHERE tax_id=?1 ORDER BY id LIMIT 2",
+            tax_id.trim(),
+            "ІПН",
+        )
+    } else if !full_name.trim().is_empty() {
+        (
+            "SELECT id FROM personnel WHERE trim(surname||' '||given_name||' '||patronymic)=?1 ORDER BY id LIMIT 2",
+            full_name.trim(),
+            "ПІБ",
+        )
+    } else {
+        return Ok(None);
+    };
+    let mut statement = connection
+        .prepare(query)
+        .map_err(|_| "Не вдалося перевірити зв’язки контролю особового складу.".to_string())?;
+    let ids = statement
+        .query_map([reference], |row| row.get::<_, i64>(0))
+        .map_err(|_| "Не вдалося перевірити зв’язки контролю особового складу.".to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Не вдалося перевірити зв’язки контролю особового складу.".to_string())?;
+    if ids.len() > 1 {
+        return Err(format!(
+            "За {error_label} «{reference}» знайдено кілька військовослужбовців. Вкажіть у Excel унікальний ІПН."
+        ));
+    }
+    Ok(ids.first().copied())
+}
+
+fn load_personnel_control_sheets(
+    connection: &Connection,
+) -> Result<xlsx::PersonnelControlSheets, String> {
+    let assignments = connection
+        .prepare(
+            "SELECT CAST(assignment.id AS TEXT),person.tax_id,
+                    trim(person.surname||' '||person.given_name||' '||person.patronymic),
+                    assignment.location_type,assignment.institution,assignment.start_date,
+                    assignment.end_date,assignment.until_separate_order,assignment.notes,
+                    assignment.previous_location,assignment.closed_on,
+                    COALESCE(assignment.closed_at,''),assignment.close_reason,
+                    assignment.created_at,assignment.updated_at
+             FROM personnel_control_assignments assignment
+             JOIN personnel person ON person.id=assignment.personnel_id
+             ORDER BY assignment.id",
+        )
+        .map_err(|_| {
+            "Не вдалося прочитати записи контролю особового складу для Excel.".to_string()
+        })?
+        .query_map([], |row| {
+            Ok(xlsx::PersonnelControlAssignmentRow {
+                assignment_reference: row.get(0)?,
+                personnel_tax_id: row.get(1)?,
+                personnel_full_name: row.get(2)?,
+                location_type: row.get(3)?,
+                institution: row.get(4)?,
+                start_date: row.get(5)?,
+                end_date: row.get(6)?,
+                until_separate_order: if row.get::<_, i64>(7)? == 0 {
+                    "Ні".into()
+                } else {
+                    "Так".into()
+                },
+                notes: row.get(8)?,
+                previous_location: row.get(9)?,
+                closed_on: row.get(10)?,
+                closed_at: row.get(11)?,
+                close_reason: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
+            })
+        })
+        .map_err(|_| {
+            "Не вдалося прочитати записи контролю особового складу для Excel.".to_string()
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| {
+            "Не вдалося прочитати записи контролю особового складу для Excel.".to_string()
+        })?;
+    let events = connection
+        .prepare(
+            "SELECT COALESCE(CAST(event.assignment_id AS TEXT),''),COALESCE(person.tax_id,''),
+                    COALESCE(trim(person.surname||' '||person.given_name||' '||person.patronymic),''),
+                    CAST(event.personnel_id AS TEXT),event.full_name_snapshot,
+                    event.rank_snapshot,event.position_snapshot,event.action,event.location_type,
+                    event.institution,event.start_date,event.end_date,event.notes,event.reason,
+                    event.occurred_at
+             FROM personnel_control_events event
+             LEFT JOIN personnel person ON person.id=event.personnel_id
+             ORDER BY event.id",
+        )
+        .map_err(|_| "Не вдалося прочитати історію контролю особового складу для Excel.".to_string())?
+        .query_map([], |row| {
+            Ok(xlsx::PersonnelControlEventRow {
+                assignment_reference: row.get(0)?,
+                personnel_tax_id: row.get(1)?,
+                personnel_full_name: row.get(2)?,
+                personnel_legacy_id: row.get(3)?,
+                full_name_snapshot: row.get(4)?,
+                rank_snapshot: row.get(5)?,
+                position_snapshot: row.get(6)?,
+                action: row.get(7)?,
+                location_type: row.get(8)?,
+                institution: row.get(9)?,
+                start_date: row.get(10)?,
+                end_date: row.get(11)?,
+                notes: row.get(12)?,
+                reason: row.get(13)?,
+                occurred_at: row.get(14)?,
+            })
+        })
+        .map_err(|_| "Не вдалося прочитати історію контролю особового складу для Excel.".to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Не вдалося прочитати історію контролю особового складу для Excel.".to_string())?;
+    Ok(xlsx::PersonnelControlSheets {
+        assignments,
+        events,
+    })
+}
+
+fn import_personnel_control_sheets(
+    connection: &Connection,
+    control: &xlsx::PersonnelControlSheets,
+) -> Result<(), String> {
+    struct ValidatedAssignment<'a> {
+        row: &'a xlsx::PersonnelControlAssignmentRow,
+        personnel_id: i64,
+        until_separate_order: i64,
+    }
+    struct ValidatedEvent<'a> {
+        row: &'a xlsx::PersonnelControlEventRow,
+        personnel_id: Option<i64>,
+        orphan_personnel_id: i64,
+    }
+
+    let assignment_sheet = xlsx::PERSONNEL_CONTROL_ASSIGNMENTS_SHEET;
+    let event_sheet = xlsx::PERSONNEL_CONTROL_EVENTS_SHEET;
+    let mut references = std::collections::HashSet::new();
+    let mut open_personnel = std::collections::HashSet::new();
+    let mut assignments = Vec::with_capacity(control.assignments.len());
+    for (index, row) in control.assignments.iter().enumerate() {
+        let row_number = index + 3;
+        let reference = row.assignment_reference.trim();
+        if reference.is_empty() {
+            return Err(format!(
+                "На аркуші «{assignment_sheet}», рядок {row_number}, відсутнє службове посилання запису."
+            ));
+        }
+        if !references.insert(reference.to_string()) {
+            return Err(format!(
+                "На аркуші «{assignment_sheet}» повторюється службове посилання «{reference}»."
+            ));
+        }
+        if !PERSONNEL_CONTROL_LOCATIONS.contains(&row.location_type.trim()) {
+            return Err(format!(
+                "На аркуші «{assignment_sheet}», рядок {row_number}, доступні лише стани НАВЧ, ВІДР або ЛІК."
+            ));
+        }
+        if row.institution.trim().is_empty() {
+            return Err(format!(
+                "На аркуші «{assignment_sheet}», рядок {row_number}, вкажіть заклад або установу."
+            ));
+        }
+        let start = parse_control_date(
+            &row.start_date,
+            "Дата початку",
+            assignment_sheet,
+            row_number,
+        )?
+        .ok_or_else(|| {
+            format!(
+                "На аркуші «{assignment_sheet}», рядок {row_number}, не заповнено дату початку."
+            )
+        })?;
+        let end = parse_control_date(
+            &row.end_date,
+            "Дата завершення",
+            assignment_sheet,
+            row_number,
+        )?;
+        let closed_on = parse_control_date(
+            &row.closed_on,
+            "Дата фактичного завершення",
+            assignment_sheet,
+            row_number,
+        )?;
+        if end.is_some_and(|value| value < start) {
+            return Err(format!(
+                "На аркуші «{assignment_sheet}», рядок {row_number}, дата завершення раніше за дату початку."
+            ));
+        }
+        if closed_on.is_some_and(|value| value < start) {
+            return Err(format!(
+                "На аркуші «{assignment_sheet}», рядок {row_number}, дата фактичного завершення раніше за дату початку."
+            ));
+        }
+        validate_control_timestamp(
+            &row.closed_at,
+            "Час закриття запису",
+            assignment_sheet,
+            row_number,
+            false,
+        )?;
+        validate_control_timestamp(
+            &row.created_at,
+            "Час створення запису",
+            assignment_sheet,
+            row_number,
+            false,
+        )?;
+        validate_control_timestamp(
+            &row.updated_at,
+            "Час останньої зміни",
+            assignment_sheet,
+            row_number,
+            false,
+        )?;
+        if !row.closed_at.trim().is_empty() && closed_on.is_none() {
+            return Err(format!(
+                "На аркуші «{assignment_sheet}», рядок {row_number}, для закритого запису вкажіть дату фактичного завершення."
+            ));
+        }
+        let personnel_id = resolve_control_personnel(
+            connection,
+            &row.personnel_tax_id,
+            &row.personnel_full_name,
+        )?
+        .ok_or_else(|| {
+            format!(
+                "На аркуші «{assignment_sheet}», рядок {row_number}, не знайдено військовослужбовця за ІПН або ПІБ."
+            )
+        })?;
+        if row.closed_at.trim().is_empty() && !open_personnel.insert(personnel_id) {
+            return Err(format!(
+                "На аркуші «{assignment_sheet}» для одного військовослужбовця вказано кілька незавершених записів."
+            ));
+        }
+        assignments.push(ValidatedAssignment {
+            row,
+            personnel_id,
+            until_separate_order: parse_control_bool(&row.until_separate_order, row_number)?,
+        });
+    }
+
+    let mut events = Vec::with_capacity(control.events.len());
+    for (index, row) in control.events.iter().enumerate() {
+        let row_number = index + 3;
+        let reference = row.assignment_reference.trim();
+        if !reference.is_empty() && !references.contains(reference) {
+            return Err(format!(
+                "На аркуші «{event_sheet}», рядок {row_number}, посилання «{reference}» не знайдено на аркуші «{assignment_sheet}»."
+            ));
+        }
+        if !PERSONNEL_CONTROL_ACTIONS.contains(&row.action.trim()) {
+            return Err(format!(
+                "На аркуші «{event_sheet}», рядок {row_number}, вказано невідому дію історії."
+            ));
+        }
+        if row.location_type.trim().is_empty() {
+            return Err(format!(
+                "На аркуші «{event_sheet}», рядок {row_number}, не заповнено стан військовослужбовця."
+            ));
+        }
+        let start = parse_control_date(&row.start_date, "Дата початку", event_sheet, row_number)?;
+        let end = parse_control_date(&row.end_date, "Дата завершення", event_sheet, row_number)?;
+        if matches!((start, end), (Some(start), Some(end)) if end < start) {
+            return Err(format!(
+                "На аркуші «{event_sheet}», рядок {row_number}, дата завершення раніше за дату початку."
+            ));
+        }
+        validate_control_timestamp(&row.occurred_at, "Час події", event_sheet, row_number, true)?;
+        let has_person_reference =
+            !row.personnel_tax_id.trim().is_empty() || !row.personnel_full_name.trim().is_empty();
+        let personnel_id =
+            resolve_control_personnel(connection, &row.personnel_tax_id, &row.personnel_full_name)?;
+        if has_person_reference && personnel_id.is_none() {
+            return Err(format!(
+                "На аркуші «{event_sheet}», рядок {row_number}, не знайдено військовослужбовця за ІПН або ПІБ."
+            ));
+        }
+        let legacy_id = if row.personnel_legacy_id.trim().is_empty() {
+            1_000_000_000_i64 + row_number as i64
+        } else {
+            row.personnel_legacy_id.trim().parse::<i64>().map_err(|_| {
+                format!(
+                    "На аркуші «{event_sheet}», рядок {row_number}, попередній ID має бути цілим числом."
+                )
+            })?
+        };
+        let orphan_personnel_id = -legacy_id.saturating_abs().max(1);
+        events.push(ValidatedEvent {
+            row,
+            personnel_id,
+            orphan_personnel_id,
+        });
+    }
+
+    let mut imported_assignments = std::collections::HashMap::<String, (i64, i64)>::new();
+    for assignment in assignments {
+        let row = assignment.row;
+        connection
+            .execute(
+                "INSERT INTO personnel_control_assignments(
+                    personnel_id,location_type,institution,start_date,end_date,
+                    until_separate_order,notes,previous_location,closed_on,closed_at,
+                    close_reason,created_at,updated_at
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,NULLIF(?10,''),?11,
+                          COALESCE(NULLIF(?12,''),CURRENT_TIMESTAMP),
+                          COALESCE(NULLIF(?13,''),CURRENT_TIMESTAMP))",
+                rusqlite::params![
+                    assignment.personnel_id,
+                    row.location_type.trim(),
+                    row.institution.trim(),
+                    row.start_date.trim(),
+                    row.end_date.trim(),
+                    assignment.until_separate_order,
+                    row.notes,
+                    row.previous_location.trim(),
+                    row.closed_on.trim(),
+                    row.closed_at.trim(),
+                    row.close_reason,
+                    row.created_at.trim(),
+                    row.updated_at.trim(),
+                ],
+            )
+            .map_err(|error| {
+                if error.to_string().contains("personnel_control_one_open_idx")
+                    || error.to_string().contains("UNIQUE constraint failed")
+                {
+                    "Неможливо імпортувати контроль ОС: для військовослужбовця вже існує незавершений запис. Для повного відновлення оберіть режим «Замінити».".to_string()
+                } else {
+                    "Не вдалося імпортувати запис контролю особового складу.".to_string()
+                }
+            })?;
+        imported_assignments.insert(
+            row.assignment_reference.trim().to_string(),
+            (connection.last_insert_rowid(), assignment.personnel_id),
+        );
+    }
+    for event in events {
+        let row = event.row;
+        let assignment = if row.assignment_reference.trim().is_empty() {
+            None
+        } else {
+            imported_assignments
+                .get(row.assignment_reference.trim())
+                .copied()
+        };
+        if let (Some(event_personnel_id), Some((_, assignment_personnel_id))) =
+            (event.personnel_id, assignment)
+        {
+            if event_personnel_id != assignment_personnel_id {
+                return Err(format!(
+                    "Подія з посиланням «{}» належить іншому військовослужбовцю.",
+                    row.assignment_reference.trim()
+                ));
+            }
+        }
+        let personnel_id = assignment
+            .map(|(_, personnel_id)| personnel_id)
+            .or(event.personnel_id)
+            .unwrap_or(event.orphan_personnel_id);
+        connection
+            .execute(
+                "INSERT INTO personnel_control_events(
+                    assignment_id,personnel_id,full_name_snapshot,rank_snapshot,
+                    position_snapshot,action,location_type,institution,start_date,end_date,
+                    notes,reason,occurred_at
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+                rusqlite::params![
+                    assignment.map(|(id, _)| id),
+                    personnel_id,
+                    row.full_name_snapshot,
+                    row.rank_snapshot,
+                    row.position_snapshot,
+                    row.action.trim(),
+                    row.location_type.trim(),
+                    row.institution,
+                    row.start_date.trim(),
+                    row.end_date.trim(),
+                    row.notes,
+                    row.reason,
+                    row.occurred_at.trim(),
+                ],
+            )
+            .map_err(|_| "Не вдалося імпортувати історію контролю особового складу.".to_string())?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) fn list_personnel(
     state: tauri::State<AppState>,
@@ -452,7 +916,15 @@ pub(crate) fn import_personnel_xlsx(
             }
         }
         staffing_exchange::import(&db.connection, &data.staffing, mode == "replace")?;
-        database::migrate_legacy_personnel_control_locations(&db.connection)?;
+        if let Some(control) = data.personnel_control.as_ref() {
+            import_personnel_control_sheets(&db.connection, control)?;
+            count += u32::try_from(control.assignments.len() + control.events.len())
+                .map_err(|_| "Excel-файл містить забагато записів контролю ОС.".to_string())?;
+        } else {
+            // Legacy workbooks stored only the flat BCS location. Reconstruct a
+            // minimal structured record after personnel have received new IDs.
+            database::migrate_legacy_personnel_control_locations(&db.connection)?;
+        }
         Ok(count)
     })();
     match result {
@@ -583,6 +1055,7 @@ pub(crate) fn export_personnel_xlsx(
     let equipment = db.connection.prepare("SELECT e.category,e.name,e.inventory_number,e.status,COALESCE(c.name,''),COALESCE(p.tax_id,''),COALESCE(trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic),''),e.notes,e.total_quantity,e.day_quantity,e.night_quantity,e.uav_type,e.asset_kind,e.components_json,e.assigned_quantity FROM equipment e LEFT JOIN crews c ON c.id=e.crew_id LEFT JOIN personnel p ON p.id=e.personnel_id ORDER BY e.id").map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.query_map([], |row| Ok(xlsx::EquipmentRow { category:row.get(0)?,name:row.get(1)?,inventory_number:row.get(2)?,status:row.get(3)?,crew_name:row.get(4)?,holder_tax_id:row.get(5)?,holder_full_name:row.get(6)?,notes:row.get(7)?,total_quantity:row.get::<_,i64>(8)?.to_string(),day_quantity:row.get::<_,i64>(9)?.to_string(),night_quantity:row.get::<_,i64>(10)?.to_string(),uav_type:row.get(11)?,asset_kind:row.get(12)?,components_json:row.get(13)?,assigned_quantity:row.get::<_,i64>(14)?.to_string() })).map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?;
     let incidents = db.connection.prepare("SELECT i.incident_type,i.occurred_at,COALESCE(c.name,''),COALESCE((SELECT group_concat(e2.category, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.category,''),COALESCE((SELECT group_concat(e2.inventory_number, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.inventory_number,''),COALESCE((SELECT group_concat(e2.name, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.name,''),i.position_name,i.reconnaissance_area,i.description FROM incidents i LEFT JOIN crews c ON c.id=i.crew_id LEFT JOIN equipment e ON e.id=i.equipment_id ORDER BY i.id").map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.query_map([], |row| Ok(xlsx::IncidentRow { incident_type:row.get(0)?,occurred_at:row.get(1)?,crew_name:row.get(2)?,equipment_category:row.get(3)?,equipment_inventory_number:row.get(4)?,equipment_name:row.get(5)?,position_name:row.get(6)?,reconnaissance_area:row.get(7)?,description:row.get(8)? })).map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?;
     let positions=db.connection.prepare("SELECT p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.condition_level,p.field_type,p.size,p.mgrs,p.suitable_uav_text,p.is_active,COALESCE(GROUP_CONCAT(c.name, ', '),''),p.notes FROM positions p LEFT JOIN crews c ON c.position_id=p.id GROUP BY p.id ORDER BY p.id").map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.query_map([],|row|Ok(xlsx::PositionRow{name:row.get(0)?,position_type:row.get(1)?,strip_name:row.get(2)?,locality:row.get(3)?,battle_order:row.get(4)?,sector:row.get(5)?,condition:row.get(6)?,condition_level:row.get::<_,i64>(7)?.to_string(),field_type:row.get(8)?,size:row.get(9)?,mgrs:row.get(10)?,suitable_uav_text:row.get(11)?,is_active:if row.get::<_,bool>(12)?{"Так".into()}else{"Ні".into()},crew_name:row.get(13)?,notes:row.get(14)?})).map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?;
+    let personnel_control = load_personnel_control_sheets(&db.connection)?;
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         xlsx::export_with_staffing(
             &path,
@@ -597,6 +1070,7 @@ pub(crate) fn export_personnel_xlsx(
             &equipment,
             &incidents,
             &positions,
+            &personnel_control,
             &staffing_exchange::export(&db.connection)?,
         )
     }))
@@ -794,4 +1268,259 @@ pub(crate) fn delete_vehicle_custom_field(
         &field_key,
         "vehicle",
     )
+}
+
+#[cfg(test)]
+mod personnel_control_excel_tests {
+    use super::*;
+
+    fn connection() -> Connection {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        connection
+    }
+
+    fn insert_person(connection: &Connection, id: i64, tax_id: &str, surname: &str) {
+        connection
+            .execute(
+                "INSERT INTO personnel(
+                    id,rank,surname,given_name,patronymic,position,tax_id,birth_date,
+                    education_level,education_details,armed_forces_service_start_date,
+                    position_assigned_date,position_assignment_order,military_id,current_location
+                 ) VALUES(?1,'солдат',?2,'Іван','Іванович','оператор',?3,'','','','','','','','ВІДР')",
+                rusqlite::params![id, surname, tax_id],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn exported_control_round_trip_remaps_foreign_keys_and_keeps_orphan_history() {
+        let source = connection();
+        insert_person(&source, 10, "1234567890", "ТЕСТОВИЙ");
+        source
+            .execute(
+                "INSERT INTO personnel_control_assignments(
+                    id,personnel_id,location_type,institution,start_date,end_date,
+                    until_separate_order,notes,previous_location,closed_on,closed_at,
+                    close_reason,created_at,updated_at
+                 ) VALUES(41,10,'ВІДР','Навчальний центр','2026-09-10','',1,
+                          'До окремого розпорядження','ОХ','','','',
+                          '2026-09-10 08:00:00','2026-09-10 09:00:00')",
+                [],
+            )
+            .unwrap();
+        source
+            .execute(
+                "INSERT INTO personnel_control_events(
+                    id,assignment_id,personnel_id,full_name_snapshot,rank_snapshot,
+                    position_snapshot,action,location_type,institution,start_date,end_date,
+                    notes,reason,occurred_at
+                 ) VALUES(51,41,10,'ТЕСТОВИЙ Іван Іванович','солдат','оператор',
+                          'created','ВІДР','Навчальний центр','2026-09-10','',
+                          'До окремого розпорядження','','2026-09-10 08:00:00')",
+                [],
+            )
+            .unwrap();
+        for (id, action, occurred_at) in [
+            (81, "migrated", "2026-08-01 10:00:00"),
+            (82, "closed", "2026-08-05 12:00:00"),
+        ] {
+            source
+                .execute(
+                    "INSERT INTO personnel_control_events(
+                        id,assignment_id,personnel_id,full_name_snapshot,rank_snapshot,
+                        position_snapshot,action,location_type,institution,start_date,end_date,
+                        notes,reason,occurred_at
+                     ) VALUES(?1,NULL,777,'ВИДАЛЕНИЙ Петро Петрович','сержант','водій',
+                              ?2,'ЛІК','Медичний заклад','2026-08-01','2026-08-05',
+                              'Архівний запис','',?3)",
+                    rusqlite::params![id, action, occurred_at],
+                )
+                .unwrap();
+        }
+        let control = load_personnel_control_sheets(&source).unwrap();
+        let people = personnel::list(&source).unwrap();
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "personnel-control-db-roundtrip-{}-{nonce}.xlsx",
+            std::process::id(),
+        ));
+        xlsx::export_with_staffing(
+            &path,
+            &people,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &control,
+            &Default::default(),
+        )
+        .unwrap();
+        let imported = xlsx::import(&path).unwrap();
+        let target = connection();
+        for draft in imported.personnel {
+            personnel::create_import(&target, draft).unwrap();
+        }
+        let new_personnel_id = target
+            .query_row(
+                "SELECT id FROM personnel WHERE tax_id='1234567890'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_ne!(new_personnel_id, 10);
+        target.execute_batch("BEGIN IMMEDIATE").unwrap();
+        import_personnel_control_sheets(&target, imported.personnel_control.as_ref().unwrap())
+            .unwrap();
+        target.execute_batch("COMMIT").unwrap();
+
+        let (assignment_id, personnel_id, institution, created_at, updated_at) = target
+            .query_row(
+                "SELECT id,personnel_id,institution,created_at,updated_at
+                 FROM personnel_control_assignments",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_ne!(assignment_id, 41);
+        assert_eq!(personnel_id, new_personnel_id);
+        assert_eq!(institution, "Навчальний центр");
+        assert_eq!(created_at, "2026-09-10 08:00:00");
+        assert_eq!(updated_at, "2026-09-10 09:00:00");
+        let (event_assignment_id, event_personnel_id, occurred_at) = target
+            .query_row(
+                "SELECT assignment_id,personnel_id,occurred_at
+                 FROM personnel_control_events WHERE full_name_snapshot='ТЕСТОВИЙ Іван Іванович'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(event_assignment_id, assignment_id);
+        assert_eq!(event_personnel_id, new_personnel_id);
+        assert_eq!(occurred_at, "2026-09-10 08:00:00");
+        let orphan_ids = target
+            .prepare(
+                "SELECT personnel_id FROM personnel_control_events
+                 WHERE full_name_snapshot='ВИДАЛЕНИЙ Петро Петрович' ORDER BY id",
+            )
+            .unwrap()
+            .query_map([], |row| row.get::<_, i64>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(orphan_ids, vec![-777, -777]);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn control_import_participates_in_the_outer_transaction() {
+        let connection = connection();
+        insert_person(&connection, 1, "1111111111", "ПЕРШИЙ");
+        insert_person(&connection, 2, "2222222222", "ДРУГИЙ");
+        let control = xlsx::PersonnelControlSheets {
+            assignments: vec![xlsx::PersonnelControlAssignmentRow {
+                assignment_reference: "assignment-1".into(),
+                personnel_tax_id: "1111111111".into(),
+                personnel_full_name: "ПЕРШИЙ Іван Іванович".into(),
+                location_type: "НАВЧ".into(),
+                institution: "Навчальний центр".into(),
+                start_date: "2026-09-01".into(),
+                end_date: "2026-09-30".into(),
+                until_separate_order: "Ні".into(),
+                previous_location: "ОХ".into(),
+                created_at: "2026-09-01 08:00:00".into(),
+                updated_at: "2026-09-01 08:00:00".into(),
+                ..xlsx::PersonnelControlAssignmentRow::default()
+            }],
+            events: vec![xlsx::PersonnelControlEventRow {
+                assignment_reference: "assignment-1".into(),
+                personnel_tax_id: "2222222222".into(),
+                personnel_full_name: "ДРУГИЙ Іван Іванович".into(),
+                personnel_legacy_id: "2".into(),
+                full_name_snapshot: "ДРУГИЙ Іван Іванович".into(),
+                action: "created".into(),
+                location_type: "НАВЧ".into(),
+                institution: "Навчальний центр".into(),
+                start_date: "2026-09-01".into(),
+                end_date: "2026-09-30".into(),
+                occurred_at: "2026-09-01 08:00:00".into(),
+                ..xlsx::PersonnelControlEventRow::default()
+            }],
+        };
+        connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let error = import_personnel_control_sheets(&connection, &control).unwrap_err();
+        assert!(error.contains("іншому військовослужбовцю"));
+        connection.execute_batch("ROLLBACK").unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM personnel_control_assignments",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM personnel_control_events", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn control_import_rejects_invalid_dates_before_writing() {
+        let connection = connection();
+        insert_person(&connection, 1, "1111111111", "ПЕРШИЙ");
+        let control = xlsx::PersonnelControlSheets {
+            assignments: vec![xlsx::PersonnelControlAssignmentRow {
+                assignment_reference: "assignment-1".into(),
+                personnel_tax_id: "1111111111".into(),
+                location_type: "ЛІК".into(),
+                institution: "Медичний заклад".into(),
+                start_date: "17.09.2026".into(),
+                until_separate_order: "Ні".into(),
+                ..xlsx::PersonnelControlAssignmentRow::default()
+            }],
+            events: Vec::new(),
+        };
+        let error = import_personnel_control_sheets(&connection, &control).unwrap_err();
+        assert!(error.contains("РРРР-ММ-ДД"));
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM personnel_control_assignments",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+    }
 }

@@ -171,6 +171,33 @@ fn incident_label(key: &str) -> &str {
         _ => key,
     }
 }
+fn personnel_control_label(key: &str) -> &str {
+    match key {
+        "assignment_reference" => "Службове посилання запису",
+        "personnel_tax_id" => "ІПН військовослужбовця",
+        "personnel_full_name" => "ПІБ військовослужбовця",
+        "personnel_legacy_id" => "Попередній ID військовослужбовця",
+        "full_name_snapshot" => "ПІБ на момент події",
+        "rank_snapshot" => "Звання на момент події",
+        "position_snapshot" => "Посада на момент події",
+        "location_type" => "Де знаходиться",
+        "institution" => "Заклад / установа",
+        "start_date" => "Дата початку",
+        "end_date" => "Дата завершення",
+        "until_separate_order" => "До окремого розпорядження",
+        "notes" => "Примітка",
+        "previous_location" => "Попереднє місце",
+        "closed_on" => "Дата фактичного завершення",
+        "closed_at" => "Час закриття запису",
+        "close_reason" => "Причина завершення",
+        "created_at" => "Час створення запису",
+        "updated_at" => "Час останньої зміни",
+        "action" => "Дія",
+        "reason" => "Причина події",
+        "occurred_at" => "Час події",
+        _ => key,
+    }
+}
 fn personnel_export_label(key: &str) -> String {
     personnel_label(key)
 }
@@ -246,6 +273,7 @@ pub fn export(
         incidents,
         positions,
         &Default::default(),
+        &Default::default(),
     )
 }
 
@@ -263,6 +291,7 @@ pub fn export_with_staffing(
     equipment: &[EquipmentRow],
     incidents: &[IncidentRow],
     positions: &[PositionRow],
+    personnel_control: &PersonnelControlSheets,
     staffing: &crate::staffing_exchange::ExtraSheets,
 ) -> Result<(), String> {
     let file = File::create(path).map_err(|_| "Не вдалося створити Excel-файл.".to_string())?;
@@ -399,6 +428,52 @@ pub fn export_with_staffing(
                 row.position_name.clone(),
                 row.reconnaissance_area.clone(),
                 row.description.clone(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let personnel_control_assignment_rows = personnel_control
+        .assignments
+        .iter()
+        .map(|row| {
+            vec![
+                row.assignment_reference.clone(),
+                row.personnel_tax_id.clone(),
+                row.personnel_full_name.clone(),
+                row.location_type.clone(),
+                row.institution.clone(),
+                row.start_date.clone(),
+                row.end_date.clone(),
+                row.until_separate_order.clone(),
+                row.notes.clone(),
+                row.previous_location.clone(),
+                row.closed_on.clone(),
+                row.closed_at.clone(),
+                row.close_reason.clone(),
+                row.created_at.clone(),
+                row.updated_at.clone(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let personnel_control_event_rows = personnel_control
+        .events
+        .iter()
+        .map(|row| {
+            vec![
+                row.assignment_reference.clone(),
+                row.personnel_tax_id.clone(),
+                row.personnel_full_name.clone(),
+                row.personnel_legacy_id.clone(),
+                row.full_name_snapshot.clone(),
+                row.rank_snapshot.clone(),
+                row.position_snapshot.clone(),
+                row.action.clone(),
+                row.location_type.clone(),
+                row.institution.clone(),
+                row.start_date.clone(),
+                row.end_date.clone(),
+                row.notes.clone(),
+                row.reason.clone(),
+                row.occurred_at.clone(),
             ]
         })
         .collect::<Vec<_>>();
@@ -615,6 +690,34 @@ pub fn export_with_staffing(
         (
             "Мапа полів інцидентів".to_string(),
             map_sheet(INCIDENT_KEYS, incident_export_label),
+        ),
+        (
+            PERSONNEL_CONTROL_ASSIGNMENTS_SHEET.to_string(),
+            worksheet_xml(
+                &PERSONNEL_CONTROL_ASSIGNMENT_KEYS
+                    .iter()
+                    .map(|key| personnel_control_label(key).to_string())
+                    .collect::<Vec<_>>(),
+                &PERSONNEL_CONTROL_ASSIGNMENT_KEYS
+                    .iter()
+                    .map(|key| key.to_string())
+                    .collect::<Vec<_>>(),
+                &personnel_control_assignment_rows,
+            ),
+        ),
+        (
+            PERSONNEL_CONTROL_EVENTS_SHEET.to_string(),
+            worksheet_xml(
+                &PERSONNEL_CONTROL_EVENT_KEYS
+                    .iter()
+                    .map(|key| personnel_control_label(key).to_string())
+                    .collect::<Vec<_>>(),
+                &PERSONNEL_CONTROL_EVENT_KEYS
+                    .iter()
+                    .map(|key| key.to_string())
+                    .collect::<Vec<_>>(),
+                &personnel_control_event_rows,
+            ),
         ),
     ];
     for (name, keys) in crate::staffing_exchange::SHEETS {

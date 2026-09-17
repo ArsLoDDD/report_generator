@@ -72,6 +72,116 @@ fn exports_and_imports_personnel_and_vehicles_in_one_workbook() {
 }
 
 #[test]
+fn round_trips_personnel_control_assignments_and_events() {
+    let path = std::env::temp_dir().join(format!(
+        "shablonizator-personnel-control-roundtrip-{}.xlsx",
+        std::process::id()
+    ));
+    let control = PersonnelControlSheets {
+        assignments: vec![
+            PersonnelControlAssignmentRow {
+                assignment_reference: "41".into(),
+                personnel_tax_id: "1234567890".into(),
+                personnel_full_name: "Тест Іван Іванович".into(),
+                location_type: "ВІДР".into(),
+                institution: "Навчальний центр & резерв".into(),
+                start_date: "2026-09-10".into(),
+                until_separate_order: "Так".into(),
+                notes: "До <окремого> розпорядження".into(),
+                previous_location: "ОХ".into(),
+                created_at: "2026-09-10 08:00:00".into(),
+                updated_at: "2026-09-10 08:00:00".into(),
+                ..PersonnelControlAssignmentRow::default()
+            },
+            PersonnelControlAssignmentRow {
+                assignment_reference: "73".into(),
+                personnel_tax_id: "1234567890".into(),
+                personnel_full_name: "Тест Іван Іванович".into(),
+                location_type: "ЛІК".into(),
+                institution: "Медичний заклад".into(),
+                start_date: "2026-08-01".into(),
+                end_date: "2026-08-05".into(),
+                until_separate_order: "Ні".into(),
+                notes: "Завершено".into(),
+                previous_location: "ОХ".into(),
+                closed_on: "2026-08-05".into(),
+                closed_at: "2026-08-05 16:30:00".into(),
+                close_reason: "Повернувся".into(),
+                created_at: "2026-08-01 09:00:00".into(),
+                updated_at: "2026-08-05 16:30:00".into(),
+            },
+        ],
+        events: vec![
+            PersonnelControlEventRow {
+                assignment_reference: "41".into(),
+                personnel_tax_id: "1234567890".into(),
+                personnel_full_name: "Тест Іван Іванович".into(),
+                personnel_legacy_id: "1".into(),
+                full_name_snapshot: "Тест Іван Іванович".into(),
+                rank_snapshot: "Солдат".into(),
+                position_snapshot: "Водій".into(),
+                action: "created".into(),
+                location_type: "ВІДР".into(),
+                institution: "Навчальний центр & резерв".into(),
+                start_date: "2026-09-10".into(),
+                notes: "До <окремого> розпорядження".into(),
+                occurred_at: "2026-09-10 08:00:00".into(),
+                ..PersonnelControlEventRow::default()
+            },
+            PersonnelControlEventRow {
+                assignment_reference: "73".into(),
+                personnel_tax_id: "1234567890".into(),
+                personnel_full_name: "Тест Іван Іванович".into(),
+                personnel_legacy_id: "1".into(),
+                full_name_snapshot: "Тест Іван Іванович".into(),
+                rank_snapshot: "Солдат".into(),
+                position_snapshot: "Водій".into(),
+                action: "closed".into(),
+                location_type: "ЛІК".into(),
+                institution: "Медичний заклад".into(),
+                start_date: "2026-08-01".into(),
+                end_date: "2026-08-05".into(),
+                notes: "Завершено".into(),
+                reason: "Повернувся".into(),
+                occurred_at: "2026-08-05 16:30:00".into(),
+            },
+        ],
+    };
+    export_with_staffing(
+        &path,
+        &[person()],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &control,
+        &Default::default(),
+    )
+    .unwrap();
+
+    let mut archive = ZipArchive::new(File::open(&path).unwrap()).unwrap();
+    let mut workbook = String::new();
+    archive
+        .by_name("xl/workbook.xml")
+        .unwrap()
+        .read_to_string(&mut workbook)
+        .unwrap();
+    assert!(workbook.contains(PERSONNEL_CONTROL_ASSIGNMENTS_SHEET));
+    assert!(workbook.contains(PERSONNEL_CONTROL_EVENTS_SHEET));
+    drop(archive);
+
+    let imported = import(&path).unwrap();
+    assert_eq!(imported.personnel_control, Some(control));
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn round_trips_crews_equipment_incidents_and_custom_values() {
     let path = std::env::temp_dir().join(format!(
         "shablonizator-operational-roundtrip-{}.xlsx",
@@ -249,6 +359,7 @@ fn checked_in_excel_template_matches_the_current_import_format() {
     assert!(imported.equipment.is_empty());
     assert!(imported.incidents.is_empty());
     assert!(imported.positions.is_empty());
+    assert!(imported.personnel_control.is_none());
     let mut archive = ZipArchive::new(File::open(template).unwrap()).unwrap();
     let mut workbook = String::new();
     archive
@@ -385,6 +496,7 @@ fn imports_incomplete_personnel_row_and_splits_a_full_name_from_surname_cell() {
     assert_eq!(imported.personnel[0].given_name, "АНАТОЛІЙ");
     assert_eq!(imported.personnel[0].patronymic, "АНАТОЛІЙОВИЧ");
     assert!(imported.personnel[0].tax_id.is_empty());
+    assert!(imported.personnel_control.is_none());
     let _ = std::fs::remove_file(path);
 }
 

@@ -544,6 +544,103 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
             description: row.values.get("description").cloned().unwrap_or_default(),
         })
         .collect();
+    let control_assignments_present =
+        worksheet_path_by_name(&mut archive, PERSONNEL_CONTROL_ASSIGNMENTS_SHEET)?.is_some();
+    let control_events_present =
+        worksheet_path_by_name(&mut archive, PERSONNEL_CONTROL_EVENTS_SHEET)?.is_some();
+    let personnel_control = if control_assignments_present || control_events_present {
+        let assignments =
+            optional_records(&mut archive, PERSONNEL_CONTROL_ASSIGNMENTS_SHEET, &shared)?
+                .into_iter()
+                .map(|row| PersonnelControlAssignmentRow {
+                    assignment_reference: row
+                        .values
+                        .get("assignment_reference")
+                        .cloned()
+                        .unwrap_or_default(),
+                    personnel_tax_id: row
+                        .values
+                        .get("personnel_tax_id")
+                        .cloned()
+                        .unwrap_or_default(),
+                    personnel_full_name: row
+                        .values
+                        .get("personnel_full_name")
+                        .cloned()
+                        .unwrap_or_default(),
+                    location_type: row.values.get("location_type").cloned().unwrap_or_default(),
+                    institution: row.values.get("institution").cloned().unwrap_or_default(),
+                    start_date: row.values.get("start_date").cloned().unwrap_or_default(),
+                    end_date: row.values.get("end_date").cloned().unwrap_or_default(),
+                    until_separate_order: row
+                        .values
+                        .get("until_separate_order")
+                        .cloned()
+                        .unwrap_or_default(),
+                    notes: row.values.get("notes").cloned().unwrap_or_default(),
+                    previous_location: row
+                        .values
+                        .get("previous_location")
+                        .cloned()
+                        .unwrap_or_default(),
+                    closed_on: row.values.get("closed_on").cloned().unwrap_or_default(),
+                    closed_at: row.values.get("closed_at").cloned().unwrap_or_default(),
+                    close_reason: row.values.get("close_reason").cloned().unwrap_or_default(),
+                    created_at: row.values.get("created_at").cloned().unwrap_or_default(),
+                    updated_at: row.values.get("updated_at").cloned().unwrap_or_default(),
+                })
+                .collect();
+        let events = optional_records(&mut archive, PERSONNEL_CONTROL_EVENTS_SHEET, &shared)?
+            .into_iter()
+            .map(|row| PersonnelControlEventRow {
+                assignment_reference: row
+                    .values
+                    .get("assignment_reference")
+                    .cloned()
+                    .unwrap_or_default(),
+                personnel_tax_id: row
+                    .values
+                    .get("personnel_tax_id")
+                    .cloned()
+                    .unwrap_or_default(),
+                personnel_full_name: row
+                    .values
+                    .get("personnel_full_name")
+                    .cloned()
+                    .unwrap_or_default(),
+                personnel_legacy_id: row
+                    .values
+                    .get("personnel_legacy_id")
+                    .cloned()
+                    .unwrap_or_default(),
+                full_name_snapshot: row
+                    .values
+                    .get("full_name_snapshot")
+                    .cloned()
+                    .unwrap_or_default(),
+                rank_snapshot: row.values.get("rank_snapshot").cloned().unwrap_or_default(),
+                position_snapshot: row
+                    .values
+                    .get("position_snapshot")
+                    .cloned()
+                    .unwrap_or_default(),
+                action: row.values.get("action").cloned().unwrap_or_default(),
+                location_type: row.values.get("location_type").cloned().unwrap_or_default(),
+                institution: row.values.get("institution").cloned().unwrap_or_default(),
+                start_date: row.values.get("start_date").cloned().unwrap_or_default(),
+                end_date: row.values.get("end_date").cloned().unwrap_or_default(),
+                notes: row.values.get("notes").cloned().unwrap_or_default(),
+                reason: row.values.get("reason").cloned().unwrap_or_default(),
+                occurred_at: row.values.get("occurred_at").cloned().unwrap_or_default(),
+            })
+            .collect();
+        Some(PersonnelControlSheets {
+            assignments,
+            events,
+        })
+    } else {
+        None
+    };
     let (personnel_custom_fields, personnel_custom_field_maps) = optional_custom_values(
         &mut archive,
         "Кастомні поля ОС",
@@ -577,6 +674,7 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
         equipment,
         incidents,
         positions,
+        personnel_control,
         personnel_custom_fields,
         vehicle_custom_fields,
         personnel_custom_field_maps,
