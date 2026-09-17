@@ -1,6 +1,5 @@
 use super::*;
 
-const PERSONNEL_CONTROL_LOCATIONS: [&str; 3] = ["НАВЧ", "ВІДР", "ЛІК"];
 const PERSONNEL_CONTROL_ACTIONS: [&str; 4] = ["created", "updated", "closed", "migrated"];
 
 /// Outcome returned after the workbook has been committed.  A malformed row
@@ -205,7 +204,7 @@ fn load_personnel_control_sheets(
 fn import_personnel_control_sheets(
     connection: &Connection,
     control: &xlsx::PersonnelControlSheets,
-) -> Result<(), String> {
+) -> Result<(u32, Vec<String>), String> {
     struct ValidatedAssignment<'a> {
         row: &'a xlsx::PersonnelControlAssignmentRow,
         personnel_id: i64,
@@ -222,8 +221,16 @@ fn import_personnel_control_sheets(
     let mut references = std::collections::HashSet::new();
     let mut open_personnel = std::collections::HashSet::new();
     let mut assignments = Vec::with_capacity(control.assignments.len());
+    let mut warnings = Vec::new();
     for (index, row) in control.assignments.iter().enumerate() {
         let row_number = index + 3;
+        if !operations::is_manual_control_location(&row.location_type) {
+            warnings.push(format!(
+                "На аркуші «{assignment_sheet}», рядок {row_number}: стан «{}» не підтримується для ручного Контролю ОС. Рядок пропущено.",
+                row.location_type.trim()
+            ));
+            continue;
+        }
         let reference = row.assignment_reference.trim();
         if reference.is_empty() {
             return Err(format!(
@@ -235,12 +242,9 @@ fn import_personnel_control_sheets(
                 "На аркуші «{assignment_sheet}» повторюється службове посилання «{reference}»."
             ));
         }
-        if !PERSONNEL_CONTROL_LOCATIONS.contains(&row.location_type.trim()) {
-            return Err(format!(
-                "На аркуші «{assignment_sheet}», рядок {row_number}, доступні лише стани НАВЧ, ВІДР або ЛІК."
-            ));
-        }
-        if row.institution.trim().is_empty() {
+        if ["НАВЧ", "ВІДР", "ЛІК", "Відкомандировані"].contains(&row.location_type.trim())
+            && row.institution.trim().is_empty()
+        {
             return Err(format!(
                 "На аркуші «{assignment_sheet}», рядок {row_number}, вкажіть заклад або установу."
             ));
@@ -331,9 +335,10 @@ fn import_personnel_control_sheets(
         let row_number = index + 3;
         let reference = row.assignment_reference.trim();
         if !reference.is_empty() && !references.contains(reference) {
-            return Err(format!(
-                "На аркуші «{event_sheet}», рядок {row_number}, посилання «{reference}» не знайдено на аркуші «{assignment_sheet}»."
+            warnings.push(format!(
+                "На аркуші «{event_sheet}», рядок {row_number}: посилання «{reference}» не знайдено серед імпортованих записів Контролю ОС. Рядок історії пропущено."
             ));
+            continue;
         }
         if !PERSONNEL_CONTROL_ACTIONS.contains(&row.action.trim()) {
             return Err(format!(
@@ -380,6 +385,7 @@ fn import_personnel_control_sheets(
     }
 
     let mut imported_assignments = std::collections::HashMap::<String, (i64, i64)>::new();
+    let mut imported_count = 0_u32;
     for assignment in assignments {
         let row = assignment.row;
         connection
@@ -420,6 +426,7 @@ fn import_personnel_control_sheets(
             row.assignment_reference.trim().to_string(),
             (connection.last_insert_rowid(), assignment.personnel_id),
         );
+        imported_count += 1;
     }
     for event in events {
         let row = event.row;
@@ -468,8 +475,9 @@ fn import_personnel_control_sheets(
                 ],
             )
             .map_err(|_| "Не вдалося імпортувати історію контролю особового складу.".to_string())?;
+        imported_count += 1;
     }
-    Ok(())
+    Ok((imported_count, warnings))
 }
 
 #[tauri::command]
@@ -961,9 +969,9 @@ pub(crate) fn import_personnel_xlsx(
         }
         staffing_exchange::import(&db.connection, &data.staffing, mode == "replace")?;
         if let Some(control) = data.personnel_control.as_ref() {
-            import_personnel_control_sheets(&db.connection, control)?;
-            count += u32::try_from(control.assignments.len() + control.events.len())
-                .map_err(|_| "Excel-файл містить забагато записів контролю ОС.".to_string())?;
+            let (control_count, control_warnings) = import_personnel_control_sheets(&db.connection, control)?;
+            count += control_count;
+            warnings.extend(control_warnings);
         } else {
             // Legacy workbooks stored only the flat BCS location. Reconstruct a
             // minimal structured record after personnel have received new IDs.
@@ -1663,6 +1671,38 @@ mod personnel_control_excel_tests {
                 )
                 .unwrap(),
             0
+        );
+    }
+
+    #[test]
+    fn control_import_accepts_manual_ox_without_an_institution() {
+        let connection = connection();
+        insert_person(&connection, 1, "1111111111", "ПЕРШИЙ");
+        let control = xlsx::PersonnelControlSheets {
+            assignments: vec![xlsx::PersonnelControlAssignmentRow {
+                assignment_reference: "assignment-ox".into(),
+                personnel_tax_id: "1111111111".into(),
+                location_type: "ОХ".into(),
+                start_date: "2026-09-17".into(),
+                until_separate_order: "Ні".into(),
+                previous_location: "ОХ".into(),
+                ..xlsx::PersonnelControlAssignmentRow::default()
+            }],
+            events: Vec::new(),
+        };
+
+        let (count, warnings) = import_personnel_control_sheets(&connection, &control).unwrap();
+        assert_eq!(count, 1);
+        assert!(warnings.is_empty());
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT location_type FROM personnel_control_assignments",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "ОХ"
         );
     }
 }
