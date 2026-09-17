@@ -848,8 +848,12 @@ pub fn close_personnel_control_assignment(
 pub fn list_personnel_control_history(
     state: tauri::State<AppState>,
     personnel_id: Option<i64>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 ) -> Result<Vec<PersonnelControlHistoryEntry>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
+    let limit = limit.unwrap_or(100).clamp(1, 500);
+    let offset = offset.unwrap_or(0).max(0);
     let mut statement = db
         .connection
         .prepare(
@@ -858,11 +862,12 @@ pub fn list_personnel_control_history(
                     event.end_date,event.notes,event.reason,event.occurred_at
              FROM personnel_control_events event
              WHERE (?1 IS NULL OR event.personnel_id=?1)
-             ORDER BY event.occurred_at DESC,event.id DESC",
+             ORDER BY event.occurred_at DESC,event.id DESC
+             LIMIT ?2 OFFSET ?3",
         )
         .map_err(|_| "Не вдалося прочитати історію контролю особового складу.".to_string())?;
     let rows = statement
-        .query_map([personnel_id], |row| {
+        .query_map(rusqlite::params![personnel_id, limit, offset], |row| {
             Ok(PersonnelControlHistoryEntry {
                 id: row.get(0)?,
                 assignment_id: row.get(1)?,

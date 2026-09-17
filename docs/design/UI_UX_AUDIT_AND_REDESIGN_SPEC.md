@@ -96,13 +96,14 @@ RaportGen має виглядати як робоча система управ�
 
 ## 4. Інформаційна архітектура
 
-### Документи — структура заблокована, змінюється лише палітра
+### Документи
 
 - Генерація рапортів
 - Шаблони
 - Аналізатор рапортів
 - Згенеровані рапорти
-- Конструктор змінних
+
+Поля автозаповнення не мають окремого пункту навігації: вони відкриваються контекстно у «Шаблонах» та «Аналізаторі».
 
 ### Підрозділ
 
@@ -272,17 +273,17 @@ Header із «Перевірити знову». Ліворуч список п�
 
 Наявний master-detail, усі кнопки, перевірка, змінні та останні рапорти залишаються без структурних змін. Оновлюється лише палітра.
 
-### 8.4. Аналізатор рапортів — color-only
+### 8.4. Аналізатор рапортів
 
-Наявний split-view, точний DOCX preview, пропозиції, ручні заміни, drag-and-drop та всі стани залишаються без структурних змін. Оновлюється лише палітра.
+Зберігаються split-view, точний DOCX preview, пропозиції, ручні заміни та drag-and-drop. До виділеного тексту можна контекстно застосувати поле автозаповнення людською мовою.
 
 ### 8.5. Згенеровані рапорти — color-only
 
 Наявна таблиця, фільтр періоду, пошук, відкриття папки та видалення залишаються без структурних змін. Оновлюється лише палітра.
 
-### 8.6. Конструктор змінних — color-only
+### 8.6. Поля автозаповнення — контекстне вікно
 
-Наявний stepper, режим «Усі змінні», preview, модифікатори й копіювання залишаються без структурних змін. Оновлюється лише палітра.
+Окремої сторінки немає. Вікно відкривається зі «Шаблонів» у режимі копіювання або з «Аналізатора» у режимі застосування до виділеного тексту. Спочатку користувач бачить пошук, зрозумілі джерела й назви полів; технічний token доступний лише як додаткова інформація.
 
 ### 8.7. Особовий склад
 
@@ -418,8 +419,8 @@ Offline/local-ready, loading, empty, no results, permission/file lock error, cor
 3. Registry pattern: personnel, consolidated assets, incidents.
 4. Entity cards: crews, positions; єдина full-card modal.
 5. Color-only pass for BCS and flight plan controls without changing their document layouts.
-6. Color-only pass for generation, templates, analyser, generated reports and variable constructor.
-7. Settings, warnings, help, variable constructor.
+6. Color pass for generation, templates, analyser and generated reports; embed the shared field picker in Templates and Analyser.
+7. Settings, warnings, help and the contextual field-picker states.
 8. Visual regression screenshots and accessibility pass.
 
 ## 14. Критерії приймання редизайну

@@ -35,6 +35,35 @@ const sourceOptions: Array<{ id: PickerSource; label: string; hint: string; icon
   { id: "signers", label: "Підписанти", hint: "Дані з параметрів програми", icon: Signature },
 ];
 
+const caseQuestions: Record<string, string> = {
+  називний: "Хто? Що?",
+  родовий: "Кого? Чого?",
+  давальний: "Кому? Чому?",
+  знахідний: "Кого? Що?",
+  орудний: "Ким? Чим?",
+  місцевий: "На кому? На чому?",
+  кличний: "Звертання",
+};
+
+const ordinalForms = {
+  masculine: ["перший", "другий", "третій", "четвертий", "п’ятий"],
+  feminine: ["перша", "друга", "третя", "четверта", "п’ята"],
+} as const;
+
+function selectedObjectDescription(subjectId: string, number: number) {
+  const feminine = subjectId === "person" || subjectId === "personVehicle" || subjectId === "position";
+  const noun = subjectId === "person" || subjectId === "personVehicle" ? "вибрана людина"
+    : subjectId === "position" ? "вибрана позиція"
+      : subjectId === "vehicle" ? "вибраний автомобіль"
+        : subjectId === "crew" ? "вибраний екіпаж"
+          : subjectId === "generator" ? "вибраний генератор"
+            : subjectId === "uav" ? "вибраний БпЛА"
+              : subjectId === "communications" ? "вибраний засіб зв’язку"
+                : "вибраний запис";
+  const word = ordinalForms[feminine ? "feminine" : "masculine"][number - 1];
+  return word ? `${word} ${noun}` : `${noun} №${number}`;
+}
+
 function positiveInteger(value: number) {
   return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : 1;
 }
@@ -195,11 +224,11 @@ export function AutoFillFieldPicker({ embedded = false, mode = "copy", onApply }
     </main>
     <aside className="panel autofill-picker__settings">{selected ? <>
       <header><small>{selected.subjectLabel}</small><h3>{selected.name}</h3><p>{selected.description}</p></header>
-      {selected.numberedPrefix && <label className="autofill-order">Кого або що підставити?<small>Номер відповідає порядку вибору під час генерації.</small><span><button type="button" onClick={() => setItemNumber(positiveInteger(itemNumber - 1))}>−</button><input aria-label="Номер вибраного об’єкта" type="number" min="1" step="1" value={normalisedItemNumber} onChange={(event) => setItemNumber(positiveInteger(Number(event.target.value)))} /><button type="button" onClick={() => setItemNumber(positiveInteger(itemNumber + 1))}>+</button></span></label>}
+      {selected.numberedPrefix && <label className="autofill-order">Кого або що підставити?<small>Підставиться {selectedObjectDescription(selected.subjectId, normalisedItemNumber)}.</small><span><button type="button" onClick={() => setItemNumber(positiveInteger(itemNumber - 1))}>−</button><input aria-label="Номер вибраного об’єкта" type="number" min="1" step="1" value={normalisedItemNumber} onChange={(event) => setItemNumber(positiveInteger(Number(event.target.value)))} /><button type="button" onClick={() => setItemNumber(positiveInteger(itemNumber + 1))}>+</button></span></label>}
       {selected.parameterNumberable && <label className="autofill-parameter-number">Окремий номер значення <small>Залиште порожнім, якщо це поле в документі лише одне.</small><input aria-label="Номер значення параметра" type="number" min="1" value={parameterNumber} onChange={(event) => setParameterNumber(event.target.value)} placeholder="Необов’язково" /></label>}
       <section className="autofill-modifiers"><h4>Як написати значення</h4>{(["case", "text", "style"] as const).map((group) => {
         const choices = modifierRegistry.filter((item) => item.group === group);
-        return <div key={group}><small>{group === "case" ? "Відмінок" : group === "text" ? "Регістр" : "Оформлення у Word"}</small><div>{choices.map((item) => { const unavailable = (group === "case" && !selected.supportsCases) || (group === "text" && selected.kind === "number"); return <label key={item.id} className={unavailable ? "disabled" : ""}><input type={group === "style" ? "checkbox" : "radio"} name={`autofill-${group}`} disabled={unavailable} checked={modifiers.includes(item.id)} onChange={() => toggleModifier(item.id)} />{item.name}</label>; })}</div></div>;
+        return <div key={group}><small>{group === "case" ? "Відмінок" : group === "text" ? "Регістр" : "Оформлення у Word"}</small><div>{choices.map((item) => { const unavailable = (group === "case" && !selected.supportsCases) || (group === "text" && selected.kind === "number"); const label = group === "case" ? `${caseQuestions[item.id] ?? item.name} · ${item.name}` : item.name; return <label key={item.id} className={unavailable ? "disabled" : ""}><input aria-label={label} type={group === "style" ? "checkbox" : "radio"} name={`autofill-${group}`} disabled={unavailable} checked={modifiers.includes(item.id)} onChange={() => toggleModifier(item.id)} />{label}</label>; })}</div></div>;
       })}</section>
       <Preview variable={selected} modifiers={modifiers} />
       <details className="autofill-advanced"><summary>Додатково: технічний код</summary><p>Потрібен лише для ручного редагування документа.</p><code>{token}</code></details>
@@ -209,5 +238,5 @@ export function AutoFillFieldPicker({ embedded = false, mode = "copy", onApply }
   return embedded ? content : <PageFrame className="documentation-page">{content}</PageFrame>;
 }
 
-/** @deprecated Kept as a source-compatible wrapper for integrations and tests. */
+/** @deprecated Kept only for internal import compatibility; the picker is embedded contextually. */
 export const VariableConstructorPage = AutoFillFieldPicker;

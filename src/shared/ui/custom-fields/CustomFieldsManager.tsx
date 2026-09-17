@@ -51,7 +51,7 @@ export function CustomFieldsManager({ scope }: { scope: CustomFieldsScope }) {
     <button className="button" onClick={() => { void loadFields(); setOpen(true); }}><Plus />Редактор кастомних полів</button>
     {open && <Modal title="Редактор кастомних полів" onClose={close} className="custom-field-editor">
       {formOpen ? <>
-        <p>Поле буде доступним у конструкторі змінних і синхронізується з custom_variables.json.</p>
+        <p>Поле буде доступним через «Вставити поле» у Шаблонах та Аналізаторі й синхронізується з custom_variables.json.</p>
         <label>Ключ поля<input disabled={Boolean(editingFieldKey)} value={field.fieldKey} onChange={(event) => setField({ ...field, fieldKey: event.target.value })} placeholder="unit_name" /></label>
         <label>Українська назва<input value={field.displayName} onChange={(event) => setField({ ...field, displayName: event.target.value })} /></label>
         <label>Опис<textarea value={field.description} onChange={(event) => setField({ ...field, description: event.target.value })} /></label>

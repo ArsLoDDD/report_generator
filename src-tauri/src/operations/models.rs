@@ -53,6 +53,7 @@ pub struct CrewMember {
     pub rank: String,
     pub position: String,
     pub callsign: String,
+    pub current_location: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

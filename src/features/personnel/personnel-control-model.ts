@@ -88,6 +88,21 @@ export function formatControlDate(value: string) {
 }
 
 export function formatControlDateTime(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2})/u.exec(value);
-  return match ? `${match[3]}.${match[2]}.${match[1]} ${match[4]}:${match[5]}` : formatControlDate(value);
+  if (!value.trim()) return "—";
+  const utcValue = /^\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}(?::\d{2})?$/u.test(value.trim())
+    ? `${value.trim().replace(" ", "T")}Z`
+    : value.trim();
+  const instant = new Date(utcValue);
+  if (Number.isNaN(instant.getTime())) return formatControlDate(value);
+  const parts = new Intl.DateTimeFormat("uk-UA", {
+    timeZone: "Europe/Kyiv",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("day")}.${part("month")}.${part("year")} ${part("hour")}:${part("minute")}`;
 }

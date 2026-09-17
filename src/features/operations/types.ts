@@ -1,6 +1,6 @@
 export type EquipmentCategory = "generator" | "uav" | "communications" | "weapon_ammo";
 
-export type CrewMember = { personnelId: number; fullName: string; rank: string; position: string; callsign: string };
+export type CrewMember = { personnelId: number; fullName: string; rank: string; position: string; callsign: string; currentLocation?: string };
 export type Crew = {
   id: number;
   name: string;

@@ -166,9 +166,9 @@
 
 ### Довідка
 
-- `documentation/DocumentationPage.tsx` — конструктор змінної та інтерактивний приклад модифікаторів.
+- `documentation/DocumentationPage.tsx` — спільний контекстний вибір полів автозаповнення для Шаблонів та Аналізатора.
 - `documentation/ProgramGuidePage.tsx` — користувацька інструкція всередині програми.
-- `documentation/*.test.tsx` — перевіряють пошук, конструктор і відображення довідки.
+- `documentation/*.test.tsx` — перевіряють пошук полів, модифікатори й відображення довідки.
 - `documentation/README.md` — межі модуля документації.
 
 ## Стилі та ресурси фронтенду
@@ -177,7 +177,7 @@
 - `src/styles/layout-core.css` — оболонка, sidebar, таблиці, модальні вікна та спільні layout-компоненти.
 - `src/styles/layout-features.css` — доменні сторінки, картки та редактори.
 - `src/layout-fixes.css` — точкові адаптивні виправлення, які ще не можна безпечно злити з базовими правилами.
-- `src/template-language.css` — аналізатор, preview DOCX і конструктор змінних.
+- `src/template-language.css` — аналізатор, preview DOCX і контекстний вибір полів автозаповнення.
 - `src/assets/*` — логотипи/марки інтерфейсу; не містять логіки.
 - `tests/visual/staffing.html`, `tests/visual/staffing.tsx` — локальний visual harness штату без зміни production-навігації.
 

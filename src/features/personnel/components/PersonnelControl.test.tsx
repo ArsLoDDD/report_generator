@@ -69,6 +69,24 @@ const manual: PersonnelControlRecord = {
   positionName: "",
 };
 
+const bcs: PersonnelControlRecord = {
+  ...automatic,
+  tab: "ОХ",
+  locationType: "ОХ",
+  source: "bcs",
+  sourceLabel: "Стан із БЧС",
+  crewId: null,
+  crewName: "",
+  positionId: null,
+  positionName: "",
+};
+
+const bcsPosition: PersonnelControlRecord = {
+  ...bcs,
+  tab: "На позиції",
+  locationType: "ГШР",
+};
+
 function renderControl(records = [automatic, manual], history: PersonnelControlHistoryEvent[] = []) {
   invoke.mockImplementation((command: string) => {
     if (command === "list_personnel_control_records") return Promise.resolve(records);
@@ -97,6 +115,23 @@ describe("PersonnelControl", () => {
     fireEvent.click(screen.getByRole("button", { name: /На позиції\s*1/u }));
     expect(screen.getByText("ОРІОН")).toBeInTheDocument();
     expect(screen.queryByText("Навчальний центр")).not.toBeInTheDocument();
+  });
+
+  it("distinguishes an ordinary BCS state from an automatic workflow", async () => {
+    renderControl([bcs]);
+    const row = within(await screen.findByRole("table")).getByText("ОХ").closest("tr");
+    expect(row).not.toBeNull();
+    if (!row) throw new Error("BCS personnel row is missing");
+    expect(within(row).getByText("У БЧС")).toBeInTheDocument();
+    expect(within(row).queryByText("Автоматично")).not.toBeInTheDocument();
+  });
+
+  it("shows the exact position-work type supplied by the source", async () => {
+    renderControl([{ ...automatic, tab: "Реко та облаштування", locationType: "Реко та облаштування", workId: 12, workType: "Рекогностування", sourceLabel: "Автоматично з робіт на позиції" }]);
+    const row = within(await screen.findByRole("table")).getByText("Реко та облаштування").closest("tr");
+    expect(row).not.toBeNull();
+    if (!row) throw new Error("Position-work personnel row is missing");
+    expect(within(row).getByText("Робота: Рекогностування")).toBeInTheDocument();
   });
 
   it("creates an open-ended business trip through the custom selects", async () => {
@@ -131,6 +166,12 @@ describe("PersonnelControl", () => {
     expect(screen.getByText("Люди з автоматичним бойовим станом або активним ручним записом недоступні.")).toBeInTheDocument();
   });
 
+  it("does not offer a BCS-sourced position state for a manual assignment", async () => {
+    renderControl([bcsPosition]);
+    fireEvent.click(await screen.findByRole("button", { name: "Додати місце перебування" }));
+    expect(screen.getByLabelText("Військовослужбовець")).toBeDisabled();
+  });
+
   it("closes a manual record instead of deleting its history", async () => {
     renderControl([manual]);
     fireEvent.click(await screen.findByRole("button", { name: `Завершити ${person.fullName}` }));
@@ -147,7 +188,26 @@ describe("PersonnelControl", () => {
     expect(await screen.findByText("Перенесено зі старої бази")).toBeInTheDocument();
     expect(screen.getByText("Центр підготовки")).toBeInTheDocument();
     expect(screen.getByText("Повернувся · Планове відрядження")).toBeInTheDocument();
-    expect(screen.getByText("19.09.2026 10:30")).toBeInTheDocument();
-    expect(invoke).toHaveBeenCalledWith("list_personnel_control_history", { personnelId: null });
+    expect(screen.getByText("19.09.2026 13:30")).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("list_personnel_control_history", { personnelId: null, limit: 100, offset: 0 });
+  });
+
+  it("loads long personnel history in bounded pages", async () => {
+    const event = (id: number): PersonnelControlHistoryEvent => ({ id, assignmentId: 8, personnelId: 1, fullName: `${person.fullName} ${id}`, action: "updated", locationType: "ВІДР", institution: "Центр", startDate: "2026-09-17", endDate: "", notes: "", reason: "", occurredAt: "2026-09-19T10:30:00" });
+    const firstPage = Array.from({ length: 100 }, (_, index) => event(index + 1));
+    invoke.mockImplementation((command: string, args?: { offset?: number }) => {
+      if (command === "list_personnel_control_records") return Promise.resolve([]);
+      if (command === "list_personnel_control_history") return Promise.resolve(args?.offset === 100 ? [event(101)] : firstPage);
+      return Promise.resolve(undefined);
+    });
+    render(<NotificationProvider><PersonnelControl people={[person]} hasMorePeople={false} onLoadMorePeople={vi.fn(async () => undefined)} /></NotificationProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Історія" }));
+    const loadMore = await screen.findByRole("button", { name: "Показати ще 100 подій" });
+    fireEvent.click(loadMore);
+
+    expect(await screen.findByText(`${person.fullName} 101`)).toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("list_personnel_control_history", { personnelId: null, limit: 100, offset: 100 });
+    expect(screen.queryByRole("button", { name: "Показати ще 100 подій" })).not.toBeInTheDocument();
   });
 });

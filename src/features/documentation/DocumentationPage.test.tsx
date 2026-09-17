@@ -45,7 +45,8 @@ describe("Поля автозаповнення", () => {
     fireEvent.change(screen.getByRole("textbox", { name: /Наприклад/ }), { target: { value: "ПІБ" } });
     fireEvent.click(screen.getByRole("button", { name: "ПІБ, Військовослужбовець" }));
     fireEvent.change(screen.getByLabelText("Номер вибраного об’єкта"), { target: { value: "2" } });
-    fireEvent.click(screen.getByLabelText("Родовий"));
+    expect(screen.getByText("Підставиться друга вибрана людина.")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Кого? Чого? · Родовий"));
     fireEvent.click(screen.getByLabelText("Жирним"));
     fireEvent.click(screen.getByText("Додатково: технічний код"));
     expect(screen.getByText("{{військовий_2_піб:родовий:жирним}}")).toBeInTheDocument();

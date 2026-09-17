@@ -263,6 +263,11 @@
 	font-weight: 720;
 }
 
+.personnel-control__load-more {
+	display: flex;
+	margin: 14px auto;
+}
+
 .personnel-control__actions {
 	white-space: nowrap !important;
 }

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { RefreshCw, UsersRound } from "lucide-react";
 import { Modal } from "../../shared/ui/Modal";
 import { Select } from "../../shared/ui/Select";
+import { isFlightPlanMemberAvailable } from "./flight-plan-model";
 import type { Crew, FlightPlanEntry, FlightPlanRotation } from "./types";
 
 export function FlightRotationModal({ crew, currentEntry, nextEntry, rotation, onClose, onSave }: {
@@ -31,7 +32,7 @@ export function FlightRotationModal({ crew, currentEntry, nextEntry, rotation, o
     <div className="flight-rotation-modal__body">
       <div className="flight-rotation-summary"><UsersRound/><span><b>Після ротації: {selectedIds.length}</b><small>Залишаються {selectedIds.filter((id)=>initiallySelected.has(id)).length} · заїжджають {selectedIds.filter((id)=>!initiallySelected.has(id)).length} · виїжджають {currentEntry.actualMemberIds.filter((id)=>!selectedIds.includes(id)).length}</small></span></div>
       {sameComposition&&<p className="flight-rotation-warning" role="status">{sameAsPrevious?"Щоб провести ротацію, змініть склад екіпажу: хтось має заїхати або виїхати з позиції.":"Склад не може збігатися з наступним етапом ротації."}</p>}
-      <div className="flight-rotation-members">{members.map((member)=>{const checked=selectedIds.includes(member.personnelId);return <label className={checked?"is-selected":""} key={member.personnelId}><input type="checkbox" checked={checked} onChange={()=>toggle(member.personnelId)}/><span><b>{member.fullName}</b><small>{member.rank} · {member.position}{member.callsign?` · ${member.callsign}`:""}</small></span>{initiallySelected.has(member.personnelId)&&<em>Зараз на позиції</em>}</label>;})}</div>
+      <div className="flight-rotation-members">{members.map((member)=>{const checked=selectedIds.includes(member.personnelId);const unavailable=!isFlightPlanMemberAvailable(member);return <label className={checked?"is-selected":""} key={member.personnelId}><input type="checkbox" checked={checked} disabled={unavailable&&!checked} onChange={()=>toggle(member.personnelId)}/><span><b>{member.fullName}</b><small>{member.rank} · {member.position}{member.callsign?` · ${member.callsign}`:""}</small></span>{unavailable?<em>Недоступний · {member.currentLocation}</em>:initiallySelected.has(member.personnelId)&&<em>Зараз на позиції</em>}</label>;})}</div>
       <label className="form-field"><span>Фактичний командир після ротації</span><Select ariaLabel="Фактичний командир після ротації" value={commanderId?.toString()??""} onChange={(value)=>setCommanderId(value?Number(value):null)} options={selectedMembers.map((member)=>({value:String(member.personnelId),label:`${member.fullName}${member.callsign?` · ${member.callsign}`:""}`}))}/><small>У списку доступні тільки люди з активним чекбоксом.</small></label>
     </div>
     <footer className="modal-actions"><button className="button" onClick={onClose}>Скасувати</button><button className="button primary" disabled={!selectedIds.length||!commanderId||sameComposition} onClick={()=>commanderId&&!sameComposition&&onSave(selectedIds,commanderId)}><RefreshCw/>{rotation?"Зберегти склад":"Провести ротацію"}</button></footer>

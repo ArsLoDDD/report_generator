@@ -49,6 +49,6 @@ describe("personnel control model", () => {
 
   it("explains an open-ended business trip in the period", () => {
     expect(controlPeriod({ ...record("ВІДР"), startDate: "2026-09-17", untilSeparateOrder: true })).toBe("з 17.09.2026 · до окремого розпорядження");
-    expect(formatControlDateTime("2026-09-17 14:25:41")).toBe("17.09.2026 14:25");
+    expect(formatControlDateTime("2026-09-17 14:25:41")).toBe("17.09.2026 17:25");
   });
 });

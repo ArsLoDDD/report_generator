@@ -69,6 +69,37 @@ describe("Планування польотів",()=>{
     expect(screen.queryByText("РЕЗЕРВ")).not.toBeInTheDocument();
   });
 
+  it("excludes unavailable crew members from the plan and BCS synchronization",async()=>{
+    const available={...crew("СОКІЛ").actualMembers[0],personnelId:2,fullName:"ДОСТУПНИЙ Дмитро Дмитрович",currentLocation:"ОХ"};
+    const training={...crew("СОКІЛ").actualMembers[0],personnelId:1,fullName:"НАВЧАЛЬНИЙ Назар Назарович",currentLocation:"НАВЧ"};
+    vi.mocked(operationsService.listCrews).mockResolvedValue([{...crew("СОКІЛ"),members:[training,available],actualMembers:[training,available]}]);
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+
+    await screen.findByText("БАРС",{selector:"b"});
+    expect(screen.getByText("1 недоступні")).toBeInTheDocument();
+    await waitFor(()=>expect(operationsService.syncFlightPlanLocations).toHaveBeenLastCalledWith(expect.any(String),[{crewId:1,stages:[[2]],arrivesToday:false,departsToday:false}]));
+    await waitFor(()=>expect(JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}").entries[1].actualMemberIds).toEqual([2]));
+  });
+
+  it("preserves a conflicting saved composition until the user explicitly refreshes it",async()=>{
+    const blocked={...crew("СОКІЛ").actualMembers[0],personnelId:1,fullName:"НАВЧАЛЬНИЙ Назар Назарович",currentLocation:"НАВЧ"};
+    const available={...crew("СОКІЛ").actualMembers[0],personnelId:2,fullName:"ДОСТУПНИЙ Дмитро Дмитрович",currentLocation:"ОХ"};
+    localStorage.setItem("flight-plan-draft-v2",JSON.stringify({date:todayForTest(),selected:[1],entries:{1:{...initialStoredEntryForTest(),crewId:1,actualMemberIds:[1,2],actualCommanderId:1}},rotations:{}}));
+    vi.mocked(operationsService.listCrews).mockResolvedValue([{...crew("СОКІЛ"),members:[blocked,available],actualMembers:[blocked,available]}]);
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+
+    await screen.findByText("БАРС",{selector:"b"});
+    await waitFor(()=>expect(JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}").entries[1].actualMemberIds).toEqual([1,2]));
+    expect(operationsService.syncFlightPlanLocations).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    expect(screen.getByRole("alert")).toHaveTextContent("Дані не змінено автоматично");
+    fireEvent.click(screen.getByRole("button",{name:"Оновити склад етапу"}));
+    await waitFor(()=>expect(JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}").entries[1].actualMemberIds).toEqual([2]));
+    await waitFor(()=>expect(operationsService.syncFlightPlanLocations).toHaveBeenLastCalledWith(expect.any(String),[{crewId:1,stages:[[2]],arrivesToday:false,departsToday:false}]));
+  });
+
   it("restores today's plan and its rotation stages from the database snapshot",async()=>{
     vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
     vi.mocked(operationsService.getFlightPlanSnapshot).mockResolvedValue(JSON.stringify({unitName:"АРХІВ",entries:[

@@ -21,7 +21,7 @@ describe("Довідник", () => {
     expect(screen.getByRole("heading", { name: "Як працювати з програмою", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Швидкий старт", level: 2 })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Як інформація проходить через програму", level: 2 })).toBeInTheDocument();
-    ["personnel", "staffing-bcs", "flight-plan", "flight-journal", "incidents", "summary-report", "assets", "warnings"].forEach((id) => expect(document.getElementById(`guide-${id}`)).toBeInTheDocument());
+    ["personnel", "personnel-control", "staffing-bcs", "flight-plan", "flight-journal", "incidents", "summary-report", "assets", "warnings"].forEach((id) => expect(document.getElementById(`guide-${id}`)).toBeInTheDocument());
     expect(screen.getByText(/Дані й документи залишаються на цьому комп’ютері/)).toBeInTheDocument();
     expect(screen.getAllByText("Бере дані з").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Передає дані в").length).toBeGreaterThan(0);
@@ -78,6 +78,21 @@ describe("Довідник", () => {
     expect(topicText("position-work")).toMatch(/два неперетинні періоди.+основна робота та охорона/u);
     expect(topicText("position-work")).toMatch(/«ЗБЗ» чи «ПБЗ»/u);
     expect(topicText("incidents")).toMatch(/Тип інциденту - ПРІЗВИЩЕ І\.П\. - дата/u);
+  });
+
+  it("explains personnel control as a shared BCS state and blocks manual automatic records", () => {
+    expect(topicText("personnel-control")).toMatch(/БЧС і контроль.+одне поточне значення «Де знаходиться»/u);
+    expect(topicText("personnel-control")).toMatch(/«ЗБЗ», «ПБЗ».+«ГШР».+вкладці «На позиції»/u);
+    expect(topicText("personnel-control")).toMatch(/Стани з плану польотів.+не можна підмінити.+Стан без активного робочого джерела.+у БЧС/u);
+    expect(topicText("personnel-control")).toMatch(/ВІДР.+до окремого розпорядження/u);
+    expect(topicText("personnel-control")).toMatch(/«ВІДП».+«СЗЧ».+«ПТЗ Новостав».+активним «НАВЧ», «ВІДР», «ЛІК».+не включається до плану польотів/u);
+  });
+
+  it("keeps the analyser separate and documents the contextual field picker", () => {
+    expect(topicText("templates-analyser")).toMatch(/«Аналізатор рапортів» залишається окремим робочим розділом/u);
+    expect(topicText("templates-analyser")).toMatch(/«Вставити поле».+одразу замінити/u);
+    expect(topicText("templates-analyser")).toMatch(/Шаблонах.+скопіюйте готове поле/u);
+    expect(topicText("templates-analyser")).toMatch(/Старі шаблони.+продовжують розпізнаватися/u);
   });
 
   it("distinguishes snapshots, current drafts, static DOCX files and planned features", () => {
