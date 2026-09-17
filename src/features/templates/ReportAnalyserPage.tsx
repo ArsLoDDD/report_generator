@@ -1,20 +1,22 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { renderAsync } from "docx-preview";
-import { Check, FileText, FolderOpen, LoaderCircle, Replace, SlidersHorizontal, Trash2, Undo2, X } from "lucide-react";
+import { Check, FileText, FolderOpen, LoaderCircle, Replace, SlidersHorizontal, Trash2, Undo2, WandSparkles, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getVariable, modifierRegistry, tokenFor } from "../../shared/template-language/registry";
 import { PageFrame } from "../../shared/ui/PageFrame";
+import { Modal } from "../../shared/ui/Modal";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import type { TemplateAnalysis, TemplateAnalysisProposal, TemplateAnalysisReplacement } from "../../shared/types/domain";
 import { templateService } from "./services/templateService";
 import { AnalysisProposalList } from "./analysis/AnalysisProposalList";
 import { ModifierModal } from "./analysis/ModifierModal";
 import { analysisErrorMessage, defaultAnalysisSelection, normaliseAnalysisProposals, normaliseManualReplacement, normaliseSelectedTokenText, proposalKey, tokenSelectedInEditor, type ManualReplacement, type SelectedTemplateToken } from "./analysis/analysisModel";
+import { AutoFillFieldPicker } from "../documentation/DocumentationPage";
 
 export { defaultAnalysisSelection, normaliseAnalysisProposals, normaliseManualReplacement, normaliseSelectedTokenText, tokenSelectedInEditor } from "./analysis/analysisModel";
 
-export function ReportAnalyserPage({ onCreated, onOpenConstructor }: { onCreated: (templatePath: string) => void; onOpenConstructor: () => void }) {
+export function ReportAnalyserPage({ onCreated }: { onCreated: (templatePath: string) => void }) {
   const [path, setPath] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<TemplateAnalysis | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -22,6 +24,7 @@ export function ReportAnalyserPage({ onCreated, onOpenConstructor }: { onCreated
   const [selectedText, setSelectedText] = useState("");
   const [selectedOccurrence, setSelectedOccurrence] = useState(0);
   const [replacementInput, setReplacementInput] = useState("");
+  const [fieldPickerMode, setFieldPickerMode] = useState<"copy" | "apply" | null>(null);
   const [modifierTarget, setModifierTarget] = useState<SelectedTemplateToken | null>(null);
   const [selectedModifiers, setSelectedModifiers] = useState<string[]>([]);
   const [tokenOverrides, setTokenOverrides] = useState<Record<string, string>>({});
@@ -185,17 +188,19 @@ export function ReportAnalyserPage({ onCreated, onOpenConstructor }: { onCreated
     setSelectedOccurrence(occurrence);
     setModifierTarget(null);
   };
+  const commitManualReplacement = (replacement: string) => {
+    if (!selectedText) { notify("Виділіть текст або пробіли у документі.", "info"); return; }
+    setManual((current) => [...current, { id: crypto.randomUUID(), value: selectedText, replacement, occurrence: selectedOccurrence }]);
+    setSelectedText(""); setReplacementInput(""); setSelectedOccurrence(0);
+    setModifierTarget(null);
+  };
   const applyManualReplacement = () => {
-    const value = selectedText;
-    if (!value) { notify("Виділіть текст або пробіли у документі.", "info"); return; }
     const replacement = normaliseManualReplacement(replacementInput);
     if (replacement.error || replacement.value === undefined) {
       notify(replacement.error ?? "Некоректна заміна.", "error");
       return;
     }
-    setManual((current) => [...current, { id: crypto.randomUUID(), value, replacement: replacement.value!, occurrence: selectedOccurrence }]);
-    setSelectedText(""); setReplacementInput(""); setSelectedOccurrence(0);
-    setModifierTarget(null);
+    commitManualReplacement(replacement.value);
   };
   const deleteSelection = () => {
     if (!selectedText) return;
@@ -222,8 +227,9 @@ export function ReportAnalyserPage({ onCreated, onOpenConstructor }: { onCreated
   };
   return <PageFrame className="report-analyser-page" tools={<section ref={sourcePanelRef} className="panel analyser-source"><div><small>Вихідний рапорт</small><b title={path ?? ""}>{path?.split(/[\\/]/).pop() ?? "Файл ще не обрано"}</b></div>{path && <button className="icon-button" title="Скасувати вибір файлу" aria-label="Скасувати вибір файлу" disabled={isAnalysing} onClick={resetSource}><X /></button>}<button className="button primary" disabled={isAnalysing} onClick={() => void choose()}>{isAnalysing ? <LoaderCircle className="spin" /> : <FolderOpen />}{isAnalysing ? "Аналізуємо…" : "Обрати DOCX"}</button></section>}>
     {!analysis ? <section className={`panel analyser-empty ${isDraggingFile ? "analyser-empty--dragging" : ""}`} onDragOver={(event) => { event.preventDefault(); setIsDraggingFile(true); }} onDragLeave={() => setIsDraggingFile(false)} onDrop={(event) => { event.preventDefault(); setIsDraggingFile(false); }}><FileText /><h2>{isAnalysing ? "Аналізуємо рапорт…" : isDraggingFile ? "Відпустіть DOCX-файл" : "Оберіть готовий рапорт"}</h2><p>{isAnalysing ? "Визначаємо можливі змінні та готуємо точний перегляд документа." : "Перетягніть DOCX сюди або натисніть «Обрати DOCX». Після вибору файл буде проаналізовано."}</p></section> : <div className="analyser-layout">
-      <section className="panel analyser-editor"><header><div><h2>Редактор шаблону</h2><p>Це точний локальний перегляд DOCX. Зміни, увімкнені праворуч, одразу відображаються у документі.</p></div><div className="analyser-editor__actions">{manual.length > 0 && <button className="icon-button" title="Скасувати останню ручну зміну" aria-label="Скасувати останню ручну зміну" onClick={() => setManual((current) => current.slice(0, -1))}><Undo2 /></button>}<span className={`analyser-preview-status analyser-preview-status--${previewState}`} role="status">{previewState === "loading" ? "Оновлюємо…" : previewState === "ready" ? "Актуальний" : previewState === "error" ? "Помилка" : "Очікує"}</span><b>{replacements.length} замін</b></div></header><div ref={editorRef} className="analyser-editor__text analyser-editor__document" tabIndex={0} onMouseUp={rememberSelection} onKeyUp={rememberSelection} aria-label="Текст документа для редагування"><div ref={previewRef} className="analyser-docx-preview" />{previewError && <p className="analyser-preview-error" role="alert">{previewError}</p>}</div>{selectedText && <footer className="analyser-selection"><span>Виділено: <b>{selectedText}</b></span><input value={replacementInput} onChange={(event) => setReplacementInput(event.target.value)} placeholder="{{змінна}} або інший текст" aria-label="Нова заміна" />{editableToken && <button className="button analyser-modifier-button" onClick={openModifiers}><SlidersHorizontal />Модифікатори</button>}<button className="button primary" onClick={applyManualReplacement}><Replace />Застосувати</button><button className="icon-button danger" title="Видалити виділений текст" aria-label="Видалити виділений текст" onClick={deleteSelection}><Trash2 /></button></footer>}</section>
-      <aside className="panel analyser-sidebar"><AnalysisProposalList groups={proposalGroups} proposalCount={analysis.proposals.length} selected={selected} selectedCount={selectedProposals.length} tokenOverrides={tokenOverrides} onToggle={toggle} onOverride={(key, token) => setTokenOverrides((current) => ({ ...current, [key]: token }))} onOpenConstructor={onOpenConstructor} /><footer className="analyser-create"><label>Назва файлу<input value={templateName} onChange={(event) => setTemplateName(event.target.value)} /></label><p>{previewState === "loading" ? "Зачекайте: перевіряємо останні зміни у документі." : "Стиль, відступи та пробіли оригінального DOCX зберігаються; змінюється лише підтверджений текст."}</p><button className="button primary" disabled={!templateName.trim() || isCreating || previewState !== "ready"} onClick={() => void create()}>{isCreating || previewState === "loading" ? <LoaderCircle className="spin" /> : <Check />}{isCreating ? "Перевіряємо…" : "Створити шаблон"}</button></footer></aside>
+      <section className="panel analyser-editor"><header><div><h2>Редактор шаблону</h2><p>Це точний локальний перегляд DOCX. Зміни, увімкнені праворуч, одразу відображаються у документі.</p></div><div className="analyser-editor__actions">{manual.length > 0 && <button className="icon-button" title="Скасувати останню ручну зміну" aria-label="Скасувати останню ручну зміну" onClick={() => setManual((current) => current.slice(0, -1))}><Undo2 /></button>}<span className={`analyser-preview-status analyser-preview-status--${previewState}`} role="status">{previewState === "loading" ? "Оновлюємо…" : previewState === "ready" ? "Актуальний" : previewState === "error" ? "Помилка" : "Очікує"}</span><b>{replacements.length} замін</b></div></header><div ref={editorRef} className="analyser-editor__text analyser-editor__document" tabIndex={0} onMouseUp={rememberSelection} onKeyUp={rememberSelection} aria-label="Текст документа для редагування"><div ref={previewRef} className="analyser-docx-preview" />{previewError && <p className="analyser-preview-error" role="alert">{previewError}</p>}</div>{selectedText && <footer className="analyser-selection"><span>Виділено: <b>{selectedText}</b></span><button className="button analyser-field-picker-button" onClick={() => setFieldPickerMode("apply")}><WandSparkles />Вставити поле</button><input value={replacementInput} onChange={(event) => setReplacementInput(event.target.value)} placeholder="Або введіть інший текст" aria-label="Нова заміна" />{editableToken && <button className="button analyser-modifier-button" onClick={openModifiers}><SlidersHorizontal />Модифікатори</button>}<button className="button primary" onClick={applyManualReplacement}><Replace />Застосувати</button><button className="icon-button danger" title="Видалити виділений текст" aria-label="Видалити виділений текст" onClick={deleteSelection}><Trash2 /></button></footer>}</section>
+      <aside className="panel analyser-sidebar"><AnalysisProposalList groups={proposalGroups} proposalCount={analysis.proposals.length} selected={selected} selectedCount={selectedProposals.length} tokenOverrides={tokenOverrides} onToggle={toggle} onOverride={(key, token) => setTokenOverrides((current) => ({ ...current, [key]: token }))} onOpenFieldPicker={() => setFieldPickerMode("copy")} /><footer className="analyser-create"><label>Назва файлу<input value={templateName} onChange={(event) => setTemplateName(event.target.value)} /></label><p>{previewState === "loading" ? "Зачекайте: перевіряємо останні зміни у документі." : "Стиль, відступи та пробіли оригінального DOCX зберігаються; змінюється лише підтверджений текст."}</p><button className="button primary" disabled={!templateName.trim() || isCreating || previewState !== "ready"} onClick={() => void create()}>{isCreating || previewState === "loading" ? <LoaderCircle className="spin" /> : <Check />}{isCreating ? "Перевіряємо…" : "Створити шаблон"}</button></footer></aside>
     </div>}{modifierTarget && selectedVariable && <ModifierModal target={modifierTarget} variable={selectedVariable} selected={selectedModifiers} onToggle={toggleModifier} onClose={() => setModifierTarget(null)} onApply={useModifiers} />}
+    {fieldPickerMode && <Modal title="Поля автозаповнення" subtitle={fieldPickerMode === "apply" ? `Замініть виділений текст «${selectedText}» даними програми.` : "Знайдіть поле та скопіюйте його для ручного редагування документа."} onClose={() => setFieldPickerMode(null)} className="constructor-modal"><div className="constructor-modal__content"><AutoFillFieldPicker embedded mode={fieldPickerMode} onApply={(token) => { commitManualReplacement(token); setFieldPickerMode(null); }} /></div></Modal>}
   </PageFrame>;
 }

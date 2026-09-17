@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Copy } from "lucide-react";
+import { Check, ChevronRight, Copy, Database, FileInput, Search, Signature } from "lucide-react";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { SearchInput } from "../../shared/ui/SearchInput";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
-import { crewFields, customFieldId, equipmentFields, modifierRegistry, positionFields, signerFields, signerRoles, tokenFor, variableRegistry, vehicleFields, type VariableDefinition } from "../../shared/template-language/registry";
+import { crewFields, customFieldId, equipmentFields, generationParameterFields, modifierRegistry, personFields, positionFields, signerFields, tokenFor, vehicleFields, type VariableDefinition } from "../../shared/template-language/registry";
 import { morphologyService, type UkrainianCase } from "../../shared/services/morphologyService";
 import { personnelService } from "../../shared/services/personnelService";
-import type { CustomFieldDefinition } from "../../shared/types/domain";
+import type { CustomFieldDefinition, SignerRole } from "../../shared/types/domain";
 import { settingsService } from "../settings/services/settingsService";
-import type { SignerRole } from "../../shared/types/domain";
 
 const textModifiers = new Set(["великими", "маленькими", "з_великої"]);
 const styleModifiers = new Set(["жирним", "підкреслити"]);
@@ -16,8 +15,56 @@ const isSimpleEdition = import.meta.env.VITE_APP_EDITION === "simple";
 const fallbackSignerObjects = [
   ["основний_підписант", "Основний підписант"], ["командир", "Командир"], ["начальник_штабу", "Начальник штабу"],
   ["заступник_ппп", "Заступник командира з ППП"], ["заступник_озброєння", "Заступник командира з озброєння"],
-  ["заступник_тилу", "Заступник командира з тилу"], ["начальник_пмм", "Начальник ПММ"]
+  ["заступник_тилу", "Заступник командира з тилу"], ["начальник_пмм", "Начальник ПММ"],
 ] as const;
+
+type PickerSource = "all" | "accounting" | "manual" | "signers";
+type PickerMode = "copy" | "apply";
+type PickerVariable = VariableDefinition & {
+  source: Exclude<PickerSource, "all">;
+  subjectId: string;
+  subjectLabel: string;
+  numberedPrefix?: string;
+  parameterNumberable?: boolean;
+};
+
+const sourceOptions: Array<{ id: PickerSource; label: string; hint: string; icon: typeof Database }> = [
+  { id: "all", label: "Усі поля", hint: "Пошук у всіх джерелах", icon: Search },
+  { id: "accounting", label: "З обліку", hint: "Особовий склад, техніка та підрозділ", icon: Database },
+  { id: "manual", label: "Запитати під час створення", hint: "Значення, яке введе користувач", icon: FileInput },
+  { id: "signers", label: "Підписанти", hint: "Дані з параметрів програми", icon: Signature },
+];
+
+const fromField = (
+  field: { id: string; name: string; description?: string; example: string; kind: string; cases: boolean },
+  options: Omit<PickerVariable, keyof VariableDefinition | "id"> & { id: string },
+): PickerVariable => ({
+  ...options,
+  name: field.name,
+  category: options.subjectLabel,
+  description: field.description ?? `${field.name} із розділу «${options.subjectLabel}».`,
+  example: field.example,
+  kind: field.kind as VariableDefinition["kind"],
+  supportsCases: field.cases,
+});
+
+const customVariable = (item: CustomFieldDefinition, subjectId: "person" | "vehicle" | "personVehicle"): PickerVariable => {
+  const personVehicle = subjectId === "personVehicle";
+  const vehicle = subjectId === "vehicle";
+  return {
+    id: personVehicle ? `військовий_1_автомобіль_1_${customFieldId(item.fieldKey)}` : vehicle ? `автомобіль_1_${customFieldId(item.fieldKey)}` : `військовий_1_${customFieldId(item.fieldKey)}`,
+    name: item.displayName,
+    category: personVehicle ? "Автомобіль військовослужбовця" : vehicle ? "Автомобіль" : "Військовослужбовець",
+    description: item.description || "Додаткове поле з бази даних.",
+    example: item.initialValue || "Приклад значення",
+    kind: "text",
+    supportsCases: false,
+    source: "accounting",
+    subjectId,
+    subjectLabel: personVehicle ? "Автомобіль людини" : vehicle ? "Автомобіль" : "Військовослужбовець",
+    numberedPrefix: personVehicle ? "військовий" : vehicle ? "автомобіль" : "військовий",
+  };
+};
 
 function Preview({ variable, modifiers }: { variable: VariableDefinition; modifiers: string[] }) {
   const [result, setResult] = useState(variable.example);
@@ -37,28 +84,24 @@ function Preview({ variable, modifiers }: { variable: VariableDefinition; modifi
     return () => { active = false; };
   }, [variable, modifiers]);
   const className = `${modifiers.includes("жирним") ? "preview-bold " : ""}${modifiers.includes("підкреслити") ? "preview-underline" : ""}`;
-  return <><b className={className}>{result}</b><p className="constructor-sentence">Речення-приклад: «Прошу врахувати: <span className={className}>{result}</span>.»</p></>;
+  return <div className="autofill-preview-value"><small>У документі це виглядатиме приблизно так</small><b className={className}>{result || "Значення, введене користувачем"}</b></div>;
 }
 
-const toPersonnelValue = (item: CustomFieldDefinition): VariableDefinition => ({
-  id: `військовий_1_${customFieldId(item.fieldKey)}`, name: item.displayName, category: "Військовослужбовець", description: `${item.description}${item.description ? " " : ""}Стабільний ключ: ${item.fieldKey}.`, example: item.initialValue, kind: "text", supportsCases: false
-});
-const toVehicleValue = (item: CustomFieldDefinition): VariableDefinition => ({
-  id: `автомобіль_1_${customFieldId(item.fieldKey)}`, name: item.displayName, category: "Автомобіль", description: `${item.description}${item.description ? " " : ""}Стабільний ключ: ${item.fieldKey}.`, example: item.initialValue, kind: "text", supportsCases: false
-});
-const toPersonnelVehicleValue = (item: CustomFieldDefinition): VariableDefinition => ({
-  id: `військовий_1_автомобіль_1_${customFieldId(item.fieldKey)}`, name: item.displayName, category: "Автомобіль військовослужбовця", description: `${item.description}${item.description ? " " : ""}Стабільний ключ: ${item.fieldKey}.`, example: item.initialValue, kind: "text", supportsCases: false
-});
+export type AutoFillFieldPickerProps = {
+  embedded?: boolean;
+  mode?: PickerMode;
+  onApply?: (token: string) => void;
+};
 
-export function VariableConstructorPage({ embedded = false }: { embedded?: boolean } = {}) {
+/** Human-language picker used while editing a template. Technical tokens stay secondary. */
+export function AutoFillFieldPicker({ embedded = false, mode = "copy", onApply }: AutoFillFieldPickerProps) {
   const [query, setQuery] = useState("");
-  const [viewMode, setViewMode] = useState<"constructor" | "all">("constructor");
-  const [objectId, setObjectId] = useState("person");
-  const [fieldId, setFieldId] = useState("");
-  const [itemNumber, setItemNumber] = useState("1");
+  const [source, setSource] = useState<PickerSource>("all");
+  const [subjectId, setSubjectId] = useState("all");
+  const [selectedId, setSelectedId] = useState("");
+  const [itemNumber, setItemNumber] = useState(1);
   const [parameterNumber, setParameterNumber] = useState("");
   const [modifiers, setModifiers] = useState<string[]>([]);
-  const [step, setStep] = useState(0);
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
   const [vehicleCustomFields, setVehicleCustomFields] = useState<CustomFieldDefinition[]>([]);
   const [availableSignerRoles, setAvailableSignerRoles] = useState<SignerRole[]>([]);
@@ -70,56 +113,89 @@ export function VariableConstructorPage({ embedded = false }: { embedded?: boole
     void settingsService.get().then((settings) => setAvailableSignerRoles(settings.signerRoles ?? [])).catch(() => undefined);
   }, []);
 
-  const isPerson = objectId === "person";
-  const numberedPrefix = objectId === "person" ? "військовий" : objectId === "vehicle" ? "автомобіль" : objectId === "crew" ? "екіпаж" : objectId === "position" ? "позиція" : objectId === "generator" ? "генератор" : objectId === "uav" ? "бпла" : objectId === "communications" ? "звʼязок" : objectId === "weapon_ammo" ? "зброя_та_бк" : "";
-  const signerObjects = useMemo(() => availableSignerRoles.length ? availableSignerRoles.map((role) => [role.id, role.name] as const) : fallbackSignerObjects, [availableSignerRoles]);
-  const objects = useMemo(() => [
-    { id: "person", label: "Військовослужбовець" },
-    ...(!isSimpleEdition ? [{ id: "vehicle", label: "Автомобіль" }, { id: "crew", label: "Екіпаж" }, { id: "position", label: "Позиція" }, { id: "generator", label: "Генератор" }, { id: "uav", label: "БпЛА" }, { id: "communications", label: "Зв’язок" }, { id: "weapon_ammo", label: "Зброя та БК" }] : []),
-    ...signerObjects.map(([id, label]) => ({ id, label })),
-    { id: "document", label: "Параметри документа" }
-  ], [signerObjects]);
-  const categoryItems = useMemo(() => {
-    const matches = (item: VariableDefinition) => `${item.name} ${item.description} ${item.id}`.toLocaleLowerCase("uk").includes(query.toLocaleLowerCase("uk"));
-    const personnelValueFields = customFields.map(toPersonnelValue);
-    const vehicleValueFields = vehicleCustomFields.map(toVehicleValue);
-    const roleIds = new Set(signerRoles.map((role) => role.id));
-    const dynamicSignerValues = signerObjects.flatMap(([roleId, roleName]) => signerFields.map((item) => ({ id: `${roleId}_${item.id}`, name: item.name, category: roleName, description: item.description ?? item.name, example: item.example, kind: item.kind as VariableDefinition["kind"], supportsCases: item.cases })));
-    const withoutStaticSigners = variableRegistry.filter((item) => ![...roleIds].some((roleId) => item.id.startsWith(`${roleId}_`)))
-      .filter((item) => !isSimpleEdition || (!item.id.includes("_автомобіль") && !item.id.includes("_екіпаж") && !item.id.startsWith("автомобіль_") && !item.id.startsWith("екіпаж_") && !item.id.startsWith("позиція_") && !/^(генератор|бпла|звʼязок|зброя_та_бк)_/u.test(item.id)));
-    if (viewMode === "all") return [...withoutStaticSigners, ...dynamicSignerValues, ...personnelValueFields, ...vehicleValueFields].filter(matches);
-    if (isPerson) return [...variableRegistry.filter((item) => item.id.startsWith("військовий_1_")), ...personnelValueFields, ...vehicleCustomFields.map(toPersonnelVehicleValue)].filter(matches);
-    if (objectId === "vehicle") return [...vehicleFields.map((item) => ({ id: `автомобіль_1_${item.id}`, name: item.name, category: "Автомобіль", description: item.description ?? item.name, example: item.example, kind: item.kind as VariableDefinition["kind"], supportsCases: item.cases })), ...vehicleValueFields].filter(matches);
-    if (objectId === "crew") return crewFields.map((item) => ({ id: `екіпаж_1_${item.id}`, name: item.name, category: "Екіпаж", description: item.description ?? item.name, example: item.example, kind: item.kind as VariableDefinition["kind"], supportsCases: item.cases })).filter(matches);
-    if (objectId === "position") return positionFields.map((item) => ({ id: `позиція_1_${item.id}`, name: item.name, category: "Позиція", description: item.description ?? item.name, example: item.example, kind: item.kind as VariableDefinition["kind"], supportsCases: item.cases })).filter(matches);
-    const equipmentPrefix = objectId === "generator" ? "генератор" : objectId === "uav" ? "бпла" : objectId === "communications" ? "звʼязок" : objectId === "weapon_ammo" ? "зброя_та_бк" : "";
-    if (equipmentPrefix) return equipmentFields.map((item) => ({ id: `${equipmentPrefix}_1_${item.id}`, name: item.name, category: objects.find((object) => object.id === objectId)?.label ?? "Майно", description: item.description ?? item.name, example: item.example, kind: item.kind as VariableDefinition["kind"], supportsCases: item.cases })).filter(matches);
-    if (objectId === "document") return variableRegistry.filter((item) => item.category === "Параметри документа" && matches(item));
-    return dynamicSignerValues.filter((item) => item.id.startsWith(`${objectId}_`) && matches(item));
-  }, [viewMode, isPerson, objectId, query, customFields, vehicleCustomFields, signerObjects, objects]);
+  const signerObjects = useMemo(() => availableSignerRoles.length
+    ? availableSignerRoles.map((role) => [role.id, role.name] as const)
+    : fallbackSignerObjects, [availableSignerRoles]);
 
-  const field = categoryItems.find((item) => item.id === fieldId);
-  const variableId = !field ? "" : viewMode === "all" ? field.id : numberedPrefix ? field.id.replace(`${numberedPrefix}_1_`, `${numberedPrefix}_${Math.max(1, Number(itemNumber) || 1)}_`) : objectId === "document" && Number(parameterNumber) > 0 ? `${field.id}_${Math.floor(Number(parameterNumber))}` : field.id;
-  const token = field ? tokenFor(variableId, modifiers) : "";
-  const selectObject = (id: string) => { setObjectId(id); setFieldId(""); setParameterNumber(""); setStep(1); setModifiers([]); };
-  const selectField = (id: string) => { setFieldId(id); setStep(2); };
+  const variables = useMemo<PickerVariable[]>(() => {
+    const accounting: PickerVariable[] = [
+      ...personFields.map((field) => fromField(field, { id: `військовий_1_${field.id}`, source: "accounting", subjectId: "person", subjectLabel: "Військовослужбовець", numberedPrefix: "військовий" })),
+      ...customFields.map((field) => customVariable(field, "person")),
+    ];
+    if (!isSimpleEdition) accounting.push(
+      ...vehicleFields.map((field) => fromField(field, { id: `військовий_1_автомобіль_1_${field.id}`, source: "accounting", subjectId: "personVehicle", subjectLabel: "Автомобіль людини", numberedPrefix: "військовий" })),
+      ...vehicleCustomFields.map((field) => customVariable(field, "personVehicle")),
+      ...vehicleFields.map((field) => fromField(field, { id: `автомобіль_1_${field.id}`, source: "accounting", subjectId: "vehicle", subjectLabel: "Автомобіль", numberedPrefix: "автомобіль" })),
+      ...vehicleCustomFields.map((field) => customVariable(field, "vehicle")),
+      ...crewFields.map((field) => fromField(field, { id: `екіпаж_1_${field.id}`, source: "accounting", subjectId: "crew", subjectLabel: "Екіпаж", numberedPrefix: "екіпаж" })),
+      ...positionFields.map((field) => fromField(field, { id: `позиція_1_${field.id}`, source: "accounting", subjectId: "position", subjectLabel: "Позиція", numberedPrefix: "позиція" })),
+      ...(["generator", "uav", "communications", "weapon_ammo"] as const).flatMap((id) => {
+        const prefix = id === "generator" ? "генератор" : id === "uav" ? "бпла" : id === "communications" ? "звʼязок" : "зброя_та_бк";
+        const label = id === "generator" ? "Генератор" : id === "uav" ? "БпЛА" : id === "communications" ? "Зв’язок" : "Зброя та БК";
+        return equipmentFields.map((field) => fromField(field, { id: `${prefix}_1_${field.id}`, source: "accounting", subjectId: id, subjectLabel: label, numberedPrefix: prefix }));
+      }),
+    );
+    const manual = generationParameterFields.map((field) => fromField(field, { id: field.id, source: "manual", subjectId: "document", subjectLabel: "Заповнюється перед генерацією", parameterNumberable: true }));
+    const signers = signerObjects.flatMap(([id, label]) => signerFields.map((field) => fromField(field, { id: `${id}_${field.id}`, source: "signers", subjectId: id, subjectLabel: label })));
+    return [...accounting, ...manual, ...signers];
+  }, [customFields, vehicleCustomFields, signerObjects]);
+
+  const subjectOptions = useMemo(() => {
+    const visible = source === "all" ? variables : variables.filter((item) => item.source === source);
+    return [...new Map(visible.map((item) => [item.subjectId, item.subjectLabel])).entries()];
+  }, [source, variables]);
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase("uk-UA");
+    return variables.filter((item) => (source === "all" || item.source === source)
+      && (subjectId === "all" || item.subjectId === subjectId)
+      && (!needle || `${item.name} ${item.description} ${item.subjectLabel}`.toLocaleLowerCase("uk-UA").includes(needle)));
+  }, [query, source, subjectId, variables]);
+  const selected = variables.find((item) => item.id === selectedId);
+  const variableId = !selected ? "" : selected.numberedPrefix
+    ? selected.id.replace(`${selected.numberedPrefix}_1_`, `${selected.numberedPrefix}_${Math.max(1, itemNumber)}_`)
+    : selected.parameterNumberable && Number(parameterNumber) > 0 ? `${selected.id}_${Math.floor(Number(parameterNumber))}` : selected.id;
+  const token = selected ? tokenFor(variableId, modifiers) : "";
+
+  const chooseSource = (next: PickerSource) => { setSource(next); setSubjectId("all"); };
+  const chooseVariable = (id: string) => { setSelectedId(id); setModifiers([]); };
   const toggleModifier = (id: string) => setModifiers((current) => {
     const group = modifierRegistry.find((item) => item.id === id)?.group;
     if (current.includes(id)) return current.filter((item) => item !== id);
     if (group === "case" || group === "text") return [...current.filter((item) => modifierRegistry.find((candidate) => candidate.id === item)?.group !== group), id];
     return [...current, id];
   });
+  const finish = async () => {
+    if (!token) return;
+    if (mode === "apply" && onApply) { onApply(token); return; }
+    try {
+      await navigator.clipboard.writeText(token);
+      notify("Поле автозаповнення скопійовано.", "success");
+    } catch { notify("Не вдалося скопіювати поле.", "error"); }
+  };
 
-  const content = <section className="documentation-layout">
-      <main className={`panel documentation documentation--${viewMode}`}>
-        <header className="documentation__intro"><BookOpen /><div><h1>Конструктор змінних</h1><h2>Покрокове складання</h2><p>Оберіть частину змінної, а потім поверніться до будь-якого кроку, щоб змінити її.</p></div></header>
-        <div className="constructor-view-switch"><button className={viewMode === "constructor" ? "active" : ""} onClick={() => { setViewMode("constructor"); setStep(0); }}>Конструктор змінних</button><button className={viewMode === "all" ? "active" : ""} onClick={() => { setViewMode("all"); setStep(1); }}>Всі змінні</button></div>
-        {viewMode === "constructor" && <div className="constructor-steps">{["Об’єкт", "Поле", "Модифікатори"].map((label, index) => <button className={step === index ? "active" : ""} key={label} onClick={() => setStep(index)}>{index + 1}. {label}</button>)}</div>}
-        {step === 0 && viewMode === "constructor" && <div className="constructor-object-grid">{objects.map((item) => <button key={item.id} onClick={() => selectObject(item.id)}><b>{item.label}</b><span>Поля та доступні форми</span></button>)}</div>}
-        {(step === 1 || viewMode === "all") && <section className="constructor-fields"><SearchInput placeholder="Пошук поля або змінної…" value={query} onChange={setQuery} /><div className="variable-grid">{categoryItems.map((item) => <button className={field?.id === item.id ? "variable-token variable-token--selected" : "variable-token"} key={item.id} onClick={() => selectField(item.id)}><code>{`{{${item.id}}}`}</code><b>{item.name}</b><span>{item.description}</span></button>)}</div>{numberedPrefix && viewMode === "constructor" && <label className="field">Номер об’єкта <small>Перший об’єкт має номер 1, наступні — 2, 3 і далі.</small><input type="number" min="1" value={itemNumber} onChange={(event) => setItemNumber(event.target.value)} /></label>}{objectId === "document" && viewMode === "constructor" && <label className="field">Номер параметра <small>Необов’язково. Залиште порожнім для однієї змінної або введіть 1, 2, 3… для кількох значень.</small><input type="number" min="1" value={parameterNumber} onChange={(event) => setParameterNumber(event.target.value)} placeholder="Наприклад: 1" /></label>}</section>}
-        {step === 2 && viewMode === "constructor" && (field ? <section className="constructor-modifiers"><h3>Модифікатори можна комбінувати</h3><div className="modifier-groups">{[["Відмінок", "case"], ["Регістр", "text"], ["Форматування DOCX", "style"]].map(([title, group]) => <section key={group}><h4>{title}</h4><div className="modifier-grid">{modifierRegistry.filter((item) => item.group === group).map((item) => { const unavailable = (group === "case" && !field.supportsCases) || (group === "text" && field.kind === "number"); return <label className={unavailable ? "modifier-unavailable" : ""} key={item.id}><input type={group === "case" || group === "text" ? "radio" : "checkbox"} name={group === "case" ? "grammatical-case" : group === "text" ? "text-case" : undefined} checked={modifiers.includes(item.id)} disabled={unavailable} onChange={() => toggleModifier(item.id)} />{item.name}</label>; })}</div>{group === "case" && !field.supportsCases && <small>Відмінювання для цього поля недоступне.</small>}{group === "text" && field.kind === "number" && <small>Зміна регістру для числового поля недоступна.</small>}</section>)}</div><p>Регістр, жирний шрифт і підкреслення застосовуються до параметрів документа. Відмінок доступний лише для полів, які можна відмінювати.</p></section> : <section className="constructor-empty"><h3>Спочатку оберіть поле</h3><p>Після вибору поля тут будуть доступні сумісні модифікатори.</p></section>)}
-      </main>
-      <aside className="panel variable-preview"><header className="variable-preview__header">Поточна змінна</header>{field ? <><h2>{field.name}</h2><p>{field.description}</p><div className="word-example"><span>Токен для Word</span><code>{token}</code></div><div className="variable-result"><span>Перекладене значення</span><Preview variable={field} modifiers={modifiers} /></div><button className="button primary" onClick={() => void navigator.clipboard.writeText(token).then(() => notify("Змінну скопійовано.", "success"))}><Copy />Скопіювати змінну</button></> : <div className="variable-preview__empty"><BookOpen /><h2>Змінну ще не обрано</h2><p>Оберіть об’єкт, а потім потрібне поле — тут з’явиться токен і приклад значення.</p></div>}</aside>
-    </section>;
-  return embedded ? <div className="constructor-modal__content">{content}</div> : <PageFrame className="documentation-page">{content}</PageFrame>;
+  const content = <section className="autofill-picker">
+    <main className="panel autofill-picker__catalog">
+      <header className="autofill-picker__intro"><div><h2>Які дані мають бути тут?</h2><p>Знайдіть поле за звичною назвою. Технічний код програма складе сама.</p></div><span>{filtered.length} полів</span></header>
+      <SearchInput placeholder="Наприклад: ПІБ, звання, дата рапорту…" value={query} onChange={setQuery} />
+      <div className="autofill-sources" role="tablist" aria-label="Джерело даних">{sourceOptions.map(({ id, label, hint, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={source === id} className={source === id ? "active" : ""} onClick={() => chooseSource(id)}><Icon /><span><b>{label}</b><small>{hint}</small></span></button>)}</div>
+      {subjectOptions.length > 1 && <div className="autofill-subjects" aria-label="Тип даних"><button type="button" className={subjectId === "all" ? "active" : ""} onClick={() => setSubjectId("all")}>Усе</button>{subjectOptions.map(([id, label]) => <button type="button" key={id} className={subjectId === id ? "active" : ""} onClick={() => setSubjectId(id)}>{label}</button>)}</div>}
+      <div className="autofill-fields">{filtered.map((item) => <button type="button" key={item.id} aria-label={`${item.name}, ${item.subjectLabel}`} className={selectedId === item.id ? "autofill-field active" : "autofill-field"} onClick={() => chooseVariable(item.id)}><span><small>{item.subjectLabel}</small><b>{item.name}</b></span><p>{item.description}</p><ChevronRight /></button>)}{filtered.length === 0 && <div className="autofill-empty"><Search /><b>Нічого не знайдено</b><span>Спробуйте коротшу назву або оберіть інше джерело.</span></div>}</div>
+    </main>
+    <aside className="panel autofill-picker__settings">{selected ? <>
+      <header><small>{selected.subjectLabel}</small><h3>{selected.name}</h3><p>{selected.description}</p></header>
+      {selected.numberedPrefix && <label className="autofill-order">Кого або що підставити?<small>Номер відповідає порядку вибору під час генерації.</small><span><button type="button" onClick={() => setItemNumber(Math.max(1, itemNumber - 1))}>−</button><input aria-label="Номер вибраного об’єкта" type="number" min="1" value={itemNumber} onChange={(event) => setItemNumber(Math.max(1, Number(event.target.value) || 1))} /><button type="button" onClick={() => setItemNumber(itemNumber + 1)}>+</button></span></label>}
+      {selected.parameterNumberable && <label className="autofill-parameter-number">Окремий номер значення <small>Залиште порожнім, якщо це поле в документі лише одне.</small><input aria-label="Номер значення параметра" type="number" min="1" value={parameterNumber} onChange={(event) => setParameterNumber(event.target.value)} placeholder="Необов’язково" /></label>}
+      <section className="autofill-modifiers"><h4>Як написати значення</h4>{(["case", "text", "style"] as const).map((group) => {
+        const choices = modifierRegistry.filter((item) => item.group === group);
+        return <div key={group}><small>{group === "case" ? "Відмінок" : group === "text" ? "Регістр" : "Оформлення у Word"}</small><div>{choices.map((item) => { const unavailable = (group === "case" && !selected.supportsCases) || (group === "text" && selected.kind === "number"); return <label key={item.id} className={unavailable ? "disabled" : ""}><input type={group === "style" ? "checkbox" : "radio"} name={`autofill-${group}`} disabled={unavailable} checked={modifiers.includes(item.id)} onChange={() => toggleModifier(item.id)} />{item.name}</label>; })}</div></div>;
+      })}</section>
+      <Preview variable={selected} modifiers={modifiers} />
+      <details className="autofill-advanced"><summary>Додатково: технічний код</summary><p>Потрібен лише для ручного редагування документа.</p><code>{token}</code></details>
+      <button type="button" className="button primary autofill-apply" data-modal-enter-action onClick={() => void finish()}>{mode === "apply" ? <Check /> : <Copy />}{mode === "apply" ? "Замінити виділений текст" : "Скопіювати поле"}</button>
+    </> : <div className="autofill-settings-empty"><Search /><h3>Оберіть потрібне поле</h3><p>Спочатку знайдіть дані ліворуч. Тут з’являться номер, форма написання та приклад.</p></div>}</aside>
+  </section>;
+  return embedded ? content : <PageFrame className="documentation-page">{content}</PageFrame>;
 }
+
+/** @deprecated Kept as a source-compatible wrapper for integrations and tests. */
+export const VariableConstructorPage = AutoFillFieldPicker;

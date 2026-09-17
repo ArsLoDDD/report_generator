@@ -74,8 +74,7 @@ describe("navigation and report generation", () => {
     expect(screen.getByRole("heading", { name: "Налаштування" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
     expect(screen.getByRole("heading", { name: "Як працювати з програмою" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Конструктор змінних" }));
-    expect(screen.getByRole("heading", { name: "Покрокове складання" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Конструктор змінних" })).not.toBeInTheDocument();
   });
 
   it("shows startup diagnostics in the sidebar", async () => {
@@ -236,11 +235,14 @@ describe("navigation and report generation", () => {
     await waitFor(() => expect(generatedReportsService.openDocument).toHaveBeenCalledWith("/Reports/2026-08-03/Рапорт на відпустку 2026-08-03 10-15-30/Рапорт на відпустку.docx"));
   });
 
-  it("shows an example after selecting a template variable in documentation", () => {
+  it("opens the contextual field picker from Templates", async () => {
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Конструктор змінних" }));
-    fireEvent.click(screen.getByRole("button", { name: /Військовослужбовець/ }));
-    fireEvent.click(screen.getByRole("button", { name: /\{\{військовий_1_іпн\}\}/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Вставити поле" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Вставити поле" }));
+    expect(screen.getByRole("dialog", { name: "Поля автозаповнення" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: /Наприклад/ }), { target: { value: "ІПН" } });
+    fireEvent.click(screen.getByRole("button", { name: "ІПН, Військовослужбовець" }));
     expect(screen.getAllByText("ІПН вибраного військовослужбовця.").length).toBeGreaterThan(0);
   });
 
@@ -256,10 +258,12 @@ describe("navigation and report generation", () => {
 
   it("notifies after copying a template variable", async () => {
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Конструктор змінних" }));
-    fireEvent.click(screen.getByRole("button", { name: /Військовослужбовець/ }));
-    fireEvent.click(screen.getByRole("button", { name: /\{\{військовий_1_звання\}\}/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Скопіювати змінну" }));
-    await waitFor(() => expect(screen.getByText("Змінну скопійовано.")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Вставити поле" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Вставити поле" }));
+    fireEvent.change(screen.getByRole("textbox", { name: /Наприклад/ }), { target: { value: "звання" } });
+    fireEvent.click(screen.getByRole("button", { name: "Звання, Військовослужбовець" }));
+    fireEvent.click(screen.getByRole("button", { name: "Скопіювати поле" }));
+    await waitFor(() => expect(screen.getByText("Поле автозаповнення скопійовано.")).toBeInTheDocument());
   });
 });

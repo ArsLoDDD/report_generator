@@ -108,4 +108,4 @@ export type StartupWarning = {
   message: string;
 };
 
-export type Screen = "warnings" | "generator" | "templates" | "report-analyser" | "summary-report" | "people" | "staffing-bcs" | "flight-planning" | "flight-journal" | "positions" | "assets" | "vehicles" | "generators" | "uavs" | "communications" | "weapons" | "crews" | "incidents" | "generated" | "settings" | "documentation" | "variable-constructor";
+export type Screen = "warnings" | "generator" | "templates" | "report-analyser" | "summary-report" | "people" | "staffing-bcs" | "flight-planning" | "flight-journal" | "positions" | "assets" | "vehicles" | "generators" | "uavs" | "communications" | "weapons" | "crews" | "incidents" | "generated" | "settings" | "documentation";

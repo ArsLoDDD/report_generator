@@ -1,75 +1,82 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { VariableConstructorPage } from "./DocumentationPage";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AutoFillFieldPicker } from "./DocumentationPage";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
 
-const { personnelService } = vi.hoisted(() => ({ personnelService: { listCustomFields: vi.fn(), listPersonnelFields: vi.fn(), listVehicleCustomFields: vi.fn() } }));
+const { personnelService, settingsService } = vi.hoisted(() => ({
+  personnelService: { listCustomFields: vi.fn(), listVehicleCustomFields: vi.fn() },
+  settingsService: { get: vi.fn() },
+}));
 vi.mock("../../shared/services/personnelService", () => ({ personnelService }));
+vi.mock("../settings/services/settingsService", () => ({ settingsService }));
 
+beforeEach(() => {
+  personnelService.listCustomFields.mockResolvedValue([]);
+  personnelService.listVehicleCustomFields.mockResolvedValue([]);
+  settingsService.get.mockResolvedValue({ signerRoles: [] });
+});
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-describe("Конструктор змінних", () => {
-  it("does not preselect a variable", async () => {
-    personnelService.listCustomFields.mockResolvedValue([]); personnelService.listVehicleCustomFields.mockResolvedValue([]);
-    render(<NotificationProvider><VariableConstructorPage /></NotificationProvider>);
-    expect(await screen.findByText("Змінну ще не обрано")).toBeInTheDocument();
-    expect(screen.queryByText("Токен для Word")).not.toBeInTheDocument();
-  });
-  it("offers a vehicle as a separate subject and includes its standard fields", async () => {
-    personnelService.listCustomFields.mockResolvedValue([]); personnelService.listVehicleCustomFields.mockResolvedValue([]);
-    render(<NotificationProvider><VariableConstructorPage /></NotificationProvider>);
-    fireEvent.click(screen.getByRole("button", { name: /Автомобіль/ }));
-    expect(await screen.findByRole("button", { name: /\{\{автомобіль_1_назва\}\}/ })).toBeInTheDocument();
-  });
-  it("keeps the signer field the user selected instead of returning to surname", async () => {
-    personnelService.listCustomFields.mockResolvedValue([]);
-    personnelService.listPersonnelFields.mockResolvedValue([]);
-    render(<NotificationProvider><VariableConstructorPage /></NotificationProvider>);
-    fireEvent.click(screen.getByRole("button", { name: /Основний підписант/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /\{\{основний_підписант_посада\}\}/ }));
-    expect(screen.getByText("Токен для Word").parentElement).toHaveTextContent("{{основний_підписант_посада}}");
-    expect(screen.getByRole("heading", { name: "Посада" })).toBeInTheDocument();
+const renderPicker = (props: Parameters<typeof AutoFillFieldPicker>[0] = {}) => render(<NotificationProvider><AutoFillFieldPicker {...props} /></NotificationProvider>);
+
+describe("Поля автозаповнення", () => {
+  it("starts with search and human data sources without exposing a technical token", () => {
+    renderPicker();
+    expect(screen.getByRole("heading", { name: "Які дані мають бути тут?" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Наприклад: ПІБ, звання, дата рапорту…" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /З обліку/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Запитати під час створення/ })).toBeInTheDocument();
+    expect(screen.getByText("Оберіть потрібне поле")).toBeInTheDocument();
+    expect(screen.queryByText(/\{\{/)).not.toBeInTheDocument();
   });
 
-  it("shows every document parameter under one subject and limits modifiers by compatibility", async () => {
-    personnelService.listCustomFields.mockResolvedValue([]); personnelService.listVehicleCustomFields.mockResolvedValue([]);
-    render(<NotificationProvider><VariableConstructorPage /></NotificationProvider>);
-    fireEvent.click(screen.getByRole("button", { name: /Параметри документа/ }));
-    expect(await screen.findByRole("button", { name: /\{\{дата_рапорту\}\}/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /\{\{обставини\}\}/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /\{\{потребує_розгляду\}\}/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /\{\{обставини\}\}/ }));
-    fireEvent.click(screen.getByLabelText("Великими літерами"));
-    fireEvent.click(screen.getByLabelText("Жирним"));
-    fireEvent.click(screen.getByLabelText("Підкреслити"));
-    expect(screen.getByText("Токен для Word").parentElement).toHaveTextContent("{{обставини:великими:жирним:підкреслити}}");
-    expect(screen.getByLabelText("Родовий")).toBeDisabled();
+  it("filters manual values and reveals the raw token only under Advanced", () => {
+    renderPicker();
+    fireEvent.click(screen.getByRole("tab", { name: /Запитати під час створення/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: /Наприклад/ }), { target: { value: "дата рапорту" } });
+    fireEvent.click(screen.getByRole("button", { name: "Дата рапорту, Заповнюється перед генерацією" }));
+    expect(screen.getByText("{{дата_рапорту}}").closest("details")).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByText("Додатково: технічний код"));
+    expect(screen.getByText("{{дата_рапорту}}").closest("details")).toHaveAttribute("open");
   });
 
-  it("treats a custom field as a value of a servicemember, never as a subject", async () => {
-    personnelService.listCustomFields.mockResolvedValue([{ fieldKey: "unit_code", displayName: "Код підрозділу", description: "Код", initialValue: "А0000" }]);
-    personnelService.listPersonnelFields.mockResolvedValue([]);
-    render(<NotificationProvider><VariableConstructorPage /></NotificationProvider>);
-    await screen.findByRole("button", { name: /Військовослужбовець/ });
-    expect(screen.queryByRole("button", { name: /Кастомне поле: Код підрозділу/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Кастомна змінна" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Військовослужбовець/ }));
-    expect(await screen.findByRole("button", { name: /\{\{військовий_1_custom_unit_code\}\}/ })).toBeInTheDocument();
-  });
-
-  it("allows exactly one grammatical case while text and Word modifiers remain combinable", async () => {
-    personnelService.listCustomFields.mockResolvedValue([]);
-    personnelService.listPersonnelFields.mockResolvedValue([]);
-    render(<NotificationProvider><VariableConstructorPage /></NotificationProvider>);
-    fireEvent.click(screen.getByRole("button", { name: /Військовослужбовець/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /\{\{військовий_1_піб\}\}/ }));
+  it("uses a human order control and compatible modifiers", () => {
+    renderPicker();
+    fireEvent.change(screen.getByRole("textbox", { name: /Наприклад/ }), { target: { value: "ПІБ" } });
+    fireEvent.click(screen.getByRole("button", { name: "ПІБ, Військовослужбовець" }));
+    fireEvent.change(screen.getByLabelText("Номер вибраного об’єкта"), { target: { value: "2" } });
     fireEvent.click(screen.getByLabelText("Родовий"));
-    fireEvent.click(screen.getByLabelText("Орудний"));
-    fireEvent.click(screen.getByLabelText("Великими літерами"));
     fireEvent.click(screen.getByLabelText("Жирним"));
-    expect(screen.getByLabelText("Родовий")).not.toBeChecked();
-    expect(screen.getByLabelText("Орудний")).toBeChecked();
-    expect(screen.getByLabelText("Великими літерами")).toBeChecked();
-    expect(screen.getByLabelText("Жирним")).toBeChecked();
+    fireEvent.click(screen.getByText("Додатково: технічний код"));
+    expect(screen.getByText("{{військовий_2_піб:родовий:жирним}}")).toBeInTheDocument();
+  });
+
+  it("includes stable custom fields under accounting instead of making them subjects", async () => {
+    personnelService.listCustomFields.mockResolvedValue([{ fieldKey: "unit_code", displayName: "Код підрозділу", description: "Код", initialValue: "А0000" }]);
+    renderPicker();
+    fireEvent.change(screen.getByRole("textbox", { name: /Наприклад/ }), { target: { value: "Код підрозділу" } });
+    const field = await screen.findByRole("button", { name: "Код підрозділу, Військовослужбовець" });
+    fireEvent.click(field);
+    fireEvent.click(screen.getByText("Додатково: технічний код"));
+    expect(screen.getByText("{{військовий_1_custom_unit_code}}")).toBeInTheDocument();
+  });
+
+  it("returns the finished token directly when used for a selected analyser fragment", () => {
+    const onApply = vi.fn();
+    renderPicker({ mode: "apply", onApply });
+    fireEvent.change(screen.getByRole("textbox", { name: /Наприклад/ }), { target: { value: "звання" } });
+    fireEvent.click(screen.getByRole("button", { name: "Звання, Військовослужбовець" }));
+    fireEvent.click(screen.getByRole("button", { name: "Замінити виділений текст" }));
+    expect(onApply).toHaveBeenCalledWith("{{військовий_1_звання}}");
+  });
+
+  it("keeps copy mode available from Templates", async () => {
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    renderPicker();
+    fireEvent.change(screen.getByRole("textbox", { name: /Наприклад/ }), { target: { value: "звання" } });
+    fireEvent.click(screen.getByRole("button", { name: "Звання, Військовослужбовець" }));
+    fireEvent.click(screen.getByRole("button", { name: "Скопіювати поле" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("{{військовий_1_звання}}"));
+    expect(await screen.findByText("Поле автозаповнення скопійовано.")).toBeInTheDocument();
   });
 });

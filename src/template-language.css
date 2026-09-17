@@ -126,3 +126,75 @@
 .constructor-view-switch button { flex: 1; border: 0; border-radius: 7px; padding: 11px 14px; background: transparent; color: #aab9c1; cursor: pointer; font-weight: 650; }
 .constructor-view-switch button.active { color: #fff; background: linear-gradient(100deg,#299b39,#46ad3f); }
 @media (max-width: 720px) { .constructor-custom-action { position: static; margin-top: 12px; } }
+
+/* Reusable, human-language field picker for DOCX templates. */
+.autofill-picker { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(330px, .8fr); gap: 14px; height: 100%; min-height: 0; }
+.autofill-picker__catalog { display: grid; grid-template-rows: auto auto auto auto minmax(0, 1fr); gap: 13px; min-height: 0; padding: 20px; overflow: hidden; }
+.autofill-picker__intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.autofill-picker__intro h2,.autofill-picker__intro p { margin: 0; }
+.autofill-picker__intro h2 { font-size: 20px; }
+.autofill-picker__intro p { margin-top: 5px; color: #9eafb8; font-size: 12px; line-height: 1.4; }
+.autofill-picker__intro > span { flex: 0 0 auto; padding: 6px 9px; border: 1px solid #315143; border-radius: 999px; background: #122a1c; color: #8ae391; font-size: 11px; font-weight: 700; }
+.autofill-sources { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }
+.autofill-sources > button { min-width: 0; display: flex; align-items: flex-start; gap: 9px; padding: 11px; border: 1px solid #29444f; border-radius: 10px; background: #0c1921; color: #b9c6cc; text-align: left; cursor: pointer; }
+.autofill-sources > button:hover { border-color: #407060; background: #10231f; }
+.autofill-sources > button.active { border-color: #49bd55; background: linear-gradient(135deg,#153723,#11251d); color: #effff0; box-shadow: inset 0 0 0 1px #49bd5538; }
+.autofill-sources svg { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 1px; color: #61d36a; }
+.autofill-sources span { min-width: 0; display: grid; gap: 3px; }
+.autofill-sources b { overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+.autofill-sources small { color: #7f929c; font-size: 9px; line-height: 1.25; }
+.autofill-subjects { display: flex; gap: 6px; padding-bottom: 2px; overflow-x: auto; }
+.autofill-subjects button { flex: 0 0 auto; padding: 7px 10px; border: 1px solid #29434f; border-radius: 999px; background: #0d1b23; color: #9db0ba; cursor: pointer; font-size: 11px; }
+.autofill-subjects button:hover,.autofill-subjects button.active { border-color: #4ab956; background: #153421; color: #e9ffeb; }
+.autofill-fields { min-height: 0; display: grid; align-content: start; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; overflow-y: auto; padding: 2px 4px 2px 2px; }
+.autofill-field { min-width: 0; display: grid; grid-template-columns: minmax(0,1fr) auto; grid-template-rows: auto auto; gap: 7px 9px; padding: 13px; border: 1px solid #28424d; border-radius: 10px; background: linear-gradient(145deg,#102029,#0b171e); color: #dce6ea; text-align: left; cursor: pointer; }
+.autofill-field:hover { border-color: #3f7657; background: #11261e; }
+.autofill-field.active { border-color: #4cc758; box-shadow: inset 0 0 0 1px #4cc758; background: linear-gradient(145deg,#143522,#0e2019); }
+.autofill-field > span { min-width: 0; display: grid; gap: 3px; }
+.autofill-field small { color: #71c97a; font-size: 9px; letter-spacing: .025em; text-transform: uppercase; }
+.autofill-field b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.autofill-field p { grid-column: 1/-1; margin: 0; color: #8fa2ac; font-size: 10px; line-height: 1.35; }
+.autofill-field > svg { width: 16px; height: 16px; color: #617883; }
+.autofill-empty { grid-column: 1/-1; min-height: 190px; display: grid; place-content: center; justify-items: center; gap: 7px; color: #8397a1; text-align: center; }
+.autofill-empty svg { width: 32px; height: 32px; }
+.autofill-empty b { color: #dbe5e9; }
+.autofill-empty span { font-size: 11px; }
+.autofill-picker__settings { min-height: 0; align-self: stretch; display: flex; flex-direction: column; gap: 14px; padding: 20px; overflow-y: auto; }
+.autofill-picker__settings > header { display: grid; gap: 4px; padding-bottom: 13px; border-bottom: 1px solid #29414b; }
+.autofill-picker__settings > header small { color: #72d17b; font-size: 10px; text-transform: uppercase; }
+.autofill-picker__settings > header h3,.autofill-picker__settings > header p { margin: 0; }
+.autofill-picker__settings > header h3 { font-size: 18px; }
+.autofill-picker__settings > header p { color: #9eafb8; font-size: 11px; line-height: 1.4; }
+.autofill-order,.autofill-parameter-number { display: grid; gap: 6px; color: #dce6ea; font-size: 12px; font-weight: 650; }
+.autofill-order > small,.autofill-parameter-number > small { color: #8397a1; font-size: 10px; font-weight: 400; }
+.autofill-order > span { display: grid; grid-template-columns: 38px minmax(0,1fr) 38px; }
+.autofill-order button,.autofill-order input,.autofill-parameter-number input { min-height: 38px; border: 1px solid #31505c; background: #09161e; color: #e9f1f4; text-align: center; }
+.autofill-order button { cursor: pointer; font-size: 18px; }
+.autofill-order button:first-child { border-radius: 8px 0 0 8px; }
+.autofill-order button:last-child { border-radius: 0 8px 8px 0; }
+.autofill-order input { border-left: 0; border-right: 0; }
+.autofill-parameter-number input { width: 100%; border-radius: 8px; padding: 0 10px; text-align: left; }
+.autofill-modifiers { display: grid; gap: 11px; }
+.autofill-modifiers h4 { margin: 0; font-size: 12px; }
+.autofill-modifiers > div { display: grid; gap: 6px; }
+.autofill-modifiers > div > small { color: #80949e; font-size: 9px; text-transform: uppercase; }
+.autofill-modifiers > div > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.autofill-modifiers label { display: flex; align-items: center; gap: 5px; padding: 6px 8px; border: 1px solid #2c4752; border-radius: 7px; background: #0b1921; color: #bdcbd1; cursor: pointer; font-size: 10px; }
+.autofill-modifiers label:has(input:checked) { border-color: #49bd55; background: #153421; color: #effff0; }
+.autofill-modifiers label.disabled { opacity: .38; cursor: not-allowed; }
+.autofill-modifiers input { width: 13px; height: 13px; accent-color: #48c654; }
+.autofill-preview-value { display: grid; gap: 7px; padding: 12px; border: 1px solid #274752; border-radius: 9px; background: #0b1a22; }
+.autofill-preview-value small { color: #8297a1; font-size: 9px; }
+.autofill-preview-value b { font: 600 16px/1.4 Georgia,"Times New Roman",serif; }
+.autofill-advanced { padding: 10px 11px; border: 1px solid #293f49; border-radius: 8px; background: #0a161d; }
+.autofill-advanced summary { color: #9fb0b8; cursor: pointer; font-size: 11px; }
+.autofill-advanced p { margin: 8px 0 6px; color: #728791; font-size: 9px; }
+.autofill-advanced code { display: block; overflow-wrap: anywhere; color: #68d970; font-size: 10px; }
+.autofill-apply { width: 100%; margin-top: auto; }
+.autofill-settings-empty { flex: 1; display: grid; place-content: center; justify-items: center; gap: 8px; color: #82969f; text-align: center; }
+.autofill-settings-empty svg { width: 35px; height: 35px; }
+.autofill-settings-empty h3,.autofill-settings-empty p { margin: 0; }
+.autofill-settings-empty h3 { color: #dce6ea; }
+.autofill-settings-empty p { max-width: 270px; font-size: 11px; line-height: 1.45; }
+@media (max-width: 1050px) { .autofill-picker { grid-template-columns: 1fr; height: auto; } .autofill-picker__catalog { min-height: 650px; } .autofill-picker__settings { min-height: 400px; } }
+@media (max-width: 720px) { .autofill-sources,.autofill-fields { grid-template-columns: 1fr; } }

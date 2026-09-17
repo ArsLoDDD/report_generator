@@ -11,7 +11,7 @@ type Props = {
   tokenOverrides: Record<string, string>;
   onToggle: (proposal: TemplateAnalysisProposal) => void;
   onOverride: (key: string, token: string) => void;
-  onOpenConstructor: () => void;
+  onOpenFieldPicker: () => void;
 };
 
 function categories(items: TemplateAnalysisProposal[]) {
@@ -23,9 +23,9 @@ function categories(items: TemplateAnalysisProposal[]) {
   return [...result.entries()];
 }
 
-export function AnalysisProposalList({ groups, proposalCount, selected, selectedCount, tokenOverrides, onToggle, onOverride, onOpenConstructor }: Props) {
+export function AnalysisProposalList({ groups, proposalCount, selected, selectedCount, tokenOverrides, onToggle, onOverride, onOpenFieldPicker }: Props) {
   return <section className="analyser-proposals" aria-labelledby="analyser-proposals-title">
-    <header><div><h2 id="analyser-proposals-title">Запропоновані заміни</h2><p>Автоматично ввімкнені лише однозначні збіги. Решту підтвердьте вручну.</p></div><div className="analyser-proposals__actions"><button type="button" className="icon-button" title="Відкрити конструктор змінних" aria-label="Відкрити конструктор змінних" onClick={onOpenConstructor}><WandSparkles /></button><b aria-live="polite">{selectedCount} обрано</b></div></header>
+    <header><div><h2 id="analyser-proposals-title">Запропоновані заміни</h2><p>Автоматично ввімкнені лише однозначні збіги. Решту підтвердьте вручну.</p></div><div className="analyser-proposals__actions"><button type="button" className="icon-button" title="Поля автозаповнення" aria-label="Поля автозаповнення" onClick={onOpenFieldPicker}><WandSparkles /></button><b aria-live="polite">{selectedCount} обрано</b></div></header>
     <div className="analyser-proposals__scroll">{groups.map((group) => <section className={`analyser-proposal-group analyser-proposal-group--${group.confidence}`} key={group.confidence} aria-label={group.title}>
       <header><b>{group.title}</b><span>{group.items.length}</span></header>
       {categories(group.items).map(([category, items]) => <section className="analyser-proposal-category" key={category} aria-label={category}>

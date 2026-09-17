@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, CircleAlert, FileText, FolderOpen, RefreshCw, Trash2, Users } from "lucide-react";
+import { CheckCircle2, CircleAlert, FileText, FolderOpen, RefreshCw, Trash2, Users, WandSparkles } from "lucide-react";
 import type { Template, TemplateInspection } from "../../shared/types/domain";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
 import { FilterButton } from "../../shared/ui/FilterButton";
@@ -8,6 +8,7 @@ import { PageFrame } from "../../shared/ui/PageFrame";
 import { RecentReportsList } from "../../shared/ui/RecentReportsList";
 import { SearchInput } from "../../shared/ui/SearchInput";
 import { Select } from "../../shared/ui/Select";
+import { Modal } from "../../shared/ui/Modal";
 import { includesSearch } from "../../shared/utils/search";
 import { useLoadMoreOnScroll } from "../../shared/hooks/useLoadMoreOnScroll";
 import { useGeneratedReports } from "../generated-reports/hooks/useGeneratedReports";
@@ -15,6 +16,7 @@ import { generatedReportsService } from "../generated-reports/services/generated
 import { VariableGroup } from "./components/VariableGroup";
 import { templateService } from "./services/templateService";
 import { getVariable } from "../../shared/template-language/registry";
+import { AutoFillFieldPicker } from "../documentation/DocumentationPage";
 
 const emptyInspection: TemplateInspection = { isValid: true, errors: [], variables: [] };
 
@@ -39,6 +41,7 @@ export function TemplatesPage({ templates, totalCount, hasMore, isRefreshing: is
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [templateToDelete, setTemplateToDelete] = useState<Template | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [fieldPickerOpen, setFieldPickerOpen] = useState(false);
   const inspectionRequest = useRef(0);
   const { reports } = useGeneratedReports();
   const { notify } = useNotifications();
@@ -127,9 +130,9 @@ export function TemplatesPage({ templates, totalCount, hasMore, isRefreshing: is
     </section>
     <section className="panel template-details"><div className="template-details__scroll">
       <h2>{selected.name}</h2><p>{selected.description}</p><div className="document-meta">▣ DOCX · Змінних: {inspection.variables.length} · {selected.changed}</div>
-      <div className="actions-line"><button className="button success" onClick={() => void openSelectedTemplate()}><FolderOpen />Відкрити</button><button className="button success" onClick={() => void inspectSelectedTemplate()}><CheckCircle2 />Перевірити шаблон</button><button className="button danger" onClick={() => setTemplateToDelete(selected)}><Trash2 />Видалити</button></div>
+      <div className="actions-line"><button className="button success" onClick={() => void openSelectedTemplate()}><FolderOpen />Відкрити</button><button className="button" onClick={() => setFieldPickerOpen(true)}><WandSparkles />Вставити поле</button><button className="button success" onClick={() => void inspectSelectedTemplate()}><CheckCircle2 />Перевірити шаблон</button><button className="button danger" onClick={() => setTemplateToDelete(selected)}><Trash2 />Видалити</button></div>
       <div className="validation"><div className="validation-summary"><h3>Результати перевірки</h3><div className={inspection.isValid ? "validation-good" : "validation-bad"}>{inspection.isValid ? <CheckCircle2 /> : <CircleAlert />}<div><b>{inspection.isValid ? "Помилок не виявлено" : "Потрібна увага"}</b>{inspection.isValid ? <p>Шаблон готовий до використання</p> : <ul>{inspection.errors.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul>}</div></div></div></div>
       <div className="detail-cards"><article className="variables-card"><header className="variables-card__title"><div><h3>Використовувані змінні</h3><p>Прочитані безпосередньо з обраного DOCX-файлу.</p></div><span>{inspection.variables.length}</span></header>{variableGroups.map(([category, values]) => <VariableGroup key={category} icon={category.includes("Військовослужбовець") ? Users : category === "Параметри документа" ? FileText : FolderOpen} label={category} hint={category === "Параметри документа" ? "Значення перед генерацією" : "Дані з відповідного джерела"} tone={category.includes("Військовослужбовець") ? "collection" : undefined} values={values.map((value) => `{{${value}}}`)} />)}{inspection.variables.length === 0 && <p className="variables-empty">У шаблоні не знайдено змінних у форматі {"{{...}}"}.</p>}</article><article className="template-side"><h3>Деталі шаблону</h3><dl><dt>Тип файлу:</dt><dd>DOCX</dd><dt>Стан:</dt><dd>{inspection.isValid ? "Готовий" : "Потрібна перевірка"}</dd><dt>Параметри документа:</dt><dd>{documentParameterCount ? "Користувач заповнює значення" : "Не потрібні"}</dd></dl><div className="recent-template-reports"><header><div><h3>Останні рапорти</h3><p>Створені за цим шаблоном</p></div></header><RecentReportsList reports={recentReports} onOpen={(reportPath) => void openRecentReport(reportPath)} /></div></article></div>
     </div></section>
-  </div>{templateToDelete && <ConfirmDialog title="Перемістити шаблон у кошик?" message={`DOCX-файл «${templateToDelete.name}» буде переміщено з папки «Шаблони» до кошика програми.`} confirmLabel="Перемістити" onConfirm={() => void confirmDeleteTemplate()} onCancel={() => setTemplateToDelete(null)} busy={isDeleting} />}</PageFrame>;
+  </div>{templateToDelete && <ConfirmDialog title="Перемістити шаблон у кошик?" message={`DOCX-файл «${templateToDelete.name}» буде переміщено з папки «Шаблони» до кошика програми.`} confirmLabel="Перемістити" onConfirm={() => void confirmDeleteTemplate()} onCancel={() => setTemplateToDelete(null)} busy={isDeleting} />}{fieldPickerOpen && <Modal title="Поля автозаповнення" subtitle="Скопіюйте потрібне поле та вставте його у відкритий DOCX-шаблон." onClose={() => setFieldPickerOpen(false)} className="constructor-modal"><div className="constructor-modal__content"><AutoFillFieldPicker embedded /></div></Modal>}</PageFrame>;
 }

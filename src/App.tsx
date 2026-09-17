@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useStartupWarnings } from "./app/hooks/useStartupWarnings";
 import { ProgramGuidePage } from "./features/documentation/ProgramGuidePage";
-import { VariableConstructorPage } from "./features/documentation/DocumentationPage";
 import { GeneratedReportsPage } from "./features/generated-reports/GeneratedReportsPage";
 import { prefetchGeneratedReports } from "./features/generated-reports/hooks/useGeneratedReports";
 import { PersonnelPage } from "./features/personnel/PersonnelPage";
@@ -15,7 +14,6 @@ import { ReportAnalyserPage } from "./features/templates/ReportAnalyserPage";
 import { useTemplates } from "./features/templates/hooks/useTemplates";
 import type { Screen, Template } from "./shared/types/domain";
 import { NotificationProvider } from "./shared/ui/NotificationProvider";
-import { Modal } from "./shared/ui/Modal";
 import { AppSidebar } from "./app/components/AppSidebar";
 import { isSimpleEdition } from "./app/navigation";
 import { WarningsPage } from "./app/components/WarningsPage";
@@ -36,7 +34,6 @@ export default function App() {
   const [templateInfo, setTemplateInfo] = useState<Template | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("shablonizator.sidebarCollapsed") === "true");
   const [analyserVisited, setAnalyserVisited] = useState(false);
-  const [constructorOpen, setConstructorOpen] = useState(false);
   const startupRouteResolved = useRef(false);
 
   useEffect(() => {
@@ -85,7 +82,7 @@ export default function App() {
       {screen === "warnings" && <WarningsPage warnings={startupWarnings} isLoading={warningState.isLoading} onRefresh={() => void warningState.refresh()} onOpenPersonnel={() => setScreen("people")} />}
       {screen === "generator" && <ReportGenerationPage template={selectedTemplate} templates={templates} hasMoreTemplates={templatesHasMore} isLoadingMoreTemplates={templatesLoadingMore} onLoadMoreTemplates={loadMoreTemplates} people={people} hasMorePeople={personnelHasMore} isLoadingMorePeople={personnelLoadingMore} onLoadMorePeople={loadMorePersonnel} selected={selectedPeople} onToggle={togglePerson} onAll={toggleAllPeople} onClear={clearSelectedPeople} onReorder={setSelectedPeople} onChoose={toggleTemplate} />}
       {screen === "templates" && <TemplatesPage templates={templates} totalCount={templatesTotalCount} hasMore={templatesHasMore} isRefreshing={templatesRefreshing} isLoadingMore={templatesLoadingMore} errorMessage={templatesError} onLoadMore={loadMoreTemplates} selected={templateInfo ?? templates[0] ?? null} onSelect={setTemplateInfo} onRefresh={refreshTemplates} />}
-      {(screen === "report-analyser" || analyserVisited) && <div className="persistent-screen" hidden={screen !== "report-analyser"}><ReportAnalyserPage onOpenConstructor={() => setConstructorOpen(true)} onCreated={(createdPath) => { void refreshTemplates().then((items) => { setTemplateInfo(items.find((template) => template.sourcePath === createdPath) ?? null); setScreen("templates"); }); }} /></div>}
+      {(screen === "report-analyser" || analyserVisited) && <div className="persistent-screen" hidden={screen !== "report-analyser"}><ReportAnalyserPage onCreated={(createdPath) => { void refreshTemplates().then((items) => { setTemplateInfo(items.find((template) => template.sourcePath === createdPath) ?? null); setScreen("templates"); }); }} /></div>}
       {screen === "people" && <PersonnelPage people={people} totalCount={personnelTotalCount} hasMore={personnelHasMore} isLoading={personnelLoading} isLoadingMore={personnelLoadingMore} errorMessage={personnelError} onCreate={createPersonnel} onUpdate={updatePersonnel} onDelete={deletePersonnel} onRefresh={refreshPersonnel} onLoadMore={loadMorePersonnel} />}
       {!isSimpleEdition && screen === "staffing-bcs" && <StaffingBcsPage />}
       {!isSimpleEdition && screen === "flight-planning" && <FlightPlanningPage />}
@@ -103,8 +100,6 @@ export default function App() {
       {screen === "generated" && <GeneratedReportsPage />}
       {screen === "settings" && <SettingsPage />}
       {!isSimpleEdition && screen === "documentation" && <ProgramGuidePage />}
-      {screen === "variable-constructor" && <VariableConstructorPage />}
-      {constructorOpen && <Modal title="Конструктор змінних" subtitle="Складіть змінну та скопіюйте її до документа." onClose={() => setConstructorOpen(false)} className="constructor-modal"><VariableConstructorPage embedded /></Modal>}
     </main>
   </div></NotificationProvider>;
 }
