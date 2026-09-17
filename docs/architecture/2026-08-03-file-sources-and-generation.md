@@ -10,8 +10,8 @@ Templates and generated reports are documents, not database entities. Storing th
 - Generated DOCX files are sourced only from the `Reports/YYYY-MM-DD/<report-name>/` folder.
 - SQLite stores personnel and approved future personnel fields only.
 - The prototype `templates` and `reports` tables are not used by the current application and must not be used for new functionality. They may remain in an existing development database until an explicit, backed-up cleanup migration is approved.
-- Each generation is atomic: the DOCX is written into a temporary sibling folder and that folder is renamed only after the document has been completed successfully.
-- One generation run produces exactly one DOCX. Selected personnel use the same numbered v2 form for every count: `{{військовий_1_піб}}`, `{{військовий_2_піб}}`, and so on.
+- Each generation is published safely: the DOCX is written to a unique temporary sibling file, verified and synchronised, then published under a free name without overwriting an existing document.
+- One generation run produces exactly one DOCX. Selected personnel use the same numbered v2 form for every count: `{{військовий_1_піб}}`, `{{військовий_2_піб}}`, and so on. Existing v1 templates remain readable through the compatibility adapter, including zero-based `soldiers[n].*` references.
 
 ## Affected modules
 
@@ -22,4 +22,4 @@ Templates and generated reports are documents, not database entities. Storing th
 
 ## Migration and tests
 
-No existing documents are moved. Legacy database tables are not dropped automatically. Tests cover variable-mode validation, XML replacement, and atomic creation of a DOCX output folder.
+No existing documents are moved. Legacy database tables are not dropped automatically. Tests cover v2 and supported v1 validation, XML replacement, archive safety, non-overwriting publication, generation manifests, and safe publication of the DOCX output.

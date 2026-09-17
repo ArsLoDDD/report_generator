@@ -14,7 +14,7 @@ The application needs a stable source of personnel data for DOCX generation with
 
 ## Template language contract
 
-The language is documented in [Template Language v2](template-language-v2.md). Personnel are addressed from one with Ukrainian keys such as `{{військовий_1_піб}}` and `{{військовий_2_піб}}`. One run creates one report.
+The language is documented in [Template Language v2](template-language-v2.md). Personnel are addressed from one with Ukrainian keys such as `{{військовий_1_піб}}` and `{{військовий_2_піб}}`. One run creates one report. A read-compatibility adapter keeps the historical `soldier.*`, zero-based `soldiers[n].*`, and legacy signer tokens usable in existing DOCX files; the constructor and analyser emit v2 only.
 
 ## Affected modules
 
@@ -25,7 +25,7 @@ The language is documented in [Template Language v2](template-language-v2.md). P
 
 ## Migration and compatibility
 
-This is the first structured personnel schema. Existing development `people` records are not treated as authoritative data. Production migration must copy mapped records only after a backup and must report any unmapped fields.
+This is the first structured personnel schema. Existing development `people` records are not treated as authoritative data. Production migration must copy mapped records only after a backup and must report any unmapped fields. Template migration is independent from data migration: supported v1 tokens are resolved at read time and do not require rewriting the source DOCX.
 
 ## Tests required
 
