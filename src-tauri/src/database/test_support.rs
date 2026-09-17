@@ -311,7 +311,7 @@ mod tests {
             connection
                 .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
                 .unwrap(),
-            4
+            5
         );
         let columns = connection
             .prepare("PRAGMA table_info(personnel)")

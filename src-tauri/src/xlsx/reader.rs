@@ -178,21 +178,6 @@ fn records(rows: Vec<Vec<String>>, sheet: &str) -> Result<Vec<RowWithNumber>, St
         .collect())
 }
 
-#[cfg(test)]
-mod compatibility_tests {
-    use super::*;
-
-    #[test]
-    fn old_personnel_rows_without_callsign_receive_an_empty_value() {
-        let rows = vec![
-            vec!["Звання".into(), "Прізвище".into()],
-            vec!["rank".into(), "surname".into()],
-            vec!["солдат".into(), "ТЕСТОВИЙ".into()],
-        ];
-        let imported = records(rows, "Особовий склад").unwrap();
-        assert_eq!(imported[0].values.get("callsign"), Some(&String::new()));
-    }
-}
 fn optional_records(
     archive: &mut ZipArchive<File>,
     expected_name: &str,
@@ -597,4 +582,20 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
         personnel_custom_field_maps,
         vehicle_custom_field_maps,
     })
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn old_personnel_rows_without_callsign_receive_an_empty_value() {
+        let rows = vec![
+            vec!["Звання".into(), "Прізвище".into()],
+            vec!["rank".into(), "surname".into()],
+            vec!["солдат".into(), "ТЕСТОВИЙ".into()],
+        ];
+        let imported = records(rows, "Особовий склад").unwrap();
+        assert_eq!(imported[0].values.get("callsign"), Some(&String::new()));
+    }
 }

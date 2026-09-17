@@ -84,30 +84,6 @@ pub(crate) fn ensure_source_matches(path: &Path, expected: u64) -> Result<(), St
     }
 }
 
-#[cfg(test)]
-mod source_tests {
-    use super::*;
-
-    #[test]
-    fn analysis_rejects_a_source_changed_after_fingerprinting() {
-        let path = std::env::temp_dir().join(format!(
-            "shablonizator-analysis-source-{}-{}.docx",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ));
-        fs::write(&path, b"first version").expect("write source");
-        let fingerprint = source_fingerprint(&path).expect("fingerprint source");
-        remember_analysed_source(&path, fingerprint).expect("remember source");
-        fs::write(&path, b"changed version").expect("change source");
-
-        assert!(ensure_analysed_source_unchanged(&path).is_err());
-        let _ = fs::remove_file(path);
-    }
-}
-
 pub(crate) fn ordered_analysis_replacements(
     items: Vec<TemplateAnalysisReplacement>,
 ) -> Vec<(String, String, Option<usize>)> {
@@ -450,4 +426,28 @@ pub(crate) fn next_parameter_token(counters: &mut HashMap<String, usize>, base: 
     let count = counters.entry(base.into()).or_default();
     *count += 1;
     format!("{base}_{count}")
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+
+    #[test]
+    fn analysis_rejects_a_source_changed_after_fingerprinting() {
+        let path = std::env::temp_dir().join(format!(
+            "shablonizator-analysis-source-{}-{}.docx",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::write(&path, b"first version").expect("write source");
+        let fingerprint = source_fingerprint(&path).expect("fingerprint source");
+        remember_analysed_source(&path, fingerprint).expect("remember source");
+        fs::write(&path, b"changed version").expect("change source");
+
+        assert!(ensure_analysed_source_unchanged(&path).is_err());
+        let _ = fs::remove_file(path);
+    }
 }

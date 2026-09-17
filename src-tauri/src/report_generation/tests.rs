@@ -1024,3 +1024,166 @@ fn complex_relationship_templates_use_valid_v2_tokens() {
         assert!(result.is_valid, "{}: {:?}", path.display(), result.errors);
     }
 }
+
+#[test]
+fn styles_the_exact_token_run_when_two_values_are_identical() {
+    let xml = concat!(
+        "<w:p>",
+        "<w:r><w:t>{{військовий_1_імя}}</w:t></w:r>",
+        "<w:r><w:t> / </w:t></w:r>",
+        "<w:r><w:t>{{військовий_2_імя:жирним}}</w:t></w:r>",
+        "</w:p>"
+    );
+    let values = HashMap::from([
+        (
+            "військовий_1_імя".into(),
+            Value::new("Іван".into(), "person-name", Some("чоловіча")),
+        ),
+        (
+            "військовий_2_імя".into(),
+            Value::new("Іван".into(), "person-name", Some("чоловіча")),
+        ),
+    ]);
+
+    let result = replace_variables(xml, &values).unwrap();
+
+    assert!(result.contains("<w:r><w:t>Іван</w:t></w:r>"));
+    assert!(result.contains("<w:r><w:rPr><w:b/></w:rPr><w:t>Іван</w:t></w:r>"));
+    assert_eq!(result.matches("<w:b/>").count(), 1);
+}
+
+#[test]
+fn merges_style_modifiers_into_existing_run_properties_without_duplicates() {
+    let xml = "<w:p><w:r><w:rPr><w:i/><w:b/></w:rPr><w:t>{{військовий_1_піб:жирним:підкреслити}}</w:t></w:r></w:p>";
+    let values = HashMap::from([(
+        "військовий_1_піб".into(),
+        Value::new("ІВАНЕНКО Іван".into(), "person-name", Some("чоловіча")),
+    )]);
+
+    let result = replace_variables(xml, &values).unwrap();
+
+    assert!(result.contains("<w:i/>"));
+    assert_eq!(result.matches("<w:b/>").count(), 1);
+    assert_eq!(result.matches("<w:u w:val=\"single\"/>").count(), 1);
+}
+
+#[test]
+fn rejects_a_template_token_split_across_paragraph_boundaries() {
+    let xml = concat!(
+        "<w:document><w:body>",
+        "<w:p><w:r><w:t>{{дата_</w:t></w:r></w:p>",
+        "<w:p><w:r><w:t>рапорту}}</w:t></w:r></w:p>",
+        "</w:body></w:document>"
+    );
+
+    let error = replace_variables(xml, &HashMap::new()).unwrap_err();
+
+    assert!(error.contains("незакриту"));
+}
+
+#[test]
+fn reports_unbalanced_or_nested_template_braces() {
+    assert!(replace_variables(
+        "<w:p><w:r><w:t>{{дата_рапорту</w:t></w:r></w:p>",
+        &HashMap::new()
+    )
+    .unwrap_err()
+    .contains("незакриту"));
+    assert!(replace_variables(
+        "<w:p><w:r><w:t>дата_рапорту}}</w:t></w:r></w:p>",
+        &HashMap::new()
+    )
+    .unwrap_err()
+    .contains("без початку"));
+    assert!(replace_variables(
+        "<w:p><w:r><w:t>{{дата_{{рапорту}}}}</w:t></w:r></w:p>",
+        &HashMap::new()
+    )
+    .unwrap_err()
+    .contains("вкладені"));
+}
+
+#[test]
+fn literal_replacement_preserves_private_use_characters_from_the_source() {
+    let xml = "<w:p><w:r><w:t>До \u{e000} ПОЧАТОК після</w:t></w:r></w:p>";
+
+    let result = replace_word_token_case_insensitive(xml, "початок", "заміна");
+
+    assert!(result.contains("\u{e000}"));
+    assert!(result.contains("заміна"));
+}
+
+#[test]
+fn ignores_tokens_in_comments_but_replaces_supported_word_stories() {
+    let root = std::env::temp_dir().join(format!(
+        "shablonizator-story-boundary-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let source = root.join("source.docx");
+    let output = root.join("output.docx");
+    let mut writer = ZipWriter::new(File::create(&source).unwrap());
+    writer
+        .start_file("word/document.xml", SimpleFileOptions::default())
+        .unwrap();
+    writer
+        .write_all(
+            b"<w:document><w:body><w:p><w:r><w:t>{{date}}</w:t></w:r></w:p></w:body></w:document>",
+        )
+        .unwrap();
+    writer
+        .start_file("word/comments.xml", SimpleFileOptions::default())
+        .unwrap();
+    writer
+        .write_all(b"<w:comments><w:p><w:r><w:t>{{date}}</w:t></w:r></w:p></w:comments>")
+        .unwrap();
+    writer.finish().unwrap();
+    let values = HashMap::from([("date".into(), Value::new("17.09.2026".into(), "text", None))]);
+
+    write_docx(&source, &output, &values).unwrap();
+    verify_generated_docx(&output).unwrap();
+    let mut archive = ZipArchive::new(File::open(&output).unwrap()).unwrap();
+    let mut document = String::new();
+    archive
+        .by_name("word/document.xml")
+        .unwrap()
+        .read_to_string(&mut document)
+        .unwrap();
+    let mut comments = String::new();
+    archive
+        .by_name("word/comments.xml")
+        .unwrap()
+        .read_to_string(&mut comments)
+        .unwrap();
+    assert!(document.contains("17.09.2026"));
+    assert!(comments.contains("{{date}}"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn rejects_docx_files_with_active_embedded_content() {
+    let root = std::env::temp_dir().join(format!(
+        "shablonizator-active-content-{}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let source = root.join("active.docx");
+    let mut writer = ZipWriter::new(File::create(&source).unwrap());
+    writer
+        .start_file("word/document.xml", SimpleFileOptions::default())
+        .unwrap();
+    writer
+        .write_all(b"<w:document><w:body/></w:document>")
+        .unwrap();
+    writer
+        .start_file("word/vbaProject.bin", SimpleFileOptions::default())
+        .unwrap();
+    writer.write_all(b"macro").unwrap();
+    writer.finish().unwrap();
+
+    let error = read_variables(&source).unwrap_err();
+
+    assert!(error.contains("активне") || error.contains("вкладення"));
+    let _ = fs::remove_dir_all(root);
+}
