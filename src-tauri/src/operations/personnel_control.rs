@@ -596,6 +596,12 @@ fn personnel_control_records(
                 } else {
                     (start_date, end_date)
                 };
+                // Old databases stored manual states only in the flat BCS
+                // field.  Let the user turn such a legacy state into a
+                // structured Control OS record instead of trapping them in a
+                // read-only «ОХ» row after an update.
+                let can_edit =
+                    manual.is_some() || (!automatic && is_manual_control_location(&location_type));
                 Ok(PersonnelControlRecord {
                     personnel_id,
                     full_name,
@@ -605,7 +611,7 @@ fn personnel_control_records(
                     location_type,
                     source: source.into(),
                     source_label: source_label.into(),
-                    can_edit: manual.is_some(),
+                    can_edit,
                     assignment_id,
                     institution,
                     start_date,
@@ -797,16 +803,23 @@ fn close_assignment(
     assignment_id: i64,
     end_date: &str,
     reason: &str,
+    next_location: &str,
     local_today: NaiveDate,
 ) -> Result<(), String> {
     let end = parse_date(end_date, "Дата завершення")?;
     if end > local_today {
         return Err("Для майбутньої дати змініть планову дату завершення у записі.".into());
     }
+    let next_location = next_location.trim();
+    if !is_manual_control_location(next_location) {
+        return Err(
+            "Після завершення оберіть наступне місце перебування військовослужбовця.".into(),
+        );
+    }
     let transaction = connection
         .unchecked_transaction()
         .map_err(|_| "Не вдалося почати завершення переміщення.".to_string())?;
-    let (personnel_id, location, institution, start_date, notes, previous) = transaction
+    let (personnel_id, location, institution, start_date, notes, _previous) = transaction
         .query_row(
             "SELECT personnel_id,location_type,institution,start_date,notes,previous_location
              FROM personnel_control_assignments WHERE id=?1 AND closed_at IS NULL",
@@ -826,19 +839,24 @@ fn close_assignment(
     if end < parse_date(&start_date, "Дата початку")? {
         return Err("Дата завершення не може бути раніше за дату початку.".into());
     }
+    let close_reason = if reason.trim().is_empty() {
+        format!("Розподілено: {next_location}")
+    } else {
+        format!("{}. Розподілено: {next_location}", reason.trim())
+    };
     transaction
         .execute(
             "UPDATE personnel_control_assignments
              SET closed_on=?1,closed_at=CURRENT_TIMESTAMP,close_reason=?2,updated_at=CURRENT_TIMESTAMP
              WHERE id=?3 AND closed_at IS NULL",
-            params![end_date.trim(), reason.trim(), assignment_id],
+            params![end_date.trim(), close_reason, assignment_id],
         )
         .map_err(|_| "Не вдалося завершити переміщення.".to_string())?;
     transaction
         .execute(
             "UPDATE personnel SET current_location=?1,updated_at=CURRENT_TIMESTAMP
              WHERE id=?2 AND current_location=?3",
-            params![safe_previous_location(&previous), personnel_id, location],
+            params![next_location, personnel_id, location],
         )
         .map_err(|_| "Не вдалося синхронізувати завершення з БЧС.".to_string())?;
     save_event(
@@ -852,7 +870,7 @@ fn close_assignment(
             start_date: &start_date,
             end_date: end_date.trim(),
             notes: &notes,
-            reason: reason.trim(),
+            reason: &close_reason,
         },
     )?;
     transaction
@@ -866,6 +884,7 @@ pub fn close_personnel_control_assignment(
     assignment_id: i64,
     end_date: String,
     reason: Option<String>,
+    next_location: String,
 ) -> Result<(), String> {
     let db = state.0.lock().map_err(|_| busy())?;
     close_assignment(
@@ -873,6 +892,7 @@ pub fn close_personnel_control_assignment(
         assignment_id,
         &end_date,
         reason.as_deref().unwrap_or("Завершено користувачем"),
+        &next_location,
         today(),
     )
 }
@@ -984,7 +1004,7 @@ mod tests {
         assert_eq!(records[0].tab, "ВІДР");
         assert!(records[0].until_separate_order);
 
-        close_assignment(&connection, id, "2026-09-17", "Наказ", today).unwrap();
+        close_assignment(&connection, id, "2026-09-17", "Наказ", "ОХ", today).unwrap();
         let (location, assignments, events): (String, i64, i64) = (
             connection
                 .query_row(

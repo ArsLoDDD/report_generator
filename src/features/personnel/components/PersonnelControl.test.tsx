@@ -75,6 +75,7 @@ const bcs: PersonnelControlRecord = {
   locationType: "ОХ",
   source: "bcs",
   sourceLabel: "Стан із БЧС",
+  canEdit: true,
   crewId: null,
   crewName: "",
   positionId: null,
@@ -117,12 +118,12 @@ describe("PersonnelControl", () => {
     expect(screen.queryByText("Навчальний центр")).not.toBeInTheDocument();
   });
 
-  it("distinguishes an ordinary BCS state from an automatic workflow", async () => {
+  it("lets a legacy manual BCS state be distributed through Control OS", async () => {
     renderControl([bcs]);
     const row = within(await screen.findByRole("table")).getByText("ОХ").closest("tr");
     expect(row).not.toBeNull();
     if (!row) throw new Error("BCS personnel row is missing");
-    expect(within(row).getByText("У БЧС")).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: `Розподілити ${person.fullName}` })).toBeInTheDocument();
     expect(within(row).queryByText("Автоматично")).not.toBeInTheDocument();
   });
 
@@ -203,9 +204,10 @@ describe("PersonnelControl", () => {
     fireEvent.click(await screen.findByRole("button", { name: `Завершити ${person.fullName}` }));
     const dialog = screen.getByRole("dialog", { name: "Завершити перебування?" });
     fireEvent.change(within(dialog).getByLabelText("Дата завершення"), { target: { value: "2026-09-17" } });
+    fireEvent.change(within(dialog).getByLabelText("Розподілити після завершення"), { target: { value: "ОХ" } });
     fireEvent.change(within(dialog).getByLabelText("Підстава завершення"), { target: { value: "Повернувся" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Завершити" }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("close_personnel_control_assignment", { assignmentId: 8, endDate: "2026-09-17", reason: "Повернувся" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("close_personnel_control_assignment", { assignmentId: 8, endDate: "2026-09-17", reason: "Повернувся", nextLocation: "ОХ" }));
   });
 
   it("shows the persistent history of manual assignment changes", async () => {

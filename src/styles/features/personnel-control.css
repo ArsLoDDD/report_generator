@@ -86,6 +86,21 @@
 	min-width: 0;
 }
 
+.personnel-control__unassigned {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	margin: 10px 0;
+	padding: 9px 12px;
+	border: 1px solid #947633;
+	border-radius: 8px;
+	background: #302813;
+	color: #f5e6b8;
+	font-size: 13px;
+}
+.personnel-control__unassigned svg { flex: 0 0 auto; width: 17px; color: #ffd66e; }
+.personnel-control__unassigned button { margin-left: auto; border: 0; background: transparent; color: #ffd66e; cursor: pointer; font: inherit; font-weight: 700; }
+
 .personnel-control__view-tabs {
 	display: inline-flex;
 	flex: 0 0 auto;
