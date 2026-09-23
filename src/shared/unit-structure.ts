@@ -104,7 +104,13 @@ export function structureWithUnmappedPositions(unit: UnitSettings, sources: Unit
       group = node("special-collection-processing", null, "group", collectionDepartment, structure.filter((item) => item.parentId === null).length);
       structure.push(group);
     }
-    const titleOf = (source: string) => source.slice(0, source.search(collectionPattern)).trim().replace(/[—–,:;-]+$/u, "").trim();
+    const titleOf = (source: string) => {
+      const actual = normalize(source);
+      const existing = structure.filter((item) => item.kind === "position" && item.parentId === group!.id)
+        .filter((item) => actual === normalize(item.name) || actual.startsWith(`${normalize(item.name)} `))
+        .sort((left, right) => normalize(right.name).length - normalize(left.name).length)[0];
+      return existing?.name ?? source.slice(0, source.search(collectionPattern)).trim().replace(/[—–,:;-]+$/u, "").trim();
+    };
     const required = new Map<string, { title: string; sources: typeof collectionPositions }>();
     collectionPositions.forEach((source) => {
       const title = titleOf(source.position);

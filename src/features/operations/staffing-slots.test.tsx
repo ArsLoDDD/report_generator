@@ -183,6 +183,18 @@ describe("БЧС та тимчасово прибулі", () => {
     const slot=buildStaffSlots([person(1,position)],{...unit,structure}).find((item)=>item.occupants.length);
     expect(slot).toMatchObject({section:"Відділення збору та обробки інформації",name:"дешифрувальник розвідувальних матеріалів з безпілотних літальних апаратів"});
   });
+  it("відносить командира збору та обробки з повною назвою до наявного місця", () => {
+    const position="командир відділення збору та обробки інформації роти безпілотних авіаційних комплексів військової частини А0000";
+    const structure: UnitSettings["structure"]=[
+      {id:"special-collection-processing",parentId:null,kind:"group",name:"Відділення збору та обробки інформації",order:0},
+      {id:"special-collection-commander",parentId:"special-collection-processing",kind:"position",name:"командир відділення збору та обробки інформації роти безпілотних авіаційних комплексів",order:0},
+    ];
+    const resolved=structureWithUnmappedPositions({...unit,unitCode:"А2222",structure},[position]);
+    const slots=buildStaffSlots([person(63,position)],{...unit,unitCode:"А2222",structure:resolved});
+    expect(slots.find((slot)=>slot.occupants[0]?.personnelId===63)?.id).toBe("special-collection-commander");
+    expect(resolved.filter((item)=>item.kind==="position").map((item)=>item.name)).toEqual(["командир відділення збору та обробки інформації роти безпілотних авіаційних комплексів"]);
+    expect(buildStaffingHierarchy([person(63,position)],[],"Рота",resolved,{...unit,unitCode:"А2222"}).find((section)=>section.section==="Інші")?.groups.some((group)=>group.name==="Посади поза структурою")).not.toBe(true);
+  });
   it("не зливає однойменні посади спеціального відділення в один айтем", () => {
     const position="дешифрувальник відділення збору та обробки інформації роти";
     const existing=Array.from({length:5},(_,index)=>({id:`existing-${index}`,parentId:"special-collection-processing",kind:"position" as const,name:"дешифрувальник",order:index}));

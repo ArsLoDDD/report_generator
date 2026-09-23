@@ -59,8 +59,6 @@ export function buildStaffSlots(records: StaffingRecord[], unit: UnitSettings): 
     const actual = normalizeStaffPosition(person.position);
     const platoon = numberIn(actual, "взвод");
     const department = numberIn(actual, "відділен") ?? (/^головний сержант командир відділення/u.test(actual) ? "1" : undefined);
-    const code = actual.match(/а\d{4}/u)?.[0];
-    if (code && unit.unitCode && code !== normalizeStaffPosition(unit.unitCode)) continue;
     const candidates = slots.filter((slot) => {
       const path = normalizeStaffPosition(slot.path);
       const expected = normalizeStaffPosition(slot.name);
