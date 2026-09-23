@@ -4,15 +4,14 @@ import type { Screen } from "../shared/types/domain";
 export type NavigationItem = readonly [Screen, string, LucideIcon];
 export type NavigationGroup = { label: string; items: readonly NavigationItem[] };
 
-const basicNavigationGroups: NavigationGroup[] = [
-  { label: "Документи", items: [["generator", "Генерація рапортів", Home], ["templates", "Шаблони", FileText], ["report-analyser", "Аналізатор рапортів", FileSearch], ["generated", "Згенеровані рапорти", Folder]] },
-  { label: "Особовий склад", items: [["people", "Особовий склад", Users]] },
-];
+const documentsNavigationGroup: NavigationGroup = { label: "Документи", items: [["generator", "Генерація рапортів", Home], ["templates", "Шаблони", FileText], ["report-analyser", "Аналізатор рапортів", FileSearch], ["generated", "Згенеровані рапорти", Folder]] };
+const simpleNavigationGroups: NavigationGroup[] = [documentsNavigationGroup, { label: "Особовий склад", items: [["people", "Особовий склад", Users]] }];
 
 const advancedNavigationGroups: NavigationGroup[] = [
-  { label: "Облік підрозділу", items: [["staffing-bcs", "Штат та БЧС", Network], ["assets", "Майно", PackageOpen], ["incidents", "Інциденти", AlertTriangle], ["summary-report", "Підсумкове донесення", FileCheck2]] },
+  documentsNavigationGroup,
+  { label: "Облік підрозділу", items: [["people", "Особовий склад", Users], ["staffing-bcs", "Штат та БЧС", Network], ["assets", "Майно", PackageOpen], ["incidents", "Інциденти", AlertTriangle], ["summary-report", "Підсумкове донесення", FileCheck2]] },
   { label: "Бойова робота", items: [["flight-planning", "План польотів", PlaneTakeoff], ["flight-journal", "Журнал польотів", BookOpenText], ["crews", "Екіпажі", UsersRound], ["positions", "Позиції", MapPinned]] },
 ];
 
 export const isSimpleEdition = import.meta.env.VITE_APP_EDITION === "simple";
-export const navigationGroups = isSimpleEdition ? basicNavigationGroups : [...basicNavigationGroups, ...advancedNavigationGroups];
+export const navigationGroups = isSimpleEdition ? simpleNavigationGroups : advancedNavigationGroups;

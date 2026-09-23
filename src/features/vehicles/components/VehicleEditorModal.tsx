@@ -20,14 +20,15 @@ export function VehicleEditorModal({ statuses, people, vehicle, onClose, onSave 
   const [personnelId, setPersonnelId] = useState(vehicle?.personnelId?.toString() ?? "");
   const [busy, setBusy] = useState(false);
   const save = async () => { setBusy(true); try { if (await onSave(name, registrationNumber, status, personnelId ? Number(personnelId) : null)) onClose(); } finally { setBusy(false); } };
-  return <Modal title={vehicle ? "Редагування автомобіля" : "Новий автомобіль"} onClose={onClose} className="vehicle-editor">
-    <div className="vehicle-editor__scroll">
-      <div className="vehicle-editor__grid">
-        <label className="form-field"><span>Назва автомобіля <b>*</b></span><input autoFocus placeholder="Наприклад, Toyota Hilux" value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <label className="form-field"><span>Державний номер <b>*</b></span><input placeholder="Наприклад, АА 1234 АА" value={registrationNumber} onChange={(event) => setRegistrationNumber(event.target.value)} /></label>
-        <div className="form-field form-field--wide"><span>Початковий статус</span><Select ariaLabel="Початковий статус" value={status} options={statuses.map((value) => ({ value, label: value }))} onChange={setStatus} /></div>
-        <div className="form-field form-field--wide"><span>Закріпити за військовослужбовцем</span><Select ariaLabel="Військовослужбовець автомобіля" value={personnelId} options={[{value:"",label:"Не закріплювати"},...people.map((person)=>({value:String(person.id),label:person.fullName}))]} onChange={setPersonnelId} /></div>
-      </div>
+  return <Modal title={vehicle ? "Редагування автомобіля" : "Новий автомобіль"} subtitle="Облікові дані, технічний стан і відповідальна особа" onClose={onClose} className="operation-editor asset-editor asset-editor--compact vehicle-editor vehicle-editor--refined">
+    <div className="operation-editor__body asset-editor__form vehicle-editor__form">
+      <div className="asset-editor__section-title form-field--wide"><span>01</span><div><b>Основні дані</b><small>Назва та державний номер автомобіля</small></div></div>
+      <label className="form-field"><span>Назва автомобіля <b>*</b></span><input autoFocus placeholder="Наприклад, Toyota Hilux" value={name} onChange={(event) => setName(event.target.value)} /></label>
+      <label className="form-field"><span>Державний номер <b>*</b></span><input placeholder="Наприклад, АА 1234 АА" value={registrationNumber} onChange={(event) => setRegistrationNumber(event.target.value)} /></label>
+      <div className="asset-editor__section-title form-field--wide"><span>02</span><div><b>Стан і закріплення</b><small>Відповідальним може бути будь-який військовослужбовець</small></div></div>
+      <div className="form-field"><span>Стан автомобіля</span><Select ariaLabel="Початковий статус" value={status} options={statuses.map((value) => ({ value, label: value }))} onChange={setStatus} /></div>
+      <div className="form-field"><span>Відповідальна особа</span><Select ariaLabel="Військовослужбовець автомобіля" value={personnelId} options={[{value:"",label:"Не закріплювати"},...people.map((person)=>({value:String(person.id),label:person.fullName}))]} onChange={setPersonnelId} /></div>
+      <div className="vehicle-editor__hint form-field--wide"><Car /><span><b>Закріплення без обмеження за посадою</b><small>Автомобіль можна записати не лише на водія. Екіпаж відповідального визначиться автоматично.</small></span></div>
     </div>
     <footer className="modal-actions"><button className="button" onClick={onClose}>Скасувати</button><button className="button primary" disabled={busy} onClick={() => void save()}><Car />{busy ? "Збереження…" : vehicle ? "Зберегти" : "Додати автомобіль"}</button></footer>
   </Modal>;

@@ -56,9 +56,14 @@ describe("VehiclesPage", () => {
   it("creates a vehicle with the personnel-style editor", async () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Додати" }));
+    const editor = screen.getByRole("dialog", { name: "Новий автомобіль" });
+    expect(editor).toHaveClass("asset-editor--compact", "vehicle-editor--refined");
+    expect(within(editor).getByText("Основні дані")).toBeInTheDocument();
+    expect(within(editor).getByText("Стан і закріплення")).toBeInTheDocument();
+    expect(within(editor).getByText("Закріплення без обмеження за посадою")).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText("Наприклад, Toyota Hilux"), { target: { value: "Ford Ranger" } });
     fireEvent.change(screen.getByPlaceholderText("Наприклад, АА 1234 АА"), { target: { value: "КА 9999 КА" } });
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Новий автомобіль" })).getByRole("button", { name: "Додати автомобіль" }));
+    fireEvent.click(within(editor).getByRole("button", { name: "Додати автомобіль" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_vehicle", expect.objectContaining({ name: "Ford Ranger", registrationNumber: "КА 9999 КА" })));
   });
 });

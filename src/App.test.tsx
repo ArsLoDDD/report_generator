@@ -56,7 +56,12 @@ describe("navigation and report generation", () => {
     expect(screen.getByRole("heading", { name: "Виберіть шаблон рапорту" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Шаблони" }));
     await waitFor(() => expect(screen.getByText("Використовувані змінні")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Особовий склад" }));
+    const personnelButton = screen.getByRole("button", { name: "Особовий склад" });
+    const personnelAccountingGroup = personnelButton.closest(".nav-group");
+    expect(personnelAccountingGroup).not.toBeNull();
+    expect(within(personnelAccountingGroup as HTMLElement).getByText("Облік підрозділу")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Згорнути групу Особовий склад" })).not.toBeInTheDocument();
+    fireEvent.click(personnelButton);
     expect(screen.getByRole("heading", { name: "Особовий склад" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Екіпажі" }));
     expect(screen.getByRole("heading", { name: "Екіпажі" })).toBeInTheDocument();
