@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { applicationService } from "./app/services/applicationService";
@@ -60,7 +60,12 @@ describe("navigation and report generation", () => {
     expect(screen.getByRole("heading", { name: "Особовий склад" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Екіпажі" }));
     expect(screen.getByRole("heading", { name: "Екіпажі" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Майно" }));
+    const assetsButton = screen.getByRole("button", { name: "Майно" });
+    const accountingGroup = assetsButton.closest(".nav-group");
+    expect(accountingGroup).not.toBeNull();
+    expect(within(accountingGroup as HTMLElement).getByText("Облік підрозділу")).toBeInTheDocument();
+    expect(screen.queryByText("Техніка та майно")).not.toBeInTheDocument();
+    fireEvent.click(assetsButton);
     expect(screen.getByRole("button", { name: "Автомобілі" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Генератори" }));
     expect(screen.getByRole("heading", { name: "Генератори" })).toBeInTheDocument();

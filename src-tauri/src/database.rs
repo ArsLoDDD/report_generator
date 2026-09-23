@@ -1147,17 +1147,40 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             [],
         )
         .map_err(|_| "Не вдалося доповнити знімки позицій в історії робіт.".to_string())?;
+    let had_actual_crew_members = connection
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM sqlite_master
+                WHERE type='table' AND name='crew_actual_members'
+            )",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        .unwrap_or(false);
     connection
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS crew_actual_members (
            crew_id INTEGER NOT NULL REFERENCES crews(id) ON DELETE CASCADE,
            personnel_id INTEGER NOT NULL UNIQUE REFERENCES personnel(id) ON DELETE CASCADE,
            PRIMARY KEY(crew_id,personnel_id)
-         );
-         INSERT OR IGNORE INTO crew_actual_members(crew_id,personnel_id)
-           SELECT crew_id,personnel_id FROM crew_members WHERE left_at IS NULL;",
+         );",
         )
         .map_err(|_| "Не вдалося підготувати фактичний склад екіпажів.".to_string())?;
+    // Only old databases that did not yet have a separate factual roster need
+    // a one-time copy from the official roster. Repeating this INSERT on every
+    // application start resurrects people that the user intentionally removed
+    // from the factual roster.
+    if !had_actual_crew_members {
+        connection
+            .execute(
+                "INSERT OR IGNORE INTO crew_actual_members(crew_id,personnel_id)
+                 SELECT crew_id,personnel_id FROM crew_members WHERE left_at IS NULL",
+                [],
+            )
+            .map_err(|_| {
+                "Не вдалося перенести офіційний склад у початковий фактичний склад.".to_string()
+            })?;
+    }
     connection.execute("UPDATE crews SET status=CASE WHEN trim(status) IN ('Активний','активний','Працює','працює','Робочий','робочий') THEN 'Працюючий' WHEN trim(status) LIKE 'Форм%' OR trim(status) LIKE 'форм%' THEN 'Формується' ELSE 'Не активний' END WHERE status NOT IN ('Працюючий','Формується','Не активний')", []).map_err(|_| "Не вдалося нормалізувати статуси екіпажів.".to_string())?;
     let existing_columns = connection
         .prepare("PRAGMA table_info(personnel)")

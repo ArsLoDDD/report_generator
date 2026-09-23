@@ -10,9 +10,8 @@ const basicNavigationGroups: NavigationGroup[] = [
 ];
 
 const advancedNavigationGroups: NavigationGroup[] = [
-  { label: "Облік підрозділу", items: [["staffing-bcs", "Штат та БЧС", Network], ["incidents", "Інциденти", AlertTriangle], ["summary-report", "Підсумкове донесення", FileCheck2]] },
+  { label: "Облік підрозділу", items: [["staffing-bcs", "Штат та БЧС", Network], ["assets", "Майно", PackageOpen], ["incidents", "Інциденти", AlertTriangle], ["summary-report", "Підсумкове донесення", FileCheck2]] },
   { label: "Бойова робота", items: [["flight-planning", "План польотів", PlaneTakeoff], ["flight-journal", "Журнал польотів", BookOpenText], ["crews", "Екіпажі", UsersRound], ["positions", "Позиції", MapPinned]] },
-  { label: "Техніка та майно", items: [["assets", "Майно", PackageOpen]] },
 ];
 
 export const isSimpleEdition = import.meta.env.VITE_APP_EDITION === "simple";

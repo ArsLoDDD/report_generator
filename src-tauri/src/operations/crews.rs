@@ -435,4 +435,31 @@ mod tests {
         }
         std::fs::remove_file(path).unwrap();
     }
+
+    #[test]
+    fn removed_actual_member_is_not_restored_when_the_database_reopens() {
+        let path = std::env::temp_dir().join(format!(
+            "shablonizator-crew-removal-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        {
+            let connection = Connection::open(&path).unwrap();
+            crate::database::initialise(&connection).unwrap();
+            connection.execute("INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id) VALUES(1,'солдат','ТЕСТ','Іван','Іванович','оператор','tax-1','','','','','','','')", []).unwrap();
+            create_crew_record(&connection, draft("Сокіл", vec![1], vec![1])).unwrap();
+            update_crew_record(&connection, 1, draft("Сокіл", vec![1], vec![])).unwrap();
+            assert!(actual_crew_members(&connection, 1).unwrap().is_empty());
+        }
+        {
+            let reopened = Connection::open(&path).unwrap();
+            crate::database::initialise(&reopened).unwrap();
+            assert_eq!(crew_members(&reopened, 1).unwrap().len(), 1);
+            assert!(actual_crew_members(&reopened, 1).unwrap().is_empty());
+        }
+        std::fs::remove_file(path).unwrap();
+    }
 }

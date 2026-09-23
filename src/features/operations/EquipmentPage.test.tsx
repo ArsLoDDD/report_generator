@@ -49,4 +49,26 @@ describe("EquipmentPage", () => {
       draft: expect.objectContaining({ name: "GENPOWER 4.0" }),
     })));
   });
+
+  it("uses a compact structured editor for generators", async () => {
+    invoke.mockImplementation((command: string) => command === "list_equipment" || command === "list_crews" ? Promise.resolve([]) : Promise.resolve());
+    render(<NotificationProvider><EquipmentPage category="generator" people={[]} /></NotificationProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Додати" }));
+    const dialog = screen.getByRole("dialog", { name: "Новий генератор" });
+    expect(dialog).toHaveClass("asset-editor--compact");
+    expect(within(dialog).getByText("Основні дані")).toBeInTheDocument();
+    expect(within(dialog).getByText("Облік і закріплення")).toBeInTheDocument();
+    expect(within(dialog).getByText("Примітка")).toBeInTheDocument();
+  });
+
+  it("selects the weapon accounting type from the shared dropdown", async () => {
+    invoke.mockImplementation((command: string) => command === "list_equipment" || command === "list_crews" ? Promise.resolve([]) : Promise.resolve());
+    render(<NotificationProvider><EquipmentPage category="weapon_ammo" people={[]} /></NotificationProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Додати" }));
+    const dialog = screen.getByRole("dialog", { name: "Новий запис" });
+    expect(within(dialog).getByRole("combobox", { name: "Тип обліку зброї та БК" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Зброя" })).not.toBeInTheDocument();
+  });
 });
