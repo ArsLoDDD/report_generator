@@ -50,6 +50,30 @@ describe("Планування польотів",()=>{
     await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledWith(expect.any(String),expect.objectContaining({entries:[expect.objectContaining({withoutVehicle:true,actualVehicleId:null})]})));
   });
 
+  it("applies the vehicle-less flag to every rotation stage of the crew",async()=>{
+    const primary={...initialStoredEntryForTest(),crewId:1,actualVehicleId:9};
+    localStorage.setItem("flight-plan-draft-v2",JSON.stringify({
+      date:tomorrowForTest(),selected:[1],entries:{1:primary},
+      rotations:{1:[{...primary,rotationId:"rotation-1",actualVehicleId:10,startTime:"12:01",endTime:"18:00"}]},
+    }));
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(vehiclesService.list).mockResolvedValue([
+      {id:9,name:"Toyota Hilux",registrationNumber:"АА 0001 АА",status:"Справний",personnelId:null,driverName:null,crewId:1,crewName:"БАРС"},
+      {id:10,name:"Ford Ranger",registrationNumber:"АА 0002 АА",status:"Справний",personnelId:null,driverName:null,crewId:1,crewName:"БАРС"},
+    ]);
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText("БАРС",{selector:"b"});
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    fireEvent.click(screen.getByRole("checkbox",{name:/Без автомобіля на позиції/u}));
+
+    await waitFor(()=>{
+      const stored=JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}");
+      expect(stored.entries[1]).toEqual(expect.objectContaining({withoutVehicle:true,actualVehicleId:null}));
+      expect(stored.rotations[1][0]).toEqual(expect.objectContaining({withoutVehicle:true,actualVehicleId:null}));
+    });
+  });
+
   it("shows and enforces a warning when an official crew member has no callsign",async()=>{
     vi.mocked(operationsService.listCrews).mockResolvedValue([crew("")]);
     render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);

@@ -3,6 +3,7 @@ use chrono::{Duration, Local, Months, NaiveDate};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashSet,
     fs::File,
     io::{Cursor, Read, Write},
     path::Path,
@@ -701,8 +702,17 @@ fn build_rows(
     if request.entries.is_empty() {
         return Err("Оберіть хоча б один екіпаж для плану польотів.".into());
     }
+    // This is a crew-wide choice. Rotation rows are stages of the same crew,
+    // so one checked stage suppresses the vehicle requirement for every row.
+    let vehicleless_crews = request
+        .entries
+        .iter()
+        .filter(|entry| entry.without_vehicle)
+        .map(|entry| entry.crew_id)
+        .collect::<HashSet<_>>();
     let mut rows = Vec::with_capacity(request.entries.len());
     for (index, entry) in request.entries.iter().enumerate() {
+        let without_vehicle = vehicleless_crews.contains(&entry.crew_id);
         let weather = &entry.weather;
         let weather_text = format!("Згідно прогнозу UAV Forecast {} С, вітер від {} до {} м/с, пориви від {} до {} м/с. Хмарність {} % {} м. Вірогідність опадів {} %", weather.temperature.trim(), weather.wind_from.trim(), weather.wind_to.trim(), weather.gust_from.trim(), weather.gust_to.trim(), weather.cloudiness.trim(), weather.cloud_height.trim(), weather.precipitation.trim());
         let crew = connection.query_row(
@@ -763,12 +773,12 @@ fn build_rows(
             }
             uavs.push((row.0, row.1, day, night));
         }
-        let mut vehicles = if entry.without_vehicle {
+        let mut vehicles = if without_vehicle {
             Vec::new()
         } else {
             linked_assets(connection, entry.crew_id, "vehicles")?
         };
-        if !entry.without_vehicle && vehicles.len() > 1 {
+        if !without_vehicle && vehicles.len() > 1 {
             let selected_id = entry
                 .actual_vehicle_id
                 .ok_or_else(|| format!("Оберіть фактичний автомобіль екіпажу «{}».", crew.0))?;
@@ -1473,14 +1483,14 @@ mod tests {
             )
             .unwrap();
         connection.execute("INSERT INTO equipment(id,category,name,inventory_number,crew_id,total_quantity,day_quantity,night_quantity) VALUES(7,'uav','SHARK','UAV-02',1,4,2,2)",[]).unwrap();
-        connection.execute("INSERT INTO vehicles(id,name,registration_number,status,crew_id) VALUES(9,'Toyota Hilux','АА 0001 АА','Справний',1)",[]).unwrap();
+        connection.execute("INSERT INTO vehicles(id,name,registration_number,status,crew_id) VALUES(9,'Toyota Hilux','АА 0001 АА','Справний',1),(10,'Ford Ranger','АА 0002 АА','Справний',1)",[]).unwrap();
         let mut request = FlightPlanRequest {
             unit_name: "РБПАК".into(),
             entries: vec![FlightPlanEntry {
                 crew_id: 1,
                 actual_member_ids: vec![1],
                 actual_commander_id: Some(1),
-                actual_vehicle_id: None,
+                actual_vehicle_id: Some(9),
                 without_vehicle: false,
                 weather: FlightPlanWeather {
                     temperature: "20".into(),
@@ -1524,8 +1534,15 @@ mod tests {
         let rows = build_rows(&connection, &request).unwrap();
         assert!(rows[0].values[11].contains("TOYOTA HILUX"));
         request.entries[0].without_vehicle = true;
+        let mut rotation = request.entries[0].clone();
+        rotation.without_vehicle = false;
+        rotation.actual_vehicle_id = None;
+        request.entries.push(rotation);
         let rows_without_vehicle = build_rows(&connection, &request).unwrap();
-        assert!(!rows_without_vehicle[0].values[11].contains("TOYOTA HILUX"));
+        assert!(rows_without_vehicle
+            .iter()
+            .all(|row| !row.values[11].contains("TOYOTA HILUX")
+                && !row.values[11].contains("FORD RANGER")));
         let path = std::env::temp_dir().join(format!("flight-plan-{}.xlsx", std::process::id()));
         write_workbook(&path, &rows).unwrap();
         let mut archive = ZipArchive::new(File::open(&path).unwrap()).unwrap();
