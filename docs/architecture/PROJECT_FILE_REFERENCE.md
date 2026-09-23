@@ -228,6 +228,7 @@
 - `docs/architecture/2026-09-07-domain-relations-and-reuse.md` — модель «одного джерела правди» та масштабованих зв’язків.
 - `docs/architecture/2026-09-07-frontend-component-audit.md` — аудит дублювання та фактичний статус рефакторингу.
 - `docs/architecture/2026-09-08-template-relationship-variables.md` — змінні, які проходять через зв’язки сутностей.
+- `docs/architecture/PROJECT_FLOWCHARTS.md` — повна Mermaid-карта сторінок, кнопок, джерел даних, автоматичних синхронізацій, імпорту/експорту та поточних меж системи.
 
 ## Напрям залежностей
 
