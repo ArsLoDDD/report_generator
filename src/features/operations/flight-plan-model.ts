@@ -106,6 +106,24 @@ export function validateFlightPlanSchedule(primary: FlightPlanEntry, rotations: 
 
 const caps = (value: string) => value.trim().toLocaleUpperCase("uk");
 const shortRank = (rank: string) => ({"солдат":"сол.","старший солдат":"ст. сол.","молодший сержант":"мол. серж.","сержант":"серж.","старший сержант":"ст. серж.","головний сержант":"гол. серж.","штаб-сержант":"штаб-серж.","майстер-сержант":"майстер-серж.","молодший лейтенант":"мол. лейт.","лейтенант":"лейт.","старший лейтенант":"ст. лейт.","капітан":"кап.","підполковник":"підполк.","полковник":"полк."}[rank.trim().toLocaleLowerCase("uk")] ?? rank.trim());
+const flightPlanRankGroups = [
+  ["генерал армії україни"], ["генерал", "адмірал"], ["генерал-полковник"],
+  ["генерал-лейтенант", "віце-адмірал"], ["генерал-майор", "контр-адмірал"],
+  ["бригадний генерал", "коммодор"], ["полковник", "капітан 1 рангу"],
+  ["підполковник", "капітан 2 рангу"], ["майор", "капітан 3 рангу"],
+  ["капітан", "капітан-лейтенант"], ["старший лейтенант"], ["лейтенант"], ["молодший лейтенант"],
+  ["старший прапорщик"], ["прапорщик"], ["головний майстер-сержант", "головний майстер-старшина"],
+  ["старший майстер-сержант", "старший майстер-старшина"], ["майстер-сержант", "майстер-старшина"],
+  ["штаб-сержант", "штаб-старшина"], ["головний сержант", "головний корабельний старшина"],
+  ["старшина"], ["старший сержант", "головний старшина"], ["сержант", "старшина 1 статті"],
+  ["молодший сержант", "старшина 2 статті"], ["старший солдат", "старший матрос"], ["солдат", "матрос"],
+] as const;
+const flightPlanRankWeight = new Map<string, number>(flightPlanRankGroups.flatMap((group, weight) => group.map((rank) => [rank, weight] as const)));
+export const compareFlightPlanMembersByRank = (left: Crew["members"][number], right: Crew["members"][number]) => {
+  const leftWeight = flightPlanRankWeight.get(left.rank.trim().toLocaleLowerCase("uk")) ?? flightPlanRankGroups.length;
+  const rightWeight = flightPlanRankWeight.get(right.rank.trim().toLocaleLowerCase("uk")) ?? flightPlanRankGroups.length;
+  return leftWeight - rightWeight || left.fullName.localeCompare(right.fullName, "uk") || left.personnelId - right.personnelId;
+};
 const abbreviatedName=(fullName:string)=>{const [surname="",given="",patronymic=""]=fullName.trim().split(/\s+/u);return `${surname} ${given[0]??""}.${patronymic[0]??""}.`.trim();};
 const personText = (member: Crew["members"][number]) => [shortRank(member.rank),abbreviatedName(member.fullName),member.callsign?.trim()?`(${member.callsign.trim()})`:""].filter(Boolean).join(" ");
 const pointList = (points: string[], separator = " — ") => points.map(caps).filter(Boolean).join(separator);
@@ -118,7 +136,7 @@ export function flightPlanPreviewRows(unitName: string, planEntries: FlightPlanE
     const crew = crews.find((item) => item.id === crewId);
     if (!crew || !entry) return [];
     const actualIds=entry.actualMemberIds?.length?new Set(entry.actualMemberIds):new Set(crew.actualMembers.map((member)=>member.personnelId));
-    const actual = [...crew.members,...crew.actualMembers].filter((member,index,members)=>actualIds.has(member.personnelId)&&members.findIndex((candidate)=>candidate.personnelId===member.personnelId)===index);
+    const actual = [...crew.members,...crew.actualMembers].filter((member,index,members)=>actualIds.has(member.personnelId)&&members.findIndex((candidate)=>candidate.personnelId===member.personnelId)===index).sort(compareFlightPlanMembersByRank);
     const commander = actual.find((member) => member.personnelId===entry.actualCommanderId) ?? actual.find((member) => member.position.toLocaleLowerCase("uk").includes("командир")) ?? actual[0];
     const crewUavs = uavs.filter((item) => item.crewId === crewId);
     const selectedUavs=entry.uavSelections.flatMap((selection)=>{const item=crewUavs.find((uav)=>uav.id===selection.equipmentId);return item?[{item,...selection}]:[];});

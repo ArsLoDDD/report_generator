@@ -393,4 +393,46 @@ mod tests {
             vec![1]
         );
     }
+
+    #[test]
+    fn updated_roster_survives_closing_and_reopening_the_database_file() {
+        let path = std::env::temp_dir().join(format!(
+            "shablonizator-crew-persistence-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        {
+            let connection = Connection::open(&path).unwrap();
+            crate::database::initialise(&connection).unwrap();
+            for id in 1..=2 {
+                connection.execute("INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id) VALUES(?1,'солдат',?2,'Іван','Іванович','оператор',?3,'','','','','','','')", rusqlite::params![id,format!("ТЕСТ{id}"),format!("tax-{id}")]).unwrap();
+            }
+            create_crew_record(&connection, draft("Сокіл", vec![1], vec![1])).unwrap();
+            update_crew_record(&connection, 1, draft("Сокіл", vec![2], vec![2])).unwrap();
+        }
+        {
+            let reopened = Connection::open(&path).unwrap();
+            crate::database::initialise(&reopened).unwrap();
+            assert_eq!(
+                crew_members(&reopened, 1)
+                    .unwrap()
+                    .into_iter()
+                    .map(|member| member.personnel_id)
+                    .collect::<Vec<_>>(),
+                vec![2]
+            );
+            assert_eq!(
+                actual_crew_members(&reopened, 1)
+                    .unwrap()
+                    .into_iter()
+                    .map(|member| member.personnel_id)
+                    .collect::<Vec<_>>(),
+                vec![2]
+            );
+        }
+        std::fs::remove_file(path).unwrap();
+    }
 }

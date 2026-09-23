@@ -567,6 +567,53 @@ fn person_text(person: &PersonLine) -> String {
     .to_string()
 }
 
+fn flight_plan_rank_weight(rank: &str) -> usize {
+    match rank.trim().to_lowercase().as_str() {
+        "генерал армії україни" => 0,
+        "генерал" | "адмірал" => 1,
+        "генерал-полковник" => 2,
+        "генерал-лейтенант" | "віце-адмірал" => 3,
+        "генерал-майор" | "контр-адмірал" => 4,
+        "бригадний генерал" | "коммодор" => 5,
+        "полковник" | "капітан 1 рангу" => 10,
+        "підполковник" | "капітан 2 рангу" => 11,
+        "майор" | "капітан 3 рангу" => 12,
+        "капітан" | "капітан-лейтенант" => 13,
+        "старший лейтенант" => 14,
+        "лейтенант" => 15,
+        "молодший лейтенант" => 16,
+        "старший прапорщик" => 20,
+        "прапорщик" => 21,
+        "головний майстер-сержант" | "головний майстер-старшина" => {
+            30
+        }
+        "старший майстер-сержант" | "старший майстер-старшина" => {
+            31
+        }
+        "майстер-сержант" | "майстер-старшина" => 32,
+        "штаб-сержант" | "штаб-старшина" => 33,
+        "головний сержант" | "головний корабельний старшина" => {
+            34
+        }
+        "старшина" => 35,
+        "старший сержант" | "головний старшина" => 36,
+        "сержант" | "старшина 1 статті" => 37,
+        "молодший сержант" | "старшина 2 статті" => 38,
+        "старший солдат" | "старший матрос" => 40,
+        "солдат" | "матрос" => 41,
+        _ => usize::MAX,
+    }
+}
+
+fn sort_people_by_rank(people: &mut [PersonLine]) {
+    people.sort_by(|left, right| {
+        flight_plan_rank_weight(&left.rank)
+            .cmp(&flight_plan_rank_weight(&right.rank))
+            .then_with(|| left.full_name.cmp(&right.full_name))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+}
+
 fn parse_time(value: &str) -> Result<f64, String> {
     let (hours, minutes) = value
         .trim()
@@ -672,6 +719,7 @@ fn build_rows(
                 }
             }
         }
+        sort_people_by_rank(&mut actual);
         let official = list_members(connection, entry.crew_id, false)?;
         let mut all = official.clone();
         for member in &actual {
@@ -961,6 +1009,52 @@ mod tests {
             unit_name: unit_name.into(),
             entries: vec![],
         }
+    }
+
+    #[test]
+    fn sorts_exported_people_from_the_highest_rank_to_the_lowest() {
+        let mut people = vec![
+            PersonLine {
+                id: 1,
+                full_name: "КОЗАК Віктор Васильович".into(),
+                rank: "солдат".into(),
+                position: "оператор".into(),
+                callsign: "СОКІЛ-021".into(),
+            },
+            PersonLine {
+                id: 2,
+                full_name: "ОЛІЙНИК Роман Миколайович".into(),
+                rank: "старший солдат".into(),
+                position: "оператор".into(),
+                callsign: "СОКІЛ-022".into(),
+            },
+            PersonLine {
+                id: 3,
+                full_name: "ЯРЕМЧУК Микола Романович".into(),
+                rank: "сержант".into(),
+                position: "командир".into(),
+                callsign: "СОКІЛ-020".into(),
+            },
+            PersonLine {
+                id: 4,
+                full_name: "ЛЕВЧЕНКО Іван Олександрович".into(),
+                rank: "молодший сержант".into(),
+                position: "оператор".into(),
+                callsign: "СОКІЛ-023".into(),
+            },
+        ];
+
+        sort_people_by_rank(&mut people);
+
+        assert_eq!(
+            people.iter().map(person_text).collect::<Vec<_>>(),
+            vec![
+                "серж. ЯРЕМЧУК М.Р. (СОКІЛ-020)",
+                "мол. серж. ЛЕВЧЕНКО І.О. (СОКІЛ-023)",
+                "ст. сол. ОЛІЙНИК Р.М. (СОКІЛ-022)",
+                "сол. КОЗАК В.В. (СОКІЛ-021)",
+            ]
+        );
     }
 
     #[test]

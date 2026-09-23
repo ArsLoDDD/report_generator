@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialFlightEntry, validateFlightPlanSchedule } from "./flight-plan-model";
+import { flightPlanPreviewRows, initialFlightEntry, validateFlightPlanSchedule } from "./flight-plan-model";
 import type { Crew, FlightPlanEntry, FlightPlanRotation } from "./types";
 
 const entry = (patch: Partial<FlightPlanEntry> = {}): FlightPlanEntry => ({
@@ -24,6 +24,26 @@ const entry = (patch: Partial<FlightPlanEntry> = {}): FlightPlanEntry => ({
 });
 
 describe("цілісність часу плану польотів", () => {
+  it("sorts the displayed crew composition from the highest rank to the lowest", () => {
+    const members = [
+      { personnelId: 1, fullName: "КОЗАК Віктор Васильович", rank: "солдат", position: "оператор", callsign: "СОКІЛ-021", currentLocation: "ОХ" },
+      { personnelId: 2, fullName: "ОЛІЙНИК Роман Миколайович", rank: "старший солдат", position: "оператор", callsign: "СОКІЛ-022", currentLocation: "ОХ" },
+      { personnelId: 3, fullName: "ЯРЕМЧУК Микола Романович", rank: "сержант", position: "командир екіпажу", callsign: "СОКІЛ-020", currentLocation: "ОХ" },
+      { personnelId: 4, fullName: "ЛЕВЧЕНКО Іван Олександрович", rank: "молодший сержант", position: "оператор", callsign: "СОКІЛ-023", currentLocation: "ОХ" },
+    ];
+    const crew = { id: 1, name: "СОКІЛ", positionName: "", battleOrder: "", uavName: "", primaryUavId: null, actualMembers: members, members } as Crew;
+    const plan = entry({ actualMemberIds: [1, 2, 3, 4], actualCommanderId: 3 });
+
+    const rows = flightPlanPreviewRows("РБПАК", [plan], [crew], [], []);
+
+    expect(rows[0].cells[6].split("\n")).toEqual([
+      "серж. ЯРЕМЧУК М.Р. (СОКІЛ-020)",
+      "мол. серж. ЛЕВЧЕНКО І.О. (СОКІЛ-023)",
+      "ст. сол. ОЛІЙНИК Р.М. (СОКІЛ-022)",
+      "сол. КОЗАК В.В. (СОКІЛ-021)",
+    ]);
+  });
+
   it("does not place absent personnel or people from position work into a new plan", () => {
     const members = [
       { personnelId: 1, fullName: "ДОСТУПНИЙ Доступний", rank: "солдат", position: "оператор", callsign: "ОДИН", currentLocation: "ОХ" },
