@@ -1550,13 +1550,17 @@ fn apply_staff_transfers(
     }
     for assignment in assignments {
         let mut occupants = assignment.expected_occupant_ids.clone();
-        let mut query = transaction.prepare("SELECT p.id FROM personnel p LEFT JOIN personnel_staff_assignments a ON a.personnel_id=p.id WHERE a.slot_id=?1 OR (COALESCE(a.slot_id,'')='' AND p.position=?2)").map_err(|e| e.to_string())?;
+        // A legacy person without a stored slot id is mapped to one concrete
+        // billet by the staffing screen and is already present in
+        // expected_occupant_ids.  Looking up every unassigned person with the
+        // same position text made all identical billets appear occupied and
+        // blocked moves into a visibly free slot.
+        let mut query = transaction
+            .prepare("SELECT personnel_id FROM personnel_staff_assignments WHERE slot_id=?1")
+            .map_err(|e| e.to_string())?;
         occupants.extend(
             query
-                .query_map(
-                    rusqlite::params![assignment.slot_id, assignment.position],
-                    |row| row.get::<_, i64>(0),
-                )
+                .query_map([assignment.slot_id.as_str()], |row| row.get::<_, i64>(0))
                 .map_err(|e| e.to_string())?
                 .collect::<Result<Vec<_>, _>>()
                 .map_err(|e| e.to_string())?,
@@ -1770,6 +1774,39 @@ mod staff_transfer_tests {
         b.position = a.position.clone();
         apply_staff_transfers(&db, &[a, b], &[]).unwrap();
         assert_eq!(db.query_row("SELECT COUNT(DISTINCT slot_id) FROM personnel_staff_assignments WHERE personnel_id IN (1,2)",[],|r|r.get::<_,i64>(0)).unwrap(),2);
+    }
+    #[test]
+    fn legacy_people_with_the_same_title_do_not_block_a_visibly_free_slot() {
+        let db = db();
+        db.execute(
+            "DELETE FROM personnel_staff_assignments WHERE personnel_id IN (1,2)",
+            [],
+        )
+        .unwrap();
+        db.execute(
+            "UPDATE personnel SET position='Оператор' WHERE id IN (1,2)",
+            [],
+        )
+        .unwrap();
+        let assignment = StaffTransfer {
+            personnel_id: 1,
+            position: "Оператор".into(),
+            slot_id: "operator-slot-b".into(),
+            expected_position: "Оператор".into(),
+            expected_occupant_ids: vec![],
+        };
+
+        apply_staff_transfers(&db, &[assignment], &[]).unwrap();
+
+        assert_eq!(
+            db.query_row(
+                "SELECT slot_id FROM personnel_staff_assignments WHERE personnel_id=1",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "operator-slot-b"
+        );
     }
     #[test]
     fn clears_acting_only_when_confirmed_and_rolls_back_bad_acting() {

@@ -16,9 +16,20 @@ export function StaffTransferModal({ records, slots, onClose, onSave }: { record
   const conflicts = transferConflicts(slots, moves, records);
   const stageMove = (slot: StaffSlot, person: StaffingRecord) => {
     const occupants = projectedOccupants(slot, moves, records);
-    setMoves((current) => [...current.filter((move) => move.personnelId !== person.personnelId), { personnelId: person.personnelId, position: slot.position, slotId: slot.id, expectedPosition: person.position, expectedOccupantIds: slot.occupants.map((item) => item.personnelId) }]);
     const displaced = occupants.find((item) => item.personnelId !== person.personnelId);
-    if (displaced) setActiveId(String(displaced.personnelId));
+    const stagedSourceId = moves.find((move) => move.personnelId === person.personnelId)?.slotId;
+    const source = slots.find((candidate) => candidate.id === stagedSourceId)
+      ?? slots.find((candidate) => candidate.occupants.some((occupant) => occupant.personnelId === person.personnelId));
+    const canSwap = displaced && source && source.id !== slot.id
+      && projectedOccupants(source, moves.filter((move) => move.personnelId !== person.personnelId), records).every((occupant) => occupant.personnelId === person.personnelId);
+    setMoves((current) => {
+      const replacedIds = new Set([person.personnelId, ...(canSwap && displaced ? [displaced.personnelId] : [])]);
+      const next = current.filter((move) => !replacedIds.has(move.personnelId));
+      next.push({ personnelId: person.personnelId, position: slot.position, slotId: slot.id, expectedPosition: person.position, expectedOccupantIds: slot.occupants.map((item) => item.personnelId) });
+      if (canSwap && displaced && source) next.push({ personnelId: displaced.personnelId, position: source.position, slotId: source.id, expectedPosition: displaced.position, expectedOccupantIds: source.occupants.map((item) => item.personnelId) });
+      return next;
+    });
+    if (displaced && !canSwap) setActiveId(String(displaced.personnelId));
   };
   const choose = (slot: StaffSlot) => {
     if (!active) return;

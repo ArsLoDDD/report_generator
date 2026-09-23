@@ -789,6 +789,24 @@ mod tests {
     }
 
     #[test]
+    fn releases_a_legacy_work_location_without_an_active_work_record() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialise(&connection).unwrap();
+        connection.execute("INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id,current_location) VALUES(1,'солдат','ТЕСТ','Іван','Іванович','оператор','legacy-work','','','','','','','','Реко та облаштування')", []).unwrap();
+
+        initialise(&connection).unwrap();
+
+        let location: String = connection
+            .query_row(
+                "SELECT current_location FROM personnel WHERE id=1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(location, "ОХ");
+    }
+
+    #[test]
     fn migrates_legacy_position_work_events_before_backfilling_history() {
         let connection = Connection::open_in_memory().unwrap();
         connection

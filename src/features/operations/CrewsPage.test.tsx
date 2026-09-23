@@ -64,6 +64,15 @@ describe("Склад екіпажу",()=>{
     fireEvent.click(within(confirmation).getByRole("button",{name:"Видалити"}));
     await waitFor(()=>expect(invoke).toHaveBeenCalledWith("delete_crew",{crewId:9}));
   });
+  it("зберігає зміни екіпажу при закритті модалки",async()=>{
+    invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve([crew]):command==="list_positions"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):command==="list_equipment"||command==="list_incidents"||command==="list_vehicles"?Promise.resolve([]):Promise.resolve());
+    render(<NotificationProvider><CrewsPage people={[first,last]}/></NotificationProvider>);
+    fireEvent.click(await screen.findByText("Сокіл"));
+    const editor=screen.getByRole("dialog",{name:"Сокіл"});
+    fireEvent.change(within(editor).getByRole("textbox",{name:"Примітка"}),{target:{value:"Збережена після закриття"}});
+    fireEvent.click(within(editor).getAllByRole("button",{name:"Закрити"})[0]);
+    await waitFor(()=>expect(invoke).toHaveBeenCalledWith("update_crew",expect.objectContaining({crewId:9,draft:expect.objectContaining({notes:"Збережена після закриття",memberIds:[501]})})));
+  });
   it("показує вкладку ОС, прибирає зведений блок і розділяє майно за категоріями",async()=>{
     invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve([crew]):command==="list_positions"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):command==="list_equipment"?Promise.resolve([]):command==="list_vehicles"?Promise.resolve([]):Promise.resolve());
     render(<NotificationProvider><CrewsPage people={[first,last]}/></NotificationProvider>);

@@ -389,19 +389,19 @@ fn open_database(app: &tauri::AppHandle) -> Result<(DatabaseState, bool), String
 
 fn connect_database(
     database_path: PathBuf,
-    database_was_missing: bool,
+    _database_was_missing: bool,
 ) -> Result<DatabaseState, String> {
-    let connection = if database_was_missing {
-        Connection::open_in_memory()
-    } else {
-        Connection::open(&database_path)
-    }
-    .map_err(|_| "Не вдалося відкрити базу даних програми.".to_string())?;
+    // Every successful write must survive an application restart.  Keeping a
+    // brand-new installation in memory until a personnel-specific command was
+    // called made operational edits (crews, positions, assets, etc.) appear to
+    // save while silently disappearing on exit.
+    let connection = Connection::open(&database_path)
+        .map_err(|_| "Не вдалося створити або відкрити базу даних програми.".to_string())?;
     database::initialise(&connection)?;
     Ok(DatabaseState {
         connection,
         path: database_path,
-        is_persistent: !database_was_missing,
+        is_persistent: true,
     })
 }
 
@@ -439,7 +439,12 @@ fn startup_warnings(
 ) -> Vec<StartupWarning> {
     let mut warnings = Vec::new();
     if database_was_missing {
-        warnings.push(StartupWarning { code: "database-missing".into(), title: "База даних відсутня".into(), message: "Файл особовий_склад.db не знайдено. Його буде створено після додавання першого військовослужбовця.".into() });
+        warnings.push(StartupWarning {
+            code: "database-missing".into(),
+            title: "Створено нову базу даних".into(),
+            message: "Файл особовий_склад.db був відсутній, тому програма створила нову порожню базу даних. Усі подальші зміни зберігатимуться одразу."
+                .into(),
+        });
     }
     if templates_were_missing {
         warnings.push(StartupWarning {

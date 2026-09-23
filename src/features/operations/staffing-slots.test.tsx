@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { buildStaffSlots, canonicalStaffPosition, projectedOccupants, transferConflicts, type SlotTransfer } from "./staffing-slots";
 import { StaffTransferModal } from "./StaffTransferModal";
 import { buildStaffingHierarchy } from "./StaffingBcsPage";
@@ -70,6 +70,19 @@ describe("Конкретні місця у штаті", () => {
     const expected=slots.filter(s=>projectedOccupants(s,[],people).length===0).length;
     expect(document.querySelectorAll(".position-choice")).toHaveLength(expected);
     expect(screen.queryByRole("button",{name:/^Командир роти/})).not.toBeInTheDocument();
+  });
+  it("міняє двох людей між зайнятими штатними місцями одним вибором", async () => {
+    const people=[person(1,"водій-електрик 1 відділення 1 взводу"),person(2,"водій-електрик 1 відділення 2 взводу")];
+    const save=vi.fn().mockResolvedValue(undefined);
+    render(<StaffTransferModal records={people} slots={buildStaffSlots(people,unit)} onClose={vi.fn()} onSave={save} />);
+    fireEvent.change(screen.getByLabelText("Військовослужбовець для переміщення"),{target:{value:"1"}});
+    fireEvent.click(screen.getByRole("button",{name:/Водій-електрик 2 взвод \/ 1 відділення/}));
+    expect(screen.getByText("Переміщень: 2")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button",{name:"Застосувати переміщення"}));
+    await waitFor(()=>expect(save).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({personnelId:1,slotId:"platoon-2-department-1-3"}),
+      expect.objectContaining({personnelId:2,slotId:"platoon-1-department-1-3"}),
+    ]),[]));
   });
   it("запитує зняття ТВО та зберігає його разом із переміщенням", async () => {
     const people=[person(1,"командир роти"),{...person(2,"технік роти"),actingSlotId:"management-8",actingPosition:"Водій-електрик"}];

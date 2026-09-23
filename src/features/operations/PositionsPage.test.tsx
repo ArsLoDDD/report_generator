@@ -97,6 +97,10 @@ describe("Картка позиції", () => {
     await openPositionSetup();
     fireEvent.change(screen.getByLabelText("Позиція для облаштування"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Час події"), { target: { value: "11:00" } });
+    fireEvent.change(screen.getByLabelText("Пошук військовослужбовців для робіт"), { target: { value: "КСПОВИЙ" } });
+    expect(screen.queryByText(freePerson.fullName)).not.toBeInTheDocument();
+    expect(screen.getByText(kspPerson.fullName)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Пошук військовослужбовців для робіт"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: /КСПОВИЙ Кирило Кирилович/ }));
     expect(screen.queryByText(trainingPerson.fullName)).not.toBeInTheDocument();

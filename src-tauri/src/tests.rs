@@ -457,7 +457,7 @@ fn reports_an_empty_personnel_database_at_startup() {
 }
 
 #[test]
-fn missing_database_stays_in_memory_until_the_first_write() {
+fn missing_database_is_created_immediately_so_every_feature_is_persistent() {
     let root = std::env::temp_dir().join(format!(
         "shablonizator-delayed-database-{}",
         Local::now().timestamp_nanos_opt().unwrap_or_default()
@@ -465,12 +465,28 @@ fn missing_database_stays_in_memory_until_the_first_write() {
     fs::create_dir_all(&root).unwrap();
     let path = root.join(DATABASE_FILE_NAME);
     let mut state = connect_database(path.clone(), true).unwrap();
-    assert!(!path.exists());
-    assert!(!state.is_persistent);
-    ensure_persistent_database(&mut state).unwrap();
     assert!(path.exists());
     assert!(state.is_persistent);
+    state
+        .connection
+        .execute(
+            "INSERT INTO crews (id, name, status) VALUES (?1, ?2, 'Активний')",
+            rusqlite::params![987_654_i64, "Перевірка збереження"],
+        )
+        .unwrap();
+    ensure_persistent_database(&mut state).unwrap();
     drop(state);
+
+    let reopened = Connection::open(&path).unwrap();
+    let persisted_count = reopened
+        .query_row(
+            "SELECT COUNT(*) FROM crews WHERE id = ?1",
+            [987_654_i64],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(persisted_count, 1);
+    drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
 

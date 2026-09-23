@@ -195,13 +195,17 @@
 .position-work-modal__body { display: grid; grid-template-columns: minmax(300px, .72fr) minmax(460px, 1.28fr); gap: 16px; min-height: 0; padding: 18px 20px; overflow: hidden; }
 .position-work-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-content: start; }
 .position-work-fields .form-field--wide { grid-column: 1 / -1; }
-.position-work-people { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 380px; overflow: hidden; border: 1px solid var(--line); border-radius: 13px; }
+.position-work-people { display: grid; grid-template-rows: auto auto minmax(0, 1fr); min-height: 380px; overflow: hidden; border: 1px solid var(--line); border-radius: 13px; }
 .position-work-people > header { display: flex; justify-content: space-between; gap: 12px; padding: 13px; border-bottom: 1px solid var(--line); }
 .position-work-people > header > div { display: grid; gap: 3px; }
 .position-work-people > header small, .position-work-people > header > span { color: var(--muted); font-size: 11px; }
 .position-work-people > header .position-work-rotation { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .position-work-rotation > span,.position-work-rotation > strong { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .position-work-rotation .shared-select { min-width: 104px; }
+.position-work-people__search { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: center; gap: 9px; margin: 10px 10px 0; padding: 0 11px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--field); }
+.position-work-people__search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(151,164,76,.15); }
+.position-work-people__search svg { width: 17px; color: var(--muted); }
+.position-work-people__search input { width: 100%; min-width: 0; border: 0; background: transparent; box-shadow: none; }
 .position-work-people > div { display: grid; align-content: start; gap: 7px; padding: 10px; overflow-y: auto; }
 .position-work-people article { display: grid; gap: 9px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #111612; }
 .position-work-people article.selected { border-color: var(--accent); background: rgba(151,164,76,.12); }

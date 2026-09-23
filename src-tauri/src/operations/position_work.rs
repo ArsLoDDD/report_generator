@@ -249,7 +249,7 @@ fn validate_person_availability(
     current_location: &str,
     belongs_to_current_work: bool,
     current_work_is_active: bool,
-    draft_is_active: bool,
+    _draft_is_active: bool,
     has_other_active: bool,
 ) -> Result<(), String> {
     if has_other_active {
@@ -267,9 +267,7 @@ fn validate_person_availability(
             "До робіт не можна залучити військовослужбовця зі станом «{current_location}». Спочатку завершіть або змініть цей стан у його джерелі."
         ));
     }
-    if is_work_location(current_location)
-        && !(belongs_to_current_work && current_work_is_active && draft_is_active)
-    {
+    if is_work_location(current_location) && !(belongs_to_current_work && current_work_is_active) {
         return Err("Військовослужбовець уже перебуває на іншій роботі на позиції.".into());
     }
     Ok(())
@@ -911,6 +909,9 @@ mod tests {
         }
         assert!(
             validate_person_availability("Реко та облаштування", true, true, true, false).is_ok()
+        );
+        assert!(
+            validate_person_availability("Реко та облаштування", true, true, false, false).is_ok()
         );
         assert!(validate_person_availability("На позиції", true, true, true, false).is_err());
         assert!(validate_person_availability("ЗБЗ", true, true, true, false).is_err());

@@ -1240,6 +1240,24 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
                 .map_err(|_| format!("Не вдалося додати основне поле «{field_key}»."))?;
         }
     }
+    // `current_location` is one of the compatibility columns added above, so
+    // orphaned values from old Excel/SQLite bases can only be repaired after
+    // that migration has completed.  Keep people with a real active work
+    // record untouched; only release legacy labels that have no owner/source.
+    connection
+        .execute(
+            "UPDATE personnel
+             SET current_location='ОХ',updated_at=CURRENT_TIMESTAMP
+             WHERE current_location IN ('Реко','Облаштування','Реко та облаштування')
+               AND NOT EXISTS (
+                   SELECT 1
+                   FROM position_work_members pwm
+                   JOIN position_work w ON w.id=pwm.work_id
+                   WHERE pwm.personnel_id=personnel.id AND w.status<>'Завершили'
+               )",
+            [],
+        )
+        .map_err(|_| "Не вдалося звільнити застарілі стани робіт на позиціях.".to_string())?;
     connection
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS flight_plan_personnel_locations (
