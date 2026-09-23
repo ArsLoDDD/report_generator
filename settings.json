@@ -595,7 +595,7 @@
         "id": "special-collection-position-72",
         "parentId": "special-collection-processing",
         "kind": "position",
-        "name": "командир",
+        "name": "командир відділення збору та обробки інформації роти безпілотних авіаційних комплексів",
         "order": 0
       },
       {
@@ -765,6 +765,13 @@
         "kind": "position",
         "name": "аналітик",
         "order": 8
+      },
+      {
+        "id": "special-collection-position-94-0",
+        "parentId": "special-collection-processing",
+        "kind": "position",
+        "name": "командирфіів",
+        "order": 9
       }
     ],
     "battalionFullName": "477 окремого батальйону безпілолтних систем",
