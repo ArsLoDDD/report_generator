@@ -1,11 +1,12 @@
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
 import { settingsService } from "../settings/services/settingsService";
 import { StaffingBcsPage } from "./StaffingBcsPage";
 import { operationsService } from "./services/operationsService";
 
-vi.mock("../../shared/ui/PageFrame", () => ({ PageFrame: () => <div data-testid="staffing-page" /> }));
+vi.mock("../../shared/ui/PageFrame", () => ({ PageFrame: ({ children }: { children: ReactNode }) => <div data-testid="staffing-page">{children}</div> }));
 vi.mock("../settings/services/settingsService", () => ({ settingsService: { get: vi.fn() } }));
 vi.mock("./services/operationsService", () => ({
   operationsService: {
@@ -105,5 +106,25 @@ describe("Оновлення БЧС за добовим планом", () => {
     await waitFor(() => expect(operationsService.listStaffingRecords).toHaveBeenCalledTimes(1));
     await act(async () => { await vi.advanceTimersByTimeAsync(60 * 60 * 1_000); });
     expect(operationsService.listStaffingRecords).toHaveBeenCalledTimes(1);
+  });
+
+  it("пам'ятає згорнутий блок за стабільним ID після перейменування структури", async () => {
+    localStorage.setItem("staffing-collapse-all", "false");
+    const signer = { fullName: "", rank: "", position: "" };
+    const settings = (name: string) => ({
+      mainSigner: signer, commander: signer, chief: signer, deputyPpp: signer, deputyArmament: signer, deputyRear: signer, fuelChief: signer, signerRoles: [],
+      unit: { kind: "Рота" as const, shortName: "РБАК", authorizedStrength: 1, structure: [{ id: "stable-group", parentId: null, kind: "group" as const, name, order: 0 }, { id: "stable-position", parentId: "stable-group", kind: "position" as const, name: "Тестова посада", order: 0 }] },
+    });
+    vi.mocked(settingsService.get).mockResolvedValue(settings("Стара назва"));
+    const first = render(<NotificationProvider><StaffingBcsPage /></NotificationProvider>);
+    const oldBlock = await screen.findByRole("button", { name: /Стара назва/ });
+    expect(oldBlock).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(oldBlock);
+    expect(JSON.parse(localStorage.getItem("staffing-collapsed-blocks-v1") ?? "[]")).toContain("section:stable-group");
+    first.unmount();
+
+    vi.mocked(settingsService.get).mockResolvedValue(settings("Нова назва"));
+    render(<NotificationProvider><StaffingBcsPage /></NotificationProvider>);
+    expect(await screen.findByRole("button", { name: /Нова назва/ })).toHaveAttribute("aria-expanded", "false");
   });
 });

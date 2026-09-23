@@ -79,6 +79,9 @@ export function structureWithUnmappedPositions(unit: UnitSettings, sources: Unit
   let structure = [...usableUnitStructure(unit)];
   const normalize = (value: string) => value.trim().toLocaleLowerCase("uk").replace(/\s+/gu, " ");
   const positions = sources.map((source) => typeof source === "string" ? { position: source } : source).filter((source) => source.position.trim());
+  const isBoundToStructuralPosition = (source: { position: string; slotId?: string }) => !!source.slotId
+    && !source.slotId.startsWith("other-position-")
+    && structure.some((item) => item.kind === "position" && item.id === source.slotId);
   // The штат often grows after the base structure was made.  A position such as
   // "водій-електрик 1 відділення 4 взводу" is authoritative evidence that the
   // fourth platoon exists, so build its complete standard skeleton first.
@@ -94,7 +97,7 @@ export function structureWithUnmappedPositions(unit: UnitSettings, sources: Unit
   }
   const collectionDepartment = "Відділення збору та обробки інформації";
   const collectionPattern = /відділення\s+збору\s+та\s+обробки\s+інформації/iu;
-  const collectionPositions = positions.filter((source) => collectionPattern.test(source.position));
+  const collectionPositions = positions.filter((source) => collectionPattern.test(source.position) && !isBoundToStructuralPosition(source));
   if (collectionPositions.length) {
     let group = structure.find((item) => item.kind === "group" && normalize(item.name) === normalize(collectionDepartment));
     if (!group) {
@@ -151,10 +154,14 @@ export function structureWithUnmappedPositions(unit: UnitSettings, sources: Unit
     });
   };
   if (otherGroup) {
-    structure = structure.filter((item) => item.parentId !== otherGroup.id || !item.id.startsWith("other-position-") || !legacyOtherMatchesSlot(item));
+    const fallbackSourceNames = new Set(positions.filter((source) => !isBoundToStructuralPosition(source)).map((source) => normalize(source.position)));
+    structure = structure.filter((item) => item.parentId !== otherGroup.id
+      || !item.id.startsWith("other-position-")
+      || (!legacyOtherMatchesSlot(item) && fallbackSourceNames.has(normalize(item.name))));
   }
   const known = structure.filter((item) => item.kind === "position").map((item) => normalize(item.name));
-  const unmapped = [...new Set(positions.map((item) => item.position.trim()).filter(Boolean))].filter((position) => !collectionPattern.test(position) && !known.some((name) => normalize(position).includes(name) || name.includes(normalize(position))));
+  const unmapped = [...new Set(positions.filter((source) => !isBoundToStructuralPosition(source)).map((item) => item.position.trim()).filter(Boolean))]
+    .filter((position) => !collectionPattern.test(position) && !known.some((name) => normalize(position).includes(name) || name.includes(normalize(position))));
   if (!unmapped.length) return structure;
   const other = structure.find((item) => item.kind === "group" && item.parentId === null && normalize(item.name) === "інші") ?? node("other", null, "group", "Інші", structure.filter((item) => item.parentId === null).length);
   const next = other.id === "other" && !structure.some((item) => item.id === "other") ? [...structure, other] : [...structure];

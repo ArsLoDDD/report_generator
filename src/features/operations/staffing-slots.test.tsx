@@ -58,8 +58,21 @@ describe("Конкретні місця у штаті", () => {
     expect(items.map(item=>item.slot.id)).toEqual(["b","a"]);
     expect(items[0].kind).toBe("vacancy");
   });
-  it("не перетворює видалене місце на іншу однойменну посаду", () => {
-    expect(buildStaffSlots([{...person(1,"водій"),staffSlotId:"deleted"}],unit).every(s=>!s.occupants.length)).toBe(true);
+  it("переприв'язує старий ID до єдиної посади з актуальною назвою", () => {
+    const structure: UnitSettings["structure"]=[{id:"collection",parentId:null,kind:"group",name:"Відділення збору та обробки",order:0},{id:"collection-commander",parentId:"collection",kind:"position",name:"Командир відділення збору та обробки",order:0}];
+    const slots=buildStaffSlots([{...person(1,"командир відділення збору та обробки"),staffSlotId:"deleted-old-slot"}],{...unit,structure});
+    expect(slots.find((slot)=>slot.occupants[0]?.personnelId===1)?.id).toBe("collection-commander");
+  });
+  it("не вгадує між кількома однойменними місцями для старого ID", () => {
+    const structure: UnitSettings["structure"]=[{id:"g",parentId:null,kind:"group",name:"Інші",order:0},{id:"driver-a",parentId:"g",kind:"position",name:"Водій",order:0},{id:"driver-b",parentId:"g",kind:"position",name:"Водій",order:1}];
+    expect(buildStaffSlots([{...person(1,"водій"),staffSlotId:"deleted"}],{...unit,structure}).every(s=>!s.occupants.length)).toBe(true);
+  });
+  it("не створює стару назву повторно після перейменування прив'язаного місця", () => {
+    const oldName="Командир відділення";
+    const structure: UnitSettings["structure"]=[{id:"collection",parentId:null,kind:"group",name:"Відділення збору та обробки",order:0},{id:"collection-commander",parentId:"collection",kind:"position",name:"Командир відділення збору та обробки",order:0},{id:"other",parentId:null,kind:"group",name:"Інші",order:1},{id:"other-position-old",parentId:"other",kind:"position",name:oldName,order:0}];
+    const result=structureWithUnmappedPositions({...unit,structure},[{position:oldName,slotId:"collection-commander"}]);
+    expect(result.some((item)=>item.id==="other-position-old")).toBe(false);
+    expect(result.filter((item)=>item.kind==="position").map((item)=>item.name)).toEqual(["Командир відділення збору та обробки"]);
   });
   it("не показує попередження до початку переміщення та фільтрує саме вакансії", () => {
     const people=[person(1,"командир роти")]; const slots=buildStaffSlots(people,unit);
