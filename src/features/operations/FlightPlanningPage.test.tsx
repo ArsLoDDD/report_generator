@@ -51,12 +51,16 @@ describe("Планування польотів",()=>{
   });
 
   it("applies the vehicle-less flag to every rotation stage of the crew",async()=>{
-    const primary={...initialStoredEntryForTest(),crewId:1,actualVehicleId:9};
+    const commander=crew("СОКІЛ").actualMembers[0];
+    const replacement={...commander,personnelId:2,fullName:"ЗМІННИЙ Зеновій Зіновійович",position:"оператор",callsign:"ВІТЕР"};
+    const officialDriver={...commander,personnelId:3,fullName:"ВОДІЙ Вадим Васильович",position:"водій",callsign:"ШЛЯХ"};
+    const crewWithOfficialDriver={...crew("СОКІЛ"),members:[commander,replacement,officialDriver],actualMembers:[commander,replacement]};
+    const primary={...initialStoredEntryForTest(),crewId:1,actualMemberIds:[1],actualVehicleId:9,routePoints:["БАЗА"],areaPoints:["РАЙОН"],altitudeFrom:"100",altitudeTo:"200"};
     localStorage.setItem("flight-plan-draft-v2",JSON.stringify({
       date:tomorrowForTest(),selected:[1],entries:{1:primary},
-      rotations:{1:[{...primary,rotationId:"rotation-1",actualVehicleId:10,startTime:"12:01",endTime:"18:00"}]},
+      rotations:{1:[{...primary,rotationId:"rotation-1",actualMemberIds:[2],actualCommanderId:2,actualVehicleId:10,startTime:"12:01",endTime:"18:00"}]},
     }));
-    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crewWithOfficialDriver]);
     vi.mocked(vehiclesService.list).mockResolvedValue([
       {id:9,name:"Toyota Hilux",registrationNumber:"АА 0001 АА",status:"Справний",personnelId:null,driverName:null,crewId:1,crewName:"БАРС"},
       {id:10,name:"Ford Ranger",registrationNumber:"АА 0002 АА",status:"Справний",personnelId:null,driverName:null,crewId:1,crewName:"БАРС"},
@@ -72,6 +76,13 @@ describe("Планування польотів",()=>{
       expect(stored.entries[1]).toEqual(expect.objectContaining({withoutVehicle:true,actualVehicleId:null}));
       expect(stored.rotations[1][0]).toEqual(expect.objectContaining({withoutVehicle:true,actualVehicleId:null}));
     });
+    fireEvent.click(screen.getByRole("button",{name:"Параметри плану польотів"}));
+    fireEvent.click(screen.getByRole("button",{name:"Експорт плану"}));
+    await waitFor(()=>expect(operationsService.exportFlightPlan).toHaveBeenCalled());
+    const exportCalls=vi.mocked(operationsService.exportFlightPlan).mock.calls;
+    const request=exportCalls[exportCalls.length-1]?.[1];
+    expect(request?.entries).toHaveLength(2);
+    expect(request?.entries.every((stage)=>stage.withoutVehicle===true&&stage.actualVehicleId===null)).toBe(true);
   });
 
   it("shows and enforces a warning when an official crew member has no callsign",async()=>{
