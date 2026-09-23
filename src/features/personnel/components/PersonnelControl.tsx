@@ -192,8 +192,15 @@ export function PersonnelControl({ people, hasMorePeople, onLoadMorePeople }: Pe
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => {
     const refresh = () => { void reload(); };
+    const refreshWhenVisible = () => { if (document.visibilityState === "visible") refresh(); };
     window.addEventListener("operational-data-updated", refresh);
-    return () => window.removeEventListener("operational-data-updated", refresh);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("operational-data-updated", refresh);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [reload]);
   useEffect(() => { if (hasMorePeople) void onLoadMorePeople(); }, [hasMorePeople, people.length, onLoadMorePeople]);
   useEffect(() => { if (view === "history" && !historyLoaded && !historyLoading) void loadHistory(); }, [view, historyLoaded, historyLoading, loadHistory]);
@@ -213,7 +220,6 @@ export function PersonnelControl({ people, hasMorePeople, onLoadMorePeople }: Pe
     <div className="personnel-control__toolbar">
       <label className="search"><Search /><input aria-label="Пошук у контролі особового складу" placeholder="Пошук за ПІБ, місцем або закладом…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
       <button className="button primary" onClick={() => setEditing("new")}><Plus />Розподілити особовий склад</button>
-      <button className="button" onClick={() => void (view === "current" ? reload() : loadHistory(false))} disabled={view === "current" ? loading : historyLoading}><RefreshCw className={loading || historyLoading ? "spin" : ""} />Оновити</button>
     </div>
     <div className="personnel-control__filters">
       <nav className="personnel-control__view-tabs" aria-label="Актуальні дані або історія"><button type="button" className={view === "current" ? "active" : ""} onClick={() => setView("current")}><ListChecks />Актуальні</button><button type="button" className={view === "history" ? "active" : ""} onClick={() => setView("history")}><History />Історія</button></nav>

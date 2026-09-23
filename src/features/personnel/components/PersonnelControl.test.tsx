@@ -104,6 +104,14 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("PersonnelControl", () => {
+  it("оновлюється автоматично без окремої кнопки", async () => {
+    renderControl();
+    await screen.findByText("ЗБЗ");
+    expect(screen.queryByRole("button", { name: "Оновити" })).not.toBeInTheDocument();
+    const before = invoke.mock.calls.filter(([command]) => command === "list_personnel_control_records").length;
+    window.dispatchEvent(new CustomEvent("operational-data-updated", { detail: { command: "update_crew" } }));
+    await waitFor(() => expect(invoke.mock.calls.filter(([command]) => command === "list_personnel_control_records")).toHaveLength(before + 1));
+  });
   it("groups automatic position states while preserving the exact state in the row", async () => {
     renderControl();
     expect(await screen.findByText("ЗБЗ")).toBeInTheDocument();

@@ -11,6 +11,7 @@ const person=(id:number,name:string):Person=>({id,fullName:name,rank:"солда
 const first=person(1,"ПЕРША ЛЮДИНА");
 const last=person(501,"ОСТАННЯ ЛЮДИНА");
 const crew={id:9,name:"Сокіл",platoon:"",positionName:"",reconnaissanceArea:"",unitType:"Екіпаж",companyName:"",battleOrder:"",sector:"",officialStrength:1,workingStrength:0,positionId:null,status:"Працюючий",uavName:"",uavType:"",functionalDuties:"",currentLocation:"",notes:"",memberCount:1,members:[{personnelId:501,fullName:last.fullName,rank:last.rank,position:last.position}],actualMembers:[]};
+const crewWithActual={...crew,workingStrength:1,actualMembers:[{personnelId:501,fullName:last.fullName,rank:last.rank,position:last.position}]};
 
 afterEach(()=>{cleanup();localStorage.clear();vi.clearAllMocks();});
 
@@ -72,6 +73,46 @@ describe("Склад екіпажу",()=>{
     fireEvent.change(within(editor).getByRole("textbox",{name:"Примітка"}),{target:{value:"Збережена після закриття"}});
     fireEvent.click(within(editor).getAllByRole("button",{name:"Закрити"})[0]);
     await waitFor(()=>expect(invoke).toHaveBeenCalledWith("update_crew",expect.objectContaining({crewId:9,draft:expect.objectContaining({notes:"Збережена після закриття",memberIds:[501]})})));
+  });
+  it("зберігає фактичний склад одразу при закритті вкладеного вікна вибору",async()=>{
+    invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve([crew]):command==="list_positions"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):command==="list_equipment"||command==="list_incidents"||command==="list_vehicles"?Promise.resolve([]):Promise.resolve());
+    render(<NotificationProvider><CrewsPage people={[first,last]}/></NotificationProvider>);
+    fireEvent.click(await screen.findByText("Сокіл"));
+    const editor=screen.getByRole("dialog",{name:"Сокіл"});
+    fireEvent.click(within(editor).getByRole("button",{name:/^ОС/}));
+    fireEvent.click(within(editor).getByRole("button",{name:/^Фактичний склад/}));
+    fireEvent.click(within(editor).getByRole("button",{name:"Додати людей"}));
+    const picker=screen.getByRole("dialog",{name:"Додати до фактичного складу"});
+    fireEvent.click(within(picker).getByText(first.fullName));
+    fireEvent.click(within(picker).getByRole("button",{name:"Закрити"}));
+    await waitFor(()=>expect(invoke).toHaveBeenCalledWith("update_crew",expect.objectContaining({crewId:9,draft:expect.objectContaining({actualMemberIds:[1]})})));
+    expect(screen.getByRole("dialog",{name:"Сокіл"})).toBeInTheDocument();
+  });
+  it("підтверджує вилучення людини з фактичного складу і одразу зберігає його",async()=>{
+    invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve([crewWithActual]):command==="list_positions"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):command==="list_equipment"||command==="list_incidents"||command==="list_vehicles"?Promise.resolve([]):Promise.resolve());
+    render(<NotificationProvider><CrewsPage people={[first,last]}/></NotificationProvider>);
+    fireEvent.click(await screen.findByText("Сокіл"));
+    const editor=screen.getByRole("dialog",{name:"Сокіл"});
+    fireEvent.click(within(editor).getByRole("button",{name:/^ОС/}));
+    fireEvent.click(within(editor).getByRole("button",{name:/^Фактичний склад/}));
+    fireEvent.click(within(editor).getByTitle("Прибрати зі складу"));
+    expect(invoke).not.toHaveBeenCalledWith("update_crew",expect.anything());
+    const confirmation=screen.getByRole("dialog",{name:"Прибрати військовослужбовця зі складу?"});
+    fireEvent.click(within(confirmation).getByRole("button",{name:"Прибрати зі складу"}));
+    await waitFor(()=>expect(invoke).toHaveBeenCalledWith("update_crew",expect.objectContaining({crewId:9,draft:expect.objectContaining({actualMemberIds:[]})})));
+  });
+  it("не знімає майно з екіпажу без підтвердження",async()=>{
+    const assignedUav={id:44,category:"uav",assetKind:"complex",name:"БпЛА ТЕСТ",inventoryNumber:"UAV-44",uavType:"Коптер",crewId:9,crewName:"Сокіл",totalQuantity:1,assignedQuantity:1,dayQuantity:1,nightQuantity:0};
+    invoke.mockImplementation((command:string,args?:{category?:string})=>command==="list_crews"?Promise.resolve([crew]):command==="list_positions"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):command==="list_equipment"?Promise.resolve(args?.category==="uav"?[assignedUav]:[]):command==="list_incidents"||command==="list_vehicles"?Promise.resolve([]):Promise.resolve());
+    render(<NotificationProvider><CrewsPage people={[first,last]}/></NotificationProvider>);
+    fireEvent.click(await screen.findByText("Сокіл"));
+    const editor=screen.getByRole("dialog",{name:"Сокіл"});
+    fireEvent.click(within(editor).getByRole("button",{name:/^Майно/}));
+    fireEvent.click(within(editor).getByTitle("Зняти з екіпажу"));
+    expect(invoke).not.toHaveBeenCalledWith("assign_equipment",expect.anything());
+    const confirmation=screen.getByRole("dialog",{name:"Зняти майно з екіпажу?"});
+    fireEvent.click(within(confirmation).getByRole("button",{name:"Зняти з екіпажу"}));
+    await waitFor(()=>expect(invoke).toHaveBeenCalledWith("assign_equipment",{equipmentId:44,crewId:null,quantity:1}));
   });
   it("показує вкладку ОС, прибирає зведений блок і розділяє майно за категоріями",async()=>{
     invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve([crew]):command==="list_positions"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):command==="list_equipment"?Promise.resolve([]):command==="list_vehicles"?Promise.resolve([]):Promise.resolve());

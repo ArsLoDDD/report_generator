@@ -235,6 +235,18 @@ describe("Журнал польотів", () => {
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_flight_journal_entry", { draft: expect.not.objectContaining({ source: expect.anything() }) }));
   });
 
+  it("зберігає заповнений фактичний політ при закритті вікна хрестиком", async () => {
+    invoke.mockImplementation((command: string) => command === "list_flight_journal_entries" || command === "list_positions" || command === "list_equipment" || command === "list_workshop_products" ? Promise.resolve([]) : command === "list_crews" ? Promise.resolve([crew]) : command === "get_flight_plan_snapshot" ? Promise.resolve(null) : Promise.resolve());
+    render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
+    const dialog = screen.getByRole("dialog", { name: "Новий запис польоту" });
+    fireEvent.change(within(dialog).getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
+    fireEvent.change(within(dialog).getByLabelText("Час «Небо»"), { target: { value: "07:10" } });
+    fireEvent.change(within(dialog).getByLabelText("Час «Земля»"), { target: { value: "08:20" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Закрити" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_flight_journal_entry", { draft: expect.objectContaining({ crewId: 4, skyTime: "07:10", groundTime: "08:20" }) }));
+  });
+
   it("не зберігає політ без обох обов’язкових часів Небо і Земля", async () => {
     invoke.mockImplementation((command: string) => command === "list_flight_journal_entries" || command === "list_crews" || command === "list_positions" || command === "list_equipment" || command === "list_workshop_products" ? Promise.resolve(command === "list_crews" ? [crew] : []) : Promise.resolve());
     render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
