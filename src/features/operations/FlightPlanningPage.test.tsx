@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
+import { vehiclesService } from "../vehicles/services/vehiclesService";
 import { operationsService } from "./services/operationsService";
 import { FlightPlanningPage, flightPlanDateForTomorrow, flightPlanDateRange, flightPlanTransitionHasHappened } from "./FlightPlanningPage";
 
@@ -12,7 +13,7 @@ vi.mock("../settings/services/settingsService", () => ({ settingsService: { get:
 
 const crew = (callsign: string) => ({ id:1,name:"БАРС",platoon:"1 взвод",positionName:"САПСАН",reconnaissanceArea:"Охтирка",unitType:"Екіпаж",companyName:"РБПАК",battleOrder:"БРО-02",sector:"Схід",officialStrength:1,workingStrength:1,positionId:1,status:"Працюючий",uavName:"MAVIC 3",uavType:"Коптер",functionalDuties:"",currentLocation:"",notes:"",memberCount:1,members:[{personnelId:1,fullName:"ТЕСТОВИЙ Тест Тестович",rank:"капітан",position:"командир екіпажу",callsign}],actualMembers:[{personnelId:1,fullName:"ТЕСТОВИЙ Тест Тестович",rank:"капітан",position:"командир екіпажу",callsign}]});
 
-beforeEach(()=>{vi.clearAllMocks();localStorage.clear();vi.mocked(operationsService.listEquipment).mockResolvedValue([]);vi.mocked(operationsService.getFlightPlanSnapshot).mockResolvedValue(null);vi.mocked(operationsService.saveFlightPlanSnapshot).mockResolvedValue(undefined);vi.mocked(operationsService.exportFlightPlan).mockResolvedValue();});
+beforeEach(()=>{vi.clearAllMocks();localStorage.clear();vi.mocked(vehiclesService.list).mockResolvedValue([]);vi.mocked(operationsService.listEquipment).mockResolvedValue([]);vi.mocked(operationsService.getFlightPlanSnapshot).mockResolvedValue(null);vi.mocked(operationsService.saveFlightPlanSnapshot).mockResolvedValue(undefined);vi.mocked(operationsService.exportFlightPlan).mockResolvedValue();});
 afterEach(cleanup);
 
 describe("Планування польотів",()=>{
@@ -33,6 +34,20 @@ describe("Планування польотів",()=>{
     const snapshotCalls=vi.mocked(operationsService.saveFlightPlanSnapshot).mock.calls;
     const snapshotRequest=snapshotCalls[snapshotCalls.length-1]?.[1];
     expect(snapshotRequest?.entries[0]).toEqual(expect.objectContaining({crewName:"БАРС",crewUavType:"Коптер",memberSnapshots:[{personnelId:1,fullName:"ТЕСТОВИЙ Тест Тестович",rank:"капітан"}]}));
+  });
+
+  it("persists the vehicle-less position flag and removes the assigned vehicle from the plan",async()=>{
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(vehiclesService.list).mockResolvedValue([{id:9,name:"Toyota Hilux",registrationNumber:"АА 0001 АА",status:"Справний",personnelId:null,driverName:null,crewId:1,crewName:"БАРС"}]);
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText(/TOYOTA HILUX/u);
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+
+    fireEvent.click(screen.getByRole("checkbox",{name:/Без автомобіля на позиції/u}));
+
+    await waitFor(()=>expect(screen.queryByText(/TOYOTA HILUX/u)).not.toBeInTheDocument());
+    await waitFor(()=>expect(JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}").entries[1]).toEqual(expect.objectContaining({withoutVehicle:true,actualVehicleId:null})));
+    await waitFor(()=>expect(operationsService.saveFlightPlanSnapshot).toHaveBeenCalledWith(expect.any(String),expect.objectContaining({entries:[expect.objectContaining({withoutVehicle:true,actualVehicleId:null})]})));
   });
 
   it("shows and enforces a warning when an official crew member has no callsign",async()=>{

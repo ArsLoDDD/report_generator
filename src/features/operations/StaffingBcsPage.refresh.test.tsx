@@ -6,11 +6,12 @@ import { settingsService } from "../settings/services/settingsService";
 import { StaffingBcsPage } from "./StaffingBcsPage";
 import { operationsService } from "./services/operationsService";
 
-vi.mock("../../shared/ui/PageFrame", () => ({ PageFrame: ({ children }: { children: ReactNode }) => <div data-testid="staffing-page">{children}</div> }));
+vi.mock("../../shared/ui/PageFrame", () => ({ PageFrame: ({ children, tools }: { children: ReactNode; tools?: ReactNode }) => <div data-testid="staffing-page">{tools}{children}</div> }));
 vi.mock("../settings/services/settingsService", () => ({ settingsService: { get: vi.fn() } }));
 vi.mock("./services/operationsService", () => ({
   operationsService: {
     listStaffingRecords: vi.fn(),
+    listStaffingRecordsForDate: vi.fn(),
     listVacancyRecommendations: vi.fn(),
     listTemporaryPersonnel: vi.fn(),
     listCrews: vi.fn(),
@@ -22,6 +23,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   vi.mocked(operationsService.listStaffingRecords).mockResolvedValue([]);
+  vi.mocked(operationsService.listStaffingRecordsForDate).mockResolvedValue([]);
   vi.mocked(operationsService.listVacancyRecommendations).mockResolvedValue([]);
   vi.mocked(operationsService.listTemporaryPersonnel).mockResolvedValue([]);
   vi.mocked(operationsService.listCrews).mockResolvedValue([]);
@@ -40,6 +42,21 @@ afterEach(() => {
 });
 
 describe("Оновлення БЧС за добовим планом", () => {
+  it("loads the non-mutating tomorrow forecast only after the user selects tomorrow", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 8, 23, 12, 0, 0));
+
+    render(<NotificationProvider><StaffingBcsPage /></NotificationProvider>);
+    await waitFor(() => expect(operationsService.listStaffingRecords).toHaveBeenCalledTimes(1));
+    expect(operationsService.listStaffingRecordsForDate).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "БЧС" }));
+    fireEvent.click(screen.getByRole("button", { name: /Завтра/ }));
+
+    await waitFor(() => expect(operationsService.listStaffingRecordsForDate).toHaveBeenCalledWith("2026-09-24"));
+    expect(await screen.findByText("Прогноз на завтра")).toBeInTheDocument();
+  });
+
   it("оновлює дані опівночі та один раз після одночасних focus/visibility подій", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 8, 17, 23, 59, 30));

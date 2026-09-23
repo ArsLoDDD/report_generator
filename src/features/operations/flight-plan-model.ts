@@ -17,7 +17,7 @@ export const initialWeather = (): FlightPlanWeather => ({ temperature:"20",windF
 export const splitPoints = (value: string) => value.split(/[,;\n]+/u).map((part) => part.trim()).filter(Boolean);
 export const initialFlightEntry = (crew: Crew, uavs:Equipment[]=[]): FlightPlanEntry => {
   const availableMembers = crew.actualMembers.filter(isFlightPlanMemberAvailable);
-  return { crewId:crew.id,actualMemberIds:availableMembers.map((member)=>member.personnelId),actualCommanderId:availableMembers.find((member)=>member.position.toLocaleLowerCase("uk").includes("командир"))?.personnelId??availableMembers[0]?.personnelId??null,actualVehicleId:null,weather:initialWeather(),routePoints:[],altitudeFrom:"800",altitudeTo:"1100",areaPoints:splitPoints(crew.reconnaissanceArea),task:FLIGHT_TASKS[0],startTime:"05:00",endTime:"21:00",uavSelections:uavs.filter((item)=>item.crewId===crew.id).map((item)=>({equipmentId:item.id,dayQuantity:item.dayQuantity,nightQuantity:item.nightQuantity})),payloadSelection:null,arrivesToday:false,departsToday:false,departureTime:"" };
+  return { crewId:crew.id,actualMemberIds:availableMembers.map((member)=>member.personnelId),actualCommanderId:availableMembers.find((member)=>member.position.toLocaleLowerCase("uk").includes("командир"))?.personnelId??availableMembers[0]?.personnelId??null,actualVehicleId:null,withoutVehicle:false,weather:initialWeather(),routePoints:[],altitudeFrom:"800",altitudeTo:"1100",areaPoints:splitPoints(crew.reconnaissanceArea),task:FLIGHT_TASKS[0],startTime:"05:00",endTime:"21:00",uavSelections:uavs.filter((item)=>item.crewId===crew.id).map((item)=>({equipmentId:item.id,dayQuantity:item.dayQuantity,nightQuantity:item.nightQuantity})),payloadSelection:null,arrivesToday:false,departsToday:false,departureTime:"" };
 };
 
 export type FlightPlanScheduleValidation = {
@@ -141,7 +141,7 @@ export function flightPlanPreviewRows(unitName: string, planEntries: FlightPlanE
     const crewUavs = uavs.filter((item) => item.crewId === crewId);
     const selectedUavs=entry.uavSelections.flatMap((selection)=>{const item=crewUavs.find((uav)=>uav.id===selection.equipmentId);return item?[{item,...selection}]:[];});
     const availableVehicles = vehicles.filter((item) => item.crewId === crewId);
-    const crewVehicles = availableVehicles.length>1 ? availableVehicles.filter((item)=>item.id===entry.actualVehicleId) : availableVehicles;
+    const crewVehicles = entry.withoutVehicle ? [] : availableVehicles.length>1 ? availableVehicles.filter((item)=>item.id===entry.actualVehicleId) : availableVehicles;
     const primaryUav=crewUavs.find((item)=>item.id===crew.primaryUavId);const uavName=primaryUav?[caps(primaryUav.name),caps(primaryUav.inventoryNumber)].filter(Boolean).join(" "):caps(crew.uavName);
     const dayUavs=selectedUavs.reduce((sum,item)=>sum+item.dayQuantity,0);const nightUavs=selectedUavs.reduce((sum,item)=>sum+item.nightQuantity,0);const totalUavs=dayUavs+nightUavs;
     const supportUavs=totalUavs?[`БпЛА ${dayUavs&&nightUavs?"денні/ніч":dayUavs?"денні":"ніч"} - ${totalUavs} шт`]:[];

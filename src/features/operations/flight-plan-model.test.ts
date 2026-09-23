@@ -58,6 +58,18 @@ describe("цілісність часу плану польотів", () => {
     expect(initialFlightEntry(crew).actualMemberIds).toEqual([1]);
   });
 
+  it("omits an assigned vehicle when the crew is marked as being on position without it", () => {
+    const members = [{ personnelId: 1, fullName: "ТЕСТОВИЙ Тест Тестович", rank: "солдат", position: "командир", callsign: "ТЕСТ", currentLocation: "ОХ" }];
+    const crew = { id: 1, name: "СОКІЛ", positionName: "ПОЗИЦІЯ", battleOrder: "", uavName: "", primaryUavId: null, actualMembers: members, members } as Crew;
+    const vehicle = { id: 9, crewId: 1, crewName: "СОКІЛ", name: "Toyota Hilux", registrationNumber: "АА 0001 АА", status: "Справний", personnelId: null, driverName: null };
+
+    const withVehicle = flightPlanPreviewRows("РБПАК", [entry()], [crew], [], [vehicle]);
+    const withoutVehicle = flightPlanPreviewRows("РБПАК", [entry({ withoutVehicle: true })], [crew], [], [vehicle]);
+
+    expect(withVehicle[0].cells[11]).toContain("TOYOTA HILUX");
+    expect(withoutVehicle[0].cells[11]).not.toContain("TOYOTA HILUX");
+  });
+
   it("rejects departure before the final stage ends even when it is after the rotation starts", () => {
     const primary = entry({ endTime: "20:00", departsToday: true, departureTime: "22:30" });
     const rotation = entry({ startTime: "20:01", endTime: "23:00", actualMemberIds: [2] }) as FlightPlanRotation;

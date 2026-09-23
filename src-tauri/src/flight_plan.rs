@@ -36,6 +36,8 @@ pub struct FlightPlanEntry {
     actual_commander_id: Option<i64>,
     #[serde(default)]
     actual_vehicle_id: Option<i64>,
+    #[serde(default)]
+    without_vehicle: bool,
     weather: FlightPlanWeather,
     route_points: Vec<String>,
     altitude_from: String,
@@ -761,8 +763,12 @@ fn build_rows(
             }
             uavs.push((row.0, row.1, day, night));
         }
-        let mut vehicles = linked_assets(connection, entry.crew_id, "vehicles")?;
-        if vehicles.len() > 1 {
+        let mut vehicles = if entry.without_vehicle {
+            Vec::new()
+        } else {
+            linked_assets(connection, entry.crew_id, "vehicles")?
+        };
+        if !entry.without_vehicle && vehicles.len() > 1 {
             let selected_id = entry
                 .actual_vehicle_id
                 .ok_or_else(|| format!("Оберіть фактичний автомобіль екіпажу «{}».", crew.0))?;
@@ -1440,6 +1446,7 @@ mod tests {
         assert_eq!(value["entries"][0]["arrivesToday"], true);
         assert_eq!(value["entries"][0]["departsToday"], true);
         assert_eq!(value["entries"][0]["departureTime"], "16:30");
+        assert_eq!(value["entries"][0]["withoutVehicle"], false);
     }
 
     #[test]
@@ -1466,13 +1473,15 @@ mod tests {
             )
             .unwrap();
         connection.execute("INSERT INTO equipment(id,category,name,inventory_number,crew_id,total_quantity,day_quantity,night_quantity) VALUES(7,'uav','SHARK','UAV-02',1,4,2,2)",[]).unwrap();
-        let request = FlightPlanRequest {
+        connection.execute("INSERT INTO vehicles(id,name,registration_number,status,crew_id) VALUES(9,'Toyota Hilux','АА 0001 АА','Справний',1)",[]).unwrap();
+        let mut request = FlightPlanRequest {
             unit_name: "РБПАК".into(),
             entries: vec![FlightPlanEntry {
                 crew_id: 1,
                 actual_member_ids: vec![1],
                 actual_commander_id: Some(1),
                 actual_vehicle_id: None,
+                without_vehicle: false,
                 weather: FlightPlanWeather {
                     temperature: "20".into(),
                     wind_from: "2".into(),
@@ -1513,6 +1522,10 @@ mod tests {
             }],
         };
         let rows = build_rows(&connection, &request).unwrap();
+        assert!(rows[0].values[11].contains("TOYOTA HILUX"));
+        request.entries[0].without_vehicle = true;
+        let rows_without_vehicle = build_rows(&connection, &request).unwrap();
+        assert!(!rows_without_vehicle[0].values[11].contains("TOYOTA HILUX"));
         let path = std::env::temp_dir().join(format!("flight-plan-{}.xlsx", std::process::id()));
         write_workbook(&path, &rows).unwrap();
         let mut archive = ZipArchive::new(File::open(&path).unwrap()).unwrap();

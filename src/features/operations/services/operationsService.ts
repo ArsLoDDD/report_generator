@@ -15,6 +15,7 @@ export const operationsService = {
   saveTemporaryPersonnel: (person: import("../types").TemporaryPerson) => mutate<void>("save_temporary_personnel", { person }),
   deleteTemporaryPersonnel: (personId: number) => mutate<void>("delete_temporary_personnel", { personId }),
   listStaffingRecords: () => invoke<StaffingRecord[]>("list_staffing_records"),
+  listStaffingRecordsForDate: (targetDate: string) => invoke<StaffingRecord[]>("list_staffing_records_for_date", { targetDate }),
   syncFlightPlanLocations: (planDate: string, assignments: FlightPlanCrewLocationAssignment[]) => mutate<void>("sync_flight_plan_locations", { planDate, assignments }),
   updateStaffingPersonnel: (payload: { personnelId: number; position: string; actingPosition: string; currentLocation: string; functionalDuties: string; notes: string }) => mutate<void>("update_staffing_personnel", payload),
   transferStaffingChain: (assignments: import("../staffing-slots").SlotTransfer[], actingChanges: import("../staffing-slots").ActingChange[] = []) => mutate<void>("transfer_staffing_chain", { assignments, actingChanges }),

@@ -3,8 +3,10 @@ use super::{
     StaffingRecord, VacancyRecommendation,
 };
 use crate::AppState;
-use rusqlite::OptionalExtension;
+use chrono::{Duration, Local, NaiveDate};
+use rusqlite::{backup::Backup, Connection, OptionalExtension};
 use std::collections::{HashMap, HashSet};
+use std::time::Duration as StdDuration;
 
 #[tauri::command]
 pub fn list_staffing_records(state: tauri::State<AppState>) -> Result<Vec<StaffingRecord>, String> {
@@ -12,6 +14,64 @@ pub fn list_staffing_records(state: tauri::State<AppState>) -> Result<Vec<Staffi
     crate::database::normalize_staff_positions(&db.connection)?;
     reconcile_flight_plan_for_now(&db.connection)?;
     staffing_records(&db.connection)
+}
+
+fn staffing_records_for_target_date(
+    connection: &Connection,
+    today: NaiveDate,
+    current_time: &str,
+    target_date: NaiveDate,
+) -> Result<Vec<StaffingRecord>, String> {
+    if target_date == today {
+        reconcile_flight_plan_for_moment(
+            connection,
+            &today.format("%Y-%m-%d").to_string(),
+            current_time,
+        )?;
+        return staffing_records(connection);
+    }
+    if target_date != today + Duration::days(1) {
+        return Err("БЧС можна переглянути лише на сьогодні або на завтра.".into());
+    }
+
+    // The forecast runs on an in-memory copy. This lets us finish today's
+    // transitions, cross midnight and then apply tomorrow's full plan without
+    // changing the canonical current BCS or its audit history.
+    let mut preview = Connection::open_in_memory()
+        .map_err(|_| "Не вдалося підготувати прогноз БЧС на завтра.".to_string())?;
+    {
+        let backup = Backup::new(connection, &mut preview)
+            .map_err(|_| "Не вдалося скопіювати дані для прогнозу БЧС.".to_string())?;
+        backup
+            .run_to_completion(64, StdDuration::from_millis(1), None)
+            .map_err(|_| "Не вдалося скопіювати дані для прогнозу БЧС.".to_string())?;
+    }
+    reconcile_flight_plan_for_moment(&preview, &today.format("%Y-%m-%d").to_string(), "23:59")?;
+    reconcile_flight_plan_for_moment(
+        &preview,
+        &target_date.format("%Y-%m-%d").to_string(),
+        "23:59",
+    )?;
+    staffing_records(&preview)
+}
+
+#[tauri::command]
+pub fn list_staffing_records_for_date(
+    state: tauri::State<AppState>,
+    target_date: String,
+) -> Result<Vec<StaffingRecord>, String> {
+    let db = state.0.lock().map_err(|_| busy())?;
+    crate::database::normalize_staff_positions(&db.connection)?;
+    reconcile_flight_plan_for_now(&db.connection)?;
+    let target_date = NaiveDate::parse_from_str(target_date.trim(), "%Y-%m-%d")
+        .map_err(|_| "Некоректна дата перегляду БЧС.".to_string())?;
+    let now = Local::now();
+    staffing_records_for_target_date(
+        &db.connection,
+        now.date_naive(),
+        &now.format("%H:%M").to_string(),
+        target_date,
+    )
 }
 
 fn staffing_records(connection: &rusqlite::Connection) -> Result<Vec<StaffingRecord>, String> {
@@ -528,6 +588,68 @@ mod flight_plan_location_tests {
             .unwrap()
             .current_location
             .as_str()
+    }
+
+    #[test]
+    fn tomorrow_preview_applies_both_day_boundaries_without_mutating_current_bcs() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO crews(id,name) VALUES(1,'СОКІЛ'),(2,'БАРС')",
+                [],
+            )
+            .unwrap();
+        insert_test_personnel(&connection, 1, "ОХ");
+        insert_test_personnel(&connection, 2, "На позиції");
+        connection
+            .execute(
+                "INSERT INTO crew_members(crew_id,personnel_id) VALUES(1,1),(2,2)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json) VALUES(?1,1,?2),(?3,1,?4)",
+                rusqlite::params![
+                    "2026-09-23",
+                    serde_json::json!({"entries":[{"crewId":2,"actualMemberIds":[2],"startTime":"05:00","departsToday":true,"departureTime":"18:00"}]}).to_string(),
+                    "2026-09-24",
+                    serde_json::json!({"entries":[{"crewId":1,"actualMemberIds":[1],"startTime":"07:00","arrivesToday":true}]}).to_string(),
+                ],
+            )
+            .unwrap();
+
+        let preview = staffing_records_for_target_date(
+            &connection,
+            NaiveDate::from_ymd_opt(2026, 9, 23).unwrap(),
+            "12:00",
+            NaiveDate::from_ymd_opt(2026, 9, 24).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(listed_location(&preview, 1), "ЗБЗ");
+        assert_eq!(listed_location(&preview, 2), "ОХ");
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT current_location FROM personnel WHERE id=1",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "ОХ"
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT current_location FROM personnel WHERE id=2",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            "На позиції"
+        );
     }
 
     #[test]

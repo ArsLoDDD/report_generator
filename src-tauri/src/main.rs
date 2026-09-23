@@ -599,6 +599,7 @@ fn main() {
             operations::update_crew,
             operations::delete_crew,
             operations::list_staffing_records,
+            operations::list_staffing_records_for_date,
             operations::list_personnel_control_records,
             operations::save_personnel_control_assignment,
             operations::close_personnel_control_assignment,

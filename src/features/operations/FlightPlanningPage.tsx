@@ -57,6 +57,7 @@ const normaliseEntry=(value:unknown,crewIdFallback=0):FlightPlanEntry=>{
     actualMemberIds:numberArray(raw.actualMemberIds),
     actualCommanderId:typeof raw.actualCommanderId==="number"?raw.actualCommanderId:null,
     actualVehicleId:typeof raw.actualVehicleId==="number"?raw.actualVehicleId:null,
+    withoutVehicle:raw.withoutVehicle===true,
     weather:{...initialWeather(),...Object.fromEntries(Object.entries(weather).filter(([,item])=>typeof item==="string"))},
     routePoints:stringArray(raw.routePoints),areaPoints:stringArray(raw.areaPoints),
     altitudeFrom:typeof raw.altitudeFrom==="string"?raw.altitudeFrom:"800",altitudeTo:typeof raw.altitudeTo==="string"?raw.altitudeTo:"1100",
