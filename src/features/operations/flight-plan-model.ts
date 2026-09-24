@@ -1,6 +1,6 @@
 import type { Vehicle } from "../vehicles/types";
 import { isAvailableForFlightPlan } from "./bcs-model";
-import type { Crew, Equipment, FlightPlanEntry, FlightPlanRotation, FlightPlanWeather, WorkshopProduct } from "./types";
+import type { Crew, Equipment, FlightPlanEntry, FlightPlanPersonnelTransition, FlightPlanRotation, FlightPlanWeather, WorkshopProduct } from "./types";
 
 export const FLIGHT_PLAN_HEADERS = [
   "№ п/п", "Підрозділ", "Тип БпАК (№ борта)", "Найменування екіпажу (позиція)",
@@ -35,6 +35,191 @@ const scheduleMinute = (value?: string) => {
 };
 
 const scheduleTime = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+
+const uniquePersonnelIds = (ids: readonly number[] | undefined) => [...new Set((ids ?? []).filter(Number.isInteger))];
+const transitionTime = (value: string | undefined) => scheduleMinute(value);
+
+export type FlightPlanPersonnelTransitionValidation = {
+  isValid: boolean;
+  errors: string[];
+  errorsByTransition: Record<string, string[]>;
+};
+
+export type FlightPlanPersonnelTransitionBounds = {
+  stageStartTime?: string;
+  departureTime?: string;
+};
+
+/** Returns request-level personnel transitions for one crew in their stored order. */
+export function flightPlanPersonnelTransitionsForCrew(
+  transitions: readonly FlightPlanPersonnelTransition[] | null | undefined,
+  crewId: number,
+): FlightPlanPersonnelTransition[] {
+  return (transitions ?? []).filter((transition) => transition?.crewId === crewId);
+}
+
+/** Applies one complete transition. Missing arrays from older snapshots are treated as empty. */
+export function applyFlightPlanPersonnelTransition(
+  memberIds: readonly number[],
+  transition: FlightPlanPersonnelTransition,
+): number[] {
+  const outgoing = new Set(uniquePersonnelIds(transition.outgoingMemberIds));
+  const remaining = uniquePersonnelIds(memberIds).filter((id) => !outgoing.has(id));
+  return uniquePersonnelIds([...remaining, ...uniquePersonnelIds(transition.incomingMemberIds)]);
+}
+
+/** Reverses one complete transition. Original order is preserved for unaffected people. */
+export function reverseFlightPlanPersonnelTransition(
+  memberIds: readonly number[],
+  transition: FlightPlanPersonnelTransition,
+): number[] {
+  const incoming = new Set(uniquePersonnelIds(transition.incomingMemberIds));
+  const remaining = uniquePersonnelIds(memberIds).filter((id) => !incoming.has(id));
+  return uniquePersonnelIds([...remaining, ...uniquePersonnelIds(transition.outgoingMemberIds)]);
+}
+
+type PersonnelChange = { transitionIndex: number; minute: number; direction: "outgoing" | "incoming"; memberIds: number[] };
+
+const personnelChanges = (
+  transitions: readonly FlightPlanPersonnelTransition[] | null | undefined,
+  crewId: number,
+): PersonnelChange[] => flightPlanPersonnelTransitionsForCrew(transitions, crewId).flatMap((transition, transitionIndex) => {
+  const changes: PersonnelChange[] = [];
+  const outgoingIds = uniquePersonnelIds(transition.outgoingMemberIds);
+  const incomingIds = uniquePersonnelIds(transition.incomingMemberIds);
+  const outgoingMinute = transitionTime(transition.outgoingTime);
+  const incomingMinute = transitionTime(transition.incomingTime);
+  if (outgoingIds.length && outgoingMinute !== null) changes.push({ transitionIndex, minute: outgoingMinute, direction: "outgoing", memberIds: outgoingIds });
+  if (incomingIds.length && incomingMinute !== null) changes.push({ transitionIndex, minute: incomingMinute, direction: "incoming", memberIds: incomingIds });
+  return changes;
+}).sort((left, right) => left.minute - right.minute || (left.direction === right.direction ? left.transitionIndex - right.transitionIndex : left.direction === "outgoing" ? -1 : 1));
+
+/**
+ * Calculates who is physically on the position through a given HH:mm moment.
+ * With no time, all valid timed changes are applied. Invalid or missing times are
+ * ignored so legacy snapshots without personnelTransitions remain readable.
+ */
+export function flightPlanPersonnelAtTime(
+  initialMemberIds: readonly number[],
+  transitions: readonly FlightPlanPersonnelTransition[] | null | undefined,
+  crewId: number,
+  throughTime?: string,
+): number[] {
+  const throughMinute = throughTime === undefined ? null : transitionTime(throughTime);
+  let result = uniquePersonnelIds(initialMemberIds);
+  for (const change of personnelChanges(transitions, crewId)) {
+    if (throughTime !== undefined && (throughMinute === null || change.minute > throughMinute)) continue;
+    if (change.direction === "outgoing") {
+      const outgoing = new Set(change.memberIds);
+      result = result.filter((id) => !outgoing.has(id));
+    } else {
+      result = uniquePersonnelIds([...result, ...change.memberIds]);
+    }
+  }
+  return result;
+}
+
+/** Applies every valid timed transition for a crew and returns the final composition. */
+export function applyFlightPlanPersonnelTransitions(
+  initialMemberIds: readonly number[],
+  transitions: readonly FlightPlanPersonnelTransition[] | null | undefined,
+  crewId: number,
+): number[] {
+  return flightPlanPersonnelAtTime(initialMemberIds, transitions, crewId);
+}
+
+/** Rewinds all valid timed changes for a crew, useful when deriving the initial composition. */
+export function reverseFlightPlanPersonnelTransitions(
+  finalMemberIds: readonly number[],
+  transitions: readonly FlightPlanPersonnelTransition[] | null | undefined,
+  crewId: number,
+): number[] {
+  let result = uniquePersonnelIds(finalMemberIds);
+  const changes = personnelChanges(transitions, crewId);
+  for (let index = changes.length - 1; index >= 0; index -= 1) {
+    const change = changes[index];
+    if (change.direction === "incoming") {
+      const incoming = new Set(change.memberIds);
+      result = result.filter((id) => !incoming.has(id));
+    } else {
+      result = uniquePersonnelIds([...result, ...change.memberIds]);
+    }
+  }
+  return result;
+}
+
+/**
+ * Reconstructs the composition before request-level transitions. The plan entry
+ * may therefore keep the final composition which is shown in its single row.
+ */
+export function reconstructInitialMemberIds(
+  finalMemberIds: readonly number[],
+  transitions: readonly FlightPlanPersonnelTransition[] | null | undefined,
+  crewId: number,
+): number[] {
+  return reverseFlightPlanPersonnelTransitions(finalMemberIds, transitions, crewId);
+}
+
+/** Validates membership changes against the initial position roster and actual crew. */
+export function validateFlightPlanPersonnelTransitions(
+  initialMemberIds: readonly number[],
+  transitions: readonly FlightPlanPersonnelTransition[] | null | undefined,
+  crewId: number,
+  actualMemberIds: readonly number[],
+  bounds: FlightPlanPersonnelTransitionBounds = {},
+): FlightPlanPersonnelTransitionValidation {
+  const crewTransitions = flightPlanPersonnelTransitionsForCrew(transitions, crewId);
+  const errorsByTransition: Record<string, string[]> = {};
+  const actual = new Set(uniquePersonnelIds(actualMemberIds));
+  const current = new Set(uniquePersonnelIds(initialMemberIds));
+  const stageStartMinute = transitionTime(bounds.stageStartTime);
+  const departureMinute = transitionTime(bounds.departureTime);
+  let previousTransitionMinute = stageStartMinute;
+  const addError = (index: number, message: string) => {
+    const key = crewTransitions[index]?.id?.trim() || `transition-${index + 1}`;
+    errorsByTransition[key] = [...(errorsByTransition[key] ?? []), message];
+  };
+
+  crewTransitions.forEach((transition, index) => {
+    const outgoing = uniquePersonnelIds(transition.outgoingMemberIds);
+    const incoming = uniquePersonnelIds(transition.incomingMemberIds);
+    if (!outgoing.length && !incoming.length) addError(index, "Оберіть хоча б одну людину для виведення або заведення.");
+    if ((transition.outgoingMemberIds?.length ?? 0) !== outgoing.length) addError(index, "Список ОС для виведення містить повтори або некоректні значення.");
+    if ((transition.incomingMemberIds?.length ?? 0) !== incoming.length) addError(index, "Список ОС для заведення містить повтори або некоректні значення.");
+    if (outgoing.length && transitionTime(transition.outgoingTime) === null) addError(index, "Вкажіть коректний час виведення ОС.");
+    if (incoming.length && transitionTime(transition.incomingTime) === null) addError(index, "Вкажіть коректний час заведення ОС.");
+    const outgoingMinute = outgoing.length ? transitionTime(transition.outgoingTime) : null;
+    const incomingMinute = incoming.length ? transitionTime(transition.incomingTime) : null;
+    const actionMinutes = [outgoingMinute, incomingMinute].filter((minute): minute is number => minute !== null);
+    const firstMinute = actionMinutes.length ? Math.min(...actionMinutes) : null;
+    const lastMinute = actionMinutes.length ? Math.max(...actionMinutes) : null;
+    if (outgoingMinute !== null && incomingMinute !== null && outgoingMinute > incomingMinute) addError(index, "Час заведення ОС не може бути раніше часу виведення.");
+    if (firstMinute !== null && previousTransitionMinute !== null && firstMinute < previousTransitionMinute) addError(index, "Нову зміну ОС можна додати лише після попередньої зміни та початку поточного етапу.");
+    if (lastMinute !== null && departureMinute !== null && lastMinute > departureMinute) addError(index, "Зміна ОС має відбутися не пізніше часу виїзду екіпажу.");
+    if (lastMinute !== null) previousTransitionMinute = lastMinute;
+    const both = outgoing.filter((id) => incoming.includes(id));
+    if (both.length) addError(index, "Одна людина не може одночасно бути у списках заведення та виведення.");
+    if (incoming.some((id) => !actual.has(id))) addError(index, "Завести можна лише військовослужбовців із фактичного складу екіпажу.");
+  });
+
+  for (const change of personnelChanges(crewTransitions, crewId)) {
+    if (change.direction === "outgoing") {
+      const missing = change.memberIds.filter((id) => !current.has(id));
+      if (missing.length) addError(change.transitionIndex, "Вивести можна лише ОС, який перебуває на позиції на цей час.");
+      change.memberIds.forEach((id) => current.delete(id));
+    } else {
+      const alreadyPresent = change.memberIds.filter((id) => current.has(id));
+      if (alreadyPresent.length) addError(change.transitionIndex, "Завести можна лише ОС, якого немає на позиції на цей час.");
+      change.memberIds.forEach((id) => current.add(id));
+    }
+  }
+  if (crewTransitions.length > 0 && current.size === 0) {
+    addError(crewTransitions.length - 1, "У рядку плану має залишитися хоча б один військовослужбовець. Для виїзду всього екіпажу позначте виїзд із позиції.");
+  }
+
+  const errors = [...new Set(Object.values(errorsByTransition).flat())];
+  return { isValid: errors.length === 0, errors, errorsByTransition };
+}
 
 /**
  * Validates only same-day presence transitions and rotation joints.

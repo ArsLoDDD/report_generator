@@ -612,6 +612,60 @@ describe("Планування польотів",()=>{
     expect(save).not.toHaveBeenCalled();
   });
 
+  it("replaces individual personnel in one plan row and stores separate exit and entry times",async()=>{
+    const people=[
+      {personnelId:1,fullName:"ПЕРШИЙ Петро Петрович",rank:"сержант",position:"командир екіпажу",callsign:"СОКІЛ",currentLocation:"На позиції"},
+      {personnelId:2,fullName:"ДРУГИЙ Дмитро Дмитрович",rank:"молодший сержант",position:"оператор",callsign:"ЛИС",currentLocation:"ОХ"},
+      {personnelId:3,fullName:"ТРЕТІЙ Тарас Тарасович",rank:"солдат",position:"технік",callsign:"КРУК",currentLocation:"ОХ"},
+      {personnelId:4,fullName:"ЧЕТВЕРТИЙ Четвер Четвертович",rank:"солдат",position:"оператор",callsign:"ВОВК",currentLocation:"На позиції"},
+      {personnelId:5,fullName:"ПʼЯТИЙ Павло Петрович",rank:"солдат",position:"оператор",callsign:"БОРСУК",currentLocation:"ПБЗ"},
+      {personnelId:6,fullName:"ШОСТИЙ Семен Сергійович",rank:"солдат",position:"оператор",callsign:"РИСЬ",currentLocation:"ГШР"},
+      {personnelId:7,fullName:"СЬОМИЙ Степан Степанович",rank:"солдат",position:"водій",callsign:"ЯСТРУБ",currentLocation:"Логістика на позиції"},
+    ];
+    localStorage.setItem("flight-plan-draft-v2",JSON.stringify({
+      date:tomorrowForTest(),selected:[1],entries:{1:{...initialStoredEntryForTest(),crewId:1,actualMemberIds:[1],actualCommanderId:1,routePoints:["БАЗА"],areaPoints:["РАЙОН"],altitudeFrom:"100",altitudeTo:"200"}},rotations:{},personnelTransitions:[],
+    }));
+    vi.mocked(operationsService.listCrews).mockResolvedValue([{...crew("СОКІЛ"),officialStrength:4,workingStrength:4,members:people,actualMembers:people}]);
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+    await screen.findByText("БАРС",{selector:"b"});
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    fireEvent.click(screen.getByRole("button",{name:"Завести/Вивести ОС"}));
+    const dialog=screen.getByRole("dialog",{name:/Завести\/Вивести ОС/u});
+    expect(within(dialog).queryByText("ЧЕТВЕРТИЙ Четвер Четвертович")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("ПʼЯТИЙ Павло Петрович")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("ШОСТИЙ Семен Сергійович")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("СЬОМИЙ Степан Степанович")).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByText("ПЕРШИЙ Петро Петрович"));
+    fireEvent.change(within(dialog).getByLabelText("Час виведення ОС"),{target:{value:"19:00"}});
+    fireEvent.click(within(dialog).getByText("ДРУГИЙ Дмитро Дмитрович"));
+    fireEvent.click(within(dialog).getByText("ТРЕТІЙ Тарас Тарасович"));
+    fireEvent.change(within(dialog).getByLabelText("Час заведення ОС"),{target:{value:"20:00"}});
+    fireEvent.click(within(dialog).getByRole("button",{name:"Зберегти зміну ОС"}));
+
+    await waitFor(()=>{
+      const stored=JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}");
+      expect(stored.entries[1].actualMemberIds).toEqual([2,3]);
+      expect(stored.rotations).toEqual({});
+      expect(stored.personnelTransitions).toEqual([expect.objectContaining({crewId:1,outgoingMemberIds:[1],outgoingTime:"19:00",incomingMemberIds:[2,3],incomingTime:"20:00"})]);
+    });
+    await waitFor(()=>{
+      const calls=vi.mocked(operationsService.saveFlightPlanSnapshot).mock.calls;
+      const request=calls[calls.length-1]?.[1];
+      expect(request?.entries).toHaveLength(1);
+      expect(request?.entries[0].actualMemberIds).toEqual([2,3]);
+      expect(request?.personnelTransitions).toEqual([expect.objectContaining({outgoingTime:"19:00",incomingTime:"20:00"})]);
+    });
+
+    fireEvent.click(screen.getByRole("button",{name:"Видалити зміну ОС 1 екіпажу БАРС"}));
+    fireEvent.click(within(screen.getByRole("dialog",{name:"Видалити останню зміну ОС?"})).getByRole("button",{name:"Видалити зміну"}));
+    await waitFor(()=>{
+      const stored=JSON.parse(localStorage.getItem("flight-plan-draft-v2")??"{}");
+      expect(stored.entries[1].actualMemberIds).toEqual([1]);
+      expect(stored.personnelTransitions).toEqual([]);
+    });
+  });
+
   it("keeps a departure before a confirmed arrival only in the local draft",async()=>{
     localStorage.setItem("flight-plan-draft-v2",JSON.stringify({
       date:tomorrowForTest(),selected:[1],

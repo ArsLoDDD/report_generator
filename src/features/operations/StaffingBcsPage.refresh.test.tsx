@@ -114,6 +114,33 @@ describe("Оновлення БЧС за добовим планом", () => {
     await waitFor(() => expect(operationsService.listStaffingRecords).toHaveBeenCalledTimes(5));
   });
 
+  it("оновлює БЧС окремо в час виведення та заведення ОС", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 8, 17, 10, 0, 0));
+    vi.mocked(operationsService.getFlightPlanSnapshot).mockResolvedValue(JSON.stringify({
+      unitName: "РБАК",
+      entries: [{ crewId: 1, arrivesToday: false, startTime: "05:00", departsToday: false }],
+      personnelTransitions: [{
+        id: "personnel-1",
+        crewId: 1,
+        outgoingMemberIds: [1],
+        outgoingTime: "10:01",
+        incomingMemberIds: [2],
+        incomingTime: "10:02",
+      }],
+    }));
+
+    render(<NotificationProvider><StaffingBcsPage /></NotificationProvider>);
+    await waitFor(() => expect(operationsService.listStaffingRecords).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(operationsService.getFlightPlanSnapshot).toHaveBeenCalledWith("2026-09-17"));
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_100); });
+    await waitFor(() => expect(operationsService.listStaffingRecords).toHaveBeenCalledTimes(2));
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_100); });
+    await waitFor(() => expect(operationsService.listStaffingRecords).toHaveBeenCalledTimes(3));
+  });
+
   it("не створює перехідні таймери для пошкодженого знімка", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 8, 17, 10, 0, 0));

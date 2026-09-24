@@ -347,8 +347,13 @@
 .flight-plan-editor__rotation-title span { display: grid; gap: 4px; min-width: 0; }
 .flight-plan-editor__rotation-title small { color: var(--muted); }
 .flight-plan-editor__rotation-actions { display: flex; align-items: center; gap: 6px; }
-.flight-plan-rotation-action { display: flex; justify-content: center; padding: 0 20px 20px; }
+.flight-plan-rotation-action { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; padding: 0 20px 14px; }
 .flight-plan-rotation-action .button { min-width: 210px; }
+.flight-plan-personnel-transition-history { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 20px 20px; }
+.flight-plan-personnel-transition-history > span { position: relative; display: grid; gap: 2px; min-width: 190px; padding: 9px 48px 9px 11px; border: 1px solid color-mix(in srgb,var(--accent) 32%,var(--line)); border-radius: 10px; background: color-mix(in srgb,var(--accent) 7%,transparent); }
+.flight-plan-personnel-transition-history b { font-size: 12px; }
+.flight-plan-personnel-transition-history small { color: var(--muted); font-size: 11px; }
+.flight-plan-personnel-transition-history .icon-button { position: absolute; top: 7px; right: 7px; width: 32px; height: 32px; }
 .flight-rotation-modal { width: min(900px, calc(100vw - 36px)); max-height: calc(100vh - 32px); }
 .flight-rotation-modal__body { min-height: 0; overflow-y: auto; padding: 20px 24px 24px; }
 .flight-rotation-summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: rgba(169,182,107,.06); }
@@ -364,6 +369,37 @@
 .flight-rotation-members small { color: var(--muted); }
 .flight-rotation-members em { padding: 5px 9px; border-radius: 999px; background: rgba(169,182,107,.1); color: var(--accent); font-size: 11px; font-style: normal; white-space: nowrap; }
 @media (max-width: 760px) { .flight-plan-editor--rotation { margin-left: 12px; } .flight-rotation-members > label { grid-template-columns: auto minmax(0,1fr); } .flight-rotation-members em { grid-column: 2; justify-self: start; } }
+
+.flight-personnel-transition-modal { width: min(1040px, calc(100vw - 36px)); max-height: calc(100vh - 32px); }
+.flight-personnel-transition-modal__body { min-height: 0; overflow-y: auto; padding: 20px 24px 24px; }
+.flight-personnel-transition-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.flight-personnel-transition-column { display: grid; grid-template-rows: auto auto minmax(0,1fr); min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.015); }
+.flight-personnel-transition-column > header { display: flex; align-items: center; gap: 11px; padding: 15px 16px; border-bottom: 1px solid var(--line); }
+.flight-personnel-transition-column > header svg { flex: 0 0 auto; color: var(--accent); }
+.flight-personnel-transition-column.is-outgoing > header svg { color: #dc8d79; }
+.flight-personnel-transition-column > header span { display: grid; gap: 3px; min-width: 0; }
+.flight-personnel-transition-column > header small { color: var(--muted); }
+.flight-personnel-transition-time { margin: 14px 16px 6px; }
+.flight-personnel-transition-members { display: grid; align-content: start; gap: 8px; max-height: 380px; padding: 8px 16px 16px; overflow-y: auto; }
+.flight-personnel-transition-members > label { display: grid; grid-template-columns: auto minmax(0,1fr) auto; align-items: center; gap: 12px; min-height: 68px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 11px; cursor: pointer; }
+.flight-personnel-transition-members > label:hover { border-color: rgba(169,182,107,.42); }
+.flight-personnel-transition-members > label.is-selected { border-color: rgba(169,182,107,.66); background: rgba(169,182,107,.08); }
+.flight-personnel-transition-column.is-outgoing .flight-personnel-transition-members > label.is-selected { border-color: rgba(220,141,121,.62); background: rgba(220,141,121,.07); }
+.flight-personnel-transition-members input { width: 19px; height: 19px; accent-color: var(--accent); }
+.flight-personnel-transition-members span { display: grid; gap: 4px; min-width: 0; }
+.flight-personnel-transition-members small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.flight-personnel-transition-members em { padding: 5px 8px; border-radius: 999px; background: rgba(225,177,67,.1); color: #e7c466; font-size: 11px; font-style: normal; white-space: nowrap; }
+.flight-personnel-transition-members > label:has(input:disabled) { cursor: not-allowed; opacity: .66; }
+.flight-personnel-transition-empty { margin: 0; padding: 22px 14px; border: 1px dashed var(--line); border-radius: 11px; color: var(--muted); text-align: center; }
+.flight-personnel-transition-window { margin: 12px 2px 0; color: var(--muted); font-size: 12px; }
+.flight-personnel-transition-errors { display: grid; gap: 5px; margin-top: 14px; padding: 11px 13px; border: 1px solid rgba(225,177,67,.42); border-radius: 10px; background: rgba(202,147,25,.08); color: #e7c466; font-size: 13px; }
+.flight-personnel-transition-errors p { margin: 0; }
+@media (max-width: 760px) {
+  .flight-personnel-transition-grid { grid-template-columns: 1fr; }
+  .flight-personnel-transition-members { max-height: 280px; }
+  .flight-personnel-transition-members > label { grid-template-columns: auto minmax(0,1fr); }
+  .flight-personnel-transition-members em { grid-column: 2; justify-self: start; }
+}
 .flight-plan-editor__header {
 	display: grid;
 	grid-template-columns: minmax(220px, 0.8fr) minmax(430px, 1.3fr) auto;

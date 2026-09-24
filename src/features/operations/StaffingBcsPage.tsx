@@ -57,6 +57,12 @@ const nextFlightPlanTransition = (snapshot: string | null, planDate: string, now
     stages.slice(1).forEach((rotation) => { if (validPlanTime(rotation.startTime)) times.push(rotation.startTime); });
     if (first?.departsToday && validPlanTime(first.departureTime)) times.push(first.departureTime);
   });
+  if (Array.isArray(plan.personnelTransitions)) {
+    plan.personnelTransitions.forEach((transition) => {
+      if (transition.outgoingMemberIds?.length && validPlanTime(transition.outgoingTime)) times.push(transition.outgoingTime);
+      if (transition.incomingMemberIds?.length && validPlanTime(transition.incomingTime)) times.push(transition.incomingTime);
+    });
+  }
   const future = [...new Set(times)].map((time) => {
     const [hours, minutes] = time.split(":").map(Number);
     return new Date(year, month - 1, day, hours, minutes).getTime();

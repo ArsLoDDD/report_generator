@@ -210,18 +210,157 @@ describe("підсумкове донесення", () => {
       settings: { mainSigner: { fullName: "", rank: "", position: "" }, unit: { kind: "Рота", shortName: "РБАК", authorizedStrength: 4 } } as never,
       crews: [crew], positions: [position], journal: [], snapshots: [{ unitName: "РБАК", entries: stages }],
     });
-    expect(result.objects.rotationEvents).toHaveLength(1);
+    expect(result.objects.rotationEvents).toHaveLength(2);
     expect(result.objects.rotationEvents[0].text).toContain("завершив бойове чергування");
-    expect(result.objects.rotationEvents[0].text).toContain("приступив до бойового чергування");
+    expect(result.objects.rotationEvents[1].text).toContain("приступив до бойового чергування");
     expect(result.document.blocks.period_events).toEqual([{ text: "Подій не зафіксовано.", kind: "paragraph" }]);
 
-    manual.includedAutoEventIds = [result.objects.rotationEvents[0].id];
+    manual.includedAutoEventIds = result.objects.rotationEvents.map((event) => event.id);
     const included = buildSummaryDocument({
       reportDate: "2026-09-15", manual,
       settings: { mainSigner: { fullName: "", rank: "", position: "" }, unit: { kind: "Рота", shortName: "РБАК", authorizedStrength: 4 } } as never,
       crews: [crew], positions: [position], journal: [], snapshots: [{ unitName: "РБАК", entries: stages }],
     });
     expect(included.document.blocks.period_events.some((line) => line.text.includes("завершив бойове чергування"))).toBe(true);
+  });
+
+  it("formats a request-level personnel transition with singular and plural grammar and only event hyphens", () => {
+    const manual = defaultSummaryManual();
+    const crew = {
+      id: 1, name: "ГРІМ", sector: "СМУГА СХІД", battleOrder: "БРО-03", positionId: 2,
+      reconnaissanceArea: "СТЕПОВЕ", uavName: "LELEKA-100", uavType: "розвідувальний", actualMembers: [],
+      members: [
+        { personnelId: 7, fullName: "ЯРЕМЧУК Максим Романович", rank: "сержант" },
+        { personnelId: 8, fullName: "КОЗАК Віталій Володимирович", rank: "солдат" },
+        { personnelId: 9, fullName: "ЛЕВЧЕНКО Іван Олександрович", rank: "молодший сержант" },
+      ],
+    } as never;
+    const position = { id: 2, name: "ХИЖАК", mgrs: "36U UV 26000 57000", locality: "СТЕПОВЕ" } as never;
+    const snapshot = {
+      unitName: "РБАК",
+      entries: [{ crewId: 1, actualMemberIds: [8, 9], startTime: "05:00", endTime: "18:00" } as never],
+      personnelTransitions: [{
+        id: "change-1", crewId: 1,
+        outgoingMemberIds: [7], outgoingTime: "19:00",
+        incomingMemberIds: [8, 9], incomingTime: "20:00",
+        memberSnapshots: [
+          { personnelId: 7, fullName: "ЯРЕМЧУК Максим Романович", rank: "сержант" },
+          { personnelId: 8, fullName: "КОЗАК Віталій Володимирович", rank: "солдат" },
+          { personnelId: 9, fullName: "ЛЕВЧЕНКО Іван Олександрович", rank: "молодший сержант" },
+        ],
+      }],
+    };
+    const common = {
+      reportDate: "2026-09-16",
+      settings: { mainSigner: {}, unit: { kind: "Рота", shortName: "РБАК", authorizedStrength: 4 } } as never,
+      crews: [crew], positions: [position], journal: [], snapshots: [snapshot, null],
+    };
+    const result = buildSummaryDocument({ ...common, manual });
+    const events = result.objects.rotationEvents.filter((item) => item.id.includes("personnel-transition"));
+    const eventText = events.map((item) => item.text).join("\n");
+
+    expect(eventText).toBe(
+      "-19:00 год 15.09.2026 завершив бойове чергування та виконання бойових (спеціальних) завдань з ведення повітряної розвідки противника з позиції «ХИЖАК» (36U UV 26000 57000) в районі СТЕПОВЕ в складі екіпажу «ГРІМ» та вибув в розташування РБАК сержант ЯРЕМЧУК Максим Романович;\n" +
+      "-20:00 год 15.09.2026 приступили до бойового чергування та виконання бойових (спеціальних) завдань з ведення повітряної розвідки противника з позиції «ХИЖАК» (36U UV 26000 57000) в районі СТЕПОВЕ в складі екіпажу «ГРІМ» військовослужбовці:\n" +
+      "солдат КОЗАК Віталій Володимирович;\n" +
+      "молодший сержант ЛЕВЧЕНКО Іван Олександрович;",
+    );
+    expect(eventText.split("\n").filter((line) => line.startsWith("-"))).toHaveLength(2);
+    expect(result.objects.flightItems[0].members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ personnelId: 7, endDate: "2026-09-15", endTime: "19:00" }),
+      expect.objectContaining({ personnelId: 8, startDate: "2026-09-15", startTime: "20:00" }),
+      expect.objectContaining({ personnelId: 9, startDate: "2026-09-15", startTime: "20:00" }),
+    ]));
+
+    manual.includedAutoEventIds = events.map((event) => event.id);
+    const included = buildSummaryDocument({ ...common, manual });
+    expect(included.document.blocks.period_events.map((line) => [line.text, line.kind])).toEqual([
+      [expect.stringContaining("завершив бойове чергування"), "item"],
+      ["", "paragraph"],
+      [expect.stringContaining("приступили до бойового чергування"), "item"],
+      ["солдат КОЗАК Віталій Володимирович;", "continuation"],
+      ["молодший сержант ЛЕВЧЕНКО Іван Олександрович;", "continuation"],
+      ["", "paragraph"],
+    ]);
+    expect(included.document.blocks.period_events.filter((line) => line.text.startsWith("-"))).toHaveLength(2);
+
+    const sameMinuteSnapshot = {
+      ...snapshot,
+      personnelTransitions: snapshot.personnelTransitions.map((transition) => ({ ...transition, incomingTime: "19:00" })),
+    };
+    const sameMinute = buildSummaryDocument({ ...common, snapshots: [sameMinuteSnapshot, null], manual: defaultSummaryManual() });
+    expect(sameMinute.objects.rotationEvents.filter((item) => item.id.includes("personnel-transition")).map((item) => item.id)).toEqual([
+      expect.stringMatching(/-outgoing$/u),
+      expect.stringMatching(/-incoming$/u),
+    ]);
+  });
+
+  it("does not duplicate a current-day personnel event as a cross-snapshot rotation", () => {
+    const crew = { id: 1, name: "ГРІМ", positionId: 2, members: [], actualMembers: [] } as never;
+    const position = { id: 2, name: "ХИЖАК", mgrs: "36U UV 26000 57000", locality: "СТЕПОВЕ" } as never;
+    const base = { crewId: 1, crewName: "ГРІМ", positionId: 2, actualCommanderId: 1, actualVehicleId: null, weather: {}, routePoints: [], areaPoints: [], altitudeFrom: "", altitudeTo: "", task: "Розвідка", startTime: "05:00", endTime: "18:00", uavSelections: [], payloadSelection: null };
+    const snapshots = [
+      { unitName: "РБАК", entries: [{ ...base, actualMemberIds: [1], memberSnapshots: [{ personnelId: 1, fullName: "ПЕРШИЙ Петро Петрович", rank: "сержант" }] }] },
+      { unitName: "РБАК", entries: [{ ...base, actualMemberIds: [2], memberSnapshots: [{ personnelId: 2, fullName: "ДРУГИЙ Дмитро Дмитрович", rank: "солдат" }] }], personnelTransitions: [{ id: "change-current", crewId: 1, outgoingMemberIds: [1], outgoingTime: "10:00", incomingMemberIds: [2], incomingTime: "11:00", memberSnapshots: [{ personnelId: 1, fullName: "ПЕРШИЙ Петро Петрович", rank: "сержант" }, { personnelId: 2, fullName: "ДРУГИЙ Дмитро Дмитрович", rank: "солдат" }] }] },
+    ] as never;
+    const result = buildSummaryDocument({ reportDate: "2026-09-16", manual: defaultSummaryManual(), settings: { mainSigner: {}, unit: { kind: "Рота", shortName: "РБАК", authorizedStrength: 4 } } as never, crews: [crew], positions: [position], journal: [], snapshots });
+
+    expect(result.objects.rotationEvents.filter((item) => item.id.includes("personnel-transition"))).toHaveLength(2);
+    expect(result.objects.rotationEvents.some((item) => item.id.includes("snapshot-rotation"))).toBe(false);
+    expect(result.objects.flightItems[0].members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ personnelId: 1, endDate: "2026-09-16", endTime: "10:00" }),
+      expect.objectContaining({ personnelId: 2, startDate: "2026-09-16", startTime: "11:00" }),
+    ]));
+  });
+
+  it("merges legacy stages and point personnel transitions into one chronological timeline", () => {
+    const crew = {
+      id: 1, name: "ГРІМ", positionId: 2, actualMembers: [],
+      members: [
+        { personnelId: 1, fullName: "ПЕРШИЙ Петро Петрович", rank: "сержант" },
+        { personnelId: 2, fullName: "ДРУГИЙ Дмитро Дмитрович", rank: "солдат" },
+        { personnelId: 3, fullName: "ТРЕТІЙ Тарас Тарасович", rank: "старший солдат" },
+      ],
+    } as never;
+    const current = {
+      unitName: "РБАК",
+      entries: [
+        { crewId: 1, actualMemberIds: [1], startTime: "07:00", endTime: "09:59" },
+        { crewId: 1, actualMemberIds: [3], startTime: "10:00", endTime: "18:00", rotationId: "legacy" },
+      ],
+      personnelTransitions: [{ id: "point", crewId: 1, outgoingMemberIds: [2], outgoingTime: "12:00", incomingMemberIds: [3], incomingTime: "13:00" }],
+    } as never;
+    const result = buildSummaryDocument({ reportDate: "2026-09-15", manual: defaultSummaryManual(), settings: { mainSigner: {}, unit: { kind: "Рота", shortName: "РБАК", authorizedStrength: 4 } } as never, crews: [crew], positions: [{ id: 2, name: "ХИЖАК" }] as never, journal: [], snapshots: [null, current] });
+
+    expect(result.objects.flightItems[0].members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ personnelId: 1, endTime: "09:59" }),
+      expect.objectContaining({ personnelId: 2, startTime: "10:00", endTime: "12:00" }),
+      expect.objectContaining({ personnelId: 3, startTime: "13:00", endTime: "18:00" }),
+    ]));
+    const events = result.objects.rotationEvents.filter((event) => event.id.startsWith("rotation-") || event.id.startsWith("personnel-transition-"));
+    expect(events.map((event) => event.time)).toEqual(["09:59", "10:00", "12:00", "13:00"]);
+    expect(events[1].text).toContain("ДРУГИЙ Дмитро Дмитрович");
+    expect(events[3].text).toContain("ТРЕТІЙ Тарас Тарасович");
+  });
+
+  it("uses the pre-transition composition for an arrival event", () => {
+    const crew = { id: 1, name: "ГРІМ", positionId: 2, actualMembers: [], members: [] } as never;
+    const current = {
+      unitName: "РБАК",
+      entries: [{ crewId: 1, actualMemberIds: [2], startTime: "07:00", endTime: "18:00", arrivesToday: true }],
+      personnelTransitions: [{
+        id: "after-arrival", crewId: 1, outgoingMemberIds: [1], outgoingTime: "10:00", incomingMemberIds: [2], incomingTime: "11:00",
+        memberSnapshots: [
+          { personnelId: 1, fullName: "ПЕРШИЙ Петро Петрович", rank: "сержант" },
+          { personnelId: 2, fullName: "ДРУГИЙ Дмитро Дмитрович", rank: "солдат" },
+        ],
+      }],
+    } as never;
+    const result = buildSummaryDocument({ reportDate: "2026-09-15", manual: defaultSummaryManual(), settings: { mainSigner: {}, unit: { kind: "Рота", shortName: "РБАК", authorizedStrength: 4 } } as never, crews: [crew], positions: [{ id: 2, name: "ХИЖАК" }] as never, journal: [], snapshots: [null, current] });
+    const arrival = result.objects.rotationEvents.find((event) => event.id.startsWith("crew-enter-"));
+
+    expect(arrival?.text).toContain("ПЕРШИЙ Петро Петрович");
+    expect(arrival?.text).not.toContain("ДРУГИЙ Дмитро Дмитрович");
   });
 
   it("counts crews by the position strip and battle order from the flight plan", () => {
@@ -481,17 +620,18 @@ describe("підсумкове донесення", () => {
     const current = { unitName: "РБАК", entries: [{ crewId: 1, actualMemberIds: [8, 9], startTime: "07:00", endTime: "12:00" } as never] };
     const result = buildSummaryDocument({ reportDate: "2026-09-15", manual: defaultSummaryManual(), settings: { mainSigner: {}, unit: { kind: "Рота", shortName: "РБАК", authorizedStrength: 4 } } as never, crews: [crew], positions: [position], journal: [], snapshots: [previous, current] });
     const members = result.objects.flightItems[0].members;
-    const event = result.objects.rotationEvents.find((item) => item.id.startsWith("snapshot-rotation-"));
+    const events = result.objects.rotationEvents.filter((item) => item.id.startsWith("snapshot-rotation-"));
 
     expect(members).toEqual(expect.arrayContaining([
       expect.objectContaining({ personnelId: 7, startDate: "2026-09-14", startTime: "18:01", endDate: "2026-09-15", endTime: "06:59" }),
       expect.objectContaining({ personnelId: 8, startDate: "2026-09-14", startTime: "18:01", endDate: "2026-09-15", endTime: "18:00" }),
       expect.objectContaining({ personnelId: 9, startDate: "2026-09-15", startTime: "07:00", endDate: "2026-09-15", endTime: "18:00" }),
     ]));
-    expect(event).toEqual(expect.objectContaining({ date: "2026-09-15", time: "07:00" }));
-    expect(event?.text).toContain("-06:59 год 15.09.2026 завершив бойове чергування");
-    expect(event?.text).toContain("-07:00 год 15.09.2026 приступив до бойового чергування");
-    expect(event?.text).not.toContain("-22:00 год");
+    expect(events).toEqual([
+      expect.objectContaining({ date: "2026-09-15", time: "06:59", text: expect.stringContaining("-06:59 год 15.09.2026 завершив бойове чергування") }),
+      expect.objectContaining({ date: "2026-09-15", time: "07:00", text: expect.stringContaining("-07:00 год 15.09.2026 приступив до бойового чергування") }),
+    ]);
+    expect(events.some((event) => event.text.includes("-22:00 год"))).toBe(false);
   });
 
   it("keeps sequential current-day rotations after a cross-snapshot composition change", () => {
@@ -520,7 +660,7 @@ describe("підсумкове донесення", () => {
       expect.objectContaining({ personnelId: 8, startTime: "07:00", endTime: "09:59" }),
       expect.objectContaining({ personnelId: 9, startTime: "10:00", endTime: "12:59" }),
     ]));
-    expect(result.objects.rotationEvents.filter((event) => event.id.startsWith("rotation-") || event.id.startsWith("snapshot-rotation-"))).toHaveLength(3);
+    expect(result.objects.rotationEvents.filter((event) => event.id.startsWith("rotation-") || event.id.startsWith("snapshot-rotation-"))).toHaveLength(6);
   });
 
   it("closes the old position one minute before a valid cross-snapshot move", () => {

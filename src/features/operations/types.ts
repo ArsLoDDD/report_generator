@@ -118,10 +118,19 @@ export type FlightPlanUavSelection = { equipmentId: number; dayQuantity: number;
 export type FlightPlanPayloadSelection = { sourceType: "equipment" | "workshop"; sourceId: number };
 export type FlightPlanUavSnapshot = { equipmentId: number; name: string; serialNumber: string };
 export type FlightPlanMemberSnapshot = { personnelId: number; fullName: string; rank: string };
+export type FlightPlanPersonnelTransition = {
+  id: string;
+  crewId: number;
+  outgoingMemberIds: number[];
+  outgoingTime: string;
+  incomingMemberIds: number[];
+  incomingTime: string;
+  memberSnapshots?: FlightPlanMemberSnapshot[];
+};
 export type FlightPlanEntry = { crewId: number; actualMemberIds: number[]; actualCommanderId: number | null; actualVehicleId: number | null; withoutVehicle?: boolean; weather: FlightPlanWeather; routePoints: string[]; altitudeFrom: string; altitudeTo: string; areaPoints: string[]; task: string; startTime: string; endTime: string; uavSelections: FlightPlanUavSelection[]; payloadSelection: FlightPlanPayloadSelection | null; rotationId?: string; crewName?: string; crewUavType?: string; positionId?: number | null; positionName?: string; positionMgrs?: string; positionLocality?: string; workStrip?: string; battleOrder?: string; uavSnapshots?: FlightPlanUavSnapshot[]; memberSnapshots?: FlightPlanMemberSnapshot[]; arrivesToday?: boolean; departsToday?: boolean; departureTime?: string };
 export type FlightPlanRotation = FlightPlanEntry & { rotationId: string };
 export type FlightPlanCrewLocationAssignment = { crewId: number; stages: number[][]; arrivesToday?: boolean; departsToday?: boolean };
-export type FlightPlanRequest = { unitName: string; entries: FlightPlanEntry[] };
+export type FlightPlanRequest = { unitName: string; entries: FlightPlanEntry[]; personnelTransitions?: FlightPlanPersonnelTransition[] };
 export type FlightJournalEntry = {
   id: number;
   flightDate: string;

@@ -1,5 +1,5 @@
 import type { AppSettings } from "../../shared/types/domain";
-import type { Crew, Equipment, FlightJournalEntry, FlightPlanRequest, Position, PositionWork, PositionWorkStatusEvent, StaffingRecord } from "./types";
+import type { Crew, Equipment, FlightJournalEntry, FlightPlanPersonnelTransition, FlightPlanRequest, Position, PositionWork, PositionWorkStatusEvent, StaffingRecord } from "./types";
 
 export type SummaryTextItem = { id: string; text: string; date?: string; time?: string };
 export type SummaryDutyPeriod = { id: string; startDate: string; startTime: string; endDate: string; endTime: string };
@@ -296,41 +296,104 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
   const positionText = positionLines(selectedPositionItems, settings).map((item) => item.text).join("\n") || "Позиції не визначені.";
   const datedEntries = [...relevantSnapshotEntries.map(({ entry, index, date, snapshotIndex }) => ({ entry, index, date, snapshotIndex })), ...fallbackStages.map(({ entry, date }, index) => ({ entry, date, index: snapshotEntries.length + index, snapshotIndex: -1 }))];
   type DatedPlanEntry = (typeof datedEntries)[number];
+  type PresenceDatedPlanEntry = DatedPlanEntry & { personnelTransitionAction?: "exit" | "entry" };
+  type DatedPersonnelTransition = { transition: FlightPlanPersonnelTransition; snapshotIndex: number; date: string };
+  const datedPersonnelTransitions: DatedPersonnelTransition[] = input.snapshots.flatMap((snapshot, snapshotIndex) => (snapshot?.personnelTransitions ?? []).map((transition) => ({ transition, snapshotIndex, date: snapshotIndex === 0 ? shiftDate(reportDate, -1) : reportDate })));
   type PhysicalMemberInterval = { personnelId: number; start: number; end: number; entry: DatedPlanEntry["entry"] };
-  type CrossSnapshotTransition = { previous: DatedPlanEntry; current: DatedPlanEntry; previousGroupKey: string; currentGroupKey: string; at: number; departureAt: number; compositionChanged: boolean };
+  type CrossSnapshotTransition = { previous: DatedPlanEntry; current: DatedPlanEntry; currentInitialMemberIds: number[]; previousGroupKey: string; currentGroupKey: string; at: number; departureAt: number; compositionChanged: boolean };
   const previousSnapshotKnown = input.snapshots[0] != null;
   const sameMemberIds = (left: number[], right: number[]) => left.length === right.length && left.every((personnelId) => right.includes(personnelId));
   const previousFinalByCrew = new Map<number, DatedPlanEntry>();
   const currentFirstByCrew = new Map<number, DatedPlanEntry>();
+  const currentFinalByCrew = new Map<number, DatedPlanEntry>();
   datedEntries.filter(({ snapshotIndex }) => snapshotIndex === 0).forEach((stage) => previousFinalByCrew.set(stage.entry.crewId, stage));
   datedEntries.filter(({ snapshotIndex }) => snapshotIndex === 1).forEach((stage) => {
     if (!currentFirstByCrew.has(stage.entry.crewId)) currentFirstByCrew.set(stage.entry.crewId, stage);
+    currentFinalByCrew.set(stage.entry.crewId, stage);
   });
   const previousDepartedCrewIds = new Set(datedEntries.filter(({ snapshotIndex, entry }) => snapshotIndex === 0 && entry.departsToday && entry.departureTime).map(({ entry }) => entry.crewId));
   const crossSnapshotTransitions = [...currentFirstByCrew.entries()].flatMap<CrossSnapshotTransition>(([crewId, current]) => {
     const previous = previousFinalByCrew.get(crewId);
     const at = current.entry.startTime ? timestamp(current.date, current.entry.startTime) : Number.NaN;
     if (!previous || previousDepartedCrewIds.has(crewId) || !Number.isFinite(at) || at < periodStart || at > periodEnd) return [];
+    const currentInitialMemberIds = [...current.entry.actualMemberIds];
+    const currentTransitions = datedPersonnelTransitions.filter((item) => item.snapshotIndex === current.snapshotIndex && item.transition.crewId === crewId);
+    // Request-level transitions mutate the last legacy stage. Reverse them at the
+    // snapshot boundary only when that last stage is also the first stage.
+    if (currentFinalByCrew.get(crewId) === current) {
+      [...currentTransitions].reverse().forEach(({ transition }) => {
+        transition.incomingMemberIds.forEach((id) => { const index=currentInitialMemberIds.indexOf(id); if(index>=0)currentInitialMemberIds.splice(index,1); });
+        transition.outgoingMemberIds.forEach((id) => { if(!currentInitialMemberIds.includes(id))currentInitialMemberIds.push(id); });
+      });
+    }
     return [{
       previous,
       current,
+      currentInitialMemberIds,
       previousGroupKey: snapshotEntryGroupKey(previous.entry),
       currentGroupKey: snapshotEntryGroupKey(current.entry),
       at,
       departureAt: at - 60_000,
-      compositionChanged: !sameMemberIds(previous.entry.actualMemberIds, current.entry.actualMemberIds),
+      compositionChanged: !sameMemberIds(previous.entry.actualMemberIds, currentInitialMemberIds),
     }];
   });
   const forcedPreviousGroupEnds = new Map(crossSnapshotTransitions.filter(({ previousGroupKey, currentGroupKey }) => previousGroupKey !== currentGroupKey).map(({ previousGroupKey, departureAt }) => [previousGroupKey, departureAt]));
+  const presenceStagesWithPersonnelTransitions = (stages: DatedPlanEntry[], snapshotIndex: number, groupKey: string): PresenceDatedPlanEntry[] => {
+    const context = stages[stages.length - 1];
+    if (!context) return stages;
+    const transitions = datedPersonnelTransitions
+      .filter((item) => item.snapshotIndex === snapshotIndex && item.transition.crewId === context.entry.crewId && snapshotEntryGroupKey(context.entry) === groupKey)
+      .sort((left, right) => `${left.date}T${left.transition.incomingTime || left.transition.outgoingTime}`.localeCompare(`${right.date}T${right.transition.incomingTime || right.transition.outgoingTime}`));
+    if (!transitions.length) return stages;
+
+    // The plan entry stores the composition after all request-level transitions.
+    // Reversing them reconstructs who was physically present at the beginning.
+    const initialIds = new Set(context.entry.actualMemberIds);
+    [...transitions].reverse().forEach(({ transition }) => {
+      transition.incomingMemberIds.forEach((id) => initialIds.delete(id));
+      transition.outgoingMemberIds.forEach((id) => initialIds.add(id));
+    });
+    const transitionSnapshots = transitions.flatMap(({ transition }) => transition.memberSnapshots ?? []);
+    const snapshots = [...(context.entry.memberSnapshots ?? [])];
+    transitionSnapshots.forEach((member) => {
+      if (!snapshots.some((item) => item.personnelId === member.personnelId)) snapshots.push(member);
+    });
+    const initial: PresenceDatedPlanEntry = { ...context, entry: { ...context.entry, actualMemberIds: [...initialIds], memberSnapshots: snapshots } };
+    const state = new Set(initial.entry.actualMemberIds);
+    const actions = transitions.flatMap(({ transition, date }) => [
+      ...(transition.outgoingMemberIds.length && transition.outgoingTime ? [{ kind: "exit" as const, ids: transition.outgoingMemberIds, date, time: transition.outgoingTime }] : []),
+      ...(transition.incomingMemberIds.length && transition.incomingTime ? [{ kind: "entry" as const, ids: transition.incomingMemberIds, date, time: transition.incomingTime }] : []),
+    ]).sort((left, right) => `${left.date}T${left.time}|${left.kind === "exit" ? 0 : 1}`.localeCompare(`${right.date}T${right.time}|${right.kind === "exit" ? 0 : 1}`));
+    const synthetic = actions.map((action, index): PresenceDatedPlanEntry => {
+      if (action.kind === "exit") action.ids.forEach((id) => state.delete(id));
+      else action.ids.forEach((id) => state.add(id));
+      return {
+        entry: { ...context.entry, actualMemberIds: [...state], memberSnapshots: snapshots, startTime: action.time, endTime: "" },
+        index: context.index + (index + 1) / (actions.length + 1),
+        date: action.date,
+        snapshotIndex,
+        personnelTransitionAction: action.kind,
+      };
+    });
+    const stageTimestamp = (stage: PresenceDatedPlanEntry) => stage.entry.startTime ? timestamp(stage.date, stage.entry.startTime) : Number.NaN;
+    return [...stages.slice(0, -1), initial, ...synthetic].sort((left, right) => {
+      const leftAt = stageTimestamp(left); const rightAt = stageTimestamp(right);
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && leftAt !== rightAt) return leftAt - rightAt;
+      return left.index - right.index;
+    });
+  };
   const physicalPresenceByGroup = new Map<string, { intervals: PhysicalMemberInterval[]; start: number; end: number }>();
   [...new Set(datedEntries.map(({ entry }) => snapshotEntryGroupKey(entry)))].forEach((groupKey) => {
     const groupStages = datedEntries.filter(({ entry }) => snapshotEntryGroupKey(entry) === groupKey);
-    const previousStages = groupStages.filter(({ snapshotIndex }) => snapshotIndex === 0).sort((left, right) => left.index - right.index);
-    const currentStages = groupStages.filter(({ snapshotIndex }) => snapshotIndex === 1).sort((left, right) => left.index - right.index);
+    const previousStages = presenceStagesWithPersonnelTransitions(groupStages.filter(({ snapshotIndex }) => snapshotIndex === 0).sort((left, right) => left.index - right.index), 0, groupKey);
+    const currentStages = presenceStagesWithPersonnelTransitions(groupStages.filter(({ snapshotIndex }) => snapshotIndex === 1).sort((left, right) => left.index - right.index), 1, groupKey);
     const fallback = groupStages.filter(({ snapshotIndex }) => snapshotIndex < 0);
     const intervals: PhysicalMemberInterval[] = [];
-    type PresenceTransition = { previous: DatedPlanEntry; next: DatedPlanEntry; at: number; leavingAt?: number };
-    const stageTransitions = (stages: DatedPlanEntry[]): PresenceTransition[] => stages.slice(1).map((next, index) => ({ previous: stages[index], next, at: next.entry.startTime ? timestamp(next.date, next.entry.startTime) : Number.NaN }));
+    type PresenceTransition = { previous: PresenceDatedPlanEntry; next: PresenceDatedPlanEntry; at: number; leavingAt?: number };
+    const stageTransitions = (stages: PresenceDatedPlanEntry[]): PresenceTransition[] => stages.slice(1).map((next, index) => {
+      const at = next.entry.startTime ? timestamp(next.date, next.entry.startTime) : Number.NaN;
+      return { previous: stages[index], next, at, leavingAt: next.personnelTransitionAction === "exit" ? at : undefined };
+    });
     const appendWindow = (start: number, end: number, initialStage: DatedPlanEntry, transitions: PresenceTransition[]) => {
       const windowStart = Math.max(periodStart, start); const windowEnd = Math.min(periodEnd, end);
       if (windowStart > windowEnd) return;
@@ -364,7 +427,7 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
       const canApplyCurrentStages = !currentInitial || sameMemberIds(previousFinal.entry.actualMemberIds, currentInitial.entry.actualMemberIds) || Boolean(boundary);
       const joinedTransitions = previousDeparture ? stageTransitions(previousStages) : [
         ...stageTransitions(previousStages),
-        ...(boundary ? [{ previous: boundary.previous, next: boundary.current, at: boundary.at, leavingAt: boundary.departureAt }] : []),
+        ...(boundary && currentInitial ? [{ previous: previousFinal, next: currentInitial, at: boundary.at, leavingAt: boundary.departureAt }] : []),
         ...(canApplyCurrentStages ? stageTransitions(currentStages) : []),
       ];
       appendWindow(previousStart, previousEnd, previousStages[0], joinedTransitions);
@@ -464,57 +527,88 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
   if (!flightLines.length) flightLines.push({ text: "Екіпажі у плані польотів за звітний період відсутні.", kind: "paragraph" });
   const flightOperations = flightLines.map((item) => item.text).join("\n");
   const rotationEvents: SummaryTextItem[] = [];
+  const eventMembers = (entry: FlightPlanRequest["entries"][number], crew: Crew, ids: number[], snapshots: FlightPlanPersonnelTransition["memberSnapshots"] = []) => ids.map((id) => {
+    const member = snapshots?.find((item) => item.personnelId === id) ?? entryMember(entry, crew, input.staffing, id);
+    return { rank: member?.rank || "звання не вказано", fullName: member?.fullName || "ПІБ не вказано" };
+  });
+  const eventContext = (entry: FlightPlanRequest["entries"][number], crew: Crew) => {
+    const position = entryPosition(entry, crew, positions);
+    return {
+      positionName: entryPositionName(entry, crew, position).toLocaleUpperCase("uk") || "ПОЗИЦІЯ НЕ ВКАЗАНА",
+      mgrs: entry.positionMgrs || position?.mgrs || "координати не вказано",
+      locality: entry.positionLocality || position?.locality || "населений пункт не вказано",
+      crewName: (entry.crewName || crew.name).toLocaleUpperCase("uk"),
+    };
+  };
+  const formatPersonnelEvent = (direction: "leaving" | "entering", date: string, time: string, entry: FlightPlanRequest["entries"][number], crew: Crew, ids: number[], snapshots?: FlightPlanPersonnelTransition["memberSnapshots"]) => {
+    const members = eventMembers(entry, crew, ids, snapshots);
+    const place = eventContext(entry, crew);
+    const plural = members.length !== 1;
+    const verb = direction === "leaving" ? (plural ? "завершили" : "завершив") : plural ? "приступили" : "приступив";
+    const base = `-${time || "час не вказано"} год ${displayDate(date)} ${verb} ${direction === "leaving" ? "бойове чергування та виконання" : "до бойового чергування та виконання"} бойових (спеціальних) завдань з ведення повітряної розвідки противника з позиції «${place.positionName}» (${place.mgrs}) в районі ${place.locality} в складі екіпажу «${place.crewName}»`;
+    const identity = (member: typeof members[number]) => `${member.rank} ${personName(member.fullName)};`;
+    if (direction === "leaving") {
+      if (!plural) return `${base} та вибув в розташування ${settings.unit.shortName || "підрозділу"} ${identity(members[0])}`;
+      return `${base} та вибули в розташування ${settings.unit.shortName || "підрозділу"} військовослужбовці:\n${members.map(identity).join("\n") || "склад не вказаний;"}`;
+    }
+    if (!plural) return `${base} військовослужбовець ${identity(members[0])}`;
+    return `${base} військовослужбовці:\n${members.map(identity).join("\n") || "склад не вказаний;"}`;
+  };
+
+  datedPersonnelTransitions.forEach(({ transition, snapshotIndex, date }) => {
+    const entry = [...relevantSnapshotEntries].reverse().find((item) => item.snapshotIndex === snapshotIndex && item.entry.crewId === transition.crewId)?.entry;
+    const crew = entry ? entryCrew(entry, crews) : undefined;
+    if (!entry || !crew) return;
+    const baseId = `personnel-transition-${date}-${transition.crewId}-${transition.id}`;
+    if (transition.outgoingMemberIds.length && transition.outgoingTime && timestamp(date, transition.outgoingTime) >= periodStart && timestamp(date, transition.outgoingTime) <= periodEnd) {
+      rotationEvents.push({ id: `${baseId}-outgoing`, date, time: transition.outgoingTime, text: formatPersonnelEvent("leaving", date, transition.outgoingTime, entry, crew, transition.outgoingMemberIds, transition.memberSnapshots) });
+    }
+    if (transition.incomingMemberIds.length && transition.incomingTime && timestamp(date, transition.incomingTime) >= periodStart && timestamp(date, transition.incomingTime) <= periodEnd) {
+      rotationEvents.push({ id: `${baseId}-incoming`, date, time: transition.incomingTime, text: formatPersonnelEvent("entering", date, transition.incomingTime, entry, crew, transition.incomingMemberIds, transition.memberSnapshots) });
+    }
+  });
   input.snapshots.forEach((_snapshot, snapshotIndex) => {
-    const byCrew = new Map<number, typeof entries>();
-    relevantSnapshotEntries.filter((stage) => stage.snapshotIndex === snapshotIndex).forEach(({ entry }) => byCrew.set(entry.crewId, [...(byCrew.get(entry.crewId) ?? []), entry]));
-    byCrew.forEach((stages, crewId) => stages.slice(1).forEach((next, index) => {
-      const previous = stages[index]; const crew = entryCrew(next, crews) ?? entryCrew(previous, crews); const position = entryPosition(next, crew, positions);
-      if (!crew || (!position && !next.positionName && !previous.positionName)) return;
-      const leaving = previous.actualMemberIds.filter((id) => !next.actualMemberIds.includes(id)).map((id) => entryMember(previous, crew, input.staffing, id)).filter((member): member is NonNullable<typeof member> => Boolean(member));
-      const entering = next.actualMemberIds.filter((id) => !previous.actualMemberIds.includes(id)).map((id) => entryMember(next, crew, input.staffing, id)).filter((member): member is NonNullable<typeof member> => Boolean(member));
-      if (!leaving.length && !entering.length) return;
-      const eventDate = relevantSnapshotEntries.find((stage) => stage.snapshotIndex === snapshotIndex && stage.entry === next)?.date ?? (snapshotIndex === 0 ? shiftDate(reportDate, -1) : reportDate);
-      const eventTimestamp = next.startTime ? timestamp(eventDate, next.startTime) : Number.NaN;
+    const byCrew = new Map<number, DatedPlanEntry[]>();
+    relevantSnapshotEntries.filter((stage) => stage.snapshotIndex === snapshotIndex).forEach((stage) => byCrew.set(stage.entry.crewId, [...(byCrew.get(stage.entry.crewId) ?? []), stage]));
+    byCrew.forEach((rawStages, crewId) => {
+      const finalStage = rawStages[rawStages.length - 1];
+      const stages = presenceStagesWithPersonnelTransitions(rawStages, snapshotIndex, snapshotEntryGroupKey(finalStage.entry));
+      stages.slice(1).forEach((next, index) => {
+      const previous = stages[index]; const crew = entryCrew(next.entry, crews) ?? entryCrew(previous.entry, crews); const position = entryPosition(next.entry, crew, positions);
+      if (next.personnelTransitionAction || !crew || (!position && !next.entry.positionName && !previous.entry.positionName)) return;
+      const leavingIds = previous.entry.actualMemberIds.filter((id) => !next.entry.actualMemberIds.includes(id));
+      const enteringIds = next.entry.actualMemberIds.filter((id) => !previous.entry.actualMemberIds.includes(id));
+      if (!leavingIds.length && !enteringIds.length) return;
+      const eventDate = next.date;
+      const eventTimestamp = next.entry.startTime ? timestamp(eventDate, next.entry.startTime) : Number.NaN;
       if (!Number.isFinite(eventTimestamp) || eventTimestamp < periodStart || eventTimestamp > periodEnd) return;
-      const identityList = (members: typeof leaving) => members.map((member) => `-${member.rank} ${personName(member.fullName)};`).join("\n") || "-склад не вказаний;";
-      const paragraphs = [
-        leaving.length ? `-${previous.endTime || "час не вказано"} год ${displayDate(eventDate)} завершив бойове чергування та виконання бойових (спеціальних) завдань з ведення повітряної розвідки противника з позиції «${entryPositionName(previous, crew, entryPosition(previous, crew, positions)).toLocaleUpperCase("uk")}» (${previous.positionMgrs || position?.mgrs || "координати не вказано"}) в районі ${previous.positionLocality || position?.locality || "не вказано"} екіпаж «${(previous.crewName || crew.name).toLocaleUpperCase("uk")}» та вибув в розташування ${settings.unit.shortName || "підрозділу"} у складі:\n${identityList(leaving)}` : "",
-        entering.length ? `-${next.startTime || "час не вказано"} год ${displayDate(eventDate)} приступив до бойового чергування та виконання бойових (спеціальних) завдань з ведення повітряної розвідки противника з позиції «${entryPositionName(next, crew, position).toLocaleUpperCase("uk")}» (${next.positionMgrs || position?.mgrs || "координати не вказано"}) в районі ${next.positionLocality || position?.locality || "не вказано"} екіпаж «${(next.crewName || crew.name).toLocaleUpperCase("uk")}» у складі:\n${identityList(entering)}` : "",
-      ].filter(Boolean).join("\n");
-      rotationEvents.push({ id: `rotation-${eventDate}-${crewId}-${next.rotationId || index}`, date: eventDate, time: next.startTime, text: paragraphs });
-    }));
+      const baseId = `rotation-${eventDate}-${crewId}-${next.entry.rotationId || index}`;
+      if (leavingIds.length) rotationEvents.push({ id: `${baseId}-outgoing`, date: eventDate, time: previous.entry.endTime, text: formatPersonnelEvent("leaving", eventDate, previous.entry.endTime, previous.entry, crew, leavingIds) });
+      if (enteringIds.length) rotationEvents.push({ id: `${baseId}-incoming`, date: eventDate, time: next.entry.startTime, text: formatPersonnelEvent("entering", eventDate, next.entry.startTime, next.entry, crew, enteringIds) });
+      });
+    });
   });
   crossSnapshotTransitions.forEach((transition) => {
     const crew = entryCrew(transition.current.entry, crews) ?? entryCrew(transition.previous.entry, crews);
     if (!crew) return;
-    const identityList = (entry: typeof transition.current.entry, ids: number[]) => ids.map((id) => entryMember(entry, crew, input.staffing, id)).filter((member): member is NonNullable<typeof member> => Boolean(member)).map((member) => `-${member.rank} ${personName(member.fullName)};`).join("\n") || "-склад не вказаний;";
-    const transitionContext = (entry: typeof transition.current.entry) => {
-      const position = entryPosition(entry, crew, positions);
-      return { name: entryPositionName(entry, crew, position).toLocaleUpperCase("uk") || "ПОЗИЦІЯ НЕ ВКАЗАНА", mgrs: entry.positionMgrs || position?.mgrs || "координати не вказано", locality: entry.positionLocality || position?.locality || "населений пункт не вказано" };
-    };
     const departureDate = datePart(new Date(transition.departureAt));
     const departureTime = timePart(new Date(transition.departureAt));
     if (transition.previousGroupKey !== transition.currentGroupKey) {
       if (transition.departureAt < periodStart || transition.departureAt > periodEnd) return;
-      const place = transitionContext(transition.previous.entry);
       rotationEvents.push({
         id: `crew-position-exit-${transition.previous.entry.crewId}-${transition.previousGroupKey}-${departureDate}-${departureTime}`,
         date: departureDate,
         time: departureTime,
-        text: `-${departureTime} год ${displayDate(departureDate)} завершив бойове чергування та виконання бойових (спеціальних) завдань з ведення повітряної розвідки противника з позиції «${place.name}» (${place.mgrs}) в районі ${place.locality} екіпаж «${(transition.previous.entry.crewName || crew.name).toLocaleUpperCase("uk")}» та вибув в розташування ${settings.unit.shortName || "підрозділу"} у складі:\n${identityList(transition.previous.entry, transition.previous.entry.actualMemberIds)}`,
+        text: formatPersonnelEvent("leaving", departureDate, departureTime, transition.previous.entry, crew, transition.previous.entry.actualMemberIds),
       });
       return;
     }
     if (!transition.compositionChanged) return;
-    const leavingIds = transition.previous.entry.actualMemberIds.filter((id) => !transition.current.entry.actualMemberIds.includes(id));
-    const enteringIds = transition.current.entry.actualMemberIds.filter((id) => !transition.previous.entry.actualMemberIds.includes(id));
-    const previousPlace = transitionContext(transition.previous.entry);
-    const currentPlace = transitionContext(transition.current.entry);
-    const paragraphs = [
-      leavingIds.length && transition.departureAt >= periodStart ? `-${departureTime} год ${displayDate(departureDate)} завершив бойове чергування та виконання бойових (спеціальних) завдань з ведення повітряної розвідки противника з позиції «${previousPlace.name}» (${previousPlace.mgrs}) в районі ${previousPlace.locality} екіпаж «${(transition.previous.entry.crewName || crew.name).toLocaleUpperCase("uk")}» та вибув в розташування ${settings.unit.shortName || "підрозділу"} у складі:\n${identityList(transition.previous.entry, leavingIds)}` : "",
-      enteringIds.length ? `-${transition.current.entry.startTime} год ${displayDate(transition.current.date)} приступив до бойового чергування та виконання бойових (спеціальних) завдань з ведення повітряної розвідки противника з позиції «${currentPlace.name}» (${currentPlace.mgrs}) в районі ${currentPlace.locality} екіпаж «${(transition.current.entry.crewName || crew.name).toLocaleUpperCase("uk")}» у складі:\n${identityList(transition.current.entry, enteringIds)}` : "",
-    ].filter(Boolean).join("\n");
-    if (paragraphs) rotationEvents.push({ id: `snapshot-rotation-${transition.current.date}-${transition.current.entry.crewId}-${transition.current.entry.rotationId || transition.current.entry.startTime}`, date: transition.current.date, time: transition.current.entry.startTime, text: paragraphs });
+    const leavingIds = transition.previous.entry.actualMemberIds.filter((id) => !transition.currentInitialMemberIds.includes(id));
+    const enteringIds = transition.currentInitialMemberIds.filter((id) => !transition.previous.entry.actualMemberIds.includes(id));
+    const baseId = `snapshot-rotation-${transition.current.date}-${transition.current.entry.crewId}-${transition.current.entry.rotationId || transition.current.entry.startTime}`;
+    if (leavingIds.length && transition.departureAt >= periodStart) rotationEvents.push({ id: `${baseId}-outgoing`, date: departureDate, time: departureTime, text: formatPersonnelEvent("leaving", departureDate, departureTime, transition.previous.entry, crew, leavingIds) });
+    if (enteringIds.length) rotationEvents.push({ id: `${baseId}-incoming`, date: transition.current.date, time: transition.current.entry.startTime, text: formatPersonnelEvent("entering", transition.current.date, transition.current.entry.startTime, transition.current.entry, crew, enteringIds) });
   });
   const stagesByCrewPosition = new Map<string, typeof datedEntries>();
   datedEntries.forEach((stage) => {
@@ -525,23 +619,19 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
   stagesByCrewPosition.forEach((stages, key) => {
     const previousStages = stages.filter(({ snapshotIndex }) => snapshotIndex === 0).sort((left, right) => left.index - right.index);
     const currentStages = stages.filter(({ snapshotIndex }) => snapshotIndex === 1).sort((left, right) => left.index - right.index);
+    const previousPresenceStages = presenceStagesWithPersonnelTransitions(previousStages, 0, key);
+    const currentPresenceStages = presenceStagesWithPersonnelTransitions(currentStages, 1, key);
     const first = previousStages[0] ?? currentStages[0] ?? stages[0];
     const crew = first ? entryCrew(first.entry, crews) : undefined; if (!first || !crew) return;
-    const identityList = (entry: typeof first.entry, ids: number[]) => ids.map((id) => entryMember(entry, crew, input.staffing, id)).filter((member): member is NonNullable<typeof member> => Boolean(member)).map((member) => `-${member.rank} ${personName(member.fullName)};`).join("\n") || "-склад не вказаний;";
-    const context = (entry: typeof first.entry) => {
-      const position = entryPosition(entry, crew, positions);
-      return { name: entryPositionName(entry, crew, position).toLocaleUpperCase("uk") || "ПОЗИЦІЯ НЕ ВКАЗАНА", mgrs: entry.positionMgrs || position?.mgrs || "координати не вказано", locality: entry.positionLocality || position?.locality || "населений пункт не вказано" };
-    };
     const currentStart = currentStages[0];
     const arrivalStages = [
-      previousStages[0]?.entry.arrivesToday ? previousStages[0] : null,
-      currentStart && (currentStart.entry.arrivesToday || previousSnapshotKnown && !previousContinuingGroupKeys.has(key)) ? currentStart : null,
+      previousStages[0]?.entry.arrivesToday ? previousPresenceStages[0] : null,
+      currentStart && (currentStart.entry.arrivesToday || previousSnapshotKnown && !previousContinuingGroupKeys.has(key)) ? currentPresenceStages[0] : null,
     ].filter((stage): stage is typeof first => Boolean(stage));
     arrivalStages.forEach((arrival) => {
       const arrivalTimestamp = arrival.entry.startTime ? timestamp(arrival.date, arrival.entry.startTime) : Number.NaN;
       if (!Number.isFinite(arrivalTimestamp) || arrivalTimestamp < periodStart || arrivalTimestamp > periodEnd) return;
-      const place = context(arrival.entry);
-      rotationEvents.push({ id: `crew-enter-${key}-${arrival.date}-${arrival.entry.startTime}`, date: arrival.date, time: arrival.entry.startTime, text: `-${arrival.entry.startTime} год ${displayDate(arrival.date)} приступив до бойового чергування та виконання бойових (спеціальних) завдань з ведення повітряної розвідки противника з позиції «${place.name}» (${place.mgrs}) в районі ${place.locality} екіпаж «${(arrival.entry.crewName || crew.name).toLocaleUpperCase("uk")}» у складі:\n${identityList(arrival.entry, arrival.entry.actualMemberIds)}` });
+      rotationEvents.push({ id: `crew-enter-${key}-${arrival.date}-${arrival.entry.startTime}`, date: arrival.date, time: arrival.entry.startTime, text: formatPersonnelEvent("entering", arrival.date, arrival.entry.startTime, arrival.entry, crew, arrival.entry.actualMemberIds) });
     });
     [previousStages, currentStages].forEach((snapshotStages) => {
       const departure = snapshotStages.find(({ entry }) => entry.departsToday && entry.departureTime);
@@ -549,8 +639,7 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
       const departureTimestamp = timestamp(departure.date, departure.entry.departureTime);
       if (departureTimestamp < periodStart || departureTimestamp > periodEnd) return;
       const finalStage = snapshotStages[snapshotStages.length - 1] ?? departure;
-      const place = context(finalStage.entry);
-      rotationEvents.push({ id: `crew-exit-${key}-${departure.date}-${departure.entry.departureTime}`, date: departure.date, time: departure.entry.departureTime, text: `-${departure.entry.departureTime} год ${displayDate(departure.date)} завершив бойове чергування та виконання бойових (спеціальних) завдань з ведення повітряної розвідки противника з позиції «${place.name}» (${place.mgrs}) в районі ${place.locality} екіпаж «${(finalStage.entry.crewName || crew.name).toLocaleUpperCase("uk")}» та вибув в розташування ${settings.unit.shortName || "підрозділу"} у складі:\n${identityList(finalStage.entry, finalStage.entry.actualMemberIds)}` });
+      rotationEvents.push({ id: `crew-exit-${key}-${departure.date}-${departure.entry.departureTime}`, date: departure.date, time: departure.entry.departureTime, text: formatPersonnelEvent("leaving", departure.date, departure.entry.departureTime, finalStage.entry, crew, finalStage.entry.actualMemberIds) });
     });
   });
 
@@ -642,9 +731,13 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
       text: `-${eventTime} год ${displayDate(eventDate)}${order} ${verb} позиції старту БпЛА «${positionName.toLocaleUpperCase("uk")}» (${positionMgrs || "координати не вказано"}) в районі ${positionLocality || "населений пункт не вказано"} військовослужбовці:\n${people || "склад не вказаний;"}`,
     });
   });
-  rotationEvents.sort((left, right) => `${left.date || ""}T${left.time || ""}|${left.id}`.localeCompare(`${right.date || ""}T${right.time || ""}|${right.id}`));
+  const eventDirectionPriority = (event: SummaryTextItem) => event.id.endsWith("-outgoing") ? 0 : event.id.endsWith("-incoming") ? 1 : 2;
+  rotationEvents.sort((left, right) => {
+    const chronological = `${left.date || ""}T${left.time || ""}`.localeCompare(`${right.date || ""}T${right.time || ""}`);
+    return chronological || eventDirectionPriority(left) - eventDirectionPriority(right) || left.id.localeCompare(right.id);
+  });
   const selectedAutoEvents = rotationEvents.filter((item) => manual.includedAutoEventIds.includes(item.id)).map((item) => manual.autoEventEdits[item.id] || item.text);
-  const periodEvents = [...selectedAutoEvents, ...manual.manualEvents.map((item) => item.text.trim())].filter(Boolean).join("\n") || "Подій не зафіксовано.";
+  const periodEvents = [...selectedAutoEvents, ...manual.manualEvents.map((item) => item.text.trim())].filter(Boolean).join("\n\n") || "Подій не зафіксовано.";
   const signer = settings.mainSigner;
   const name = (signer.fullName || "").trim().split(/\s+/u);
   const staffing = input.staffing ?? [];
@@ -670,12 +763,25 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
   };
   Object.entries(numericValues).forEach(([key, [record, field]]) => { values[key] = value(record, field); });
   values.flight_operations = auto("flightOperations");
-  const textLines = (text: string, bold = false): SummaryBlockLine[] => text.split("\n").filter(Boolean).map((line) => ({ text: line, bold, kind: line.startsWith("-") ? "item" : "paragraph" }));
+  const textLines = (text: string, bold = false): SummaryBlockLine[] => {
+    let insideEvent = false;
+    return text.split("\n").filter(Boolean).map((line) => {
+      if (line.startsWith("-")) {
+        insideEvent = true;
+        return { text: line, bold, kind: "item" as const };
+      }
+      return { text: line, bold, kind: insideEvent ? "continuation" as const : "paragraph" as const };
+    });
+  };
   const commandLines = dutyLines(manual.commandDuties, staffing, conflictingDutyPeriodIds, "command");
   const guardLines = dutyLines(manual.guardDuties, staffing, conflictingDutyPeriodIds, "guard");
+  const eventBlockLines = (text: string): SummaryBlockLine[] => [
+    ...textLines(text),
+    { text: "", kind: "paragraph" },
+  ];
   const periodEventLines = [
-    ...rotationEvents.filter((item) => manual.includedAutoEventIds.includes(item.id)).flatMap((item) => textLines(manual.autoEventEdits[item.id] || item.text)),
-    ...manual.manualEvents.flatMap((item) => textLines(`${item.time ? `${item.time} год ` : ""}${item.date ? `${displayDate(item.date)} року ` : ""}${item.text}`)),
+    ...rotationEvents.filter((item) => manual.includedAutoEventIds.includes(item.id)).flatMap((item) => eventBlockLines(manual.autoEventEdits[item.id] || item.text)),
+    ...manual.manualEvents.flatMap((item) => eventBlockLines(`${item.time ? `${item.time} год ` : ""}${item.date ? `${displayDate(item.date)} року ` : ""}${item.text}`)),
   ];
   const compositionBlockLines = compositionLines(selectedCompositionItems, settings);
   const positionBlockLines = positionLines(selectedPositionItems, settings);

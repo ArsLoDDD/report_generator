@@ -1,11 +1,11 @@
-import type { FlightPlanEntry, FlightPlanRequest, FlightPlanRotation } from "./types";
-import { validateFlightPlanSchedule } from "./flight-plan-model";
+import type { FlightPlanEntry, FlightPlanPersonnelTransition, FlightPlanRequest, FlightPlanRotation } from "./types";
+import { applyFlightPlanPersonnelTransitions, flightPlanPersonnelAtTime, reverseFlightPlanPersonnelTransitions, validateFlightPlanPersonnelTransitions, validateFlightPlanSchedule } from "./flight-plan-model";
 
 export const FLIGHT_PLAN_STORAGE_KEY = "flight-plan-draft-v2";
 export const FLIGHT_PLAN_PENDING_STORAGE_KEY = `${FLIGHT_PLAN_STORAGE_KEY}-pending-v1`;
 
 type PendingSaveMetadata = { date?: unknown; revision?: unknown; updatedAt?: unknown };
-type StoredFlightPlan = { schemaVersion?: number; unitName?: string; date?: string; selected?: unknown[]; entries?: Record<number, FlightPlanEntry>; rotations?: Record<number, FlightPlanRotation[]>; pendingSave?: PendingSaveMetadata };
+type StoredFlightPlan = { schemaVersion?: number; unitName?: string; date?: string; selected?: unknown[]; entries?: Record<number, FlightPlanEntry>; rotations?: Record<number, FlightPlanRotation[]>; personnelTransitions?: FlightPlanPersonnelTransition[]; pendingSave?: PendingSaveMetadata };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 
@@ -45,8 +45,39 @@ const safePendingEntry = (value: unknown, crewId: number): value is FlightPlanEn
   return true;
 };
 
+const safePersonnelTransition = (value: unknown): value is FlightPlanPersonnelTransition => isRecord(value)
+  && typeof value.id === "string"
+  && Number.isInteger(value.crewId)
+  && Array.isArray(value.outgoingMemberIds) && value.outgoingMemberIds.every(Number.isInteger)
+  && typeof value.outgoingTime === "string"
+  && Array.isArray(value.incomingMemberIds) && value.incomingMemberIds.every(Number.isInteger)
+  && typeof value.incomingTime === "string"
+  && (value.memberSnapshots === undefined || Array.isArray(value.memberSnapshots));
+
+const samePersonnel = (left: readonly number[], right: readonly number[]) => left.length === right.length && left.every((id) => right.includes(id));
+
+const safePersonnelTransitionSequence = (stored: StoredFlightPlan, crewIds: readonly number[]) => crewIds.every((crewId) => {
+  const transitions = (stored.personnelTransitions ?? []).filter((transition) => transition.crewId === crewId);
+  if (!transitions.length) return true;
+  const primary = stored.entries?.[crewId];
+  const rotations = stored.rotations?.[crewId] ?? [];
+  const finalStage = rotations[rotations.length - 1] ?? primary;
+  if (!primary || !finalStage) return false;
+  const initialIds = reverseFlightPlanPersonnelTransitions(finalStage.actualMemberIds, transitions, crewId);
+  const knownActualIds = [...new Set([
+    ...initialIds,
+    ...finalStage.actualMemberIds,
+    ...transitions.flatMap((transition) => [...transition.outgoingMemberIds, ...transition.incomingMemberIds]),
+  ])];
+  const validation = validateFlightPlanPersonnelTransitions(initialIds, transitions, crewId, knownActualIds, {
+    stageStartTime: rotations.length ? finalStage.startTime : primary.arrivesToday ? primary.startTime : "00:00",
+    departureTime: primary.departsToday ? primary.departureTime : undefined,
+  });
+  return validation.isValid && samePersonnel(applyFlightPlanPersonnelTransitions(initialIds, transitions, crewId), finalStage.actualMemberIds);
+});
+
 const requestFromStored = (stored: StoredFlightPlan, allowEmpty: boolean): FlightPlanRequest | null => {
-  if (!Array.isArray(stored.selected) || !isRecord(stored.entries) || (stored.rotations !== undefined && !isRecord(stored.rotations))) return null;
+  if (!Array.isArray(stored.selected) || !isRecord(stored.entries) || (stored.rotations !== undefined && !isRecord(stored.rotations)) || (stored.personnelTransitions !== undefined && (!Array.isArray(stored.personnelTransitions) || stored.personnelTransitions.some((transition) => !safePersonnelTransition(transition))))) return null;
   const selected = stored.selected;
   if (selected.some((id) => !Number.isInteger(id))) return null;
   const crewIds = [...new Set(selected as number[])];
@@ -59,7 +90,9 @@ const requestFromStored = (stored: StoredFlightPlan, allowEmpty: boolean): Fligh
     entries.push(entry, ...rotations);
   }
   if (!allowEmpty && !entries.length) return null;
-  return { unitName: typeof stored.unitName === "string" ? stored.unitName : "", entries };
+  if (!safePersonnelTransitionSequence(stored, crewIds)) return null;
+  const personnelTransitions=(stored.personnelTransitions??[]).filter((transition)=>crewIds.includes(transition.crewId));
+  return { unitName: typeof stored.unitName === "string" ? stored.unitName : "", entries, personnelTransitions };
 };
 
 export function flightPlanSnapshot(): StoredFlightPlan {
@@ -108,7 +141,17 @@ const activeStage = (stored: StoredFlightPlan, crewId: number, now: Date) => {
   for (const rotation of rotations) {
     if (rotation.startTime && transitionHasHappened(rotation.startTime)) current = rotation;
   }
-  return current;
+  const finalStage=rotations[rotations.length-1]??primary;
+  if(current!==finalStage)return current;
+  const transitions=(stored.personnelTransitions??[]).filter((transition)=>transition.crewId===crewId);
+  if(!transitions.length)return current;
+  const initialIds=reverseFlightPlanPersonnelTransitions(finalStage.actualMemberIds,transitions,crewId);
+  const planStart=momentOnPlanDate(stored.date,"00:00");
+  const planEnd=momentOnPlanDate(stored.date,"23:59");
+  if(planStart!==null&&now.getTime()<planStart)return{...current,actualMemberIds:initialIds};
+  if(planEnd!==null&&now.getTime()>planEnd)return{...current,actualMemberIds:flightPlanPersonnelAtTime(initialIds,transitions,crewId)};
+  const throughTime=`${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+  return{...current,actualMemberIds:flightPlanPersonnelAtTime(initialIds,transitions,crewId,throughTime)};
 };
 
 export function flightPlanActiveCrewIds(now = new Date()): Set<number> {
@@ -144,11 +187,12 @@ export function flightPlanDraftRequest(isoDate: string): FlightPlanRequest | nul
     const entry = stored.entries?.[crewId];
     return !entry || !validateFlightPlanSchedule(entry, stored.rotations?.[crewId] ?? []).isValid;
   })) return null;
+  if (!safePersonnelTransitionSequence(stored, selected)) return null;
   const entries = selected.flatMap((crewId) => {
     const entry = stored.entries?.[crewId];
     return entry ? [entry, ...(stored.rotations?.[crewId] ?? [])] : [];
   });
-  return entries.length ? { unitName: stored.unitName ?? "", entries } : null;
+  return entries.length ? { unitName: stored.unitName ?? "", entries, personnelTransitions:(stored.personnelTransitions??[]).filter((transition)=>selected.includes(transition.crewId)) } : null;
 }
 
 /**

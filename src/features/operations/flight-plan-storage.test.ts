@@ -85,6 +85,21 @@ describe("активний склад плану польотів", () => {
     expect([...flightPlanActiveCrewIds(new Date(2026, 8, 15, 20, 0))]).toEqual([1]);
   });
 
+  it("applies a personnel exit and entry only on the plan date", () => {
+    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify({
+      date: "15.09.2026",
+      selected: [1],
+      entries: { 1: { actualMemberIds: [2], startTime: "07:00", endTime: "21:00" } },
+      personnelTransitions: [{ id: "change-1", crewId: 1, outgoingMemberIds: [1], outgoingTime: "19:00", incomingMemberIds: [2], incomingTime: "20:00" }],
+    }));
+
+    expect([...flightPlanActiveMemberIds(new Date(2026, 8, 14, 21, 0))]).toEqual([1]);
+    expect([...flightPlanActiveMemberIds(new Date(2026, 8, 15, 18, 59))]).toEqual([1]);
+    expect([...flightPlanActiveMemberIds(new Date(2026, 8, 15, 19, 30))]).toEqual([]);
+    expect([...flightPlanActiveMemberIds(new Date(2026, 8, 15, 20, 0))]).toEqual([2]);
+    expect([...flightPlanActiveMemberIds(new Date(2026, 8, 16, 8, 0))]).toEqual([2]);
+  });
+
   it("does not expose a crew as active before arrival or after explicit departure", () => {
     localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify({
       date: "15.09.2026",
@@ -182,6 +197,18 @@ describe("активний склад плану польотів", () => {
     const invalid = pendingDraft("НЕВАЛІДНА", 200);
     Object.assign(invalid.entries[1], { departsToday: true, departureTime: "11:00" });
     localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify(pendingDraft("СТАРІША", 100)));
+    localStorage.setItem(FLIGHT_PLAN_PENDING_STORAGE_KEY, JSON.stringify({ "2026-09-15": invalid }));
+
+    expect(flightPlanPendingDraftRequest("2026-09-15")).toBeNull();
+  });
+
+  it("rejects a pending personnel change before the active stage begins", () => {
+    const invalid = pendingDraft("НЕВАЛІДНА ЗМІНА", 200);
+    invalid.entries[1].actualMemberIds = [2];
+    Object.assign(invalid.entries[1], { arrivesToday: true });
+    Object.assign(invalid, {
+      personnelTransitions: [{ id: "change-1", crewId: 1, outgoingMemberIds: [1], outgoingTime: "06:00", incomingMemberIds: [2], incomingTime: "08:00" }],
+    });
     localStorage.setItem(FLIGHT_PLAN_PENDING_STORAGE_KEY, JSON.stringify({ "2026-09-15": invalid }));
 
     expect(flightPlanPendingDraftRequest("2026-09-15")).toBeNull();

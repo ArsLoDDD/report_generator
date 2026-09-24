@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flightPlanPreviewRows, initialFlightEntry, validateFlightPlanSchedule } from "./flight-plan-model";
+import { flightPlanPreviewRows, initialFlightEntry, validateFlightPlanPersonnelTransitions, validateFlightPlanSchedule } from "./flight-plan-model";
 import type { Crew, FlightPlanEntry, FlightPlanRotation } from "./types";
 
 const entry = (patch: Partial<FlightPlanEntry> = {}): FlightPlanEntry => ({
@@ -84,5 +84,36 @@ describe("цілісність часу плану польотів", () => {
     const rotation = entry({ startTime: "20:01", endTime: "23:00", actualMemberIds: [2] }) as FlightPlanRotation;
 
     expect(validateFlightPlanSchedule(primary, [rotation])).toEqual(expect.objectContaining({ isValid: true, departureError: undefined }));
+  });
+
+  it("keeps point personnel changes append-only and inside the active stage", () => {
+    const transitions = [
+      { id: "first", crewId: 1, outgoingMemberIds: [1], outgoingTime: "19:00", incomingMemberIds: [2], incomingTime: "20:00" },
+      { id: "backdated", crewId: 1, outgoingMemberIds: [2], outgoingTime: "18:00", incomingMemberIds: [3], incomingTime: "21:00" },
+    ];
+
+    const validation = validateFlightPlanPersonnelTransitions([1], transitions, 1, [1, 2, 3], { stageStartTime: "07:00", departureTime: "20:30" });
+
+    expect(validation.isValid).toBe(false);
+    expect(validation.errorsByTransition.backdated).toEqual(expect.arrayContaining([
+      "Нову зміну ОС можна додати лише після попередньої зміни та початку поточного етапу.",
+      "Зміна ОС має відбутися не пізніше часу виїзду екіпажу.",
+    ]));
+  });
+
+  it("does not allow a point change to empty the only visible plan row", () => {
+    const validation = validateFlightPlanPersonnelTransitions([1], [{
+      id: "last-person-leaves",
+      crewId: 1,
+      outgoingMemberIds: [1],
+      outgoingTime: "19:00",
+      incomingMemberIds: [],
+      incomingTime: "",
+    }], 1, [1]);
+
+    expect(validation.isValid).toBe(false);
+    expect(validation.errorsByTransition["last-person-leaves"]).toContain(
+      "У рядку плану має залишитися хоча б один військовослужбовець. Для виїзду всього екіпажу позначте виїзд із позиції.",
+    );
   });
 });

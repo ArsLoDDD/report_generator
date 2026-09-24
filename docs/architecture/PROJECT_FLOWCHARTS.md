@@ -706,6 +706,7 @@ flowchart TB
     crewExpand["Розгорнути екіпаж"]
     planFields["Фактичний склад і командир · позиція · авто<br/>БпЛА / БК · маршрут · район · висота · погода · завдання · час"]
     presence["Прибуває сьогодні / вибуває сьогодні<br/>і час переходу"]
+    personnelChange["«Завести/Вивести ОС»<br/>2 колонки · окремі часи<br/>без нового рядка плану"]
     rotate["«Провести ротацію»<br/>новий склад і командир"]
     rotateEdit["Редагувати / видалити етап ротації"]
     validatePlan{"Розклад не перетинається,<br/>склад доступний, позивні заповнені?"}
@@ -743,10 +744,19 @@ flowchart TB
   assets[("Авто · БпЛА · БК · Цукерня")]
   settings[("Налаштування підрозділу")]
   snapshots[("flight_plan_snapshots")]
+  transitionEvents[("personnelTransitions<br/>хто вийшов / зайшов і коли")]
   locationSync["Розрахунок На позиції / ЗБЗ / ПБЗ / ОХ<br/>і синхронізація Контролю ОС та БЧС"]
   journalDb[("flight_journal_entries<br/>незмінні snapshot-поля")]
   summaryDraft[("summary_report_drafts<br/>лише ручна частина")]
   files[("XLSX плану / DOCX підсумкового")]
+
+  crewExpand --> planFields
+  planFields --> personnelChange
+  personnelChange -->|оновити склад того самого рядка| validatePlan
+  personnelChange --> transitionEvents
+  transitionEvents --> snapshots
+  transitionEvents --> locationSync
+  transitionEvents --> summarySources
 
   dateNav --> dateRange
   dateRange -->|"ні"| dateNav

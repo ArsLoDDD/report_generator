@@ -733,6 +733,54 @@ mod flight_plan_location_tests {
     }
 
     #[test]
+    fn point_personnel_change_sets_pbz_at_exit_and_zbz_at_entry_time() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(1,'БАРС')", [])
+            .unwrap();
+        for id in 1..=2 {
+            insert_test_personnel(&connection, id, "ОХ");
+            connection
+                .execute(
+                    "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(1,?1)",
+                    [id],
+                )
+                .unwrap();
+        }
+        connection.execute(
+            "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json) VALUES('2026-09-18',1,?1)",
+            [serde_json::json!({
+                "entries":[{"crewId":1,"actualMemberIds":[2],"startTime":"07:00"}],
+                "personnelTransitions":[{
+                    "id":"change-1","crewId":1,
+                    "outgoingMemberIds":[1],"outgoingTime":"19:00",
+                    "incomingMemberIds":[2],"incomingTime":"20:00"
+                }]
+            }).to_string()],
+        ).unwrap();
+        let location = |id| {
+            connection
+                .query_row(
+                    "SELECT current_location FROM personnel WHERE id=?1",
+                    [id],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap()
+        };
+
+        reconcile_flight_plan_for_moment(&connection, "2026-09-18", "18:59").unwrap();
+        assert_eq!(
+            (location(1), location(2)),
+            ("На позиції".into(), "ОХ".into())
+        );
+        reconcile_flight_plan_for_moment(&connection, "2026-09-18", "19:00").unwrap();
+        assert_eq!((location(1), location(2)), ("ПБЗ".into(), "ОХ".into()));
+        reconcile_flight_plan_for_moment(&connection, "2026-09-18", "20:00").unwrap();
+        assert_eq!((location(1), location(2)), ("ПБЗ".into(), "ЗБЗ".into()));
+    }
+
+    #[test]
     fn rejects_absent_people_before_changing_flight_plan_locations() {
         for (index, location) in [
             "ВІДП",

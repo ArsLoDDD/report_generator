@@ -3,7 +3,7 @@ use chrono::{Duration, Local, Months, NaiveDate};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs::File,
     io::{Cursor, Read, Write},
     path::Path,
@@ -99,6 +99,24 @@ pub struct FlightPlanMemberSnapshot {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FlightPlanPersonnelTransition {
+    #[serde(default)]
+    id: String,
+    crew_id: i64,
+    #[serde(default)]
+    outgoing_member_ids: Vec<i64>,
+    #[serde(default)]
+    outgoing_time: String,
+    #[serde(default)]
+    incoming_member_ids: Vec<i64>,
+    #[serde(default)]
+    incoming_time: String,
+    #[serde(default)]
+    member_snapshots: Vec<FlightPlanMemberSnapshot>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FlightPlanUavSelection {
     equipment_id: i64,
     day_quantity: i64,
@@ -117,6 +135,8 @@ pub struct FlightPlanPayloadSelection {
 pub struct FlightPlanRequest {
     unit_name: String,
     entries: Vec<FlightPlanEntry>,
+    #[serde(default)]
+    personnel_transitions: Vec<FlightPlanPersonnelTransition>,
 }
 
 #[derive(Debug, Clone)]
@@ -127,7 +147,6 @@ pub(crate) struct FlightPlanLocationStage {
 
 #[derive(Debug, Clone)]
 pub(crate) struct FlightPlanLocationSchedule {
-    pub crew_id: i64,
     pub stages: Vec<FlightPlanLocationStage>,
     pub arrives_on_plan_date: bool,
     pub departs_on_plan_date: bool,
@@ -139,6 +158,8 @@ pub(crate) struct FlightPlanLocationSchedule {
 struct StoredLocationRequest {
     #[serde(default)]
     entries: Vec<StoredLocationEntry>,
+    #[serde(default)]
+    personnel_transitions: Vec<StoredPersonnelTransition>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -155,6 +176,445 @@ struct StoredLocationEntry {
     departs_today: bool,
     #[serde(default)]
     departure_time: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredPersonnelTransition {
+    crew_id: i64,
+    #[serde(default)]
+    outgoing_member_ids: Vec<i64>,
+    #[serde(default)]
+    outgoing_time: String,
+    #[serde(default)]
+    incoming_member_ids: Vec<i64>,
+    #[serde(default)]
+    incoming_time: String,
+}
+
+enum FlightPlanLocationAction {
+    Replace(Vec<i64>),
+    Remove(Vec<i64>),
+    Add(Vec<i64>),
+}
+
+struct TimedFlightPlanLocationAction {
+    start_time: String,
+    minute: u32,
+    priority: u8,
+    sequence: usize,
+    action: FlightPlanLocationAction,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PersonnelActionDirection {
+    Outgoing,
+    Incoming,
+}
+
+struct PersonnelValidationAction {
+    minute: u32,
+    priority: u8,
+    sequence: usize,
+    direction: PersonnelActionDirection,
+    member_ids: Vec<i64>,
+}
+
+fn personnel_id_set(ids: &[i64]) -> HashSet<i64> {
+    ids.iter().copied().collect()
+}
+
+fn actual_member_ids_for_validation(
+    connection: &Connection,
+    crew_id: i64,
+) -> Result<Option<HashSet<i64>>, String> {
+    let crew_exists = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM crews WHERE id=?1)",
+            [crew_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|_| "Не вдалося перевірити екіпаж події ОС.".to_string())?;
+    if !crew_exists {
+        return Ok(None);
+    }
+    let mut statement = connection
+        .prepare("SELECT personnel_id FROM crew_actual_members WHERE crew_id=?1")
+        .map_err(|_| "Не вдалося перевірити фактичний склад екіпажу.".to_string())?;
+    let ids = statement
+        .query_map([crew_id], |row| row.get::<_, i64>(0))
+        .map_err(|_| "Не вдалося перевірити фактичний склад екіпажу.".to_string())?
+        .collect::<Result<HashSet<_>, _>>()
+        .map_err(|_| "Не вдалося перевірити фактичний склад екіпажу.".to_string())?;
+    Ok(Some(ids))
+}
+
+fn validate_personnel_transitions(
+    connection: &Connection,
+    request: &FlightPlanRequest,
+) -> Result<(), String> {
+    if request.personnel_transitions.is_empty() {
+        return Ok(());
+    }
+    let mut entries_by_crew = HashMap::<i64, Vec<&FlightPlanEntry>>::new();
+    for entry in &request.entries {
+        entries_by_crew
+            .entry(entry.crew_id)
+            .or_default()
+            .push(entry);
+    }
+    let mut actions_by_crew = HashMap::<i64, Vec<PersonnelValidationAction>>::new();
+    let mut actual_members_by_crew = HashMap::<i64, Option<HashSet<i64>>>::new();
+    let mut last_transition_minute_by_crew = HashMap::<i64, u32>::new();
+    let mut sequence = 0usize;
+    for transition in &request.personnel_transitions {
+        let crew_id = transition.crew_id;
+        if !entries_by_crew.contains_key(&crew_id) {
+            return Err(format!(
+                "Подія заведення/виведення ОС посилається на відсутній у плані екіпаж №{crew_id}."
+            ));
+        }
+        if transition.outgoing_member_ids.is_empty() && transition.incoming_member_ids.is_empty() {
+            return Err("Оберіть хоча б одну людину для заведення або виведення ОС.".into());
+        }
+        for (ids, label) in [
+            (&transition.outgoing_member_ids, "виведення"),
+            (&transition.incoming_member_ids, "заведення"),
+        ] {
+            if ids.iter().any(|id| *id <= 0) || personnel_id_set(ids).len() != ids.len() {
+                return Err(format!(
+                    "Список ОС для {label} містить повтори або некоректні значення."
+                ));
+            }
+        }
+        if transition
+            .outgoing_member_ids
+            .iter()
+            .any(|id| transition.incoming_member_ids.contains(id))
+        {
+            return Err(
+                "Одна людина не може одночасно бути у списках заведення та виведення ОС.".into(),
+            );
+        }
+        let actual_members = if let Some(value) = actual_members_by_crew.get(&crew_id) {
+            value.clone()
+        } else {
+            let value = actual_member_ids_for_validation(connection, crew_id)?;
+            actual_members_by_crew.insert(crew_id, value.clone());
+            value
+        };
+        if let Some(actual_members) = actual_members {
+            let snapshot_member_ids = transition
+                .member_snapshots
+                .iter()
+                .map(|member| member.personnel_id)
+                .collect::<HashSet<_>>();
+            if transition
+                .outgoing_member_ids
+                .iter()
+                .chain(&transition.incoming_member_ids)
+                .any(|id| !actual_members.contains(id) && !snapshot_member_ids.contains(id))
+            {
+                return Err(
+                    "Завести або вивести можна лише військовослужбовців із фактичного складу екіпажу або збереженого історичного знімка події."
+                        .into(),
+                );
+            }
+        }
+        let outgoing_minute = if transition.outgoing_member_ids.is_empty() {
+            None
+        } else {
+            Some(
+                minute_value(&transition.outgoing_time)
+                    .ok_or_else(|| "Вкажіть коректний час виведення ОС.".to_string())?,
+            )
+        };
+        let incoming_minute = if transition.incoming_member_ids.is_empty() {
+            None
+        } else {
+            Some(
+                minute_value(&transition.incoming_time)
+                    .ok_or_else(|| "Вкажіть коректний час заведення ОС.".to_string())?,
+            )
+        };
+        if matches!((outgoing_minute, incoming_minute), (Some(outgoing), Some(incoming)) if outgoing > incoming)
+        {
+            return Err("Час заведення ОС не може бути раніше часу виведення.".into());
+        }
+        let first_minute = outgoing_minute
+            .into_iter()
+            .chain(incoming_minute)
+            .min()
+            .expect("a non-empty transition has at least one time");
+        let last_minute = outgoing_minute
+            .into_iter()
+            .chain(incoming_minute)
+            .max()
+            .expect("a non-empty transition has at least one time");
+        if last_transition_minute_by_crew
+            .get(&crew_id)
+            .is_some_and(|previous| first_minute < *previous)
+        {
+            return Err(format!(
+                "Екіпаж №{crew_id}: нову зміну ОС можна додати лише після попередньої зміни."
+            ));
+        }
+        last_transition_minute_by_crew.insert(crew_id, last_minute);
+        if let Some(minute) = outgoing_minute {
+            actions_by_crew
+                .entry(crew_id)
+                .or_default()
+                .push(PersonnelValidationAction {
+                    minute,
+                    priority: 1,
+                    sequence,
+                    direction: PersonnelActionDirection::Outgoing,
+                    member_ids: transition.outgoing_member_ids.clone(),
+                });
+            sequence += 1;
+        }
+        if let Some(minute) = incoming_minute {
+            actions_by_crew
+                .entry(crew_id)
+                .or_default()
+                .push(PersonnelValidationAction {
+                    minute,
+                    priority: 2,
+                    sequence,
+                    direction: PersonnelActionDirection::Incoming,
+                    member_ids: transition.incoming_member_ids.clone(),
+                });
+            sequence += 1;
+        }
+    }
+
+    for (crew_id, mut actions) in actions_by_crew {
+        actions.sort_by_key(|action| (action.minute, action.priority, action.sequence));
+        let entries = &entries_by_crew[&crew_id];
+        let final_entry = entries
+            .last()
+            .expect("a transition crew was checked to have a plan entry");
+        let primary_entry = entries[0];
+        let minimum_time = if entries.len() > 1 {
+            Some((final_entry.start_time.as_str(), "початку останньої ротації"))
+        } else if primary_entry.arrives_today {
+            Some((primary_entry.start_time.as_str(), "заїзду екіпажу"))
+        } else {
+            None
+        };
+        if let Some((time, boundary)) = minimum_time {
+            let minimum_minute = minute_value(time)
+                .ok_or_else(|| format!("Екіпаж №{crew_id}: некоректний час {boundary}."))?;
+            if actions.iter().any(|action| action.minute < minimum_minute) {
+                return Err(format!(
+                    "Екіпаж №{crew_id}: час заведення або виведення ОС не може бути раніше {boundary} о {time}."
+                ));
+            }
+        }
+        if primary_entry.departs_today {
+            let departure_minute = minute_value(&primary_entry.departure_time)
+                .ok_or_else(|| format!("Екіпаж №{crew_id}: некоректний час виїзду."))?;
+            if actions
+                .iter()
+                .any(|action| action.minute > departure_minute)
+            {
+                return Err(format!(
+                    "Екіпаж №{crew_id}: зміна ОС має відбутися не пізніше часу виїзду о {}.",
+                    primary_entry.departure_time
+                ));
+            }
+        }
+        let final_members = personnel_id_set(&final_entry.actual_member_ids);
+        let mut initial_members = final_members.clone();
+        for action in actions.iter().rev() {
+            match action.direction {
+                PersonnelActionDirection::Outgoing => {
+                    initial_members.extend(action.member_ids.iter().copied());
+                }
+                PersonnelActionDirection::Incoming => {
+                    for id in &action.member_ids {
+                        initial_members.remove(id);
+                    }
+                }
+            }
+        }
+        let mut current_members = initial_members;
+        for action in &actions {
+            match action.direction {
+                PersonnelActionDirection::Outgoing => {
+                    if action
+                        .member_ids
+                        .iter()
+                        .any(|id| !current_members.contains(id))
+                    {
+                        return Err(format!(
+                            "Екіпаж №{crew_id}: вивести можна лише ОС, який перебуває на позиції на цей час."
+                        ));
+                    }
+                    for id in &action.member_ids {
+                        current_members.remove(id);
+                    }
+                }
+                PersonnelActionDirection::Incoming => {
+                    if action
+                        .member_ids
+                        .iter()
+                        .any(|id| current_members.contains(id))
+                    {
+                        return Err(format!(
+                            "Екіпаж №{crew_id}: завести можна лише ОС, якого немає на позиції на цей час."
+                        ));
+                    }
+                    current_members.extend(action.member_ids.iter().copied());
+                }
+            }
+        }
+        if current_members != final_members {
+            return Err(format!(
+                "Екіпаж №{crew_id}: хронологія заведення/виведення ОС не відповідає фінальному складу рядка плану."
+            ));
+        }
+        if final_members.is_empty() {
+            return Err(format!(
+                "Екіпаж №{crew_id}: у рядку плану має залишитися хоча б один військовослужбовець. Для виїзду всього екіпажу позначте виїзд із позиції."
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn merge_location_actions(
+    primary: StoredLocationEntry,
+    rotations: Vec<StoredLocationEntry>,
+    transitions: Vec<StoredPersonnelTransition>,
+    inferred_from_next_day: bool,
+) -> FlightPlanLocationSchedule {
+    let arrives_on_plan_date = !inferred_from_next_day && primary.arrives_today;
+    let departs_on_plan_date = !inferred_from_next_day && primary.departs_today;
+    let departure_time = if inferred_from_next_day {
+        String::new()
+    } else {
+        primary.departure_time.clone()
+    };
+    let primary_start_time = primary.start_time;
+    let mut member_ids = primary.actual_member_ids;
+
+    let mut sequence = 0usize;
+    let mut point_actions = Vec::<TimedFlightPlanLocationAction>::new();
+    for transition in transitions {
+        if !transition.outgoing_member_ids.is_empty() {
+            if let Some(minute) = minute_value(&transition.outgoing_time) {
+                point_actions.push(TimedFlightPlanLocationAction {
+                    start_time: transition.outgoing_time,
+                    minute,
+                    priority: 1,
+                    sequence,
+                    action: FlightPlanLocationAction::Remove(transition.outgoing_member_ids),
+                });
+                sequence += 1;
+            }
+        }
+        if !transition.incoming_member_ids.is_empty() {
+            if let Some(minute) = minute_value(&transition.incoming_time) {
+                point_actions.push(TimedFlightPlanLocationAction {
+                    start_time: transition.incoming_time,
+                    minute,
+                    // At the same minute people leave before replacements
+                    // enter, which also makes the transition deterministic.
+                    priority: 2,
+                    sequence,
+                    action: FlightPlanLocationAction::Add(transition.incoming_member_ids),
+                });
+                sequence += 1;
+            }
+        }
+    }
+    point_actions.sort_by_key(|action| (action.minute, action.priority, action.sequence));
+
+    // The latest visible row stores the post-transition composition so it can
+    // immediately show who is physically on the position after the personnel
+    // change. Rewind that row before replaying point actions for BCS.
+    let mut rotations = rotations;
+    let mut reconstructed_final = rotations
+        .last()
+        .map(|rotation| rotation.actual_member_ids.clone())
+        .unwrap_or_else(|| member_ids.clone());
+    for action in point_actions.iter().rev() {
+        match &action.action {
+            FlightPlanLocationAction::Replace(_) => {}
+            FlightPlanLocationAction::Remove(outgoing_member_ids) => {
+                for id in outgoing_member_ids {
+                    if !reconstructed_final.contains(id) {
+                        reconstructed_final.push(*id);
+                    }
+                }
+            }
+            FlightPlanLocationAction::Add(incoming_member_ids) => {
+                reconstructed_final.retain(|id| !incoming_member_ids.contains(id));
+            }
+        }
+    }
+    if let Some(last_rotation) = rotations.last_mut() {
+        last_rotation.actual_member_ids = reconstructed_final;
+    } else {
+        member_ids = reconstructed_final;
+    }
+    let mut actions = Vec::<TimedFlightPlanLocationAction>::new();
+    for (rotation_index, rotation) in rotations.into_iter().enumerate() {
+        if let Some(minute) = minute_value(&rotation.start_time) {
+            actions.push(TimedFlightPlanLocationAction {
+                start_time: rotation.start_time,
+                minute,
+                // A saved flight-plan rotation establishes the composition at
+                // this minute. Personnel point actions then refine it.
+                priority: 0,
+                sequence: rotation_index,
+                action: FlightPlanLocationAction::Replace(rotation.actual_member_ids),
+            });
+        }
+    }
+    actions.extend(point_actions);
+    actions.sort_by_key(|action| (action.minute, action.priority, action.sequence));
+    if inferred_from_next_day {
+        return FlightPlanLocationSchedule {
+            stages: vec![FlightPlanLocationStage {
+                member_ids,
+                start_time: "00:00".into(),
+            }],
+            arrives_on_plan_date,
+            departs_on_plan_date,
+            departure_time,
+        };
+    }
+    let mut stages = vec![FlightPlanLocationStage {
+        member_ids: member_ids.clone(),
+        start_time: primary_start_time,
+    }];
+    for action in actions {
+        match action.action {
+            FlightPlanLocationAction::Replace(next_member_ids) => member_ids = next_member_ids,
+            FlightPlanLocationAction::Remove(outgoing_member_ids) => {
+                member_ids.retain(|id| !outgoing_member_ids.contains(id));
+            }
+            FlightPlanLocationAction::Add(incoming_member_ids) => {
+                for id in incoming_member_ids {
+                    if !member_ids.contains(&id) {
+                        member_ids.push(id);
+                    }
+                }
+            }
+        }
+        stages.push(FlightPlanLocationStage {
+            member_ids: member_ids.clone(),
+            start_time: action.start_time,
+        });
+    }
+    FlightPlanLocationSchedule {
+        stages,
+        arrives_on_plan_date,
+        departs_on_plan_date,
+        departure_time,
+    }
 }
 
 pub(crate) fn flight_plan_location_schedule(
@@ -196,46 +656,34 @@ pub(crate) fn flight_plan_location_schedule(
         .filter(|entry| first_crews.insert(entry.crew_id) && entry.arrives_today)
         .map(|entry| entry.crew_id)
         .collect::<std::collections::HashSet<_>>();
-    let mut schedules = Vec::<FlightPlanLocationSchedule>::new();
+    let mut entries_by_crew = Vec::<(StoredLocationEntry, Vec<StoredLocationEntry>)>::new();
     for entry in request.entries {
         if inferred_from_next_day && arriving_crews.contains(&entry.crew_id) {
             continue;
         }
-        if inferred_from_next_day
-            && schedules
-                .iter()
-                .any(|schedule| schedule.crew_id == entry.crew_id)
-        {
-            continue;
-        }
-        if let Some(schedule) = schedules
+        if let Some((_, rotations)) = entries_by_crew
             .iter_mut()
-            .find(|schedule| schedule.crew_id == entry.crew_id)
+            .find(|(primary, _)| primary.crew_id == entry.crew_id)
         {
-            schedule.stages.push(FlightPlanLocationStage {
-                member_ids: entry.actual_member_ids,
-                start_time: entry.start_time,
-            });
-            continue;
+            rotations.push(entry);
+        } else {
+            entries_by_crew.push((entry, Vec::new()));
         }
-        schedules.push(FlightPlanLocationSchedule {
-            crew_id: entry.crew_id,
-            stages: vec![FlightPlanLocationStage {
-                member_ids: entry.actual_member_ids,
-                start_time: if inferred_from_next_day {
-                    "00:00".into()
-                } else {
-                    entry.start_time
-                },
-            }],
-            arrives_on_plan_date: !inferred_from_next_day && entry.arrives_today,
-            departs_on_plan_date: !inferred_from_next_day && entry.departs_today,
-            departure_time: if inferred_from_next_day {
-                String::new()
-            } else {
-                entry.departure_time
-            },
-        });
+    }
+    let mut transitions_by_crew = request.personnel_transitions;
+    let mut schedules = Vec::new();
+    for (primary, rotations) in entries_by_crew {
+        let crew_id = primary.crew_id;
+        let (transitions, remaining) = std::mem::take(&mut transitions_by_crew)
+            .into_iter()
+            .partition(|transition| transition.crew_id == crew_id);
+        transitions_by_crew = remaining;
+        schedules.push(merge_location_actions(
+            primary,
+            rotations,
+            transitions,
+            inferred_from_next_day,
+        ));
     }
     Ok(Some(schedules))
 }
@@ -312,6 +760,7 @@ fn save_flight_plan_snapshot_at(
 ) -> Result<(), String> {
     let parsed_plan_date = parse_plan_date(plan_date)?;
     validate_plan_date_for_save(parsed_plan_date, today)?;
+    validate_personnel_transitions(connection, request)?;
     let snapshot_json = serde_json::to_string(request)
         .map_err(|_| "Не вдалося підготувати знімок плану польотів.".to_string())?;
     let plan_date = parsed_plan_date.format("%Y-%m-%d").to_string();
@@ -702,6 +1151,7 @@ fn build_rows(
     if request.entries.is_empty() {
         return Err("Оберіть хоча б один екіпаж для плану польотів.".into());
     }
+    validate_personnel_transitions(connection, request)?;
     // This is a crew-wide choice. Rotation rows are stages of the same crew,
     // so one checked stage suppresses the vehicle requirement for every row.
     let vehicleless_crews = request
@@ -1024,6 +1474,59 @@ mod tests {
         FlightPlanRequest {
             unit_name: unit_name.into(),
             entries: vec![],
+            personnel_transitions: vec![],
+        }
+    }
+
+    fn transition_entry(crew_id: i64, member_ids: &[i64], start_time: &str) -> serde_json::Value {
+        serde_json::json!({
+            "crewId": crew_id,
+            "actualMemberIds": member_ids,
+            "actualCommanderId": member_ids.first(),
+            "actualVehicleId": null,
+            "weather": { "temperature": "", "windFrom": "", "windTo": "", "gustFrom": "", "gustTo": "", "cloudiness": "", "cloudHeight": "", "precipitation": "" },
+            "routePoints": [],
+            "altitudeFrom": "",
+            "altitudeTo": "",
+            "areaPoints": [],
+            "task": "Розвідка",
+            "startTime": start_time,
+            "endTime": "23:00",
+            "uavSelections": [],
+            "payloadSelection": null
+        })
+    }
+
+    fn transition_request(
+        entries: Vec<serde_json::Value>,
+        transitions: Vec<serde_json::Value>,
+    ) -> FlightPlanRequest {
+        serde_json::from_value(serde_json::json!({
+            "unitName": "РБПАК",
+            "entries": entries,
+            "personnelTransitions": transitions
+        }))
+        .unwrap()
+    }
+
+    fn seed_transition_roster(connection: &Connection) {
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(1,'БАРС')", [])
+            .unwrap();
+        for id in 1..=3 {
+            connection.execute(
+                "INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id,current_location)
+                 VALUES(?1,'солдат',?2,'Тест','Тестович','оператор',?3,'','','','','','','','ОХ')",
+                rusqlite::params![id, format!("ЛЮДИНА{id}"), format!("tax-{id}")],
+            ).unwrap();
+        }
+        for id in 1..=3 {
+            connection
+                .execute(
+                    "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(1,?1)",
+                    [id],
+                )
+                .unwrap();
         }
     }
 
@@ -1122,10 +1625,336 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(schedules.len(), 1);
-        assert_eq!(schedules[0].crew_id, 1);
         assert_eq!(schedules[0].stages[0].member_ids, vec![10, 11]);
         assert_eq!(schedules[0].stages[0].start_time, "00:00");
         assert!(!schedules[0].arrives_on_plan_date);
+    }
+
+    #[test]
+    fn personnel_transition_reconstructs_the_initial_composition_and_splits_times() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json) VALUES('2026-09-18',1,?1)",
+            [serde_json::json!({
+                "unitName": "РБПАК",
+                "entries": [{
+                    "crewId": 1,
+                    // The plan row already shows the post-transition composition.
+                    "actualMemberIds": [2],
+                    "startTime": "07:00"
+                }],
+                "personnelTransitions": [{
+                    "id": "personnel-1",
+                    "crewId": 1,
+                    "outgoingMemberIds": [1],
+                    "outgoingTime": "19:00",
+                    "incomingMemberIds": [2],
+                    "incomingTime": "20:00",
+                    "memberSnapshots": [
+                        {"personnelId": 1, "fullName": "ПЕРШИЙ Тест", "rank": "солдат"},
+                        {"personnelId": 2, "fullName": "ДРУГИЙ Тест", "rank": "солдат"}
+                    ]
+                }]
+            }).to_string()],
+        ).unwrap();
+
+        let schedules = flight_plan_location_schedule(&connection, "2026-09-18")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(schedules.len(), 1);
+        assert_eq!(schedules[0].stages.len(), 3);
+        assert_eq!(schedules[0].stages[0].start_time, "07:00");
+        assert_eq!(schedules[0].stages[0].member_ids, vec![1]);
+        assert_eq!(schedules[0].stages[1].start_time, "19:00");
+        assert!(schedules[0].stages[1].member_ids.is_empty());
+        assert_eq!(schedules[0].stages[2].start_time, "20:00");
+        assert_eq!(schedules[0].stages[2].member_ids, vec![2]);
+    }
+
+    #[test]
+    fn old_snapshot_without_personnel_transitions_keeps_rotation_stages() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json) VALUES('2026-09-18',1,?1)",
+            [serde_json::json!({"entries": [
+                {"crewId": 1, "actualMemberIds": [1, 2], "startTime": "07:00"},
+                {"crewId": 1, "actualMemberIds": [2, 3], "startTime": "12:00"}
+            ]}).to_string()],
+        ).unwrap();
+
+        let schedules = flight_plan_location_schedule(&connection, "2026-09-18")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(schedules.len(), 1);
+        assert_eq!(schedules[0].stages.len(), 2);
+        assert_eq!(schedules[0].stages[0].member_ids, vec![1, 2]);
+        assert_eq!(schedules[0].stages[0].start_time, "07:00");
+        assert_eq!(schedules[0].stages[1].member_ids, vec![2, 3]);
+        assert_eq!(schedules[0].stages[1].start_time, "12:00");
+    }
+
+    #[test]
+    fn valid_personnel_transition_is_accepted_on_save() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        seed_transition_roster(&connection);
+        let request = transition_request(
+            vec![transition_entry(1, &[2], "07:00")],
+            vec![serde_json::json!({
+                "id": "change-1",
+                "crewId": 1,
+                "outgoingMemberIds": [1],
+                "outgoingTime": "19:00",
+                "incomingMemberIds": [2],
+                "incomingTime": "20:00"
+            })],
+        );
+
+        save_flight_plan_snapshot_at(
+            &connection,
+            NaiveDate::from_ymd_opt(2026, 9, 18).unwrap(),
+            "2026-09-18",
+            &request,
+        )
+        .unwrap();
+
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM flight_plan_snapshots", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn rejects_personnel_action_before_the_last_rotation_on_save_and_export() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        seed_transition_roster(&connection);
+        let request = transition_request(
+            vec![
+                transition_entry(1, &[1], "07:00"),
+                transition_entry(1, &[2], "20:00"),
+            ],
+            vec![serde_json::json!({
+                "id": "too-early",
+                "crewId": 1,
+                "outgoingMemberIds": [1],
+                "outgoingTime": "19:00",
+                "incomingMemberIds": [2],
+                "incomingTime": "19:30"
+            })],
+        );
+
+        let save_error = save_flight_plan_snapshot_at(
+            &connection,
+            NaiveDate::from_ymd_opt(2026, 9, 18).unwrap(),
+            "2026-09-18",
+            &request,
+        )
+        .unwrap_err();
+        assert!(save_error.contains("раніше початку останньої ротації"));
+        assert!(build_rows(&connection, &request)
+            .unwrap_err()
+            .contains("раніше початку останньої ротації"));
+        assert_eq!(
+            connection
+                .query_row("SELECT COUNT(*) FROM flight_plan_snapshots", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_times_duplicate_ids_and_non_actual_members() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        seed_transition_roster(&connection);
+        connection
+            .execute(
+                "DELETE FROM crew_actual_members WHERE crew_id=1 AND personnel_id=3",
+                [],
+            )
+            .unwrap();
+
+        let invalid_time = transition_request(
+            vec![transition_entry(1, &[2], "07:00")],
+            vec![
+                serde_json::json!({"crewId":1,"outgoingMemberIds":[1],"outgoingTime":"25:00","incomingMemberIds":[2],"incomingTime":"20:00"}),
+            ],
+        );
+        assert!(validate_personnel_transitions(&connection, &invalid_time)
+            .unwrap_err()
+            .contains("коректний час виведення"));
+
+        let duplicate = transition_request(
+            vec![transition_entry(1, &[2], "07:00")],
+            vec![
+                serde_json::json!({"crewId":1,"outgoingMemberIds":[1,1],"outgoingTime":"19:00","incomingMemberIds":[2],"incomingTime":"20:00"}),
+            ],
+        );
+        assert!(validate_personnel_transitions(&connection, &duplicate)
+            .unwrap_err()
+            .contains("повтори"));
+
+        let non_actual = transition_request(
+            vec![transition_entry(1, &[3], "07:00")],
+            vec![
+                serde_json::json!({"crewId":1,"outgoingMemberIds":[1],"outgoingTime":"19:00","incomingMemberIds":[3],"incomingTime":"20:00"}),
+            ],
+        );
+        assert!(validate_personnel_transitions(&connection, &non_actual)
+            .unwrap_err()
+            .contains("фактичного складу"));
+    }
+
+    #[test]
+    fn historical_member_snapshot_remains_valid_after_actual_roster_changes() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        seed_transition_roster(&connection);
+        connection
+            .execute(
+                "DELETE FROM crew_actual_members WHERE crew_id=1 AND personnel_id=3",
+                [],
+            )
+            .unwrap();
+        let historical = transition_request(
+            vec![transition_entry(1, &[3], "07:00")],
+            vec![serde_json::json!({
+                "id": "historical-change",
+                "crewId": 1,
+                "outgoingMemberIds": [1],
+                "outgoingTime": "19:00",
+                "incomingMemberIds": [3],
+                "incomingTime": "20:00",
+                "memberSnapshots": [
+                    {"personnelId": 1, "fullName": "ЛЮДИНА1 Тест Тестович", "rank": "солдат"},
+                    {"personnelId": 3, "fullName": "ЛЮДИНА3 Тест Тестович", "rank": "солдат"}
+                ]
+            })],
+        );
+
+        validate_personnel_transitions(&connection, &historical).unwrap();
+
+        let mut without_snapshot = historical.clone();
+        without_snapshot.personnel_transitions[0]
+            .member_snapshots
+            .clear();
+        assert!(
+            validate_personnel_transitions(&connection, &without_snapshot)
+                .unwrap_err()
+                .contains("фактичного складу")
+        );
+    }
+
+    #[test]
+    fn rejects_reversed_backdated_and_pre_arrival_personnel_actions() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        seed_transition_roster(&connection);
+
+        let reversed = transition_request(
+            vec![transition_entry(1, &[2], "07:00")],
+            vec![
+                serde_json::json!({"crewId":1,"outgoingMemberIds":[1],"outgoingTime":"20:00","incomingMemberIds":[2],"incomingTime":"19:00"}),
+            ],
+        );
+        assert!(validate_personnel_transitions(&connection, &reversed)
+            .unwrap_err()
+            .contains("не може бути раніше часу виведення"));
+
+        let backdated = transition_request(
+            vec![transition_entry(1, &[3], "07:00")],
+            vec![
+                serde_json::json!({"crewId":1,"outgoingMemberIds":[1],"outgoingTime":"20:00","incomingMemberIds":[2],"incomingTime":"20:30"}),
+                serde_json::json!({"crewId":1,"outgoingMemberIds":[2],"outgoingTime":"19:00","incomingMemberIds":[3],"incomingTime":"21:00"}),
+            ],
+        );
+        assert!(validate_personnel_transitions(&connection, &backdated)
+            .unwrap_err()
+            .contains("лише після попередньої зміни"));
+
+        let mut arriving_entry = transition_entry(1, &[2], "07:00");
+        arriving_entry["arrivesToday"] = serde_json::json!(true);
+        let pre_arrival = transition_request(
+            vec![arriving_entry],
+            vec![
+                serde_json::json!({"crewId":1,"outgoingMemberIds":[1],"outgoingTime":"06:00","incomingMemberIds":[2],"incomingTime":"08:00"}),
+            ],
+        );
+        assert!(validate_personnel_transitions(&connection, &pre_arrival)
+            .unwrap_err()
+            .contains("раніше заїзду екіпажу"));
+    }
+
+    #[test]
+    fn rejects_impossible_presence_and_final_composition_replay() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        seed_transition_roster(&connection);
+
+        let repeated_exit = transition_request(
+            vec![transition_entry(1, &[], "07:00")],
+            vec![
+                serde_json::json!({"crewId":1,"outgoingMemberIds":[1],"outgoingTime":"19:00","incomingMemberIds":[],"incomingTime":""}),
+                serde_json::json!({"crewId":1,"outgoingMemberIds":[1],"outgoingTime":"20:00","incomingMemberIds":[],"incomingTime":""}),
+            ],
+        );
+        assert!(validate_personnel_transitions(&connection, &repeated_exit)
+            .unwrap_err()
+            .contains("перебуває на позиції"));
+
+        let empty_final_composition = transition_request(
+            vec![transition_entry(1, &[], "07:00")],
+            vec![
+                serde_json::json!({"crewId":1,"outgoingMemberIds":[1],"outgoingTime":"19:00","incomingMemberIds":[],"incomingTime":""}),
+            ],
+        );
+        assert!(
+            validate_personnel_transitions(&connection, &empty_final_composition)
+                .unwrap_err()
+                .contains("має залишитися хоча б один")
+        );
+
+        let replay_mismatch = transition_request(
+            vec![transition_entry(1, &[3], "07:00")],
+            vec![
+                serde_json::json!({"crewId":1,"outgoingMemberIds":[2],"outgoingTime":"19:00","incomingMemberIds":[3],"incomingTime":"19:00"}),
+                serde_json::json!({"crewId":1,"outgoingMemberIds":[1],"outgoingTime":"20:00","incomingMemberIds":[2],"incomingTime":"20:00"}),
+            ],
+        );
+        assert!(
+            validate_personnel_transitions(&connection, &replay_mismatch)
+                .unwrap_err()
+                .contains("не відповідає фінальному складу")
+        );
+    }
+
+    #[test]
+    fn rejects_transition_for_a_crew_missing_from_the_request() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let request = transition_request(
+            vec![transition_entry(1, &[1], "07:00")],
+            vec![
+                serde_json::json!({"crewId":2,"outgoingMemberIds":[2],"outgoingTime":"19:00","incomingMemberIds":[],"incomingTime":""}),
+            ],
+        );
+
+        assert!(validate_personnel_transitions(&connection, &request)
+            .unwrap_err()
+            .contains("відсутній у плані екіпаж"));
     }
 
     #[test]
@@ -1530,6 +2359,7 @@ mod tests {
                 departs_today: false,
                 departure_time: String::new(),
             }],
+            personnel_transitions: vec![],
         };
         let rows = build_rows(&connection, &request).unwrap();
         assert!(rows[0].values[11].contains("TOYOTA HILUX"));

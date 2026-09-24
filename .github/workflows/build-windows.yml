@@ -35,6 +35,9 @@ jobs:
           - edition: advanced
             label: Просунута версія
             artifact: Shablonizator-Advanced-Windows
+          - edition: admin
+            label: Адмінська версія
+            artifact: Shablonizator-Admin-Windows
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

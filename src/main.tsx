@@ -1,10 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App";
+import RootApp from "@edition-root";
 import "./styles.css";
 import "./layout-fixes.css";
 import "./template-language.css";
 import "./summary-report.css";
 import "./styles/features/program-guide.css";
 
-ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);
+ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><RootApp /></React.StrictMode>);
