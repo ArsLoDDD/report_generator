@@ -22,22 +22,9 @@ jobs:
       - run: npm run test:full
 
   build:
-    name: ${{ matrix.label }}
+    name: Просунута версія
     needs: verify
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - edition: simple
-            label: Проста версія
-            artifact: Shablonizator-Simple-Windows
-          - edition: advanced
-            label: Просунута версія
-            artifact: Shablonizator-Advanced-Windows
-          - edition: admin
-            label: Адмінська версія
-            artifact: Shablonizator-Admin-Windows
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,9 +36,9 @@ jobs:
           targets: x86_64-pc-windows-msvc
       - run: npm ci
       - name: Зібрати інсталятор
-        run: npm run tauri:build:${{ matrix.edition }}
+        run: npm run tauri:build:advanced
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: Shablonizator-Advanced-Windows
           path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
