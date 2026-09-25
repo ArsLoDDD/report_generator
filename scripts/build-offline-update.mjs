@@ -33,7 +33,22 @@ const run = (command, commandArgs, options = {}) => {
     shell: false,
     ...options,
   });
-  if (result.status !== 0) throw new Error(`Команда завершилась з помилкою: ${command}`);
+  if (result.error) {
+    throw new Error(`Не вдалося запустити команду «${command}»: ${result.error.message}`);
+  }
+  if (result.signal) {
+    throw new Error(`Команду «${command}» перервано сигналом ${result.signal}.`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`Команда «${command}» завершилась з кодом ${result.status}. Деталі наведені вище.`);
+  }
+};
+const runNpm = (commandArgs, options = {}) => {
+  const npmCliPath = process.env.npm_execpath;
+  if (!npmCliPath || !existsSync(npmCliPath)) {
+    throw new Error("Не знайдено npm CLI. Запускайте створення оновлення через npm run update:build.");
+  }
+  run(process.execPath, [npmCliPath, ...commandArgs], options);
 };
 const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
 const writeJson = (path, value, indentation = 2) => writeFileSync(path, `${JSON.stringify(value, null, indentation)}\n`);
@@ -60,7 +75,7 @@ const cargoLockPath = join(projectRoot, "src-tauri", "Cargo.lock");
 writeFileSync(cargoPath, readFileSync(cargoPath, "utf8").replace(/(\[package\][\s\S]*?\nversion = ")[^"]+("\n)/, `$1${requestedVersion}$2`));
 writeFileSync(cargoLockPath, readFileSync(cargoLockPath, "utf8").replace(/(name = "shablonizator"\nversion = ")[^"]+("\n)/, `$1${requestedVersion}$2`));
 
-if (!skipTests) run("npm.cmd", ["run", "test:full"]);
+if (!skipTests) runNpm(["run", "test:full"]);
 
 const privateKeyPath = process.env.TAURI_SIGNING_PRIVATE_KEY_PATH
   || join(projectRoot, ".tauri-private", "shablonizator-updater.key");
@@ -76,7 +91,7 @@ writeJson(updateConfigPath, updateConfig, 2);
 
 const env = { ...process.env };
 if (!env.TAURI_SIGNING_PRIVATE_KEY) env.TAURI_SIGNING_PRIVATE_KEY_PATH = privateKeyPath;
-run("npm.cmd", ["run", "tauri", "--", "build", "--config", "src-tauri/tauri.update.generated.conf.json", "--bundles", "nsis", "--ci"], { env });
+runNpm(["run", "tauri", "--", "build", "--config", "src-tauri/tauri.update.generated.conf.json", "--bundles", "nsis", "--ci"], { env });
 
 const bundleDirectory = join(projectRoot, "src-tauri", "target", "release", "bundle", "nsis");
 const installers = readdirSync(bundleDirectory)
