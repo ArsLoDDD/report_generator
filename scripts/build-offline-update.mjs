@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createOfflineUpdateArchive } from "./offline-update-archive.mjs";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
@@ -116,28 +116,14 @@ const manifest = {
   sha256,
 };
 
-const staging = mkdtempSync(join(tmpdir(), "shablonizator-update-"));
 const releaseDirectory = join(projectRoot, "release");
 mkdirSync(releaseDirectory, { recursive: true });
-const zipPath = join(releaseDirectory, `Shablonizator-Advanced-${requestedVersion}.zip`);
 const updatePath = join(releaseDirectory, `Shablonizator-Advanced-${requestedVersion}.shupd`);
 try {
-  writeFileSync(join(staging, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
-  writeFileSync(join(staging, basename(installerName)), installerBytes);
-  rmSync(zipPath, { force: true });
   rmSync(updatePath, { force: true });
-  run("powershell.exe", [
-    "-NoProfile",
-    "-NonInteractive",
-    "-Command",
-    "Compress-Archive -LiteralPath $args[0],$args[1] -DestinationPath $args[2] -Force",
-    join(staging, "manifest.json"),
-    join(staging, installerName),
-    zipPath,
-  ]);
-  renameSync(zipPath, updatePath);
+  const archiveBytes = await createOfflineUpdateArchive(manifest, installerName, installerBytes);
+  writeFileSync(updatePath, archiveBytes);
 } finally {
-  rmSync(staging, { recursive: true, force: true });
   rmSync(updateConfigPath, { force: true });
 }
 

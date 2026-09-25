@@ -15,10 +15,11 @@
 		"tauri:build:advanced": "tauri build --config src-tauri/tauri.advanced.conf.json --bundles nsis",
 		"tauri:build:admin": "tauri build --config src-tauri/tauri.admin.conf.json --bundles nsis",
 		"update:build": "node scripts/build-offline-update.mjs",
+		"test:update-archive": "node --test scripts/offline-update-archive.check.mjs",
 		"test": "vitest run",
 		"lint": "eslint src --max-warnings=0",
 		"check:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --check && cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
-		"test:full": "npm run lint && npm run test && npm run build && npm run check:rust && cargo test --manifest-path src-tauri/Cargo.toml"
+		"test:full": "npm run lint && npm run test:update-archive && npm run test && npm run build && npm run check:rust && cargo test --manifest-path src-tauri/Cargo.toml"
 	},
 	"dependencies": {
 		"@tauri-apps/api": "^2.0.0",
@@ -40,6 +41,7 @@
 		"@vitejs/plugin-react": "^4.3.1",
 		"eslint": "^10.8.1",
 		"eslint-plugin-react-hooks": "^7.1.1",
+		"jszip": "^3.10.1",
 		"jsdom": "^25.0.1",
 		"typescript": "^5.5.4",
 		"typescript-eslint": "^8.67.0",
