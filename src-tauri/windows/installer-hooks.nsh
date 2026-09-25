@@ -60,3 +60,8 @@
     CopyFiles /SILENT "$EXEDIR\Резервні копії" "$LOCALAPPDATA\ua.shablonizator.advanced"
   ${EndIf}
 !macroend
+
+!macro NSIS_HOOK_POSTINSTALL
+  ; Інсталятор і кожне файлове оновлення залишають актуальний ярлик програми.
+  CreateShortcut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+!macroend

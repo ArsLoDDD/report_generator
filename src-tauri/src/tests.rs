@@ -37,6 +37,15 @@ fn windows_installer_migrates_data_from_the_portable_folder() {
     }
 }
 
+#[test]
+fn windows_installer_creates_the_desktop_shortcut() {
+    let hooks = include_str!("../windows/installer-hooks.nsh");
+    assert!(hooks.contains("!macro NSIS_HOOK_POSTINSTALL"));
+    assert!(hooks.contains(
+        r#"CreateShortcut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe""#
+    ));
+}
+
 fn migration_test_directory(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "shablonizator-migration-{name}-{}-{}",
