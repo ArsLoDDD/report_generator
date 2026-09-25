@@ -118,13 +118,11 @@ pub(crate) fn list_all_templates(app: tauri::AppHandle) -> Result<Vec<TemplateFi
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("docx"))
         })
         .filter_map(|path| {
-            let file_name = path.file_name()?.to_str()?.to_string();
-            let (description, _) = template_description(&file_name);
             let source_path = path.to_string_lossy().to_string();
             let (is_valid, variables) = cached_template_inspection(&path);
             Some(TemplateFile {
                 name: path.file_stem()?.to_str()?.to_string(),
-                description: description.to_string(),
+                description: "Локальний DOCX-шаблон рапорту".to_string(),
                 changed: "Локальний файл".to_string(),
                 status: if is_valid {
                     "ready".to_string()

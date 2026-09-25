@@ -992,40 +992,6 @@ fn report_file_names_are_portable_bounded_and_non_destructive() {
 }
 
 #[test]
-fn every_shipped_docx_uses_valid_v2_tokens() {
-    let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
-    for entry in fs::read_dir(directory).unwrap().flatten() {
-        if entry.path().extension().and_then(|value| value.to_str()) == Some("docx") {
-            let result = inspect(entry.path().to_str().unwrap());
-            assert!(
-                result.is_valid,
-                "{}: {:?}",
-                entry.path().display(),
-                result.errors
-            );
-        }
-    }
-}
-
-#[test]
-fn complex_relationship_templates_use_valid_v2_tokens() {
-    let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .join("Шаблони");
-    for name in [
-        "ТЕСТ 01 Військовослужбовець екіпаж і автомобіль.docx",
-        "ТЕСТ 02 Паспорт екіпажу та всього майна.docx",
-        "ТЕСТ 03 Автомобіль водій і екіпаж.docx",
-        "ТЕСТ 04 Майно екіпажі позиції відповідальні.docx",
-    ] {
-        let path = directory.join(name);
-        let result = inspect(path.to_str().unwrap());
-        assert!(result.is_valid, "{}: {:?}", path.display(), result.errors);
-    }
-}
-
-#[test]
 fn styles_the_exact_token_run_when_two_values_are_identical() {
     let xml = concat!(
         "<w:p>",

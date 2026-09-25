@@ -631,13 +631,14 @@ fn only_docx_files_inside_the_templates_directory_can_be_opened() {
 }
 
 #[test]
-fn creates_operational_control_templates() {
+fn removes_only_untouched_legacy_default_templates() {
     let root = std::env::temp_dir().join(format!(
         "shablonizator-operational-templates-{}",
         std::process::id()
     ));
     fs::create_dir_all(&root).unwrap();
     create_operational_report_templates(&root).unwrap();
+    create_vehicle_report_template(&root.join("Рапорт на автомобіль.docx")).unwrap();
     for name in [
         "Контрольний рапорт — екіпаж.docx",
         "Контрольний рапорт — генератор.docx",
@@ -676,6 +677,27 @@ fn creates_operational_control_templates() {
     )
     .expect("ТЕСТ 01 має створюватися навіть без закріпленого автомобіля");
     assert!(std::path::Path::new(&generated.docx_path).exists());
+    create_simple_report_template(
+        &root.join("Контрольний рапорт — екіпаж.docx"),
+        "Власний шаблон",
+        "Власний текст користувача",
+    )
+    .unwrap();
+    remove_legacy_default_template_files(&root).unwrap();
+    assert!(root.join("Контрольний рапорт — екіпаж.docx").exists());
+    for name in [
+        "Контрольний рапорт — генератор.docx",
+        "Контрольний рапорт — БпЛА.docx",
+        "Контрольний рапорт — зв’язок.docx",
+        "Контрольний рапорт — зброя та БК.docx",
+        "ТЕСТ 01 Військовослужбовець екіпаж і автомобіль.docx",
+        "ТЕСТ 02 Паспорт екіпажу та всього майна.docx",
+        "ТЕСТ 03 Автомобіль водій і екіпаж.docx",
+        "ТЕСТ 04 Майно екіпажі позиції відповідальні.docx",
+        "Рапорт на автомобіль.docx",
+    ] {
+        assert!(!root.join(name).exists(), "{name} мав бути прибраний");
+    }
     let _ = fs::remove_dir_all(root);
 }
 

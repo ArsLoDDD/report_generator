@@ -89,7 +89,7 @@ describe("navigation and report generation", () => {
   });
 
   it("shows startup diagnostics in the sidebar", async () => {
-    vi.mocked(applicationService.getStartupWarnings).mockResolvedValueOnce([{ code: "templates-missing", title: "Шаблони були відсутні", message: "Стартові шаблони відновлено." }]);
+    vi.mocked(applicationService.getStartupWarnings).mockResolvedValueOnce([{ code: "templates-missing", title: "Шаблони були відсутні", message: "Додайте власний DOCX-шаблон." }]);
     render(<App />);
     await waitFor(() => expect(screen.getByRole("button", { name: /Попередження/u })).toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "Попередження" })).toBeInTheDocument();

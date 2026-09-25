@@ -17,6 +17,7 @@ mod xlsx;
 use chrono::{DateTime, Local};
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     fs,
@@ -277,14 +278,253 @@ fn is_simple_edition(app: &tauri::AppHandle) -> bool {
         .is_some_and(|name| name.contains("проста версія"))
 }
 
-fn ensure_application_structure_for_edition(
-    app: &tauri::AppHandle,
-    is_simple_edition: bool,
-) -> Result<PathBuf, String> {
+const LEGACY_DEFAULT_TEMPLATES_CLEANUP_MARKER: &str = ".standard-templates-removed-v1";
+
+const LEGACY_DEFAULT_TEMPLATE_HASHES: &[(&str, &str)] = &[
+    (
+        "Контрольний рапорт — БпЛА.docx",
+        "708bbef5c5a4e39461af328801c23a0ab2dca85e0f9993c6ebbf7d6a519c79e5",
+    ),
+    (
+        "Контрольний рапорт — військовослужбовець.docx",
+        "1832fb2db1fea28426303cc747927b38133c7f999226fb552ad8faa615dd6631",
+    ),
+    (
+        "Контрольний рапорт — генератор.docx",
+        "fc86e0f8e86aca0a6c241067fa83b787639e4f75e57e07ec1b82996410bca998",
+    ),
+    (
+        "Контрольний рапорт — екіпаж.docx",
+        "3d24e7600c4f408bce899dee257b88561f39157dd1aec726ff59e2d0716bd3c3",
+    ),
+    (
+        "Контрольний рапорт — зброя та БК.docx",
+        "9b3265772fb019c2a752f4131f94720659b07514a45fc1a664b4f05399ff6386",
+    ),
+    (
+        "Контрольний рапорт — зв’язок.docx",
+        "8f7f873368b4302f3fb61d2a37c1205d94936155d252a2311f89c675f12232c2",
+    ),
+    (
+        "Контрольний — БЧС екіпажу.docx",
+        "95ac213e00a2e502d07fd7337eddec804ac4c4006dc7a708cf51a155a2fd57a3",
+    ),
+    (
+        "Контрольний — два військовослужбовці.docx",
+        "b0190fdf31396b07971e022f565b59177773430b27751ccf53a83c7be2a5c264",
+    ),
+    (
+        "Контрольний — довільні параметри.docx",
+        "94ab6f6bfda436a2468393b8d46025041a7e8003c441f3bdf65b67308f0a4b88",
+    ),
+    (
+        "Контрольний — зміна екіпажу на позиції.docx",
+        "e00232facd6a53fc66386152fae0c391127f3dca97a947a6d8e1d4546d30b771",
+    ),
+    (
+        "Контрольний — модифікатори.docx",
+        "2383687be41eb12156540a27276880af074d9c69e3b952f3ec7cdb8b3064caaf",
+    ),
+    (
+        "Контрольний — передача генератора екіпажу.docx",
+        "9a2326278dd091650fa1c09fdf10bfe7e88a754323436323a2a64bef543a131e",
+    ),
+    (
+        "Контрольний — повний комплекс.docx",
+        "9442c205cb87a5e48f398fcf6bd4f46a28b2aa9e96773d147f120359b79f12b7",
+    ),
+    (
+        "Контрольний — позиція.docx",
+        "da01a4c61d8f0dce1120e45705e351f04bdae3376e33fe7ccb997f223ae0825b",
+    ),
+    (
+        "Контрольний — інцидент БпЛА.docx",
+        "36641aa4ae22fbb037601b7e41dba072973311bc5795442d84031b5356a7dd6b",
+    ),
+    (
+        "Рапорт на автомобіль.docx",
+        "44e901d9beb882b7e99ce3bbc2863459d101de473699ebfd40b7a79254bde565",
+    ),
+    (
+        "Рапорт на відпустку з датою.docx",
+        "9d30c0d3a91f44bf7615c950b996631f59642f515dbaa7700b1c7402428af2dc",
+    ),
+    (
+        "Рапорт на відпустку.docx",
+        "ad2be409247d81d1a8dac9845c793b76b89393e4f684ba29d119dd1aef812336",
+    ),
+    (
+        "Рапорт на матеріальну допомогу.docx",
+        "12e30da0f6e5edd4460f596d05293e583e2e26ee01f33f89718ec1866f8a3c56",
+    ),
+    (
+        "Список військовослужбовців.docx",
+        "3eb4ede8085cb998396c53823a5fa30ca6dfadece487f0fea0c1066a50d02d09",
+    ),
+    (
+        "ТЕСТ 01 Військовослужбовець екіпаж і автомобіль.docx",
+        "9c55d8487e80a9dd087aef00a5695c105aeeaacd82f520d4365440545e503852",
+    ),
+    (
+        "ТЕСТ 02 Паспорт екіпажу та всього майна.docx",
+        "f0a86941f91b49c1440c52bf945d841ab9e59e0f844682e041a2cfd3d5613048",
+    ),
+    (
+        "ТЕСТ 03 Автомобіль водій і екіпаж.docx",
+        "371401b6a6a10706845196bc0d182aef546779802fe48379c7760a86dba95bcf",
+    ),
+    (
+        "ТЕСТ 04 Майно екіпажі позиції відповідальні.docx",
+        "1b175bb9fa6a993518cc6fbd40d163eaa40b775925e299234fccbe35f9f16be7",
+    ),
+];
+
+const LEGACY_GENERATED_TEMPLATE_DOCUMENT_HASHES: &[(&str, &str)] = &[
+    (
+        "Контрольний рапорт — БпЛА.docx",
+        "a8bea69f9f43c786999d98f7abf1dfcd94c6790135a8621f958a74826141d6a9",
+    ),
+    (
+        "Контрольний рапорт — військовослужбовець.docx",
+        "3dcf943288fd3c3ba02d71ed5b3e1ff3a1a8579d95529e75a49b902adadb85a9",
+    ),
+    (
+        "Контрольний рапорт — генератор.docx",
+        "c2dc346e872c187f16ef8e56da5a0d2f86673c6f02b8b4db936e1f55818eadad",
+    ),
+    (
+        "Контрольний рапорт — екіпаж.docx",
+        "0bc130d9e8432e5ef23e191a0d7466c168ed9303d6e6b6bd17f63b688ca315ef",
+    ),
+    (
+        "Контрольний рапорт — зброя та БК.docx",
+        "e07d49c69dc425b8111f7dda675197ebde48d7c82a2521daea72dcd3be657757",
+    ),
+    (
+        "Контрольний рапорт — зв’язок.docx",
+        "b2d6e3a3fa8e17c830bba1b62789685db02afc71bbc7448ca4abf317a46fb49f",
+    ),
+    (
+        "Контрольний — БЧС екіпажу.docx",
+        "57e7178c8f121cd07faffa9b19d1dcdd4f909e3115fb854d0602471a26a525c7",
+    ),
+    (
+        "Контрольний — два військовослужбовці.docx",
+        "58c4fea570902be4c37f96f5ba64e08b9f955452c2640cb6822b93940dc7dbe9",
+    ),
+    (
+        "Контрольний — довільні параметри.docx",
+        "e7efef16f0e0bb70ea7b2199f6f6da10f262c3d2d876676d8195adcd27dcba15",
+    ),
+    (
+        "Контрольний — зміна екіпажу на позиції.docx",
+        "7cdbd912ebf6c70cf28d0b6c44a3c86ba889931804ce6e52d2aee31948bcb56c",
+    ),
+    (
+        "Контрольний — модифікатори.docx",
+        "f4aeff37766157c68bfd19321c29e58930ab018deb1a656204e9b377da06a7d2",
+    ),
+    (
+        "Контрольний — передача генератора екіпажу.docx",
+        "07f8a661672f496c53c8502af4e36f90875cdf26f9470828bada3c2bda45309c",
+    ),
+    (
+        "Контрольний — повний комплекс.docx",
+        "50a7738fbf93c4fec2ce8ec6a2205a4d8a05093b5beeacca7f9799d3e5b5d5ce",
+    ),
+    (
+        "Контрольний — позиція.docx",
+        "4319a0eeaccad25b7ffbb701f4e4dfa0897a9a26398813ed949e5a46b9ccf575",
+    ),
+    (
+        "Контрольний — інцидент БпЛА.docx",
+        "c0aebfc6642b4754aa3844569d212e7b08c57a279a2dca630b573cab8a6a95a0",
+    ),
+    (
+        "Рапорт на автомобіль.docx",
+        "4627fd92c33bf6c07a85017894573aae6765d29b6c308f26d5040c42c88841e9",
+    ),
+    (
+        "ТЕСТ 01 Військовослужбовець екіпаж і автомобіль.docx",
+        "1c10151e0bc30b11a19201689c3038e88b55764068d13a08d86731edacf69ced",
+    ),
+    (
+        "ТЕСТ 02 Паспорт екіпажу та всього майна.docx",
+        "1a3aa0bfff1ec6cadd99283ad4f74eaff49f530320ae83d477293dd726caf8dc",
+    ),
+    (
+        "ТЕСТ 03 Автомобіль водій і екіпаж.docx",
+        "787d83754f5643ed15b66558e81c2e64b3fb3fba22b1fb8ab550d6a8204b7b72",
+    ),
+    (
+        "ТЕСТ 04 Майно екіпажі позиції відповідальні.docx",
+        "60938d1b1fc1a57a935f23e52b65979e13eb0ca111dbc159a145910d54410cad",
+    ),
+];
+
+fn is_untouched_generated_template(path: &Path, expected_document_hash: &str) -> bool {
+    let Ok(file) = fs::File::open(path) else {
+        return false;
+    };
+    let Ok(mut archive) = ZipArchive::new(file) else {
+        return false;
+    };
+    if archive.len() != 3 {
+        return false;
+    }
+    let Ok(mut document) = archive.by_name("word/document.xml") else {
+        return false;
+    };
+    let mut bytes = Vec::new();
+    document.read_to_end(&mut bytes).is_ok()
+        && format!("{:x}", Sha256::digest(bytes)) == expected_document_hash
+}
+
+fn remove_templates_with_hashes(
+    directory: &Path,
+    templates: &[(&str, &str)],
+) -> Result<(), String> {
+    for (name, expected_hash) in templates {
+        let path = directory.join(name);
+        if !path.is_file() {
+            continue;
+        }
+        let bytes = fs::read(&path)
+            .map_err(|_| format!("Не вдалося перевірити старий стандартний шаблон «{name}»."))?;
+        let actual_hash = format!("{:x}", Sha256::digest(bytes));
+        if actual_hash == *expected_hash {
+            fs::remove_file(&path)
+                .map_err(|_| format!("Не вдалося прибрати старий стандартний шаблон «{name}»."))?;
+        }
+    }
+    Ok(())
+}
+
+fn remove_legacy_default_template_files(directory: &Path) -> Result<(), String> {
+    for (name, expected_document_hash) in LEGACY_GENERATED_TEMPLATE_DOCUMENT_HASHES {
+        let path = directory.join(name);
+        if path.is_file() && is_untouched_generated_template(&path, expected_document_hash) {
+            fs::remove_file(&path)
+                .map_err(|_| format!("Не вдалося прибрати старий стандартний шаблон «{name}»."))?;
+        }
+    }
+    remove_templates_with_hashes(directory, LEGACY_DEFAULT_TEMPLATE_HASHES)
+}
+
+fn remove_legacy_default_templates(directory: &Path) -> Result<(), String> {
+    let marker = directory.join(LEGACY_DEFAULT_TEMPLATES_CLEANUP_MARKER);
+    if marker.exists() {
+        return Ok(());
+    }
+    remove_legacy_default_template_files(directory)?;
+    fs::write(marker, b"1")
+        .map_err(|_| "Не вдалося завершити очищення стандартних шаблонів.".to_string())
+}
+
+fn ensure_application_structure(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let root = application_root(app)?;
     migrate_legacy_application_data(&root)?;
     let templates_directory = root.join(TEMPLATES_DIRECTORY_NAME);
-    let templates_were_missing = !templates_directory.exists();
     for directory in [
         TEMPLATES_DIRECTORY_NAME,
         REPORTS_DIRECTORY_NAME,
@@ -293,18 +533,12 @@ fn ensure_application_structure_for_edition(
         fs::create_dir_all(root.join(directory))
             .map_err(|_| format!("Не вдалося створити папку «{directory}»."))?;
     }
-    if !is_simple_edition && templates_were_missing {
-        create_vehicle_report_template(&templates_directory.join("Рапорт на автомобіль.docx"))?;
-        create_operational_report_templates(&templates_directory)?;
-    }
+    remove_legacy_default_templates(&templates_directory)?;
     settings::load(&root)?;
     Ok(root)
 }
 
-fn ensure_application_structure(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    ensure_application_structure_for_edition(app, is_simple_edition(app))
-}
-
+#[cfg(test)]
 fn create_operational_report_templates(directory: &Path) -> Result<(), String> {
     let templates = [
         ("Контрольний рапорт — екіпаж.docx", "Контрольний рапорт щодо екіпажу {{екіпаж_1_назва}}", "Взвод: {{екіпаж_1_взвод}}. Позиція: {{екіпаж_1_позиція}}. Район розвідки: {{екіпаж_1_район_розвідки}}. Склад: {{екіпаж_1_склад}}. Автомобілі: {{екіпаж_1_автомобілі}}."),
@@ -337,6 +571,7 @@ fn create_operational_report_templates(directory: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(test)]
 fn create_simple_report_template(path: &Path, title: &str, body: &str) -> Result<(), String> {
     let file = fs::File::create(path)
         .map_err(|_| "Не вдалося створити контрольний шаблон.".to_string())?;
@@ -369,6 +604,7 @@ fn create_simple_report_template(path: &Path, title: &str, body: &str) -> Result
     Ok(())
 }
 
+#[cfg(test)]
 fn create_vehicle_report_template(path: &Path) -> Result<(), String> {
     let file = fs::File::create(path)
         .map_err(|_| "Не вдалося створити шаблон рапорту на автомобіль.".to_string())?;
@@ -403,21 +639,6 @@ fn create_vehicle_report_template(path: &Path) -> Result<(), String> {
 
 fn templates_directory(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(ensure_application_structure(app)?.join(TEMPLATES_DIRECTORY_NAME))
-}
-
-fn template_description(file_name: &str) -> (&'static str, u16) {
-    match file_name {
-        "Рапорт на відпустку.docx" => {
-            ("Рапорт на надання відпустки військовослужбовцю", 7)
-        }
-        "Рапорт на відпустку з датою.docx" => {
-            ("Рапорт на надання відпустки з вибором дати", 8)
-        }
-        "Рапорт на матеріальну допомогу.docx" => {
-            ("Рапорт на отримання матеріальної допомоги", 8)
-        }
-        _ => ("Локальний DOCX-шаблон рапорту", 0),
-    }
 }
 
 fn prepare_database_path(root: &Path) -> Result<(PathBuf, bool), String> {
@@ -541,11 +762,7 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let root = ensure_application_structure_for_edition(
-                app.handle(),
-                is_simple_edition(app.handle()),
-            )
-            .map_err(io::Error::other)?;
+            let root = ensure_application_structure(app.handle()).map_err(io::Error::other)?;
             let templates_were_missing =
                 !directory_contains_docx(&root.join(TEMPLATES_DIRECTORY_NAME));
             let (database, database_was_missing) =

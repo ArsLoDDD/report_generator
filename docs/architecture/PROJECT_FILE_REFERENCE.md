@@ -212,12 +212,11 @@
 - `src/xlsx/reader.rs`, `writer.rs` — читання суворого шаблону та запис сумісного XLSX.
 - `src/xlsx/tests.rs`, `src/tests.rs` — інтеграційні тести імпорту, БД, зв’язків і команд.
 - `resources/bcs-reference-styles.xml`, `bcs-reference-theme.xml` — стилі Excel, сумісні з Windows Excel.
-- `icons/*`, `templates/*` — ресурси інсталятора й початкові DOCX.
+- `icons/*` — ресурси іконок інсталятора й застосунку.
 
 ## Службові скрипти й документація
 
 - `scripts/build_excel_template.mjs` — відтворюване створення офіційного Excel-шаблону.
-- `scripts/create_starter_templates.py` — формує стартовий комплект DOCX.
 - `scripts/inspect_bcs_reference.mjs` — діагностує стилі еталонного БЧС.
 - `scripts/seed-development-data.sql` — тестові дані для локальної розробки.
 - `docs/template-language.md`, `docs/architecture/template-language-v2.md` — синтаксис і архітектура мови шаблонів.
