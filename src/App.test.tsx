@@ -82,7 +82,7 @@ describe("navigation and report generation", () => {
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Період рапортів" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
     expect(screen.getByRole("heading", { name: "Налаштування" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Оновити з файла" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Оновити застосунок" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
     expect(screen.getByRole("heading", { name: "Як працювати з програмою" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Конструктор змінних" })).not.toBeInTheDocument();

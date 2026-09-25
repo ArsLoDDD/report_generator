@@ -228,7 +228,8 @@ describe("Картка позиції", () => {
     });
     render(<NotificationProvider><PositionsPage /></NotificationProvider>);
 
-    expect(await screen.findByText("Не є позицією")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Рекогностування" })).toBeInTheDocument();
+    expect(screen.queryByText("Не є позицією")).not.toBeInTheDocument();
     expect(screen.getByText("Активних груп реко: 1")).toBeInTheDocument();
     expect(screen.getByText("до ручного завершення", { exact: false })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Завершити реко" }));

@@ -38,6 +38,8 @@
 }
 .position-card--recon:before { --position-accent: #55b8d8; }
 .position-card--recon .position-card__icon { background: rgba(85,184,216,.12); color: #76cce8; }
+.position-card--recon > header > div:not(.position-card__indicators) { flex: 1 1 auto; }
+.position-card--recon h2 { overflow: visible; text-overflow: clip; white-space: normal; }
 .position-card--compromised:before { --position-accent: #de6d63; }
 .position-card--allied:before { --position-accent: #9a8fd0; }
 .position-card > header {
