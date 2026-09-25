@@ -19,6 +19,24 @@ fn default_tauri_config_initializes_the_signed_updater() {
     );
 }
 
+#[test]
+fn windows_installer_migrates_data_from_the_portable_folder() {
+    let hooks = include_str!("../windows/installer-hooks.nsh");
+    for source in [
+        "$EXEDIR\\особовий_склад.db",
+        "$EXEDIR\\settings.json",
+        "$EXEDIR\\custom_variables.json",
+        "$EXEDIR\\Шаблони\\*.*",
+        "$EXEDIR\\Згенеровані рапорти\\*.*",
+        "$EXEDIR\\Резервні копії\\*.*",
+    ] {
+        assert!(
+            hooks.contains(source),
+            "installer migration is missing {source}"
+        );
+    }
+}
+
 fn migration_test_directory(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "shablonizator-migration-{name}-{}-{}",
