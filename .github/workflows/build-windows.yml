@@ -31,8 +31,8 @@ jobs:
       - run: npm run test:full
 
   build:
-    name: Просунута версія
-    if: github.event_name != 'workflow_dispatch'
+    name: Просунута версія та файл оновлення
+    if: github.event_name != 'pull_request'
     needs: verify
     runs-on: windows-latest
     steps:
@@ -45,39 +45,48 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
       - run: npm ci
-      - name: Зібрати інсталятор
-        run: npm run tauri:build:advanced
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Shablonizator-Advanced-Windows
-          path: src-tauri/target/release/bundle/nsis/*.exe
-          if-no-files-found: error
-
-  offline-update:
-    name: Підписаний файл оновлення
-    if: github.event_name == 'workflow_dispatch'
-    needs: verify
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-      - run: npm ci
-      - name: Зібрати та підписати файл оновлення
+      - name: Зібрати інсталятор і підписаний файл оновлення
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          UPDATE_VERSION: ${{ inputs.version }}
-          UPDATE_NOTES: ${{ inputs.notes }}
-        run: npm run update:build -- --version $env:UPDATE_VERSION --notes $env:UPDATE_NOTES --skip-tests
+          REQUESTED_VERSION: ${{ inputs.version }}
+          REQUESTED_NOTES: ${{ inputs.notes }}
+          COMMIT_NOTES: ${{ github.event.head_commit.message }}
+        run: |
+          $version = $env:REQUESTED_VERSION
+          if (-not $version) {
+            $version = node -p "require('./package.json').version"
+          }
+          $notes = $env:REQUESTED_NOTES
+          if (-not $notes) {
+            $notes = $env:COMMIT_NOTES
+          }
+          if (-not $notes) {
+            $notes = "Оновлення Шаблонізатора $version"
+          }
+          npm run update:build -- --version $version --notes $notes --skip-tests
       - uses: actions/upload-artifact@v4
         with:
-          name: Shablonizator-Advanced-Update-${{ inputs.version }}
-          path: release/*.shupd
+          name: Shablonizator-Advanced-Windows
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            release/*.shupd
           if-no-files-found: error
+
+  pull-request-build:
+    name: Перевірка збірки просунутої версії
+    if: github.event_name == 'pull_request'
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - run: npm ci
+      - run: npm run tauri:build:advanced

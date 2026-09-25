@@ -346,7 +346,7 @@ pub(crate) async fn install_offline_update(
         return Err("Офлайн-оновлення встановлюється лише у Windows-версії програми.".into());
     }
     let (_, package) = package_info(&app, Path::new(&path))?;
-    document_commands::create_database_backup(app.clone(), state)?;
+    document_commands::create_pre_update_backup(app.clone(), state)?;
     install_validated_package(app, package).await
 }
 

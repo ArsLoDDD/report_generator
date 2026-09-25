@@ -693,18 +693,35 @@ pub(crate) fn export_application_data(
     path: String,
     options: DataArchiveOptions,
 ) -> Result<(), String> {
-    let root = ensure_application_structure(&app)?;
-    let destination = PathBuf::from(path);
+    write_application_data_archive(&app, state.inner(), &PathBuf::from(path), &options)
+}
+
+fn write_application_data_archive(
+    app: &tauri::AppHandle,
+    state: &AppState,
+    destination: &Path,
+    options: &DataArchiveOptions,
+) -> Result<(), String> {
+    let root = ensure_application_structure(app)?;
+    write_application_data_archive_from_root(&root, state, destination, options)
+}
+
+fn write_application_data_archive_from_root(
+    root: &Path,
+    state: &AppState,
+    destination: &Path,
+    options: &DataArchiveOptions,
+) -> Result<(), String> {
     let absolute_destination = if destination.is_absolute() {
-        destination.clone()
+        destination.to_path_buf()
     } else {
         std::env::current_dir()
             .map_err(|_| "Не вдалося визначити шлях архіву.".to_string())?
-            .join(&destination)
+            .join(destination)
     };
     let mut excluded = HashSet::new();
     excluded.insert(absolute_destination);
-    let work_directory = create_unique_directory(&root, ".application-export")?;
+    let work_directory = create_unique_directory(root, ".application-export")?;
     let result = (|| {
         let mut sources = Vec::new();
         if options.database {
@@ -722,7 +739,7 @@ pub(crate) fn export_application_data(
             });
         }
         if options.settings {
-            let source = settings::path(&root);
+            let source = settings::path(root);
             if source.exists() {
                 sources.push(ArchiveSource {
                     source,
@@ -755,10 +772,36 @@ pub(crate) fn export_application_data(
                 &excluded,
             )?;
         }
-        write_archive_atomically(&destination, &sources)
+        write_archive_atomically(destination, &sources)
     })();
     let _ = fs::remove_dir_all(work_directory);
     result
+}
+
+pub(crate) fn create_pre_update_backup(
+    app: tauri::AppHandle,
+    state: tauri::State<AppState>,
+) -> Result<String, String> {
+    let root = ensure_application_structure(&app)?;
+    let now = Local::now();
+    let directory = root
+        .join(BACKUPS_DIRECTORY_NAME)
+        .join(now.format("%d.%m.%Y").to_string());
+    fs::create_dir_all(&directory)
+        .map_err(|_| "Не вдалося створити папку резервних копій.".to_string())?;
+    let path = directory.join(format!(
+        "Перед оновленням {}.zip",
+        now.format("%H-%M-%S%.3f")
+    ));
+    let options = DataArchiveOptions {
+        database: true,
+        settings: true,
+        custom_variables: true,
+        templates: true,
+        reports: true,
+    };
+    write_application_data_archive(&app, state.inner(), &path, &options)?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 fn import_relative_path(name: &str) -> Option<PathBuf> {
@@ -1459,6 +1502,66 @@ mod archive_tests {
         assert_eq!(manifest.files[0].size, 16);
         assert_eq!(manifest.files[0].sha256.len(), 64);
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pre_update_archive_contains_every_user_data_category() {
+        let root = test_directory("pre-update-full");
+        fs::create_dir_all(root.join(TEMPLATES_DIRECTORY_NAME)).unwrap();
+        fs::create_dir_all(root.join(REPORTS_DIRECTORY_NAME).join("25.09.2026")).unwrap();
+        fs::write(root.join("settings.json"), br#"{"unit":{}}"#).unwrap();
+        fs::write(root.join(CUSTOM_VARIABLES_FILE_NAME), b"[]").unwrap();
+        fs::write(
+            root.join(TEMPLATES_DIRECTORY_NAME).join("template.docx"),
+            b"docx",
+        )
+        .unwrap();
+        fs::write(
+            root.join(REPORTS_DIRECTORY_NAME)
+                .join("25.09.2026")
+                .join("report.docx"),
+            b"report",
+        )
+        .unwrap();
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute("CREATE TABLE sample(id INTEGER)", [])
+            .unwrap();
+        let state = AppState(
+            Mutex::new(DatabaseState {
+                connection,
+                path: root.join(DATABASE_FILE_NAME),
+                is_persistent: false,
+            }),
+            Vec::new(),
+        );
+        let archive_path = root.join("before-update.zip");
+        write_application_data_archive_from_root(
+            &root,
+            &state,
+            &archive_path,
+            &DataArchiveOptions {
+                database: true,
+                settings: true,
+                custom_variables: true,
+                templates: true,
+                reports: true,
+            },
+        )
+        .unwrap();
+
+        let file = fs::File::open(&archive_path).unwrap();
+        let mut archive = ZipArchive::new(file).unwrap();
+        for expected in [
+            format!("data/{DATABASE_FILE_NAME}"),
+            "data/settings.json".into(),
+            "data/custom_variables.json".into(),
+            "templates/template.docx".into(),
+            "reports/25.09.2026/report.docx".into(),
+        ] {
+            assert!(archive.by_name(&expected).is_ok(), "missing {expected}");
+        }
         fs::remove_dir_all(root).unwrap();
     }
 
