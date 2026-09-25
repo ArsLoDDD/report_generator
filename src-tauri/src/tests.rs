@@ -1,5 +1,24 @@
 use super::*;
 
+#[test]
+fn default_tauri_config_initializes_the_signed_updater() {
+    let config: serde_json::Value =
+        serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+    let updater = config
+        .pointer("/plugins/updater")
+        .and_then(serde_json::Value::as_object)
+        .expect("default Tauri config must contain updater settings");
+
+    assert!(updater
+        .get("pubkey")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.is_empty()));
+    assert_eq!(
+        updater.get("requireSignedVersion"),
+        Some(&serde_json::Value::Bool(true))
+    );
+}
+
 fn migration_test_directory(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "shablonizator-migration-{name}-{}-{}",
