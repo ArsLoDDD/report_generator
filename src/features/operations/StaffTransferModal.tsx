@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Modal } from "../../shared/ui/Modal";
-import { Select } from "../../shared/ui/Select";
+import { SearchableSelect } from "../../shared/ui/SearchableSelect";
 import type { StaffingRecord } from "./types";
 import { actingForSlot, projectedOccupants, transferConflicts, type ActingChange, type SlotTransfer, type StaffSlot } from "./staffing-slots";
 
@@ -42,9 +42,9 @@ export function StaffTransferModal({ records, slots, onClose, onSave }: { record
     else stageMove(slot, active);
   };
   const save = async () => { setSaving(true); try { await onSave(moves, acting); } finally { setSaving(false); } };
-  return <Modal title="Переміщення та ТВО" onClose={onClose} className="staff-transfer-modal">
+  return <Modal title="Зміни у штаті" subtitle="Переміщення між посадами та призначення тимчасового виконання обов’язків" onClose={onClose} className="staff-transfer-modal">
     <div className="transfer-layout"><section className="transfer-source">
-      <label className="form-field"><span>Кого переміщуємо</span><Select ariaLabel="Військовослужбовець для переміщення" value={activeId} onChange={setActiveId} options={[{ value: "", label: "Оберіть військовослужбовця" }, ...records.map((person) => ({ value: String(person.personnelId), label: `${person.fullName} — ${person.position}` }))]} /></label>
+      <div className="form-field"><span>Кого переміщуємо</span><SearchableSelect ariaLabel="Військовослужбовець для переміщення" value={activeId} onChange={setActiveId} placeholder="Оберіть військовослужбовця" searchPlaceholder="Пошук за ПІБ або посадою…" options={records.map((person) => ({ value: String(person.personnelId), label: `${person.fullName} — ${person.position}` }))} /></div>
       {active && <div className="transfer-current"><b>{active.fullName}</b><span>{active.position}</span></div>}
       <label className="switch-line transfer-acting-toggle"><input type="checkbox" checked={asActing} onChange={(event) => setAsActing(event.target.checked)} />Призначити ТВО — основна посада залишається</label>
       <div className="transfer-chain">{moves.map((move, index) => <div key={move.personnelId}><button onClick={() => setActiveId(String(move.personnelId))}><b>{index + 1}. {records.find((person) => person.personnelId === move.personnelId)?.fullName}</b><span>{slots.find((slot) => slot.id === move.slotId)?.path} · {move.position}</span></button><button className="button" onClick={() => setMoves((current) => current.filter((item) => item !== move))}>Скасувати крок</button></div>)}{acting.map((item) => <p key={item.personnelId}>{records.find((person) => person.personnelId === item.personnelId)?.fullName}: {item.slotId ? `ТВО · ${item.position}` : "Зняти ТВО"}</p>)}</div>

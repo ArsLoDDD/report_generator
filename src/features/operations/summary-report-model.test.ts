@@ -395,11 +395,13 @@ describe("підсумкове донесення", () => {
     expect(result.objects.positionItems).not.toEqual(expect.arrayContaining([expect.objectContaining({ positionName: "ПОЗИЦІЯ-3" })]));
   });
 
-  it("turns position reconnaissance into an automatic report event", () => {
+  it("turns standalone reconnaissance into an automatic report event without inventing a position", () => {
     const manual = defaultSummaryManual();
-    const input = { reportDate: "2026-09-15", manual, settings: { mainSigner: {}, unit: { kind: "Рота", shortName: "РБАК", battalionShortName: "ББпС", authorizedStrength: 4 } } as never, crews: [], positions: [{ id: 4, name: "САПСАН", mgrs: "36U UV 19000 62000", locality: "НОВОСЕЛІВКА" }] as never, journal: [], snapshots: [], positionWork: [{ id: 9, positionId: 4, positionName: "САПСАН", workType: "Рекогностування", status: "Продовжують", startDate: "2026-09-15", startTime: "08:00", endDate: "", endTime: "", battleOrder: "№ 17", notes: "", members: [{ personnelId: 3, fullName: "ПЕТРЕНКО Петро Петрович", rank: "солдат" }] }] as never };
+    const input = { reportDate: "2026-09-15", manual, settings: { mainSigner: {}, unit: { kind: "Рота", shortName: "РБАК", battalionShortName: "ББпС", authorizedStrength: 4 } } as never, crews: [], positions: [] as never, journal: [], snapshots: [], positionWork: [{ id: 9, positionId: null, positionName: "", stripName: "СМУГА СХІД", locality: "НОВОСЕЛІВКА", mgrs: "", workType: "Рекогностування", status: "Продовжують", startDate: "2026-09-15", startTime: "08:00", endDate: "", endTime: "", battleOrder: "№ 17", notes: "", members: [{ personnelId: 3, fullName: "ПЕТРЕНКО Петро Петрович", rank: "солдат" }] }] as never };
     const automatic = buildSummaryDocument(input);
     expect(automatic.objects.rotationEvents[0].text).toContain("продовжують рекогностування");
+    expect(automatic.objects.rotationEvents[0].text).toContain("у смузі «СМУГА СХІД» в районі НОВОСЕЛІВКА");
+    expect(automatic.objects.rotationEvents[0].text).not.toContain("позиції старту БпЛА");
     expect(automatic.objects.rotationEvents[0].text).toContain("ПЕТРЕНКО Петро Петрович");
   });
 

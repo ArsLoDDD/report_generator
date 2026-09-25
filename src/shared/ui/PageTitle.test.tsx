@@ -29,6 +29,7 @@ describe("Редактор кастомних полів", () => {
     renderTitle();
     fireEvent.click(screen.getByRole("button", { name: "Редактор кастомних полів" }));
     fireEvent.click(await screen.findByRole("button", { name: "Створити поле" }));
+    expect(screen.queryByText("Де використовується поле")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Зберегти поле" }));
     expect(await screen.findByText(/Ключ поля має починатися/)).toBeInTheDocument();
     expect(service.createCustomField).not.toHaveBeenCalled();

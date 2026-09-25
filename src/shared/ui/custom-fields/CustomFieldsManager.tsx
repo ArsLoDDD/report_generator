@@ -49,18 +49,23 @@ export function CustomFieldsManager({ scope }: { scope: CustomFieldsScope }) {
 
   return <>
     <button className="button" onClick={() => { void loadFields(); setOpen(true); }}><Plus />Редактор кастомних полів</button>
-    {open && <Modal title="Редактор кастомних полів" onClose={close} className="custom-field-editor">
+    {open && <Modal title={formOpen ? editingFieldKey ? "Редагування поля" : "Нове кастомне поле" : "Редактор кастомних полів"} subtitle={formOpen ? "Налаштуйте назву та значення, яке буде доступне у документах" : `Додаткові дані для ${scope === "vehicle" ? "автомобілів" : "особового складу"} і шаблонів`} onClose={close} className="custom-field-editor">
       {formOpen ? <>
-        <p>Поле буде доступним через «Вставити поле» у Шаблонах та Аналізаторі й синхронізується з custom_variables.json.</p>
-        <label>Ключ поля<input disabled={Boolean(editingFieldKey)} value={field.fieldKey} onChange={(event) => setField({ ...field, fieldKey: event.target.value })} placeholder="unit_name" /></label>
-        <label>Українська назва<input value={field.displayName} onChange={(event) => setField({ ...field, displayName: event.target.value })} /></label>
-        <label>Опис<textarea value={field.description} onChange={(event) => setField({ ...field, description: event.target.value })} /></label>
-        <label>Початкове значення<input value={field.initialValue} onChange={(event) => setField({ ...field, initialValue: event.target.value })} /></label>
-        <div className="modal-actions"><button className="button" onClick={resetForm}>Назад до списку</button><button className="button primary" onClick={() => void save()}>Зберегти поле</button></div>
+        <div className="custom-field-editor__body custom-field-form">
+          <div className="custom-field-form__grid">
+            <label className="form-field"><span>Ключ поля <b>*</b></span><input aria-label="Ключ поля" disabled={Boolean(editingFieldKey)} value={field.fieldKey} onChange={(event) => setField({ ...field, fieldKey: event.target.value })} placeholder="unit_name" /><small>{editingFieldKey ? "Ключ збережено для сумісності зі старими шаблонами." : "Малі латинські літери, цифри та підкреслення."}</small></label>
+            <label className="form-field"><span>Українська назва <b>*</b></span><input aria-label="Українська назва" value={field.displayName} onChange={(event) => setField({ ...field, displayName: event.target.value })} placeholder="Наприклад, Позивний" /></label>
+            <label className="form-field form-field--wide"><span>Опис</span><textarea value={field.description} onChange={(event) => setField({ ...field, description: event.target.value })} placeholder="Коротко поясніть, які дані тут заповнювати" /></label>
+            <label className="form-field form-field--wide"><span>Початкове значення</span><input value={field.initialValue} onChange={(event) => setField({ ...field, initialValue: event.target.value })} placeholder="Необов’язково" /><small>Підставляється у новий запис, доки користувач не введе інше значення.</small></label>
+          </div>
+        </div>
+        <footer className="modal-actions"><button className="button" onClick={resetForm}>Назад до списку</button><button data-modal-submit className="button primary" onClick={() => void save()}>Зберегти поле</button></footer>
       </> : <>
-        <header className="custom-field-editor__header"><div><p>Створюйте додаткові поля для {scope === "vehicle" ? "автомобілів" : "особового складу"}, конструктора та шаблонів.</p></div><button className="button primary" onClick={() => { setEditingFieldKey(null); setField(emptyField()); setFormOpen(true); }}><Plus />Створити поле</button></header>
-        {fields.length === 0 ? <p className="custom-field-editor__empty">Кастомних полів ще немає.</p> : <div className="custom-field-list"><h3>Створені поля</h3>{fields.map((item) => <div key={item.fieldKey}><span>{item.displayName} <code>{item.fieldKey}</code></span><button className="button" onClick={() => { setEditingFieldKey(item.fieldKey); setField(item); setFormOpen(true); }}>Редагувати</button><button className="button danger" onClick={() => void remove(item.fieldKey)}>Видалити</button></div>)}</div>}
-        <div className="modal-actions"><button data-modal-enter-action className="button" onClick={close}>Закрити</button></div>
+        <div className="custom-field-editor__body">
+          <div className="custom-field-editor__toolbar"><p>Створюйте лише ті поля, яких немає у стандартній картці. Ключ поля програма використовує у шаблонах.</p><button className="button primary" onClick={() => { setEditingFieldKey(null); setField(emptyField()); setFormOpen(true); }}><Plus />Створити поле</button></div>
+          {fields.length === 0 ? <p className="custom-field-editor__empty">Кастомних полів ще немає.</p> : <div className="custom-field-list"><h3>Створені поля <span>{fields.length}</span></h3>{fields.map((item) => <article key={item.fieldKey}><div><b>{item.displayName}</b><code>{item.fieldKey}</code>{item.description && <small>{item.description}</small>}</div><div><button className="button" onClick={() => { setEditingFieldKey(item.fieldKey); setField(item); setFormOpen(true); }}>Редагувати</button><button className="button danger" onClick={() => void remove(item.fieldKey)}>Видалити</button></div></article>)}</div>}
+        </div>
+        <footer className="modal-actions"><button data-modal-enter-action className="button" onClick={close}>Закрити</button></footer>
       </>}
     </Modal>}
   </>;

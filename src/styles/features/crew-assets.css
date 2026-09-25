@@ -64,8 +64,9 @@
 .crew-editor .crew-selected-members > article { display: grid; grid-template-columns: minmax(0,1fr) auto auto; border: 0; border-bottom: 1px solid rgba(143,153,104,.14); border-radius: 0; background: transparent; }
 .crew-editor .crew-selected-members > article:last-child { border-bottom: 0; }
 .crew-editor__actions { position: sticky; bottom: 0; z-index: 2; background: #111512; }
-.crew-asset-primary { padding: 5px 8px; border: 1px solid #697842; border-radius: 999px; color: #cbdc86; font-size: 11px; font-weight: 800; text-transform: uppercase; }
-.crew-asset-tab-content .crew-asset-primary { justify-self: start; }
+.crew-asset-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.crew-asset-title > b { min-width: 0; }
+.crew-asset-primary { flex: 0 0 auto; padding: 4px 8px; border: 1px solid #697842; border-radius: 999px; color: #cbdc86; font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .crew-history { display: grid; gap: 10px; }
 .crew-history > article { display: grid; grid-template-columns: 38px minmax(0,1fr); gap: 12px; padding: 15px; border: 1px solid var(--line); border-radius: 11px; background: #0e130f; }
 .crew-history > article > svg { align-self: center; width: 19px; color: var(--accent); }
@@ -73,10 +74,10 @@
 .crew-history span,.crew-history p { margin: 0; color: var(--muted); }
 .crew-history__empty { display: grid; justify-items: center; gap: 8px; padding: 48px 20px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); text-align: center; }
 .crew-history__empty svg { color: var(--accent); }
-.crew-asset-tabs { display: flex; gap: 6px; margin: 16px 0 12px; overflow-x: auto; scrollbar-width: thin; }
+.crew-asset-tabs { display: flex; justify-content: center; gap: 4px; width: fit-content; max-width: 100%; margin: 18px auto 14px; padding: 5px; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: rgba(0,0,0,.12); scrollbar-width: thin; }
 .crew-asset-tabs button { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: transparent; color: var(--muted); font: inherit; font-size: 12px; font-weight: 750; white-space: nowrap; cursor: pointer; }
 .crew-asset-tabs button:hover { border-color: #626d46; color: var(--text); }
-.crew-asset-tabs button.active { border-color: #7d8c4e; background: rgba(151,164,102,.13); color: var(--accent-text); }
+.crew-asset-tabs button.active { border-color: #7d8c4e; background: rgba(151,164,102,.16); color: var(--accent-text); box-shadow: inset 0 -2px #a8b563; }
 .crew-asset-tabs button b { min-width: 18px; padding: 2px 5px; border-radius: 999px; background: rgba(255,255,255,.06); font-size: 10px; text-align: center; }
 .crew-asset-tab-content { overflow: hidden; border: 1px solid rgba(143,153,104,.2); border-radius: 11px; background: #0e130f; }
 .crew-asset-tab-content > article { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 12px; min-height: 72px; padding: 12px 14px; border-bottom: 1px solid rgba(143,153,104,.14); }
@@ -112,5 +113,5 @@
 .asset-editor__section-title small { color: #888f84; font-size: 11px; }
 .asset-editor__type { display: grid; grid-template-columns: minmax(0,1fr); gap: 7px; padding: 14px; border: 1px solid rgba(168,181,99,.26); border-radius: 12px; background: rgba(168,181,99,.06); }
 .asset-editor__type small { color: #929a8e; line-height: 1.35; }
-@media (max-width: 700px) { .crew-asset-tab-content > article { grid-template-columns: minmax(0,1fr) auto; } .crew-asset-tab-content > article .crew-asset-primary { grid-column: 1; justify-self: start; } }
+@media (max-width: 700px) { .crew-asset-tab-content > article { grid-template-columns: minmax(0,1fr) auto; } .crew-asset-tabs { justify-content: flex-start; width: 100%; } }
 @media (max-width: 620px) { .asset-editor--compact .operation-editor__body { grid-template-columns: 1fr; padding-inline: 18px; } .asset-editor--compact .form-field--wide { grid-column: 1; } .asset-editor--compact .modal-actions { padding-inline: 18px; } }

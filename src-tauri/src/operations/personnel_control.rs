@@ -390,11 +390,12 @@ fn automatic_context(
         .map_err(|_| "Не вдалося визначити екіпаж військовослужбовця.".to_string())?;
     let work = connection
         .query_row(
-            "SELECT work.id,work.work_type,work.position_id,position.name,
+            "SELECT work.id,work.work_type,work.position_id,
+                    COALESCE(NULLIF(work.position_name,''),position.name,''),
                     work.start_date,work.end_date
              FROM position_work_members member
              JOIN position_work work ON work.id=member.work_id
-             JOIN positions position ON position.id=work.position_id
+             LEFT JOIN positions position ON position.id=work.position_id
              WHERE member.personnel_id=?1 AND work.status<>'Завершили'
              ORDER BY work.id DESC LIMIT 1",
             [personnel_id],
@@ -402,7 +403,7 @@ fn automatic_context(
                 Ok((
                     row.get::<_, i64>(0)?,
                     row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
+                    row.get::<_, Option<i64>>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
@@ -425,7 +426,7 @@ fn automatic_context(
         ) => (
             Some(crew_id),
             crew_name,
-            Some(work_position_id),
+            work_position_id,
             work_position_name,
             Some(work_id),
             work_type,
@@ -445,7 +446,7 @@ fn automatic_context(
         (None, Some((work_id, work_type, position_id, position_name, start_date, end_date))) => (
             None,
             String::new(),
-            Some(position_id),
+            position_id,
             position_name,
             Some(work_id),
             work_type,
@@ -563,7 +564,7 @@ fn personnel_control_records(
                 let source_label = match source {
                     "manual" => "Внесено в контролі особового складу",
                     "automatic" if POSITION_WORK_LOCATIONS.contains(&location_type.as_str()) => {
-                        "Автоматично з робіт на позиції"
+                        "Автоматично з рекогностування або облаштування"
                     }
                     "automatic" => "Автоматично з БЧС і плану польотів",
                     _ => "Стан із БЧС",
@@ -1189,6 +1190,51 @@ mod tests {
         assert_eq!(record.work_type, "Облаштування");
         assert_eq!(record.start_date, "2026-09-15");
         assert_eq!(record.end_date, "2026-09-20");
+    }
+
+    #[test]
+    fn standalone_reconnaissance_appears_in_control_without_a_position() {
+        let connection = connection();
+        connection
+            .execute(
+                "INSERT INTO position_work(
+                    id,position_id,position_name,strip_name,position_locality,work_type,status,
+                    start_date,start_time,end_date,end_time,battle_order
+                 ) VALUES(10,NULL,'','СМУГА СХІД','СТЕПОВЕ','Рекогностування','Продовжують',
+                    '2026-09-15','08:00','','','БРО-РЕКО-1')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO position_work_members(work_id,personnel_id,duty_type,start_date,start_time)
+                 VALUES(10,1,'Рекогностування','2026-09-15','08:00')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE personnel SET current_location='Реко та облаштування' WHERE id=1",
+                [],
+            )
+            .unwrap();
+
+        let record = personnel_control_records(&connection, "2026-09-17")
+            .unwrap()
+            .remove(0);
+
+        assert_eq!(record.tab, "Реко та облаштування");
+        assert_eq!(record.source, "automatic");
+        assert_eq!(
+            record.source_label,
+            "Автоматично з рекогностування або облаштування"
+        );
+        assert_eq!(record.work_id, Some(10));
+        assert_eq!(record.work_type, "Рекогностування");
+        assert_eq!(record.position_id, None);
+        assert_eq!(record.start_date, "2026-09-15");
+        assert_eq!(record.end_date, "");
+        assert!(!record.can_edit);
     }
 
     #[test]

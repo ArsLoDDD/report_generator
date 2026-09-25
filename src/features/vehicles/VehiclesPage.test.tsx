@@ -60,7 +60,7 @@ describe("VehiclesPage", () => {
     expect(editor).toHaveClass("asset-editor--compact", "vehicle-editor--refined");
     expect(within(editor).getByText("Основні дані")).toBeInTheDocument();
     expect(within(editor).getByText("Стан і закріплення")).toBeInTheDocument();
-    expect(within(editor).getByText("Закріплення без обмеження за посадою")).toBeInTheDocument();
+    expect(within(editor).queryByText("Закріплення без обмеження за посадою")).not.toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText("Наприклад, Toyota Hilux"), { target: { value: "Ford Ranger" } });
     fireEvent.change(screen.getByPlaceholderText("Наприклад, АА 1234 АА"), { target: { value: "КА 9999 КА" } });
     fireEvent.click(within(editor).getByRole("button", { name: "Додати автомобіль" }));

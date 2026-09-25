@@ -28,7 +28,6 @@ export function VehicleEditorModal({ statuses, people, vehicle, onClose, onSave 
       <div className="asset-editor__section-title form-field--wide"><span>02</span><div><b>Стан і закріплення</b><small>Відповідальним може бути будь-який військовослужбовець</small></div></div>
       <div className="form-field"><span>Стан автомобіля</span><Select ariaLabel="Початковий статус" value={status} options={statuses.map((value) => ({ value, label: value }))} onChange={setStatus} /></div>
       <div className="form-field"><span>Відповідальна особа</span><Select ariaLabel="Військовослужбовець автомобіля" value={personnelId} options={[{value:"",label:"Не закріплювати"},...people.map((person)=>({value:String(person.id),label:person.fullName}))]} onChange={setPersonnelId} /></div>
-      <div className="vehicle-editor__hint form-field--wide"><Car /><span><b>Закріплення без обмеження за посадою</b><small>Автомобіль можна записати не лише на водія. Екіпаж відповідального визначиться автоматично.</small></span></div>
     </div>
     <footer className="modal-actions"><button className="button" onClick={onClose}>Скасувати</button><button className="button primary" disabled={busy} onClick={() => void save()}><Car />{busy ? "Збереження…" : vehicle ? "Зберегти" : "Додати автомобіль"}</button></footer>
   </Modal>;

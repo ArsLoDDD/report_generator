@@ -5,6 +5,7 @@ import { NotificationProvider } from "../../shared/ui/NotificationProvider";
 import { settingsService } from "../settings/services/settingsService";
 import { StaffingBcsPage } from "./StaffingBcsPage";
 import { operationsService } from "./services/operationsService";
+import type { StaffingRecord } from "./types";
 
 vi.mock("../../shared/ui/PageFrame", () => ({ PageFrame: ({ children, tools }: { children: ReactNode; tools?: ReactNode }) => <div data-testid="staffing-page">{tools}{children}</div> }));
 vi.mock("../settings/services/settingsService", () => ({ settingsService: { get: vi.fn() } }));
@@ -16,8 +17,35 @@ vi.mock("./services/operationsService", () => ({
     listTemporaryPersonnel: vi.fn(),
     listCrews: vi.fn(),
     getFlightPlanSnapshot: vi.fn(),
+    updateStaffingPersonnel: vi.fn(),
   },
 }));
+
+const staffingRecord = (currentLocation: string, notes = ""): StaffingRecord => ({
+  personnelId: 7,
+  fullName: "ТЕСТОВИЙ Петро Іванович",
+  rank: "сержант",
+  position: "оператор",
+  crewId: null,
+  crewName: null,
+  platoon: "",
+  companyName: "",
+  unitType: "",
+  crewPositionName: "",
+  battleOrder: "",
+  sector: "",
+  officialStrength: 0,
+  actualStrength: 0,
+  crewStatus: "",
+  uavName: "",
+  uavType: "",
+  functionalDuties: "Оператор БпЛА",
+  currentLocation,
+  bcsStatus: "",
+  notes,
+  actingPosition: "",
+  recommendationCount: 0,
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -28,6 +56,7 @@ beforeEach(() => {
   vi.mocked(operationsService.listTemporaryPersonnel).mockResolvedValue([]);
   vi.mocked(operationsService.listCrews).mockResolvedValue([]);
   vi.mocked(operationsService.getFlightPlanSnapshot).mockResolvedValue(null);
+  vi.mocked(operationsService.updateStaffingPersonnel).mockResolvedValue();
   const signer = { fullName: "", rank: "", position: "" };
   vi.mocked(settingsService.get).mockResolvedValue({
     mainSigner: signer, commander: signer, chief: signer, deputyPpp: signer, deputyArmament: signer, deputyRear: signer, fuelChief: signer, signerRoles: [],
@@ -55,6 +84,30 @@ describe("Оновлення БЧС за добовим планом", () => {
 
     await waitFor(() => expect(operationsService.listStaffingRecordsForDate).toHaveBeenCalledWith("2026-09-24"));
     expect(await screen.findByText("Прогноз на завтра")).toBeInTheDocument();
+  });
+
+  it("дозволяє зберегти примітку з прогнозу, не переносячи завтрашнє місце у сьогоднішнє БЧС", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 8, 23, 12, 0, 0));
+    vi.mocked(operationsService.listStaffingRecords).mockResolvedValue([staffingRecord("ОХ")]);
+    vi.mocked(operationsService.listStaffingRecordsForDate).mockResolvedValue([staffingRecord("ЗБЗ")]);
+
+    render(<NotificationProvider><StaffingBcsPage /></NotificationProvider>);
+    await waitFor(() => expect(operationsService.listStaffingRecords).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "БЧС" }));
+    fireEvent.click(screen.getByRole("button", { name: /Завтра/ }));
+
+    const note = await screen.findByRole("textbox", { name: "Примітка: ТЕСТОВИЙ Петро Іванович" });
+    expect(note).not.toHaveAttribute("readonly");
+    expect(screen.getByRole("textbox", { name: "Функціональні обов’язки: ТЕСТОВИЙ Петро Іванович" })).toHaveAttribute("readonly");
+    fireEvent.change(note, { target: { value: "Перевірено на завтра" } });
+    fireEvent.blur(note);
+
+    await waitFor(() => expect(operationsService.updateStaffingPersonnel).toHaveBeenCalledWith(expect.objectContaining({
+      personnelId: 7,
+      currentLocation: "ОХ",
+      notes: "Перевірено на завтра",
+    })));
   });
 
   it("оновлює дані опівночі та один раз після одночасних focus/visibility подій", async () => {

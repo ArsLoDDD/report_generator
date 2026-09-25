@@ -7,13 +7,13 @@ import { FlightPlanningPage, flightPlanDateForTomorrow, flightPlanDateRange, fli
 
 const { save } = vi.hoisted(() => ({ save: vi.fn().mockResolvedValue("/tmp/РБПАК_10.09.2026_План_польотів.xlsx") }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save }));
-vi.mock("./services/operationsService", () => ({ operationsService: { listCrews: vi.fn(), listEquipment: vi.fn(), listWorkshopProducts: vi.fn().mockResolvedValue([]), exportFlightPlan: vi.fn(), syncFlightPlanLocations: vi.fn().mockResolvedValue(undefined), saveFlightPlanSnapshot: vi.fn().mockResolvedValue(undefined), getFlightPlanSnapshot: vi.fn().mockResolvedValue(null) } }));
+vi.mock("./services/operationsService", () => ({ operationsService: { listCrews: vi.fn(), listPositions: vi.fn().mockResolvedValue([]), listEquipment: vi.fn(), listWorkshopProducts: vi.fn().mockResolvedValue([]), exportFlightPlan: vi.fn(), syncFlightPlanLocations: vi.fn().mockResolvedValue(undefined), saveFlightPlanSnapshot: vi.fn().mockResolvedValue(undefined), getFlightPlanSnapshot: vi.fn().mockResolvedValue(null) } }));
 vi.mock("../vehicles/services/vehiclesService", () => ({ vehiclesService: { list: vi.fn().mockResolvedValue([]) } }));
 vi.mock("../settings/services/settingsService", () => ({ settingsService: { get: vi.fn().mockResolvedValue({ unit: { shortName:"РБПАК",fullName:"",kind:"Рота",authorizedStrength:72 } }) } }));
 
 const crew = (callsign: string) => ({ id:1,name:"БАРС",platoon:"1 взвод",positionName:"САПСАН",reconnaissanceArea:"Охтирка",unitType:"Екіпаж",companyName:"РБПАК",battleOrder:"БРО-02",sector:"Схід",officialStrength:1,workingStrength:1,positionId:1,status:"Працюючий",uavName:"MAVIC 3",uavType:"Коптер",functionalDuties:"",currentLocation:"",notes:"",memberCount:1,members:[{personnelId:1,fullName:"ТЕСТОВИЙ Тест Тестович",rank:"капітан",position:"командир екіпажу",callsign}],actualMembers:[{personnelId:1,fullName:"ТЕСТОВИЙ Тест Тестович",rank:"капітан",position:"командир екіпажу",callsign}]});
 
-beforeEach(()=>{vi.clearAllMocks();localStorage.clear();vi.mocked(vehiclesService.list).mockResolvedValue([]);vi.mocked(operationsService.listEquipment).mockResolvedValue([]);vi.mocked(operationsService.getFlightPlanSnapshot).mockResolvedValue(null);vi.mocked(operationsService.saveFlightPlanSnapshot).mockResolvedValue(undefined);vi.mocked(operationsService.exportFlightPlan).mockResolvedValue();});
+beforeEach(()=>{vi.clearAllMocks();localStorage.clear();vi.mocked(vehiclesService.list).mockResolvedValue([]);vi.mocked(operationsService.listPositions).mockResolvedValue([]);vi.mocked(operationsService.listEquipment).mockResolvedValue([]);vi.mocked(operationsService.getFlightPlanSnapshot).mockResolvedValue(null);vi.mocked(operationsService.saveFlightPlanSnapshot).mockResolvedValue(undefined);vi.mocked(operationsService.exportFlightPlan).mockResolvedValue();});
 afterEach(cleanup);
 
 describe("Планування польотів",()=>{
@@ -117,6 +117,19 @@ describe("Планування польотів",()=>{
     expect(screen.getByText("Масштаб таблиці · 75%")).toBeInTheDocument();
     expect(await screen.findByText("БАРС",{selector:"b"})).toBeInTheDocument();
     expect(screen.queryByText("РЕЗЕРВ")).not.toBeInTheDocument();
+  });
+
+  it("does not allow a crew to use a position while it is under setup",async()=>{
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.listPositions).mockResolvedValue([{id:1,name:"САПСАН",positionType:"Облаштовується",stripName:"Схід",locality:"Охтирка",battleOrder:"БРО-02",sector:"",condition:"",conditionLevel:0,fieldType:"",size:"",mgrs:"",suitableUavText:"",isActive:false,crewId:null,crewName:"БАРС",notes:"",uavIds:[],uavNames:[]}]);
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+
+    await screen.findByText("Позиція облаштовується");
+    const checkbox=screen.getByRole("checkbox");
+    expect(checkbox).not.toBeChecked();
+    expect(checkbox).toBeDisabled();
+    expect(screen.getByText("Позиція недоступна")).toBeInTheDocument();
+    expect(operationsService.saveFlightPlanSnapshot).not.toHaveBeenCalled();
   });
 
   it("excludes unavailable crew members from tomorrow's plan without changing today's BCS",async()=>{

@@ -1,6 +1,6 @@
 use super::{busy, Crew, CrewDraft, CrewMember};
 use crate::AppState;
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 use std::collections::HashSet;
 
 pub(crate) fn crew_members(
@@ -186,10 +186,46 @@ fn sync_crew_assets(connection: &Connection) -> Result<(), String> {
     Ok(())
 }
 
+fn ensure_crew_position_available(
+    connection: &Connection,
+    position_id: Option<i64>,
+) -> Result<(), String> {
+    let Some(position_id) = position_id else {
+        return Ok(());
+    };
+    let position = connection
+        .query_row(
+            "SELECT p.name,p.position_type,EXISTS(
+                SELECT 1 FROM position_work w
+                WHERE w.position_id=p.id AND w.work_type='Облаштування' AND w.status<>'Завершили'
+             )
+             FROM positions p WHERE p.id=?1",
+            [position_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, bool>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|_| "Не вдалося перевірити стан позиції.".to_string())?
+        .ok_or_else(|| "Обрану позицію не знайдено.".to_string())?;
+    if position.1 == "Облаштовується" || position.2 {
+        return Err(format!(
+            "Позиція «{}» зараз облаштовується. Її можна закріпити за екіпажем лише після завершення облаштування.",
+            position.0
+        ));
+    }
+    Ok(())
+}
+
 fn create_crew_record(connection: &Connection, mut draft: CrewDraft) -> Result<(), String> {
     if draft.name.trim().is_empty() {
         return Err("Вкажіть назву екіпажу.".into());
     }
+    ensure_crew_position_available(connection, draft.position_id)?;
     draft.member_ids = unique_ids(draft.member_ids);
     let actual_member_ids = unique_ids(draft.actual_member_ids);
     let working_strength = actual_member_ids.len() as i64;
@@ -223,6 +259,7 @@ fn create_crew_record(connection: &Connection, mut draft: CrewDraft) -> Result<(
             )
             .map_err(|_| "Не вдалося додати фактичного учасника екіпажу.".to_string())?;
     }
+    super::equipment::sync_crew_equipment_responsibles(&transaction, Some(id))?;
     sync_crew_assets(&transaction)?;
     transaction
         .commit()
@@ -246,6 +283,7 @@ fn update_crew_record(
     if draft.name.trim().is_empty() {
         return Err("Вкажіть назву екіпажу.".into());
     }
+    ensure_crew_position_available(connection, draft.position_id)?;
     draft.member_ids = unique_ids(draft.member_ids);
     let actual_member_ids = unique_ids(draft.actual_member_ids);
     let transaction = connection
@@ -306,6 +344,7 @@ fn update_crew_record(
             )
             .map_err(|_| "Не вдалося оновити фактичний склад екіпажу.".to_string())?;
     }
+    super::equipment::sync_crew_equipment_responsibles(&transaction, Some(crew_id))?;
     sync_crew_assets(&transaction)?;
     transaction
         .commit()
@@ -392,6 +431,41 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![1]
         );
+    }
+
+    #[test]
+    fn position_under_setup_cannot_be_assigned_until_setup_is_finished() {
+        let connection = database();
+        connection
+            .execute(
+                "INSERT INTO positions(id,name,position_type) VALUES(1,'САПСАН','Облаштовується')",
+                [],
+            )
+            .unwrap();
+        let mut crew = draft("Сокіл", vec![1], vec![1]);
+        crew.position_id = Some(1);
+        let error = create_crew_record(&connection, crew.clone()).unwrap_err();
+        assert!(error.contains("зараз облаштовується"));
+
+        connection
+            .execute(
+                "UPDATE positions SET position_type='Основна' WHERE id=1",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO position_work(position_id,work_type,status,start_date,start_time)
+                 VALUES(1,'Облаштування','Продовжують','2026-09-15','08:00')",
+                [],
+            )
+            .unwrap();
+        assert!(create_crew_record(&connection, crew.clone()).is_err());
+
+        connection
+            .execute("UPDATE position_work SET status='Завершили'", [])
+            .unwrap();
+        create_crew_record(&connection, crew).unwrap();
     }
 
     #[test]

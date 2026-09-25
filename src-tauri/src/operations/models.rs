@@ -182,8 +182,11 @@ pub struct PositionWorkMemberDraft {
 #[serde(rename_all = "camelCase")]
 pub struct PositionWork {
     pub id: i64,
-    pub position_id: i64,
+    pub position_id: Option<i64>,
     pub position_name: String,
+    pub strip_name: String,
+    pub locality: String,
+    pub mgrs: String,
     pub work_type: String,
     pub status: String,
     pub start_date: String,
@@ -200,8 +203,9 @@ pub struct PositionWork {
 pub struct PositionWorkStatusEvent {
     pub id: i64,
     pub work_id: i64,
-    pub position_id: i64,
+    pub position_id: Option<i64>,
     pub position_name: String,
+    pub strip_name: String,
     pub position_mgrs: String,
     pub position_locality: String,
     pub work_type: String,
@@ -219,7 +223,15 @@ pub struct PositionWorkStatusEvent {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PositionWorkDraft {
-    pub position_id: i64,
+    pub position_id: Option<i64>,
+    #[serde(default)]
+    pub position_name: String,
+    #[serde(default)]
+    pub strip_name: String,
+    #[serde(default)]
+    pub locality: String,
+    #[serde(default)]
+    pub mgrs: String,
     pub work_type: String,
     pub status: String,
     pub start_date: String,

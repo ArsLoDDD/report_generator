@@ -120,7 +120,7 @@ pub fn list_positions(state: tauri::State<AppState>) -> Result<Vec<Position>, St
         .collect()
 }
 
-fn save_position_uavs(
+pub(super) fn save_position_uavs(
     connection: &Connection,
     position_id: i64,
     uav_ids: &[i64],
@@ -161,7 +161,7 @@ fn sync_active_position(
     Ok(())
 }
 
-fn validate_position(draft: &PositionDraft) -> Result<String, String> {
+pub(super) fn validate_position(draft: &PositionDraft) -> Result<String, String> {
     if draft.name.trim().is_empty() {
         return Err("Вкажіть назву позиції.".into());
     }
@@ -177,6 +177,25 @@ fn validate_position(draft: &PositionDraft) -> Result<String, String> {
         return Err("Оберіть коректний тип позиції.".into());
     }
     normalise_mgrs(&draft.mgrs)
+}
+
+pub(super) fn create_position_record(
+    connection: &Connection,
+    draft: &PositionDraft,
+) -> Result<i64, String> {
+    let mgrs = validate_position(draft)?;
+    connection.execute("INSERT INTO positions(name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,crew_id,notes,condition_level,field_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",rusqlite::params![draft.name.trim(),draft.position_type,draft.strip_name.trim(),draft.locality.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.condition.trim(),draft.size.trim(),mgrs,draft.suitable_uav_text.trim(),draft.is_active,draft.crew_id,draft.notes.trim(),draft.condition_level.clamp(0,100),draft.field_type.trim()]).map_err(|_|"Не вдалося створити позицію. Перевірте унікальність назви.".to_string())?;
+    let position_id = connection.last_insert_rowid();
+    save_position_uavs(connection, position_id, &draft.uav_ids)?;
+    sync_active_position(
+        connection,
+        None,
+        draft.name.trim(),
+        draft.locality.trim(),
+        draft.is_active,
+        draft.crew_id,
+    )?;
+    Ok(position_id)
 }
 
 fn ensure_position_has_no_work_history(
@@ -196,25 +215,33 @@ fn ensure_position_has_no_work_history(
     Ok(())
 }
 
+fn ensure_setup_position_has_no_crews(
+    connection: &Connection,
+    position_id: i64,
+) -> Result<(), String> {
+    let crew_names = connection
+        .query_row(
+            "SELECT COALESCE(GROUP_CONCAT(name, ', '),'') FROM crews WHERE position_id=?1",
+            [position_id],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|_| "Не вдалося перевірити екіпажі позиції.".to_string())?;
+    if !crew_names.trim().is_empty() {
+        return Err(format!(
+            "Позицію не можна перевести в облаштування, доки вона закріплена за екіпажем «{crew_names}»."
+        ));
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn create_position(state: tauri::State<AppState>, draft: PositionDraft) -> Result<i64, String> {
-    let mgrs = validate_position(&draft)?;
     let db = state.0.lock().map_err(|_| busy())?;
     let transaction = db
         .connection
         .unchecked_transaction()
         .map_err(|_| "Не вдалося розпочати створення позиції.".to_string())?;
-    transaction.execute("INSERT INTO positions(name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,crew_id,notes,condition_level,field_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",rusqlite::params![draft.name.trim(),draft.position_type,draft.strip_name.trim(),draft.locality.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.condition.trim(),draft.size.trim(),mgrs,draft.suitable_uav_text.trim(),draft.is_active,draft.crew_id,draft.notes.trim(),draft.condition_level.clamp(0,100),draft.field_type.trim()]).map_err(|_|"Не вдалося створити позицію. Перевірте унікальність назви.".to_string())?;
-    let position_id = transaction.last_insert_rowid();
-    save_position_uavs(&transaction, position_id, &draft.uav_ids)?;
-    sync_active_position(
-        &transaction,
-        None,
-        draft.name.trim(),
-        draft.locality.trim(),
-        draft.is_active,
-        draft.crew_id,
-    )?;
+    let position_id = create_position_record(&transaction, &draft)?;
     transaction
         .commit()
         .map_err(|_| "Не вдалося завершити створення позиції.".to_string())?;
@@ -229,6 +256,9 @@ pub fn update_position(
 ) -> Result<(), String> {
     let mgrs = validate_position(&draft)?;
     let db = state.0.lock().map_err(|_| busy())?;
+    if draft.position_type == "Облаштовується" {
+        ensure_setup_position_has_no_crews(&db.connection, position_id)?;
+    }
     let old = db
         .connection
         .query_row(
@@ -390,5 +420,25 @@ mod position_tests {
             .unwrap();
         connection.execute("INSERT INTO position_work(position_id,work_type,status,start_date,start_time) VALUES(1,'Облаштування','Завершили','2026-09-15','08:00')", []).unwrap();
         assert!(ensure_position_has_no_work_history(&connection, 1).is_err());
+    }
+
+    #[test]
+    fn assigned_position_cannot_be_manually_marked_as_under_setup() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO positions(id,name) VALUES(1,'САПСАН')", [])
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO crews(id,name,position_id) VALUES(1,'СОКІЛ',1)",
+                [],
+            )
+            .unwrap();
+        assert!(ensure_setup_position_has_no_crews(&connection, 1).is_err());
+        connection
+            .execute("UPDATE crews SET position_id=NULL WHERE id=1", [])
+            .unwrap();
+        assert!(ensure_setup_position_has_no_crews(&connection, 1).is_ok());
     }
 }

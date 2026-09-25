@@ -1,10 +1,49 @@
 use super::{busy, Equipment, EquipmentDraft};
 use crate::AppState;
 
-fn crew_commander(connection: &rusqlite::Connection, crew_id: Option<i64>) -> Option<i64> {
-    crew_id.and_then(|id| connection.query_row(
-        "SELECT personnel_id FROM (SELECT am.personnel_id,p.position,0 priority FROM crew_actual_members am JOIN personnel p ON p.id=am.personnel_id WHERE am.crew_id=?1 UNION ALL SELECT cm.personnel_id,p.position,1 priority FROM crew_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=?1 AND cm.left_at IS NULL) ORDER BY CASE WHEN lower(position) LIKE '%командир%' THEN 0 ELSE 1 END,priority,personnel_id LIMIT 1",
-        [id], |row| row.get::<_, i64>(0)).ok())
+fn official_crew_responsible(
+    connection: &rusqlite::Connection,
+    crew_id: Option<i64>,
+) -> Option<i64> {
+    crew_id.and_then(|id| {
+        connection
+            .query_row(
+                "SELECT cm.personnel_id
+                 FROM crew_members cm
+                 JOIN personnel p ON p.id=cm.personnel_id
+                 WHERE cm.crew_id=?1 AND cm.left_at IS NULL
+                 ORDER BY CASE WHEN lower(p.position) LIKE '%командир%' THEN 0 ELSE 1 END,
+                          cm.joined_at,cm.personnel_id
+                 LIMIT 1",
+                [id],
+                |row| row.get::<_, i64>(0),
+            )
+            .ok()
+    })
+}
+
+pub(crate) fn sync_crew_equipment_responsibles(
+    connection: &rusqlite::Connection,
+    crew_id: Option<i64>,
+) -> Result<(), String> {
+    connection
+        .execute(
+            "UPDATE equipment
+             SET personnel_id=(
+                 SELECT cm.personnel_id
+                 FROM crew_members cm
+                 JOIN personnel p ON p.id=cm.personnel_id
+                 WHERE cm.crew_id=equipment.crew_id AND cm.left_at IS NULL
+                 ORDER BY CASE WHEN lower(p.position) LIKE '%командир%' THEN 0 ELSE 1 END,
+                          cm.joined_at,cm.personnel_id
+                 LIMIT 1
+             )
+             WHERE category<>'weapon_ammo' AND crew_id IS NOT NULL
+               AND (?1 IS NULL OR crew_id=?1)",
+            [crew_id],
+        )
+        .map_err(|_| "Не вдалося оновити відповідальних за майно.".to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -13,7 +52,7 @@ pub fn list_equipment(
     category: String,
 ) -> Result<Vec<Equipment>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
-    db.connection.execute("UPDATE equipment SET personnel_id=(SELECT personnel_id FROM (SELECT am.personnel_id,p.position,0 priority FROM crew_actual_members am JOIN personnel p ON p.id=am.personnel_id WHERE am.crew_id=equipment.crew_id UNION ALL SELECT cm.personnel_id,p.position,1 priority FROM crew_members cm JOIN personnel p ON p.id=cm.personnel_id WHERE cm.crew_id=equipment.crew_id AND cm.left_at IS NULL) ORDER BY CASE WHEN lower(position) LIKE '%командир%' THEN 0 ELSE 1 END,priority,personnel_id LIMIT 1) WHERE category<>'weapon_ammo' AND crew_id IS NOT NULL", []).map_err(|_|"Не вдалося оновити відповідальних за майно.".to_string())?;
+    sync_crew_equipment_responsibles(&db.connection, None)?;
     let mut s=db.connection.prepare("SELECT e.id,e.category,e.name,e.inventory_number,e.status,e.crew_id,c.name,e.personnel_id,CASE WHEN p.id IS NULL THEN NULL ELSE trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) END,e.notes,e.total_quantity,e.day_quantity,e.night_quantity,e.uav_type,e.asset_kind,e.components_json,e.assigned_quantity,e.weapon_kind,e.measurement_unit,e.stock_quantity FROM equipment e LEFT JOIN crews c ON c.id=e.crew_id LEFT JOIN personnel p ON p.id=e.personnel_id WHERE e.category=?1 ORDER BY e.id").map_err(|_|"Не вдалося прочитати майно.".to_string())?;
     let result = s
         .query_map([category], |r| {
@@ -83,7 +122,7 @@ pub fn create_equipment(
     let responsible = if draft.category == "weapon_ammo" {
         draft.personnel_id
     } else {
-        crew_commander(&db.connection, draft.crew_id)
+        official_crew_responsible(&db.connection, draft.crew_id)
     };
     let stock = if draft.category == "weapon_ammo" {
         draft.stock_quantity.max(0.0)
@@ -163,7 +202,7 @@ pub fn update_equipment(
     let responsible = if draft.category == "weapon_ammo" {
         draft.personnel_id
     } else {
-        crew_commander(&db.connection, draft.crew_id)
+        official_crew_responsible(&db.connection, draft.crew_id)
     };
     let stock = if draft.category == "weapon_ammo" {
         draft.stock_quantity.max(0.0)
@@ -212,7 +251,7 @@ pub fn assign_equipment(
         .connection
         .execute(
             "UPDATE equipment SET crew_id=?1,personnel_id=?4,assigned_quantity=CASE WHEN ?1 IS NULL THEN 0 ELSE min(total_quantity,max(1,?3)) END WHERE id=?2 AND category='uav'",
-            rusqlite::params![crew_id, equipment_id, quantity.unwrap_or(i64::MAX), crew_commander(&db.connection, crew_id)],
+            rusqlite::params![crew_id, equipment_id, quantity.unwrap_or(i64::MAX), official_crew_responsible(&db.connection, crew_id)],
         )
         .map_err(|_| "Не вдалося перепризначити БпЛА.".to_string())?
         != 1
@@ -253,4 +292,78 @@ pub fn delete_equipment(state: tauri::State<AppState>, equipment_id: i64) -> Res
         db.connection.execute("UPDATE crews SET primary_uav_id=(SELECT id FROM equipment WHERE category='uav' AND crew_id=?1 ORDER BY id LIMIT 1) WHERE id=?1",[crew_id]).map_err(|_|"Не вдалося переобрати основний БпЛА.".to_string())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    #[test]
+    fn actual_transfer_does_not_replace_the_official_responsible_for_crew_uavs() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        for (id, surname, position) in [
+            (1, "ПЕРШИЙ", "командир екіпажу СОКІЛ"),
+            (2, "ДРУГИЙ", "командир екіпажу БАРС"),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO personnel(
+                    id,rank,surname,given_name,patronymic,position,tax_id,birth_date,
+                    education_level,education_details,armed_forces_service_start_date,
+                    position_assigned_date,position_assignment_order,military_id
+                 ) VALUES(?1,'сержант',?2,'Іван','Іванович',?3,?4,'','','','','','','')",
+                    rusqlite::params![id, surname, position, format!("tax-{id}")],
+                )
+                .unwrap();
+        }
+        connection
+            .execute(
+                "INSERT INTO crews(id,name) VALUES(1,'СОКІЛ'),(2,'БАРС')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO crew_members(crew_id,personnel_id,joined_at)
+             VALUES(1,1,'2026-09-01'),(2,2,'2026-09-01')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(2,1)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO equipment(id,category,name,crew_id,personnel_id)
+             VALUES(10,'uav','SHARK СОКІЛ',1,1),(20,'uav','SHARK БАРС',2,1)",
+                [],
+            )
+            .unwrap();
+
+        assert_eq!(official_crew_responsible(&connection, Some(1)), Some(1));
+        assert_eq!(official_crew_responsible(&connection, Some(2)), Some(2));
+        sync_crew_equipment_responsibles(&connection, None).unwrap();
+
+        let first: i64 = connection
+            .query_row(
+                "SELECT personnel_id FROM equipment WHERE id=10",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let second: i64 = connection
+            .query_row(
+                "SELECT personnel_id FROM equipment WHERE id=20",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(first, 1);
+        assert_eq!(second, 2);
+    }
 }

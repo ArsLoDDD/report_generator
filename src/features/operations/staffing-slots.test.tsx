@@ -88,7 +88,9 @@ describe("Конкретні місця у штаті", () => {
     const people=[person(1,"водій-електрик 1 відділення 1 взводу"),person(2,"водій-електрик 1 відділення 2 взводу")];
     const save=vi.fn().mockResolvedValue(undefined);
     render(<StaffTransferModal records={people} slots={buildStaffSlots(people,unit)} onClose={vi.fn()} onSave={save} />);
-    fireEvent.change(screen.getByLabelText("Військовослужбовець для переміщення"),{target:{value:"1"}});
+    fireEvent.click(screen.getByRole("button",{name:"Військовослужбовець для переміщення"}));
+    fireEvent.change(screen.getByLabelText("Пошук: Військовослужбовець для переміщення"),{target:{value:"Людина 1"}});
+    fireEvent.click(screen.getByRole("option",{name:/Людина 1/}));
     fireEvent.click(screen.getByRole("button",{name:/Водій-електрик 2 взвод \/ 1 відділення/}));
     expect(screen.getByText("Переміщень: 2")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button",{name:"Застосувати переміщення"}));
@@ -101,7 +103,9 @@ describe("Конкретні місця у штаті", () => {
     const people=[person(1,"командир роти"),{...person(2,"технік роти"),actingSlotId:"management-8",actingPosition:"Водій-електрик"}];
     const save=vi.fn().mockResolvedValue(undefined);
     render(<StaffTransferModal records={people} slots={buildStaffSlots(people,unit)} onClose={vi.fn()} onSave={save} />);
-    fireEvent.change(screen.getByLabelText("Військовослужбовець для переміщення"),{target:{value:"1"}});
+    fireEvent.click(screen.getByRole("button",{name:"Військовослужбовець для переміщення"}));
+    fireEvent.change(screen.getByLabelText("Пошук: Військовослужбовець для переміщення"),{target:{value:"Людина 1"}});
+    fireEvent.click(screen.getByRole("option",{name:/Людина 1/}));
     fireEvent.click(screen.getByRole("button",{name:/Водій-електрик Управління роти/}));
     expect(screen.getByRole("alert")).toHaveTextContent("Людина 2");
     fireEvent.click(screen.getByRole("button",{name:"Зняти ТВО та призначити"}));

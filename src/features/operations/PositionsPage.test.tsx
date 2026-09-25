@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
 import { PositionsPage } from "./PositionsPage";
@@ -6,7 +6,7 @@ import { PositionsPage } from "./PositionsPage";
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
-const position = { id: 3, name: "БУРЕВІЙ", positionType: "Запасна", stripName: "СМУГА ПІВНІЧ", locality: "НОВОСЕЛІВКА", battleOrder: "БРО-01", sector: "", condition: "", conditionLevel: 0, fieldType: "", size: "", mgrs: "36U UV 12000 67000", suitableUavText: "", isActive: false, crewId: null, crewName: "СОКІЛ", notes: "Тестова позиція", uavIds: [8], uavNames: ["SHARK"] };
+const position = { id: 3, name: "БУРЕВІЙ", positionType: "Запасна", stripName: "СМУГА ПІВНІЧ", locality: "НОВОСЕЛІВКА", battleOrder: "БРО-01", sector: "", condition: "", conditionLevel: 0, fieldType: "", size: "", mgrs: "36U UV 12000 67000", suitableUavText: "", isActive: false, crewId: null, crewName: null, notes: "Тестова позиція", uavIds: [8], uavNames: ["SHARK"] };
 const crew = { id: 9, name: "СОКІЛ", positionId: 3, status: "Працюючий", workingStrength: 3, officialStrength: 4, primaryUavId: 8, uavName: "SHARK", sector: "СМУГА ПІВНІЧ", members: [], actualMembers: [{ personnelId: 99, currentLocation: "На позиції" }] };
 const linkedEquipment = { id: 8, category: "uav", name: "SHARK", inventoryNumber: "UAV-008", status: "Справний", crewId: 9, crewName: "СОКІЛ", personnelId: null, holderName: null, totalQuantity: 1, dayQuantity: 1, nightQuantity: 0, assetKind: "aircraft", componentsJson: "[]", assignedQuantity: 1, notes: "" };
 const availableEquipment = { ...linkedEquipment, id: 18, category: "generator", name: "EcoFlow Delta", inventoryNumber: "GEN-018" };
@@ -15,13 +15,30 @@ const kspPerson = { ...freePerson, personnelId: 43, fullName: "КСПОВИЙ К
 const otherWorkPerson = { ...freePerson, personnelId: 44, fullName: "РОБОЧИЙ Роман Романович", currentLocation: "Реко та облаштування" };
 const trainingPerson = { ...freePerson, personnelId: 45, fullName: "НАВЧАЛЬНИЙ Назар Назарович", currentLocation: "НАВЧ" };
 const leavingPositionPerson = { ...freePerson, personnelId: 46, fullName: "ВИБУВАЄ Віктор Вікторович", currentLocation: "ПБЗ" };
+const standaloneReconnaissance = {
+  id: 21,
+  positionId: null,
+  positionName: "",
+  stripName: "СМУГА СХІД",
+  locality: "СТЕПОВЕ",
+  mgrs: "",
+  workType: "Рекогностування",
+  status: "Продовжують",
+  startDate: "2026-09-20",
+  startTime: "08:00",
+  endDate: "",
+  endTime: "",
+  battleOrder: "БРО-РЕКО-1",
+  notes: "Пошук нового району",
+  members: [{ assignmentId: 201, personnelId: freePerson.personnelId, fullName: freePerson.fullName, rank: freePerson.rank, dutyType: "Рекогностування", startDate: "2026-09-20", startTime: "08:00", endDate: "", endTime: "" }],
+};
 const currentIsoDate = () => new Date().toLocaleDateString("sv-SE");
 const currentPlanDate = () => {
   const [year, month, day] = currentIsoDate().split("-");
   return `${day}.${month}.${year}`;
 };
 const openPositionSetup = async () => {
-  const button = await screen.findByRole("button", { name: "Облаштувати позицію" });
+  const button = await screen.findByRole("button", { name: "Облаштування / Реко" });
   await waitFor(() => expect(button).toBeEnabled());
   fireEvent.click(button);
 };
@@ -89,12 +106,15 @@ describe("Картка позиції", () => {
     invoke.mockImplementation((command: string) => {
       if (command === "list_positions") return Promise.resolve([position]);
       if (command === "list_staffing_records") return Promise.resolve([freePerson, kspPerson, trainingPerson]);
+      if (command === "create_position") return Promise.resolve(77);
       if (["list_crews", "list_incidents", "list_equipment", "list_vehicles", "list_position_work"].includes(command)) return Promise.resolve([]);
       return Promise.resolve();
     });
     render(<NotificationProvider><PositionsPage /></NotificationProvider>);
 
     await openPositionSetup();
+    expect(screen.getByLabelText("Вибір нової або наявної позиції")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Сектор")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Позиція для облаштування"), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText("Час події"), { target: { value: "11:00" } });
     fireEvent.change(screen.getByLabelText("Пошук військовослужбовців для робіт"), { target: { value: "КСПОВИЙ" } });
@@ -110,7 +130,7 @@ describe("Картка позиції", () => {
     expect(screen.getByLabelText("Час початку, період 1: ПЕТРЕНКО Петро Петрович")).toHaveValue("11:00");
     expect(screen.getByLabelText("Час завершення, період 1: ПЕТРЕНКО Петро Петрович")).toHaveValue("15:00");
     expect(screen.getByLabelText("Час початку, період 2: ПЕТРЕНКО Петро Петрович")).toHaveValue("15:01");
-    fireEvent.click(screen.getByRole("button", { name: "Розпочати роботи" }));
+    fireEvent.click(screen.getByRole("button", { name: "Розпочати: Облаштування" }));
 
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith(
@@ -132,7 +152,7 @@ describe("Картка позиції", () => {
     expect(invoke).not.toHaveBeenCalledWith("update_position", expect.anything());
   });
 
-  it("підтягує БРО позиції у роботи, розпочаті безпосередньо з її картки", async () => {
+  it("підтягує БРО наявної позиції у спільній модалці робіт", async () => {
     invoke.mockImplementation((command: string) => {
       if (command === "list_positions") return Promise.resolve([position]);
       if (command === "list_staffing_records") return Promise.resolve([freePerson]);
@@ -141,10 +161,120 @@ describe("Картка позиції", () => {
     });
     render(<NotificationProvider><PositionsPage /></NotificationProvider>);
 
-    fireEvent.click((await screen.findByText(position.name)).closest("article")!);
-    fireEvent.click(screen.getByRole("button", { name: "Провести облаштування" }));
+    await openPositionSetup();
+    fireEvent.change(screen.getByLabelText("Позиція для облаштування"), { target: { value: "3" } });
 
     expect(screen.getByLabelText("Бойове розпорядження")).toHaveValue(position.battleOrder);
+  });
+
+  it("для облаштування пропонує лише вільні позиції", async () => {
+    const assigned = { ...position, id: 4, name: "ЗАКРІПЛЕНА", crewName: "СОКІЛ" };
+    const alreadyInSetup = { ...position, id: 5, name: "В ОБЛАШТУВАННІ", positionType: "Облаштовується" };
+    invoke.mockImplementation((command: string) => {
+      if (command === "list_positions") return Promise.resolve([position, assigned, alreadyInSetup]);
+      if (["list_crews", "list_incidents", "list_equipment", "list_vehicles", "list_staffing_records", "list_position_work"].includes(command)) return Promise.resolve([]);
+      return Promise.resolve();
+    });
+    render(<NotificationProvider><PositionsPage /></NotificationProvider>);
+
+    await openPositionSetup();
+    const select = screen.getByLabelText("Позиція для облаштування");
+    expect(within(select).getByRole("option", { name: /БУРЕВІЙ/ })).toBeInTheDocument();
+    expect(within(select).queryByRole("option", { name: /ЗАКРІПЛЕНА/ })).not.toBeInTheDocument();
+    expect(within(select).queryByRole("option", { name: /В ОБЛАШТУВАННІ/ })).not.toBeInTheDocument();
+  });
+
+  it("для рекогностування не просить позицію та зберігає БРО, смугу і населений пункт", async () => {
+    invoke.mockImplementation((command: string) => {
+      if (command === "list_positions") return Promise.resolve([position]);
+      if (command === "list_staffing_records") return Promise.resolve([freePerson]);
+      if (["list_crews", "list_incidents", "list_equipment", "list_vehicles", "list_position_work"].includes(command)) return Promise.resolve([]);
+      return Promise.resolve();
+    });
+    render(<NotificationProvider><PositionsPage /></NotificationProvider>);
+
+    await openPositionSetup();
+    fireEvent.click(screen.getByRole("button", { name: "Рекогностування" }));
+    expect(screen.queryByLabelText("Вибір нової або наявної позиції")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Позиція для облаштування")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("БРО рекогностування"), { target: { value: "БРО-РЕКО-1" } });
+    fireEvent.change(screen.getByLabelText("Смуга рекогностування"), { target: { value: "СМУГА СХІД" } });
+    fireEvent.change(screen.getByLabelText("Населений пункт рекогностування"), { target: { value: "СТЕПОВЕ" } });
+    fireEvent.change(screen.getByLabelText("Час події"), { target: { value: "11:00" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Без запланованого завершення/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Розпочати: Рекогностування" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("save_position_work", expect.objectContaining({ draft: expect.objectContaining({
+      positionId: null,
+      battleOrder: "БРО-РЕКО-1",
+      stripName: "СМУГА СХІД",
+      locality: "СТЕПОВЕ",
+      workType: "Рекогностування",
+      endDate: "",
+      endTime: "",
+      memberAssignments: expect.arrayContaining([expect.objectContaining({ dutyType: "Рекогностування", endDate: "", endTime: "" })]),
+    }) })));
+    expect(invoke).not.toHaveBeenCalledWith("create_position", expect.anything());
+  });
+
+  it("показує рекогностування окремою контрольною карткою та завершує його без створення позиції", async () => {
+    invoke.mockImplementation((command: string) => {
+      if (command === "list_positions") return Promise.resolve([position]);
+      if (command === "list_position_work") return Promise.resolve([standaloneReconnaissance]);
+      if (command === "list_staffing_records") return Promise.resolve([freePerson]);
+      if (["list_crews", "list_incidents", "list_equipment", "list_vehicles"].includes(command)) return Promise.resolve([]);
+      return Promise.resolve();
+    });
+    render(<NotificationProvider><PositionsPage /></NotificationProvider>);
+
+    expect(await screen.findByText("Не є позицією")).toBeInTheDocument();
+    expect(screen.getByText("Активних груп реко: 1")).toBeInTheDocument();
+    expect(screen.getByText("до ручного завершення", { exact: false })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Завершити реко" }));
+    fireEvent.click(screen.getByRole("button", { name: /Позицію не знайдено/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Завершити та вивести людей" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("save_position_work", expect.objectContaining({
+      workId: standaloneReconnaissance.id,
+      draft: expect.objectContaining({ positionId: null, status: "Завершили", endDate: expect.any(String), endTime: expect.any(String) }),
+    })));
+    expect(invoke).not.toHaveBeenCalledWith("create_position", expect.anything());
+  });
+
+  it("переходить із рекогностування до нової позиції одним збереженням і залишає склад обраним", async () => {
+    invoke.mockImplementation((command: string) => {
+      if (command === "list_positions") return Promise.resolve([]);
+      if (command === "list_position_work") return Promise.resolve([standaloneReconnaissance]);
+      if (command === "list_staffing_records") return Promise.resolve([freePerson]);
+      if (command === "transition_reconnaissance_to_setup") return Promise.resolve(77);
+      if (["list_crews", "list_incidents", "list_equipment", "list_vehicles"].includes(command)) return Promise.resolve([]);
+      return Promise.resolve();
+    });
+    render(<NotificationProvider><PositionsPage /></NotificationProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Завершити реко" }));
+    fireEvent.click(screen.getByRole("button", { name: /Перейти до облаштування/ }));
+    expect(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ })).toBeChecked();
+    fireEvent.change(screen.getByLabelText(/^Назва/), { target: { value: "ОРЕЛ" } });
+    fireEvent.change(screen.getByLabelText("БРО"), { target: { value: "БРО-77" } });
+    fireEvent.change(screen.getByLabelText("Смуга роботи"), { target: { value: "СМУГА СХІД" } });
+    fireEvent.change(screen.getByLabelText("Населений пункт / район"), { target: { value: "СТЕПОВЕ" } });
+    fireEvent.change(screen.getByLabelText(/^Координати MGRS/), { target: { value: "36U UV 12000 67000" } });
+    fireEvent.change(screen.getByLabelText("Придатні БпЛА / БпАК"), { target: { value: "SHARK" } });
+    fireEvent.click(screen.getByRole("button", { name: "Створити позицію та почати облаштування" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("transition_reconnaissance_to_setup", expect.objectContaining({
+      reconnaissanceWorkId: standaloneReconnaissance.id,
+      positionDraft: expect.objectContaining({ name: "ОРЕЛ", crewId: null, isActive: false }),
+      setupDraft: expect.objectContaining({
+        workType: "Облаштування",
+        positionName: "ОРЕЛ",
+        personnelIds: [freePerson.personnelId],
+        memberAssignments: [expect.objectContaining({ personnelId: freePerson.personnelId, endDate: "", endTime: "" })],
+      }),
+    })));
+    expect(invoke).not.toHaveBeenCalledWith("create_position", expect.anything());
   });
 
   it("створює нову позицію без екіпажу перед збереженням робіт", async () => {
@@ -163,7 +293,6 @@ describe("Картка позиції", () => {
     fireEvent.change(screen.getByLabelText("Базовий тип нової позиції"), { target: { value: "Запасна" } });
     fireEvent.change(screen.getByLabelText("БРО"), { target: { value: "БРО-77" } });
     fireEvent.change(screen.getByLabelText("Смуга роботи"), { target: { value: "СМУГА ЗАХІД" } });
-    fireEvent.change(screen.getByLabelText("Сектор"), { target: { value: "СЕКТОР ЗАХІД" } });
     fireEvent.change(screen.getByLabelText("Населений пункт / район"), { target: { value: "ЛІСОВЕ" } });
     fireEvent.change(screen.getByLabelText(/^Координати MGRS/), { target: { value: "36U UV 12000 67000" } });
     fireEvent.change(screen.getByLabelText("Стан позиції"), { target: { value: "Готується" } });
@@ -176,9 +305,9 @@ describe("Картка позиції", () => {
     fireEvent.change(screen.getByLabelText("Дата завершення групи"), { target: { value: currentIsoDate() } });
     fireEvent.change(screen.getByLabelText("Час завершення групи"), { target: { value: "18:00" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Розпочати роботи" }));
+    fireEvent.click(screen.getByRole("button", { name: "Розпочати: Облаштування" }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_position", { draft: expect.objectContaining({ name: "ОРЕЛ", positionType: "Запасна", crewId: null, isActive: false, battleOrder: "БРО-77", stripName: "СМУГА ЗАХІД", sector: "СЕКТОР ЗАХІД", locality: "ЛІСОВЕ", mgrs: "36U UV 12000 67000", condition: "Готується", conditionLevel: 35, fieldType: "Ліс", size: "20 × 30 м", suitableUavText: "SHARK", notes: "Під’їзд із півночі" }) }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_position", { draft: expect.objectContaining({ name: "ОРЕЛ", positionType: "Запасна", crewId: null, isActive: false, battleOrder: "БРО-77", stripName: "СМУГА ЗАХІД", sector: "", locality: "ЛІСОВЕ", mgrs: "36U UV 12000 67000", condition: "Готується", conditionLevel: 35, fieldType: "Ліс", size: "20 × 30 м", suitableUavText: "SHARK", notes: "Під’їзд із півночі" }) }));
     expect(invoke).toHaveBeenCalledWith("save_position_work", expect.objectContaining({ draft: expect.objectContaining({ positionId: 77, battleOrder: "БРО-77" }) }));
   });
 
@@ -189,7 +318,7 @@ describe("Картка позиції", () => {
     await openPositionSetup();
     fireEvent.change(screen.getByLabelText("Вибір нової або наявної позиції"), { target: { value: "new" } });
     fireEvent.change(screen.getByLabelText(/^Назва/), { target: { value: "ОРЕЛ" } });
-    fireEvent.click(screen.getByRole("button", { name: "Розпочати роботи" }));
+    fireEvent.click(screen.getByRole("button", { name: "Розпочати: Облаштування" }));
 
     expect(await screen.findByText("Для нової позиції вкажіть БРО, смугу роботи, населений пункт, координати MGRS та придатні БпЛА / БпАК.")).toBeInTheDocument();
     expect(invoke).not.toHaveBeenCalledWith("create_position", expect.anything());
@@ -292,6 +421,7 @@ describe("Картка позиції", () => {
     render(<NotificationProvider><PositionsPage /></NotificationProvider>);
 
     fireEvent.click((await screen.findByText(position.name)).closest("article")!);
+    fireEvent.click(screen.getByRole("button", { name: /Роботи 1/ }));
     fireEvent.click(await screen.findByRole("button", { name: /Редагувати роботи: Облаштування/ }));
     const checkbox = screen.getByRole("checkbox", { name: new RegExp(kspPerson.fullName) });
     expect(checkbox).toBeChecked();
@@ -316,6 +446,7 @@ describe("Картка позиції", () => {
     render(<NotificationProvider><PositionsPage /></NotificationProvider>);
 
     fireEvent.click((await screen.findByText(position.name)).closest("article")!);
+    fireEvent.click(screen.getByRole("button", { name: /Роботи 1/ }));
     fireEvent.click(await screen.findByRole("button", { name: /Редагувати роботи: Рекогностування/ }));
     const checkbox = screen.getByRole("checkbox", { name: new RegExp(missingPerson.fullName) });
     expect(checkbox).toBeChecked();
@@ -339,7 +470,7 @@ describe("Картка позиції", () => {
     fireEvent.change(screen.getByLabelText("Час завершення групи"), { target: { value: "18:00" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ }));
     fireEvent.change(screen.getByLabelText(`Час завершення, період 1: ${freePerson.fullName}`), { target: { value: "19:00" } });
-    fireEvent.click(screen.getByRole("button", { name: "Розпочати роботи" }));
+    fireEvent.click(screen.getByRole("button", { name: "Розпочати: Облаштування" }));
 
     expect(await screen.findByText("Кожен період має бути в межах часу роботи групи.")).toBeInTheDocument();
     expect(invoke).not.toHaveBeenCalledWith("save_position_work", expect.anything());
@@ -368,7 +499,7 @@ describe("Картка позиції", () => {
     fireEvent.change(screen.getByLabelText("Дата завершення групи"), { target: { value: currentIsoDate() } });
     fireEvent.change(screen.getByLabelText("Час завершення групи"), { target: { value: "18:00" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Розпочати роботи" }));
+    fireEvent.click(screen.getByRole("button", { name: "Розпочати: Облаштування" }));
 
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("delete_position", { positionId: 77 }));
   });

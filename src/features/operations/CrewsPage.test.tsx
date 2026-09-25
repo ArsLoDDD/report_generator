@@ -12,6 +12,7 @@ const first=person(1,"ПЕРША ЛЮДИНА");
 const last=person(501,"ОСТАННЯ ЛЮДИНА");
 const crew={id:9,name:"Сокіл",platoon:"",positionName:"",reconnaissanceArea:"",unitType:"Екіпаж",companyName:"",battleOrder:"",sector:"",officialStrength:1,workingStrength:0,positionId:null,status:"Працюючий",uavName:"",uavType:"",functionalDuties:"",currentLocation:"",notes:"",memberCount:1,members:[{personnelId:501,fullName:last.fullName,rank:last.rank,position:last.position}],actualMembers:[]};
 const crewWithActual={...crew,workingStrength:1,actualMembers:[{personnelId:501,fullName:last.fullName,rank:last.rank,position:last.position}]};
+const position=(id:number,name:string,positionType:"Основна"|"Облаштовується")=>({id,name,positionType,stripName:"",locality:"",battleOrder:"",sector:"",condition:"",conditionLevel:0,fieldType:"",size:"",mgrs:"",suitableUavText:"",isActive:false,crewId:null,crewName:null,notes:"",uavIds:[],uavNames:[]});
 
 afterEach(()=>{cleanup();localStorage.clear();vi.clearAllMocks();});
 
@@ -113,6 +114,14 @@ describe("Склад екіпажу",()=>{
     const confirmation=screen.getByRole("dialog",{name:"Зняти майно з екіпажу?"});
     fireEvent.click(within(confirmation).getByRole("button",{name:"Зняти з екіпажу"}));
     await waitFor(()=>expect(invoke).toHaveBeenCalledWith("assign_equipment",{equipmentId:44,crewId:null,quantity:1}));
+  });
+  it("не пропонує екіпажу позицію, поки вона облаштовується",async()=>{
+    invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve([]):command==="list_positions"?Promise.resolve([position(1,"ГОТОВА","Основна"),position(2,"БУДУЄТЬСЯ","Облаштовується")]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):command==="list_equipment"||command==="list_incidents"||command==="list_vehicles"?Promise.resolve([]):Promise.resolve());
+    render(<NotificationProvider><CrewsPage people={[first,last]}/></NotificationProvider>);
+    fireEvent.click(await screen.findByRole("button",{name:"Створити екіпаж"}));
+    const positionSelect=screen.getByLabelText("Позиція екіпажу");
+    expect(within(positionSelect).getByRole("option",{name:"ГОТОВА"})).toBeInTheDocument();
+    expect(within(positionSelect).queryByRole("option",{name:"БУДУЄТЬСЯ"})).not.toBeInTheDocument();
   });
   it("показує вкладку ОС, прибирає зведений блок і розділяє майно за категоріями",async()=>{
     invoke.mockImplementation((command:string)=>command==="list_crews"?Promise.resolve([crew]):command==="list_positions"?Promise.resolve([]):command==="list_personnel"?Promise.resolve({items:[first,last],totalCount:2}):command==="list_equipment"?Promise.resolve([]):command==="list_vehicles"?Promise.resolve([]):Promise.resolve());

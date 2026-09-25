@@ -1017,6 +1017,8 @@ fn validate_staged_import(staged: &StagedImport) -> Result<(), String> {
         check_database_integrity(&connection)?;
         database::initialise(&connection)
             .map_err(|error| format!("Не вдалося оновити стару базу даних: {error}"))?;
+        crate::operations::sync_crew_equipment_responsibles(&connection, None)
+            .map_err(|error| format!("Не вдалося виправити відповідальних за майно: {error}"))?;
         if staged.directory.join(CUSTOM_VARIABLES_FILE_NAME).exists() {
             database::sync_custom_fields_file(
                 &connection,
@@ -1189,6 +1191,7 @@ pub(crate) fn import_application_data(
                 let connection = Connection::open(&database.path)
                     .map_err(|_| "Не вдалося відкрити імпортовану базу даних.".to_string())?;
                 database::initialise(&connection)?;
+                crate::operations::sync_crew_equipment_responsibles(&connection, None)?;
                 check_database_integrity(&connection)?;
                 if imports_custom_fields {
                     database::sync_custom_fields_file(

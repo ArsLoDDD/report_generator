@@ -35,6 +35,7 @@ export const operationsService = {
   listPositionWork: () => invoke<PositionWork[]>("list_position_work"),
   listPositionWorkStatusHistory: () => invoke<PositionWorkStatusEvent[]>("list_position_work_status_history"),
   savePositionWork: (workId: number | null, draft: PositionWorkDraft) => mutate<void>("save_position_work", { workId, draft }),
+  transitionReconnaissanceToSetup: (reconnaissanceWorkId: number, completionDate: string, completionTime: string, positionDraft: PositionDraft, setupDraft: PositionWorkDraft) => mutate<number>("transition_reconnaissance_to_setup", { reconnaissanceWorkId, completionDate, completionTime, positionDraft, setupDraft }),
   deletePositionWork: (workId: number) => mutate<void>("delete_position_work", { workId }),
   listEquipment: (category: EquipmentCategory) => invoke<Equipment[]>("list_equipment", { category }),
   createEquipment: (draft: EquipmentDraft) => mutate<void>("create_equipment", { draft }),

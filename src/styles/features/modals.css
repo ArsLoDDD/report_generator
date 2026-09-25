@@ -35,11 +35,6 @@
 .vehicle-editor__icon svg { width: 24px; height: 24px; }
 .vehicle-editor__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 18px; margin-top: 20px; }
 .vehicle-editor .shared-select { display: block; width: 100%; }
-.vehicle-editor__hint { display: flex; align-items: flex-start; gap: 11px; padding: 12px 14px; border: 1px solid rgba(168,181,99,.22); border-radius: 10px; background: rgba(168,181,99,.06); }
-.vehicle-editor__hint > svg { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 1px; color: #b7c873; }
-.vehicle-editor__hint > span { display: grid; gap: 3px; }
-.vehicle-editor__hint b { color: #e7ebdf; font-size: 12px; }
-.vehicle-editor__hint small { color: #929a8e; line-height: 1.4; }
 .vehicle-assignment-modal { width: min(610px, 100%); grid-template-rows: auto minmax(0, 1fr) auto; }
 .vehicle-assignment-modal__body { display: grid; gap: 18px; padding: 22px; }
 .vehicle-assignment-modal__body > p { margin: 0; color: #a9b8c0; line-height: 1.45; }

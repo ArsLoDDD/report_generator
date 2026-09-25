@@ -676,8 +676,9 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
     if (timestamp < period.start || timestamp > period.end) return;
     const position = positions.find((item) => item.id === work.positionId);
     const positionName = work.positionName || position?.name || "назву не вказано";
-    const positionMgrs = ("workId" in work ? work.positionMgrs : "") || position?.mgrs;
-    const positionLocality = ("workId" in work ? work.positionLocality : "") || position?.locality;
+    const positionMgrs = ("workId" in work ? work.positionMgrs : work.mgrs) || position?.mgrs;
+    const positionLocality = ("workId" in work ? work.positionLocality : work.locality) || position?.locality;
+    const stripName = work.stripName || position?.stripName;
     const duties = new Set(work.members.map((member) => member.dutyType));
     const activity = duties.has("Рекогностування") && duties.has("Облаштування")
       ? "рекогностування і дооблаштування"
@@ -711,12 +712,13 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
           const startTime = member.startTime || work.startTime;
           const endDate = member.endDate || work.endDate;
           const endTime = member.endTime || work.endTime;
-          if (!startDate || !startTime || !endDate || !endTime) return "";
+          if (!startDate || !startTime) return "";
           const dutyText = member.dutyType === "Охорона та оборона"
             ? "охорону та оборону, прикриття військовослужбовців залучених до даного завдання від БпЛА противника, диверсійно-розвідувальних груп ворога"
             : member.dutyType === "Облаштування"
               ? "дооблаштування позиції"
-              : "рекогностування позиції";
+              : work.positionId == null ? "рекогностування визначеного району" : "рекогностування позиції";
+          if (!endDate || !endTime) return `-з ${startTime} год ${displayDate(startDate)} здійснює ${dutyText} до окремого завершення групи;`;
           return `-в період з ${startTime} год ${displayDate(startDate)} по ${endTime} год ${displayDate(endDate)} здійснював ${dutyText};`;
         })
         .filter(Boolean);
@@ -724,11 +726,14 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
     }).join("\n");
     const commander = settings.unit.militaryUnitShortName || settings.unit.unitCode || settings.unit.battalionShortName || "батальйону";
     const order = work.battleOrder ? ` на виконання БОЙОВОГО РОЗПОРЯДЖЕННЯ КОМАНДИРА ${commander} ${work.battleOrder}` : "";
+    const locationText = work.workType === "Рекогностування" && work.positionId == null
+      ? `у смузі «${stripName || "не вказано"}» в районі ${positionLocality || "населений пункт не вказано"}`
+      : `позиції старту БпЛА «${positionName.toLocaleUpperCase("uk")}» (${positionMgrs || "координати не вказано"}) в районі ${positionLocality || "населений пункт не вказано"}`;
     rotationEvents.push({
       id: "workId" in work && firstHistoricalEventIdByWork.get(work.workId) !== work.id ? `position-work-event-${work.id}` : `position-work-${"workId" in work ? work.workId : work.id}`,
       date: eventDate,
       time: eventTime,
-      text: `-${eventTime} год ${displayDate(eventDate)}${order} ${verb} позиції старту БпЛА «${positionName.toLocaleUpperCase("uk")}» (${positionMgrs || "координати не вказано"}) в районі ${positionLocality || "населений пункт не вказано"} військовослужбовці:\n${people || "склад не вказаний;"}`,
+      text: `-${eventTime} год ${displayDate(eventDate)}${order} ${verb} ${locationText} військовослужбовці:\n${people || "склад не вказаний;"}`,
     });
   });
   const eventDirectionPriority = (event: SummaryTextItem) => event.id.endsWith("-outgoing") ? 0 : event.id.endsWith("-incoming") ? 1 : 2;

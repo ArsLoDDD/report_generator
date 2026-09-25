@@ -155,6 +155,7 @@ fn migrate_position_work_event_columns(connection: &Connection) -> Result<(), St
     for (column, definition) in [
         ("position_mgrs", "TEXT NOT NULL DEFAULT ''"),
         ("position_locality", "TEXT NOT NULL DEFAULT ''"),
+        ("position_strip_name", "TEXT NOT NULL DEFAULT ''"),
         ("members_json", "TEXT NOT NULL DEFAULT '[]'"),
     ] {
         if existing_columns.iter().any(|existing| existing == column) {
@@ -168,6 +169,131 @@ fn migrate_position_work_event_columns(connection: &Connection) -> Result<(), St
             .map_err(|error| {
                 format!("Не вдалося додати поле {column} до історії робіт на позиціях: {error}")
             })?;
+    }
+    let table_sql: String = connection
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='position_work_events'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_default();
+    if table_sql
+        .to_ascii_lowercase()
+        .contains("position_id integer not null")
+    {
+        let migration = connection.execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN;
+             CREATE TABLE position_work_events_new (
+                id INTEGER PRIMARY KEY,
+                work_id INTEGER NOT NULL,
+                position_id INTEGER,
+                position_name TEXT NOT NULL,
+                position_mgrs TEXT NOT NULL DEFAULT '',
+                position_locality TEXT NOT NULL DEFAULT '',
+                position_strip_name TEXT NOT NULL DEFAULT '',
+                work_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_date TEXT NOT NULL DEFAULT '',
+                end_time TEXT NOT NULL DEFAULT '',
+                battle_order TEXT NOT NULL DEFAULT '',
+                notes TEXT NOT NULL DEFAULT '',
+                members_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             INSERT INTO position_work_events_new(id,work_id,position_id,position_name,position_mgrs,position_locality,position_strip_name,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,members_json,created_at)
+             SELECT id,work_id,position_id,position_name,position_mgrs,position_locality,position_strip_name,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,members_json,created_at FROM position_work_events;
+             DROP TABLE position_work_events;
+             ALTER TABLE position_work_events_new RENAME TO position_work_events;
+             CREATE INDEX IF NOT EXISTS position_work_events_work_idx ON position_work_events(work_id,id);
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        );
+        if let Err(error) = migration {
+            let _ = connection.execute_batch("ROLLBACK; PRAGMA foreign_keys=ON;");
+            return Err(format!(
+                "Не вдалося дозволити рекогностування без позиції: {error}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn migrate_position_work_location_columns(connection: &Connection) -> Result<(), String> {
+    let columns = connection
+        .prepare("PRAGMA table_info(position_work)")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        })
+        .map_err(|error| format!("Не вдалося прочитати структуру робіт: {error}"))?;
+    let table_sql: String = connection
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='position_work'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_default();
+    if table_sql
+        .to_ascii_lowercase()
+        .contains("position_id integer not null")
+    {
+        let migration = connection.execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN;
+             CREATE TABLE position_work_new (
+                id INTEGER PRIMARY KEY,
+                position_id INTEGER REFERENCES positions(id) ON DELETE CASCADE,
+                position_name TEXT NOT NULL DEFAULT '',
+                strip_name TEXT NOT NULL DEFAULT '',
+                position_locality TEXT NOT NULL DEFAULT '',
+                position_mgrs TEXT NOT NULL DEFAULT '',
+                work_type TEXT NOT NULL CHECK(work_type IN ('Рекогностування','Облаштування')),
+                status TEXT NOT NULL CHECK(status IN ('Приступили','Продовжують','Завершили')),
+                start_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_date TEXT NOT NULL DEFAULT '',
+                end_time TEXT NOT NULL DEFAULT '',
+                battle_order TEXT NOT NULL DEFAULT '',
+                notes TEXT NOT NULL DEFAULT '',
+                previous_position_type TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             INSERT INTO position_work_new(id,position_id,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,previous_position_type,created_at,updated_at)
+             SELECT id,position_id,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,previous_position_type,created_at,updated_at FROM position_work;
+             DROP TABLE position_work;
+             ALTER TABLE position_work_new RENAME TO position_work;
+             CREATE INDEX IF NOT EXISTS position_work_period_idx ON position_work(start_date,end_date);
+             CREATE INDEX IF NOT EXISTS position_work_position_idx ON position_work(position_id);
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        );
+        if let Err(error) = migration {
+            let _ = connection.execute_batch("ROLLBACK; PRAGMA foreign_keys=ON;");
+            return Err(format!(
+                "Не вдалося оновити роботи для рекогностування без позиції: {error}"
+            ));
+        }
+        return Ok(());
+    }
+    for (column, definition) in [
+        ("position_name", "TEXT NOT NULL DEFAULT ''"),
+        ("strip_name", "TEXT NOT NULL DEFAULT ''"),
+        ("position_locality", "TEXT NOT NULL DEFAULT ''"),
+        ("position_mgrs", "TEXT NOT NULL DEFAULT ''"),
+    ] {
+        if !columns.iter().any(|existing| existing == column) {
+            connection
+                .execute(
+                    &format!("ALTER TABLE position_work ADD COLUMN {column} {definition}"),
+                    [],
+                )
+                .map_err(|error| format!("Не вдалося додати поле {column}: {error}"))?;
+        }
     }
     Ok(())
 }
@@ -1018,7 +1144,11 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS position_work (
             id INTEGER PRIMARY KEY,
-            position_id INTEGER NOT NULL REFERENCES positions(id) ON DELETE CASCADE,
+            position_id INTEGER REFERENCES positions(id) ON DELETE CASCADE,
+            position_name TEXT NOT NULL DEFAULT '',
+            strip_name TEXT NOT NULL DEFAULT '',
+            position_locality TEXT NOT NULL DEFAULT '',
+            position_mgrs TEXT NOT NULL DEFAULT '',
             work_type TEXT NOT NULL CHECK(work_type IN ('Рекогностування','Облаштування')),
             status TEXT NOT NULL CHECK(status IN ('Приступили','Продовжують','Завершили')),
             start_date TEXT NOT NULL,
@@ -1050,6 +1180,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     ] {
         connection.execute(statement, []).ok();
     }
+    migrate_position_work_location_columns(connection)?;
     connection
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS position_work_periods (
@@ -1081,10 +1212,11 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             CREATE TABLE IF NOT EXISTS position_work_events (
                 id INTEGER PRIMARY KEY,
                 work_id INTEGER NOT NULL,
-                position_id INTEGER NOT NULL,
+                position_id INTEGER,
                 position_name TEXT NOT NULL,
                 position_mgrs TEXT NOT NULL DEFAULT '',
                 position_locality TEXT NOT NULL DEFAULT '',
+                position_strip_name TEXT NOT NULL DEFAULT '',
                 work_type TEXT NOT NULL,
                 status TEXT NOT NULL,
                 start_date TEXT NOT NULL,
@@ -1125,11 +1257,11 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             WHERE NOT EXISTS (
                 SELECT 1 FROM position_work_status_history h WHERE h.work_id=w.id
             );
-            INSERT INTO position_work_events(work_id,position_id,position_name,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,members_json,created_at)
-            SELECT h.work_id,w.position_id,p.name,w.work_type,h.status,h.start_date,h.start_time,h.end_date,h.end_time,w.battle_order,w.notes,'[]',h.created_at
+            INSERT INTO position_work_events(work_id,position_id,position_name,position_mgrs,position_locality,position_strip_name,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,members_json,created_at)
+            SELECT h.work_id,w.position_id,COALESCE(NULLIF(w.position_name,''),p.name,''),COALESCE(NULLIF(w.position_mgrs,''),p.mgrs,''),COALESCE(NULLIF(w.position_locality,''),p.locality,''),COALESCE(NULLIF(w.strip_name,''),p.strip_name,''),w.work_type,h.status,h.start_date,h.start_time,h.end_date,h.end_time,w.battle_order,w.notes,'[]',h.created_at
             FROM position_work_status_history h
             JOIN position_work w ON w.id=h.work_id
-            JOIN positions p ON p.id=w.position_id
+            LEFT JOIN positions p ON p.id=w.position_id
             WHERE NOT EXISTS (
                 SELECT 1 FROM position_work_events e
                 WHERE e.work_id=h.work_id AND e.status=h.status
@@ -1142,8 +1274,9 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         .execute(
             "UPDATE position_work_events
              SET position_mgrs=COALESCE((SELECT mgrs FROM positions WHERE positions.id=position_work_events.position_id),position_mgrs),
-                 position_locality=COALESCE((SELECT locality FROM positions WHERE positions.id=position_work_events.position_id),position_locality)
-             WHERE position_mgrs='' OR position_locality=''",
+                 position_locality=COALESCE((SELECT locality FROM positions WHERE positions.id=position_work_events.position_id),position_locality),
+                 position_strip_name=COALESCE((SELECT strip_name FROM positions WHERE positions.id=position_work_events.position_id),position_strip_name)
+             WHERE position_mgrs='' OR position_locality='' OR position_strip_name=''",
             [],
         )
         .map_err(|_| "Не вдалося доповнити знімки позицій в історії робіт.".to_string())?;

@@ -752,6 +752,46 @@ fn purge_expired_flight_plan_snapshots(
         .map_err(|_| "Не вдалося очистити застарілі знімки планів польотів.".to_string())
 }
 
+fn validate_plan_positions_are_ready(
+    connection: &Connection,
+    request: &FlightPlanRequest,
+) -> Result<(), String> {
+    let mut checked = HashSet::new();
+    for entry in &request.entries {
+        let Some(position_id) = entry.position_id else {
+            continue;
+        };
+        if !checked.insert(position_id) {
+            continue;
+        }
+        let position = connection
+            .query_row(
+                "SELECT p.name,p.position_type,EXISTS(
+                    SELECT 1 FROM position_work w
+                    WHERE w.position_id=p.id AND w.work_type='Облаштування' AND w.status<>'Завершили'
+                 ) FROM positions p WHERE p.id=?1",
+                [position_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, bool>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|_| "Не вдалося перевірити готовність позиції.".to_string())?;
+        if let Some((name, position_type, has_active_setup)) = position {
+            if position_type == "Облаштовується" || has_active_setup {
+                return Err(format!(
+                    "Позиція «{name}» ще облаштовується і не може використовуватися у плані польотів."
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn save_flight_plan_snapshot_at(
     connection: &Connection,
     today: NaiveDate,
@@ -761,6 +801,9 @@ fn save_flight_plan_snapshot_at(
     let parsed_plan_date = parse_plan_date(plan_date)?;
     validate_plan_date_for_save(parsed_plan_date, today)?;
     validate_personnel_transitions(connection, request)?;
+    if parsed_plan_date >= today {
+        validate_plan_positions_are_ready(connection, request)?;
+    }
     let snapshot_json = serde_json::to_string(request)
         .map_err(|_| "Не вдалося підготувати знімок плану польотів.".to_string())?;
     let plan_date = parsed_plan_date.format("%Y-%m-%d").to_string();
@@ -1528,6 +1571,32 @@ mod tests {
                 )
                 .unwrap();
         }
+    }
+
+    #[test]
+    fn rejects_a_current_plan_that_uses_a_position_under_setup() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO positions(id,name,position_type) VALUES(7,'САПСАН','Облаштовується')",
+                [],
+            )
+            .unwrap();
+        let mut entry = transition_entry(1, &[], "08:00");
+        entry["positionId"] = serde_json::json!(7);
+        let request = transition_request(vec![entry], vec![]);
+
+        let error = validate_plan_positions_are_ready(&connection, &request).unwrap_err();
+        assert!(error.contains("САПСАН"));
+
+        connection
+            .execute(
+                "UPDATE positions SET position_type='Основна' WHERE id=7",
+                [],
+            )
+            .unwrap();
+        assert!(validate_plan_positions_are_ready(&connection, &request).is_ok());
     }
 
     #[test]

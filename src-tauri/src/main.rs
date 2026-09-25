@@ -398,6 +398,7 @@ fn connect_database(
     let connection = Connection::open(&database_path)
         .map_err(|_| "Не вдалося створити або відкрити базу даних програми.".to_string())?;
     database::initialise(&connection)?;
+    operations::sync_crew_equipment_responsibles(&connection, None)?;
     Ok(DatabaseState {
         connection,
         path: database_path,
@@ -412,6 +413,7 @@ fn ensure_persistent_database(database_state: &mut DatabaseState) -> Result<(), 
     let connection = Connection::open(&database_state.path)
         .map_err(|_| "Не вдалося створити базу даних у головній папці програми.".to_string())?;
     database::initialise(&connection)?;
+    operations::sync_crew_equipment_responsibles(&connection, None)?;
     database_state.connection = connection;
     database_state.is_persistent = true;
     Ok(())
@@ -618,6 +620,7 @@ fn main() {
             operations::list_position_work,
             operations::list_position_work_status_history,
             operations::save_position_work,
+            operations::transition_reconnaissance_to_setup,
             operations::delete_position_work,
             operations::list_equipment,
             operations::create_equipment,

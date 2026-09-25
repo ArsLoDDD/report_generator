@@ -913,4 +913,74 @@ mod tests {
             .unwrap();
         assert_eq!(event_count, 1);
     }
+
+    #[test]
+    fn migrates_legacy_position_work_and_allows_reconnaissance_without_a_position() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE position_work (
+                    id INTEGER PRIMARY KEY,
+                    position_id INTEGER NOT NULL,
+                    work_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    start_date TEXT NOT NULL,
+                    start_time TEXT NOT NULL,
+                    end_date TEXT NOT NULL DEFAULT '',
+                    end_time TEXT NOT NULL DEFAULT '',
+                    battle_order TEXT NOT NULL DEFAULT '',
+                    notes TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                INSERT INTO position_work(
+                    id,position_id,work_type,status,start_date,start_time,battle_order
+                ) VALUES(7,42,'Облаштування','Приступили','2026-09-14','18:01','БРО-СТАРЕ');",
+            )
+            .unwrap();
+
+        initialise(&connection).unwrap();
+
+        let columns = connection
+            .prepare("PRAGMA table_info(position_work)")
+            .unwrap()
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(1)?, row.get::<_, i64>(3)?))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            columns
+                .iter()
+                .find(|(name, _)| name == "position_id")
+                .map(|(_, not_null)| *not_null),
+            Some(0)
+        );
+        for expected in [
+            "position_name",
+            "strip_name",
+            "position_locality",
+            "position_mgrs",
+        ] {
+            assert!(columns.iter().any(|(name, _)| name == expected));
+        }
+        let legacy: (i64, String) = connection
+            .query_row(
+                "SELECT position_id,battle_order FROM position_work WHERE id=7",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(legacy, (42, "БРО-СТАРЕ".into()));
+
+        connection
+            .execute(
+                "INSERT INTO position_work(
+                    position_id,position_name,strip_name,position_locality,work_type,status,start_date,start_time,battle_order
+                 ) VALUES(NULL,'','СМУГА СХІД','НОВОСЕЛІВКА','Рекогностування','Приступили','2026-09-15','08:00','БРО-РЕКО')",
+                [],
+            )
+            .unwrap();
+    }
 }
