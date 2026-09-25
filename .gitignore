@@ -8,3 +8,6 @@ vite.config.js
 vite.config.d.ts
 src-tauri/gen/
 custom_variables.json
+.tauri-private/
+release/
+src-tauri/tauri.update.generated.conf.json

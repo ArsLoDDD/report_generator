@@ -1,3 +1,4 @@
+mod app_updates;
 mod bcs_export;
 mod database;
 mod document_commands;
@@ -164,6 +165,7 @@ use settings_commands::*;
 use template_analysis::*;
 
 fn application_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    #[cfg(debug_assertions)]
     let _ = app;
     #[cfg(debug_assertions)]
     {
@@ -177,27 +179,83 @@ fn application_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
 
     #[cfg(not(debug_assertions))]
-    executable_root()
+    {
+        let root = app
+            .path()
+            .app_local_data_dir()
+            .map_err(|_| "Не вдалося визначити системну папку даних програми.".to_string())?;
+        fs::create_dir_all(&root)
+            .map_err(|_| "Не вдалося створити системну папку даних програми.".to_string())?;
+        Ok(root)
+    }
 }
 
-fn migrate_executable_database(root: &Path) -> Result<(), String> {
-    let executable_root = executable_root()?;
-    let destination = root.join(DATABASE_FILE_NAME);
-    if destination.exists() {
-        return Ok(());
-    }
-    let candidates = [
-        executable_root.join(DATABASE_FILE_NAME),
-        executable_root
-            .join(LEGACY_DATABASE_DIRECTORY_NAME)
-            .join(DATABASE_FILE_NAME),
-    ];
-    if let Some(source) = candidates.iter().find(|path| path.exists()) {
-        fs::copy(source, &destination).map_err(|_| {
-            "Не вдалося перенести базу даних у системну папку даних програми.".to_string()
-        })?;
+fn copy_legacy_directory(source: &Path, destination: &Path) -> Result<(), String> {
+    fs::create_dir_all(destination)
+        .map_err(|_| "Не вдалося створити системну папку даних програми.".to_string())?;
+    for entry in fs::read_dir(source)
+        .map_err(|_| "Не вдалося прочитати стару папку даних програми.".to_string())?
+    {
+        let entry = entry.map_err(|_| "Не вдалося прочитати старі дані програми.".to_string())?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        if destination_path.exists() {
+            continue;
+        }
+        if source_path.is_dir() {
+            copy_legacy_directory(&source_path, &destination_path)?;
+        } else {
+            fs::copy(&source_path, &destination_path)
+                .map_err(|_| "Не вдалося перенести старі дані програми.".to_string())?;
+        }
     }
     Ok(())
+}
+
+fn migrate_legacy_application_data_from(executable_root: &Path, root: &Path) -> Result<(), String> {
+    if executable_root == root {
+        return Ok(());
+    }
+    for file_name in [
+        DATABASE_FILE_NAME,
+        "settings.json",
+        CUSTOM_VARIABLES_FILE_NAME,
+    ] {
+        let destination = root.join(file_name);
+        if destination.exists() {
+            continue;
+        }
+        let candidates = if file_name == DATABASE_FILE_NAME {
+            vec![
+                executable_root.join(file_name),
+                executable_root
+                    .join(LEGACY_DATABASE_DIRECTORY_NAME)
+                    .join(file_name),
+            ]
+        } else {
+            vec![executable_root.join(file_name)]
+        };
+        if let Some(source) = candidates.iter().find(|path| path.is_file()) {
+            fs::copy(source, &destination)
+                .map_err(|_| "Не вдалося перенести старі дані в системну папку.".to_string())?;
+        }
+    }
+    for directory_name in [
+        TEMPLATES_DIRECTORY_NAME,
+        REPORTS_DIRECTORY_NAME,
+        BACKUPS_DIRECTORY_NAME,
+    ] {
+        let source = executable_root.join(directory_name);
+        if source.is_dir() {
+            copy_legacy_directory(&source, &root.join(directory_name))?;
+        }
+    }
+    Ok(())
+}
+
+fn migrate_legacy_application_data(root: &Path) -> Result<(), String> {
+    let executable_root = executable_root()?;
+    migrate_legacy_application_data_from(&executable_root, root)
 }
 
 fn executable_root() -> Result<PathBuf, String> {
@@ -224,6 +282,7 @@ fn ensure_application_structure_for_edition(
     is_simple_edition: bool,
 ) -> Result<PathBuf, String> {
     let root = application_root(app)?;
+    migrate_legacy_application_data(&root)?;
     let templates_directory = root.join(TEMPLATES_DIRECTORY_NAME);
     let templates_were_missing = !templates_directory.exists();
     for directory in [
@@ -380,7 +439,6 @@ fn prepare_database_path(root: &Path) -> Result<(PathBuf, bool), String> {
 
 fn open_database(app: &tauri::AppHandle) -> Result<(DatabaseState, bool), String> {
     let root = ensure_application_structure(app)?;
-    migrate_executable_database(&root)?;
     let (database_path, database_was_missing) = prepare_database_path(&root)?;
     let database = connect_database(database_path, database_was_missing)?;
     database::sync_custom_fields_file(&database.connection, &root, CUSTOM_VARIABLES_FILE_NAME)?;
@@ -481,6 +539,7 @@ fn main() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let root = ensure_application_structure_for_edition(
                 app.handle(),
@@ -537,6 +596,9 @@ fn main() {
             create_database_backup,
             export_application_data,
             import_application_data,
+            app_updates::get_update_status,
+            app_updates::inspect_offline_update,
+            app_updates::install_offline_update,
             list_generated_reports
         ])
     } else {
@@ -581,6 +643,9 @@ fn main() {
             create_database_backup,
             export_application_data,
             import_application_data,
+            app_updates::get_update_status,
+            app_updates::inspect_offline_update,
+            app_updates::install_offline_update,
             export_bcs_excel,
             flight_plan::export_flight_plan_excel,
             flight_plan::save_flight_plan_snapshot,

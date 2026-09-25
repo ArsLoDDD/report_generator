@@ -1,5 +1,74 @@
 use super::*;
 
+fn migration_test_directory(name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "shablonizator-migration-{name}-{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+    ))
+}
+
+#[test]
+fn legacy_application_data_is_copied_without_removing_the_source() {
+    let legacy = migration_test_directory("legacy");
+    let destination = migration_test_directory("destination");
+    fs::create_dir_all(legacy.join(TEMPLATES_DIRECTORY_NAME)).unwrap();
+    fs::create_dir_all(&destination).unwrap();
+    fs::write(legacy.join(DATABASE_FILE_NAME), b"old database").unwrap();
+    fs::write(legacy.join("settings.json"), b"old settings").unwrap();
+    fs::write(
+        legacy.join(TEMPLATES_DIRECTORY_NAME).join("report.docx"),
+        b"template",
+    )
+    .unwrap();
+
+    migrate_legacy_application_data_from(&legacy, &destination).unwrap();
+
+    assert_eq!(
+        fs::read(destination.join(DATABASE_FILE_NAME)).unwrap(),
+        b"old database"
+    );
+    assert_eq!(
+        fs::read(destination.join("settings.json")).unwrap(),
+        b"old settings"
+    );
+    assert_eq!(
+        fs::read(
+            destination
+                .join(TEMPLATES_DIRECTORY_NAME)
+                .join("report.docx")
+        )
+        .unwrap(),
+        b"template"
+    );
+    assert!(legacy.join(DATABASE_FILE_NAME).exists());
+    assert!(legacy
+        .join(TEMPLATES_DIRECTORY_NAME)
+        .join("report.docx")
+        .exists());
+    let _ = fs::remove_dir_all(legacy);
+    let _ = fs::remove_dir_all(destination);
+}
+
+#[test]
+fn legacy_migration_never_overwrites_newer_destination_data() {
+    let legacy = migration_test_directory("legacy-existing");
+    let destination = migration_test_directory("destination-existing");
+    fs::create_dir_all(&legacy).unwrap();
+    fs::create_dir_all(&destination).unwrap();
+    fs::write(legacy.join(DATABASE_FILE_NAME), b"old").unwrap();
+    fs::write(destination.join(DATABASE_FILE_NAME), b"current").unwrap();
+
+    migrate_legacy_application_data_from(&legacy, &destination).unwrap();
+
+    assert_eq!(
+        fs::read(destination.join(DATABASE_FILE_NAME)).unwrap(),
+        b"current"
+    );
+    let _ = fs::remove_dir_all(legacy);
+    let _ = fs::remove_dir_all(destination);
+}
+
 #[test]
 fn analysis_counts_only_whole_values() {
     assert_eq!(

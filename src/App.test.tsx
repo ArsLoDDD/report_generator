@@ -20,7 +20,7 @@ vi.mock("./features/generated-reports/services/generatedReportsService", () => (
 }));
 
 vi.mock("./features/settings/services/settingsService", () => ({
-  settingsService: { get: vi.fn().mockResolvedValue({ mainSigner: { fullName: "Іваненко Іван Іванович", rank: "майор", position: "Заступник командира з ППП" }, commander: { fullName: "Петренко Петро Петрович", rank: "капітан", position: "Командир" }, chief: { fullName: "Сидоренко Сергій Сергійович", rank: "капітан", position: "Начальник штабу" }, deputyPpp: { fullName: "Коваленко Дмитро Сергійович", rank: "майор", position: "Заступник командира з ППП" }, deputyArmament: { fullName: "", rank: "", position: "Заступник командира з Озброєння" }, deputyRear: { fullName: "", rank: "", position: "Заступник командира з Тилу" }, fuelChief: { fullName: "", rank: "", position: "Начальник ПММ" } }), updateSigner: vi.fn(), openApplicationDirectory: vi.fn(), createDatabaseBackup: vi.fn().mockResolvedValue("/backups/Резервна копія БД 10-00-00.zip") }
+  settingsService: { get: vi.fn().mockResolvedValue({ mainSigner: { fullName: "Іваненко Іван Іванович", rank: "майор", position: "Заступник командира з ППП" }, commander: { fullName: "Петренко Петро Петрович", rank: "капітан", position: "Командир" }, chief: { fullName: "Сидоренко Сергій Сергійович", rank: "капітан", position: "Начальник штабу" }, deputyPpp: { fullName: "Коваленко Дмитро Сергійович", rank: "майор", position: "Заступник командира з ППП" }, deputyArmament: { fullName: "", rank: "", position: "Заступник командира з Озброєння" }, deputyRear: { fullName: "", rank: "", position: "Заступник командира з Тилу" }, fuelChief: { fullName: "", rank: "", position: "Начальник ПММ" } }), updateSigner: vi.fn(), openApplicationDirectory: vi.fn(), createDatabaseBackup: vi.fn().mockResolvedValue("/backups/Резервна копія БД 10-00-00.zip"), getUpdateStatus: vi.fn().mockResolvedValue({ currentVersion: "0.2.0", supported: true, dataDirectory: "/data" }) }
 }));
 
 vi.mock("./features/report-generation/services/reportGenerationService", () => ({
@@ -82,6 +82,7 @@ describe("navigation and report generation", () => {
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Період рапортів" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
     expect(screen.getByRole("heading", { name: "Налаштування" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Оновити з файла" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
     expect(screen.getByRole("heading", { name: "Як працювати з програмою" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Конструктор змінних" })).not.toBeInTheDocument();
