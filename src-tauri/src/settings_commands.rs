@@ -115,7 +115,23 @@ pub(crate) fn update_visible_vehicle_columns(
 #[tauri::command]
 pub(crate) fn update_unit_settings(
     app: tauri::AppHandle,
+    state: tauri::State<AppState>,
     unit: settings::UnitSettings,
 ) -> Result<settings::AppSettings, String> {
-    settings::update_unit_settings(&application_root(&app)?, unit)
+    let database = state
+        .0
+        .lock()
+        .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
+    let saved = settings::update_unit_settings(&application_root(&app)?, unit)?;
+    let valid_slot_ids = (!saved.unit.structure.is_empty()).then(|| {
+        saved
+            .unit
+            .structure
+            .iter()
+            .filter(|item| item.kind == "position")
+            .map(|item| item.id.clone())
+            .collect::<std::collections::HashSet<_>>()
+    });
+    operations::cleanup_vacancy_recommendations(&database.connection, valid_slot_ids.as_ref())?;
+    Ok(saved)
 }

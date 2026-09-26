@@ -1788,6 +1788,7 @@ fn apply_staff_transfers(
         }
         transaction.execute("INSERT INTO personnel_staff_assignments(personnel_id,acting_slot_id,acting_position) VALUES(?1,?2,?3) ON CONFLICT(personnel_id) DO UPDATE SET acting_slot_id=excluded.acting_slot_id,acting_position=excluded.acting_position,updated_at=CURRENT_TIMESTAMP", rusqlite::params![change.personnel_id,change.slot_id,change.position]).map_err(|e| e.to_string())?;
     }
+    cleanup_vacancy_recommendations(&transaction, None)?;
     transaction.commit().map_err(|e| e.to_string())
 }
 
@@ -1833,6 +1834,7 @@ pub fn list_staff_recommendations(
 #[tauri::command]
 #[allow(clippy::too_many_arguments)] // Tauri exposes these form fields as separate command arguments.
 pub fn create_vacancy_recommendation(
+    app: tauri::AppHandle,
     state: tauri::State<AppState>,
     slot_id: Option<String>,
     position_name: String,
@@ -1843,6 +1845,11 @@ pub fn create_vacancy_recommendation(
     issued_at: String,
     notes: String,
 ) -> Result<(), String> {
+    let valid_slot_ids = explicit_unit_position_ids(&app)?;
+    ensure_recommendation_slot_exists(
+        slot_id.as_deref().unwrap_or_default(),
+        valid_slot_ids.as_ref(),
+    )?;
     let db = state.0.lock().map_err(|_| busy())?;
     save_vacancy_recommendation_record(
         &db.connection,
@@ -1926,6 +1933,7 @@ fn save_vacancy_recommendation_record(
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub fn update_vacancy_recommendation(
+    app: tauri::AppHandle,
     state: tauri::State<AppState>,
     recommendation_id: i64,
     slot_id: Option<String>,
@@ -1937,6 +1945,11 @@ pub fn update_vacancy_recommendation(
     issued_at: String,
     notes: String,
 ) -> Result<(), String> {
+    let valid_slot_ids = explicit_unit_position_ids(&app)?;
+    ensure_recommendation_slot_exists(
+        slot_id.as_deref().unwrap_or_default(),
+        valid_slot_ids.as_ref(),
+    )?;
     let db = state.0.lock().map_err(|_| busy())?;
     save_vacancy_recommendation_record(
         &db.connection,
@@ -1979,9 +1992,12 @@ fn delete_vacancy_recommendation_record(
 
 #[tauri::command]
 pub fn list_vacancy_recommendations(
+    app: tauri::AppHandle,
     state: tauri::State<AppState>,
 ) -> Result<Vec<VacancyRecommendation>, String> {
+    let valid_slot_ids = explicit_unit_position_ids(&app)?;
     let db = state.0.lock().map_err(|_| busy())?;
+    cleanup_vacancy_recommendations(&db.connection, valid_slot_ids.as_ref())?;
     let mut statement = db.connection.prepare("SELECT id,position_name,full_name,phone,rank,birth_date,issued_at,notes,slot_id FROM staff_position_recommendations ORDER BY issued_at DESC,id DESC").map_err(|_| "Не вдалося прочитати рекомендації для вільних посад.".to_string())?;
     let result = statement
         .query_map([], |row| {
@@ -2001,6 +2017,83 @@ pub fn list_vacancy_recommendations(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| "Не вдалося прочитати рекомендації для вільних посад.".to_string());
     result
+}
+
+fn explicit_unit_position_ids(app: &tauri::AppHandle) -> Result<Option<HashSet<String>>, String> {
+    let settings = crate::settings::load(&crate::application_root(app)?)?;
+    if settings.unit.structure.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(
+        settings
+            .unit
+            .structure
+            .into_iter()
+            .filter(|item| item.kind == "position")
+            .map(|item| item.id)
+            .collect(),
+    ))
+}
+
+fn ensure_recommendation_slot_exists(
+    slot_id: &str,
+    valid_slot_ids: Option<&HashSet<String>>,
+) -> Result<(), String> {
+    if valid_slot_ids.is_some_and(|ids| !ids.contains(slot_id.trim())) {
+        return Err(
+            "Рекомендаційний лист не можна видати на посаду, якої немає у скелеті підрозділу."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn cleanup_vacancy_recommendations(
+    connection: &rusqlite::Connection,
+    valid_slot_ids: Option<&HashSet<String>>,
+) -> Result<usize, String> {
+    // Old databases can contain letters without a concrete slot ID. Keep those
+    // records because identical position names cannot be mapped safely; every
+    // letter created by current versions has an exact slot and is enforced here.
+    let mut removed = connection
+        .execute(
+            "DELETE FROM staff_position_recommendations
+             WHERE trim(slot_id)<>'' AND EXISTS(
+               SELECT 1 FROM personnel_staff_assignments assignment
+               WHERE assignment.slot_id=staff_position_recommendations.slot_id
+             )",
+            [],
+        )
+        .map_err(|_| "Не вдалося прибрати рекомендаційні листи зайнятих посад.".to_string())?;
+    if let Some(valid_slot_ids) = valid_slot_ids {
+        let obsolete_ids = {
+            let mut statement = connection
+                .prepare(
+                    "SELECT id,slot_id FROM staff_position_recommendations WHERE trim(slot_id)<>''",
+                )
+                .map_err(|_| "Не вдалося перевірити посади рекомендаційних листів.".to_string())?;
+            let records = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|_| "Не вдалося перевірити посади рекомендаційних листів.".to_string())?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| "Не вдалося перевірити посади рекомендаційних листів.".to_string())?;
+            records
+                .into_iter()
+                .filter_map(|(id, slot_id)| (!valid_slot_ids.contains(&slot_id)).then_some(id))
+                .collect::<Vec<_>>()
+        };
+        for recommendation_id in obsolete_ids {
+            removed += connection
+                .execute(
+                    "DELETE FROM staff_position_recommendations WHERE id=?1",
+                    [recommendation_id],
+                )
+                .map_err(|_| "Не вдалося прибрати лист видаленої посади.".to_string())?;
+        }
+    }
+    Ok(removed)
 }
 
 #[cfg(test)]
@@ -2203,6 +2296,62 @@ mod staff_transfer_tests {
             .query_row(
                 "SELECT COUNT(*) FROM staff_position_recommendations WHERE id=?1",
                 [recommendation_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(remaining, 0);
+    }
+
+    #[test]
+    fn recommendation_is_removed_when_its_slot_is_filled_or_deleted_from_the_skeleton() {
+        let db = db();
+        let valid_slot_ids = HashSet::from(["slot-free".to_string()]);
+        assert!(ensure_recommendation_slot_exists("slot-free", Some(&valid_slot_ids)).is_ok());
+        assert!(
+            ensure_recommendation_slot_exists("missing-slot", Some(&valid_slot_ids))
+                .unwrap_err()
+                .contains("немає у скелеті")
+        );
+
+        save_vacancy_recommendation_record(
+            &db,
+            None,
+            "slot-free",
+            "Вільна посада",
+            "Кандидат Один",
+            "",
+            "",
+            "",
+            "2026-09-26",
+            "",
+        )
+        .unwrap();
+        let another_skeleton = HashSet::from(["another-slot".to_string()]);
+        assert_eq!(
+            cleanup_vacancy_recommendations(&db, Some(&another_skeleton)).unwrap(),
+            1
+        );
+
+        save_vacancy_recommendation_record(
+            &db,
+            None,
+            "slot-4",
+            "Посада 4",
+            "Кандидат Два",
+            "",
+            "",
+            "",
+            "2026-09-27",
+            "",
+        )
+        .unwrap();
+        let mut assignment = movement(1, 4);
+        assignment.expected_occupant_ids.clear();
+        apply_staff_transfers(&db, &[assignment], &[]).unwrap();
+        let remaining: i64 = db
+            .query_row(
+                "SELECT COUNT(*) FROM staff_position_recommendations",
+                [],
                 |row| row.get(0),
             )
             .unwrap();
