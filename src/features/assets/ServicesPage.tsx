@@ -1,7 +1,7 @@
 import {
-  Activity, Archive, BatteryCharging, Beaker, Boxes, Cable, ChevronLeft, ChevronRight,
-  Crosshair, Edit3, Fuel, HeartPulse, History, PackageOpen, Plus,
-  Shield, Trash2, Truck, Wrench,
+  Activity, BatteryCharging, Boxes, ChevronLeft, ChevronRight,
+  Edit3, Fuel, HeartPulse, History, PackageOpen, Plus,
+  Trash2, Truck,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import type { Person } from "../../shared/types/domain";
@@ -11,6 +11,7 @@ import { Modal } from "../../shared/ui/Modal";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { SearchInput } from "../../shared/ui/SearchInput";
+import { ServiceIcon, type ServiceIconName } from "../../shared/ui/ServiceIcon";
 import { Select } from "../../shared/ui/Select";
 import { EntityTable, type EntityTableColumn } from "../../shared/ui/data-table/EntityTable";
 import { operationsService } from "../operations/services/operationsService";
@@ -23,7 +24,7 @@ type ServiceDefinition = {
   shortName: string;
   title: string;
   description: string;
-  icon: ComponentType;
+  icon: ComponentType | ServiceIconName;
   hasCondition: boolean;
   allowsReceipt?: boolean;
   fields: ServiceField[];
@@ -33,16 +34,16 @@ type ServiceField = { key: string; label: string; shortLabel?: string; kind?: "t
 const units = ["кг.", "шт.", "к-т.", "компл.", "пара", "уп."];
 const statuses = ["Справний", "Обмежено справний", "Потребує ремонту", "Ремонтується", "Несправний", "Списаний"];
 const serviceDefinitions: ServiceDefinition[] = [
-  { code: "zbbr", shortName: "ЗББР", title: "ЗББР", description: "Зброя", icon: Shield, hasCondition: true, fields: [
+  { code: "zbbr", shortName: "ЗББР", title: "ЗББР", description: "Зброя", icon: "zbbr", hasCondition: true, fields: [
     { key: "nomenclature_number", label: "Номенклатурний номер", shortLabel: "Номенкл. №", base: "nomenclatureNumber" },
     { key: "weapon_number", label: "Номер зброї", shortLabel: "№ зброї", base: "serialNumber" },
     { key: "manufacture_year", label: "Рік виготовлення", shortLabel: "Рік", base: "manufactureYear" },
   ] },
-  { code: "zu", shortName: "ЗУ", title: "ЗУ", description: "Боєприпаси та боєкомплект", icon: Archive, hasCondition: false, allowsReceipt: true, fields: [] },
-  { code: "gz_kb", shortName: "ГЗ та КБ", title: "ГЗ та КБ", description: "Засоби зв’язку, комп’ютерна та інша техніка", icon: Cable, hasCondition: true, fields: [
+  { code: "zu", shortName: "ЗУ", title: "ЗУ", description: "Боєприпаси та боєкомплект", icon: "zu", hasCondition: false, allowsReceipt: true, fields: [] },
+  { code: "gz_kb", shortName: "ГЗ та КБ", title: "ГЗ та КБ", description: "Засоби зв’язку, комп’ютерна та інша техніка", icon: "gz_kb", hasCondition: true, fields: [
     { key: "serial_number", label: "Серійний номер", shortLabel: "Серійний №", base: "serialNumber" },
   ] },
-  { code: "siiz", shortName: "СІІЗ", title: "СІІЗ", description: "Спеціальні та інженерні засоби", icon: Wrench, hasCondition: true, fields: [
+  { code: "siiz", shortName: "СІІЗ", title: "СІІЗ", description: "Спеціальні та інженерні засоби", icon: "siiz", hasCondition: true, fields: [
     { key: "serial_number", label: "Серійний номер", shortLabel: "Серійний №", base: "serialNumber" },
   ] },
   { code: "ms", shortName: "МС", title: "МС", description: "Медичне майно", icon: HeartPulse, hasCondition: false, fields: [] },
@@ -59,9 +60,9 @@ const serviceDefinitions: ServiceDefinition[] = [
     { key: "fuel_tank_volume", label: "Об’єм паливного бака", shortLabel: "Об’єм бака" },
     { key: "frequency", label: "Частота" },
   ] },
-  { code: "ovtm", shortName: "ОВТМ", title: "ОВТМ", description: "Озброєння, військова техніка та майно", icon: Boxes, hasCondition: true, fields: [] },
-  { code: "rs", shortName: "РС", title: "РС", description: "Речова служба", icon: PackageOpen, hasCondition: false, fields: [] },
-  { code: "sa_ppo", shortName: "СА та ППО", title: "СА та ППО", description: "БпАК, БпЛА та комплектуючі", icon: Crosshair, hasCondition: true, fields: [
+  { code: "ovtm", shortName: "ОВТМ", title: "ОВТМ", description: "Озброєння, військова техніка та майно", icon: "ovtm", hasCondition: true, fields: [] },
+  { code: "rs", shortName: "РС", title: "РС", description: "Речова служба", icon: "rs", hasCondition: false, fields: [] },
+  { code: "sa_ppo", shortName: "СА та ППО", title: "СА та ППО", description: "БпАК, БпЛА та комплектуючі", icon: "sa_ppo", hasCondition: true, fields: [
     { key: "serial_number", label: "Серійний номер", shortLabel: "Серійний №", base: "serialNumber" },
     { key: "uav_class", label: "Клас / призначення БпЛА", shortLabel: "Клас БпЛА" },
   ] },
@@ -99,6 +100,12 @@ const setFieldValue = (draft: ServiceAssetDraft, field: ServiceField, value: str
 const shortHolder = (name: string | null) => name || "—";
 const historyLabels: Record<string, string> = { created: "Створено", updated: "Оновлено", reassigned: "Перезакріплено", received: "Надходження", deleted: "Видалено" };
 
+function DefinitionIcon({ icon }: { icon: ServiceDefinition["icon"] }) {
+  if (typeof icon === "string") return <ServiceIcon name={icon} />;
+  const Icon = icon;
+  return <Icon />;
+}
+
 function AssetDetailField({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
   return <div className={`asset-detail-field ${wide ? "asset-detail-field--wide" : ""}`}><span>{label}</span><b>{value || "—"}</b></div>;
 }
@@ -116,7 +123,6 @@ export function ServicesPage({ people }: { people: Person[] }) {
   const { notify } = useNotifications();
   const [serviceCode, setServiceCode] = useState<AssetServiceCode>("zbbr");
   const service = serviceByCode[serviceCode];
-  const ServiceIcon = service.icon;
   const [assets, setAssets] = useState<ServiceAsset[]>([]);
   const [catalogs, setCatalogs] = useState<AssetCatalog[]>([]);
   const [crews, setCrews] = useState<Crew[]>([]);
@@ -293,8 +299,8 @@ export function ServicesPage({ people }: { people: Person[] }) {
   const serviceHasCrew = ["gz_kb", "siiz", "ets", "ovtm", "sa_ppo", "svt"].includes(serviceCode);
   const reusableUavChildren = assets.filter((item) => item.assetType !== "БпАК" && item.id !== (editing === "new" ? -1 : editing?.id));
 
-  const serviceSwitcher = <nav className="services-tabs" aria-label="Служби майна">{serviceDefinitions.map((definition) => { const Icon = definition.icon; return <button key={definition.code} className={serviceCode === definition.code ? "active" : ""} onClick={() => { setServiceCode(definition.code); setZuMode("assets"); }} title={definition.description}><Icon /><b>{definition.shortName}</b></button>; })}</nav>;
-  const zuSwitcher = <div className="services-view-toggle" role="group" aria-label="Розділ ЗУ"><button className={zuMode === "assets" ? "active" : ""} onClick={() => setZuMode("assets")}><Archive />Облік ЗУ</button><button className={zuMode === "workshop" ? "active" : ""} onClick={() => setZuMode("workshop")}><Beaker />Цукерня</button></div>;
+  const serviceSwitcher = <nav className="services-tabs" aria-label="Служби майна">{serviceDefinitions.map((definition) => <button key={definition.code} className={serviceCode === definition.code ? "active" : ""} onClick={() => { setServiceCode(definition.code); setZuMode("assets"); }} title={definition.description}><DefinitionIcon icon={definition.icon} /><b>{definition.shortName}</b></button>)}</nav>;
+  const zuSwitcher = <div className="services-view-toggle" role="group" aria-label="Розділ ЗУ"><button className={zuMode === "assets" ? "active" : ""} onClick={() => setZuMode("assets")}><ServiceIcon name="zu" />Облік ЗУ</button><button className={zuMode === "workshop" ? "active" : ""} onClick={() => setZuMode("workshop")}><ServiceIcon name="workshop" />Цукерня</button></div>;
 
   return <PageFrame className="services-page" tools={serviceSwitcher}>
     {serviceCode === "zu" && zuMode === "workshop" ? <WorkshopPage embedded toolbarLeading={zuSwitcher} /> : <div className="services-assets-view">
@@ -304,7 +310,7 @@ export function ServicesPage({ people }: { people: Person[] }) {
       </div>
       <div className="catalog-carousel-shell"><button className="icon-button" aria-label="Каталоги ліворуч" onClick={() => catalogStrip.current?.scrollBy({ left: -360, behavior: "smooth" })}><ChevronLeft /></button><div className="catalog-carousel" ref={catalogStrip}><button className={activeCatalogId === "all" ? "active" : ""} onClick={() => setActiveCatalogId("all")}><PackageOpen /><span>Усе майно</span><b>{assets.length}</b></button>{catalogs.map((catalog) => <button key={catalog.id} className={activeCatalogId === catalog.id ? "active" : ""} onClick={() => setActiveCatalogId(catalog.id)} onDoubleClick={() => openCatalog(catalog)}><Boxes /><span>{catalog.name}</span><b>{assets.filter((item) => item.catalogId === catalog.id).length}</b></button>)}<button className="catalog-carousel__add" onClick={() => openCatalog("new")}><Plus /><span>Новий каталог</span></button></div><button className="icon-button" aria-label="Каталоги праворуч" onClick={() => catalogStrip.current?.scrollBy({ left: 360, behavior: "smooth" })}><ChevronRight /></button></div>
       <div className="services-toolbar"><SearchInput value={query} onChange={setQuery} placeholder="Пошук за назвою, номером, відповідальним або екіпажем…" />{activeCatalog && <button className="button" onClick={() => openCatalog(activeCatalog)}><Edit3 />Налаштувати каталог</button>}</div>
-      <div className={`people-layout ${selected ? "with-details" : ""}`}><section className="panel data-table service-assets-table"><EntityTable items={filtered} columns={baseColumns} rowKey={(item) => item.id} selectedKey={selected?.id} onSelect={setSelected} emptyState={<div className="personnel-state"><ServiceIcon /><b>У цьому розділі ще немає майна</b><span>Додайте перший запис або оберіть інший каталог.</span></div>} /><div className="pagination">Показано {filtered.length} із {assets.length}</div></section>{selected && <EntityDetailsPanel className="service-asset-details" title="Картка майна" onClose={() => setSelected(null)} identity={<div className="identity asset-card-identity"><div className="avatar"><PackageOpen /></div><div><b>{selected.name}</b><p>{service.shortName}{selected.assetType ? ` · ${selected.assetType}` : ""}</p><div className="asset-card-summary"><span>{selected.quantity} {selected.accountingUnit}</span>{service.hasCondition && <span className={selected.status === "Справний" ? "is-ok" : "is-warning"}>{selected.status}</span>}</div></div></div>} actions={<><button className="button" onClick={() => void openHistory(selected)}><History />Історія</button>{service.allowsReceipt && <button className="button" onClick={() => setReceiptTarget(selected)}><Plus />Додати кількість</button>}<button className="button" onClick={() => openEdit(selected)}><Edit3 />Редагувати</button><button className="button danger asset-card-delete" onClick={() => setDeleteTarget(selected)}><Trash2 />Видалити</button></>}>
+      <div className={`people-layout ${selected ? "with-details" : ""}`}><section className="panel data-table service-assets-table"><EntityTable items={filtered} columns={baseColumns} rowKey={(item) => item.id} selectedKey={selected?.id} onSelect={setSelected} emptyState={<div className="personnel-state"><DefinitionIcon icon={service.icon} /><b>У цьому розділі ще немає майна</b><span>Додайте перший запис або оберіть інший каталог.</span></div>} /><div className="pagination">Показано {filtered.length} із {assets.length}</div></section>{selected && <EntityDetailsPanel className="service-asset-details" title="Картка майна" onClose={() => setSelected(null)} identity={<div className="identity asset-card-identity"><div className="avatar"><DefinitionIcon icon={service.icon} /></div><div><b>{selected.name}</b><p>{service.shortName}{selected.assetType ? ` · ${selected.assetType}` : ""}</p><div className="asset-card-summary"><span>{selected.quantity} {selected.accountingUnit}</span>{service.hasCondition && <span className={selected.status === "Справний" ? "is-ok" : "is-warning"}>{selected.status}</span>}</div></div></div>} actions={<><button className="button" onClick={() => void openHistory(selected)}><History />Історія</button>{service.allowsReceipt && <button className="button" onClick={() => setReceiptTarget(selected)}><Plus />Додати кількість</button>}<button className="button" onClick={() => openEdit(selected)}><Edit3 />Редагувати</button><button className="button danger asset-card-delete" onClick={() => setDeleteTarget(selected)}><Trash2 />Видалити</button></>}>
         <section className="asset-detail-section"><h3>Основне</h3><div className="asset-detail-grid"><AssetDetailField label="Найменування матеріальних засобів" value={selected.fullName || selected.name} wide /><AssetDetailField label="Каталог" value={selected.catalogName ?? "Без каталогу"} /><AssetDetailField label="Кількість" value={`${selected.quantity} ${selected.accountingUnit}`} /></div></section>
         <section className="asset-detail-section"><h3>Закріплення</h3><div className="asset-detail-grid"><AssetDetailField label="Відповідальний" value={selected.holderName || "Не закріплено"} />{serviceHasCrew && <AssetDetailField label="Екіпаж" value={selected.crewName || "—"} />}{selected.parentName && <AssetDetailField label={serviceCode === "svt" ? "Техніка" : "Належить до"} value={selected.parentName} wide />}</div></section>
         {(serviceCode === "sa_ppo" || (serviceCode === "svt" ? (svtFields[selected.catalogName ?? ""] ?? []) : service.fields).length > 0 || Object.keys(selected.customValues).length > 0 || selected.catalogName === "Техніка") && <section className="asset-detail-section"><h3>Характеристики</h3><div className="asset-detail-grid">{serviceCode === "sa_ppo" && <AssetDetailField label="Тип" value={selected.assetType || "—"} />}{(serviceCode === "svt" ? (svtFields[selected.catalogName ?? ""] ?? []) : service.fields).map((field) => <AssetDetailField label={field.label} value={fieldValue(selected, field) || "—"} key={field.key} />)}{selected.catalogName === "Техніка" && <><AssetDetailField label="АКБ" value={linkedSvtItems.filter((item) => item.catalogName === "АКБ").map((item) => item.name).join(", ") || "—"} /><AssetDetailField label="Автомобільні шини" value={linkedSvtItems.filter((item) => item.catalogName === "Шини").map((item) => item.name).join(", ") || "—"} /></>}{Object.entries(selected.customValues).map(([key, value]) => <AssetDetailField label={selectedItemCatalog?.fields.find((field) => field.fieldKey === key)?.displayName ?? key} value={value || "—"} key={key} />)}</div></section>}
