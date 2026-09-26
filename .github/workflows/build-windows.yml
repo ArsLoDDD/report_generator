@@ -66,12 +66,17 @@ jobs:
             $notes = "Оновлення Шаблонізатора $version"
           }
           npm run update:build -- --version $version --notes $notes --skip-tests
+      - name: Підготувати два файли для завантаження
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path artifact -Force | Out-Null
+          Copy-Item -Path "src-tauri/target/release/bundle/nsis/*.exe" -Destination artifact
+          Copy-Item -Path "release/*.shupd" -Destination artifact
       - uses: actions/upload-artifact@v4
         with:
           name: Shablonizator-Advanced-Windows
-          path: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            release/*.shupd
+          path: artifact/*
           if-no-files-found: error
 
   pull-request-build:
