@@ -1,12 +1,11 @@
-import type { CSSProperties } from "react";
-import gzIcon from "../../assets/service-icons/service-gz.svg";
-import ovtmIcon from "../../assets/service-icons/service-ovtm.svg";
-import rsIcon from "../../assets/service-icons/service-rs.svg";
-import saPpoIcon from "../../assets/service-icons/service-sa-ppo.svg";
-import siizIcon from "../../assets/service-icons/service-siiz.svg";
-import workshopIcon from "../../assets/service-icons/service-workshop.svg";
-import zbbrIcon from "../../assets/service-icons/service-zbbr.svg";
-import zuIcon from "../../assets/service-icons/service-zu.svg";
+import gzIcon from "../../assets/service-icons/service-gz.svg?raw";
+import ovtmIcon from "../../assets/service-icons/service-ovtm.svg?raw";
+import rsIcon from "../../assets/service-icons/service-rs.svg?raw";
+import saPpoIcon from "../../assets/service-icons/service-sa-ppo.svg?raw";
+import siizIcon from "../../assets/service-icons/service-siiz.svg?raw";
+import workshopIcon from "../../assets/service-icons/service-workshop.svg?raw";
+import zbbrIcon from "../../assets/service-icons/service-zbbr.svg?raw";
+import zuIcon from "../../assets/service-icons/service-zu.svg?raw";
 
 export type ServiceIconName = "zbbr" | "zu" | "gz_kb" | "siiz" | "ovtm" | "rs" | "sa_ppo" | "workshop";
 
@@ -21,12 +20,15 @@ const iconUrls: Record<ServiceIconName, string> = {
   workshop: workshopIcon,
 };
 
-export function ServiceIcon({ name, className = "" }: { name: ServiceIconName; className?: string }) {
-  const iconUrl = iconUrls[name];
-  const style = {
-    WebkitMaskImage: `url(${iconUrl})`,
-    maskImage: `url(${iconUrl})`,
-  } as CSSProperties;
+const inlineIcons = Object.fromEntries(Object.entries(iconUrls).map(([name, source]) => [
+  name,
+  source
+    .replace(/<\?xml[\s\S]*?\?>/giu, "")
+    .replace(/<!DOCTYPE[\s\S]*?>/giu, "")
+    .replace(/<!--[\s\S]*?-->/gu, "")
+    .trim(),
+])) as Record<ServiceIconName, string>;
 
-  return <span aria-hidden="true" className={`service-icon service-icon--${name} ${className}`.trim()} style={style} />;
+export function ServiceIcon({ name, className = "" }: { name: ServiceIconName; className?: string }) {
+  return <span aria-hidden="true" className={`service-icon service-icon--${name} ${className}`.trim()} dangerouslySetInnerHTML={{ __html: inlineIcons[name] }} />;
 }

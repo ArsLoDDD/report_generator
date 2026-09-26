@@ -1193,6 +1193,50 @@ mod tests {
     }
 
     #[test]
+    fn planned_reconnaissance_end_does_not_complete_or_move_people_automatically() {
+        let connection = connection();
+        connection
+            .execute(
+                "INSERT INTO position_work(
+                    id,position_id,position_name,strip_name,position_locality,work_type,status,
+                    start_date,start_time,end_date,end_time,battle_order
+                 ) VALUES(10,NULL,'','СМУГА СХІД','СТЕПОВЕ','Рекогностування','Продовжують',
+                    '2026-09-15','08:00','2026-09-16','18:00','БРО-РЕКО-1')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO position_work_members(
+                    work_id,personnel_id,duty_type,start_date,start_time,end_date,end_time
+                 ) VALUES(10,1,'Рекогностування','2026-09-15','08:00','2026-09-16','18:00')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE personnel SET current_location='Реко та облаштування' WHERE id=1",
+                [],
+            )
+            .unwrap();
+
+        let record = personnel_control_records(&connection, "2026-09-21")
+            .unwrap()
+            .remove(0);
+
+        assert_eq!(record.tab, "Реко та облаштування");
+        assert_eq!(record.source, "automatic");
+        assert_eq!(record.work_id, Some(10));
+        assert_eq!(record.work_type, "Рекогностування");
+        let status: String = connection
+            .query_row("SELECT status FROM position_work WHERE id=10", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(status, "Продовжують");
+    }
+
+    #[test]
     fn standalone_reconnaissance_appears_in_control_without_a_position() {
         let connection = connection();
         connection

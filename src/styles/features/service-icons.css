@@ -3,11 +3,18 @@
   width: 1em;
   height: 1em;
   flex: 0 0 auto;
-  background-color: currentColor;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  mask-position: center;
-  -webkit-mask-size: contain;
-  mask-size: contain;
+  color: inherit;
+  line-height: 0;
+}
+.service-icon > svg {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  fill: currentColor !important;
+}
+.service-icon > svg :is(path, circle, ellipse, polygon, polyline, rect):not([fill="none"]) {
+  fill: currentColor !important;
+}
+.service-icon > svg [stroke]:not([stroke="none"]) {
+  stroke: currentColor !important;
 }

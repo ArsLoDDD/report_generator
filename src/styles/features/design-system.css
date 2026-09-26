@@ -224,6 +224,11 @@ td {
 }
 
 .card-registry__pagination {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	width: 100%;
 	margin: 0;
 	padding: 14px 16px;
 	border-color: var(--line);

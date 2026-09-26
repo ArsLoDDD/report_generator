@@ -1843,17 +1843,137 @@ pub fn create_vacancy_recommendation(
     issued_at: String,
     notes: String,
 ) -> Result<(), String> {
-    if position_name.trim().is_empty() || full_name.trim().is_empty() || issued_at.trim().is_empty()
-    {
-        return Err("Вкажіть посаду, ПІБ кандидата та дату видачі.".into());
-    }
     let db = state.0.lock().map_err(|_| busy())?;
-    db.connection
-        .execute(
-            "INSERT INTO staff_position_recommendations(position_name,full_name,phone,rank,birth_date,issued_at,notes,slot_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
-            rusqlite::params![position_name.trim(), full_name.trim(), phone.trim(), rank.trim(), birth_date.trim(), issued_at.trim(), notes.trim(), slot_id.unwrap_or_default()],
+    save_vacancy_recommendation_record(
+        &db.connection,
+        None,
+        slot_id.as_deref().unwrap_or_default(),
+        &position_name,
+        &full_name,
+        &phone,
+        &rank,
+        &birth_date,
+        &issued_at,
+        &notes,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn save_vacancy_recommendation_record(
+    connection: &rusqlite::Connection,
+    recommendation_id: Option<i64>,
+    slot_id: &str,
+    position_name: &str,
+    full_name: &str,
+    phone: &str,
+    rank: &str,
+    birth_date: &str,
+    issued_at: &str,
+    notes: &str,
+) -> Result<(), String> {
+    let slot_id = slot_id.trim();
+    if slot_id.is_empty()
+        || position_name.trim().is_empty()
+        || full_name.trim().is_empty()
+        || issued_at.trim().is_empty()
+    {
+        return Err("Оберіть вільне штатне місце та вкажіть ПІБ кандидата і дату видачі.".into());
+    }
+    let occupied = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM personnel_staff_assignments WHERE slot_id=?1)",
+            [slot_id],
+            |row| row.get::<_, bool>(0),
         )
-        .map_err(|_| "Не вдалося зберегти рекомендаційний лист для вільної посади.".to_string())?;
+        .map_err(|_| "Не вдалося перевірити, чи посада вільна.".to_string())?;
+    if occupied {
+        return Err("Рекомендаційний лист можна прив’язати лише до вільної штатної посади.".into());
+    }
+    let changed = if let Some(recommendation_id) = recommendation_id {
+        connection
+            .execute(
+                "UPDATE staff_position_recommendations
+                 SET position_name=?1,full_name=?2,phone=?3,rank=?4,birth_date=?5,
+                     issued_at=?6,notes=?7,slot_id=?8
+                 WHERE id=?9",
+                rusqlite::params![
+                    position_name.trim(),
+                    full_name.trim(),
+                    phone.trim(),
+                    rank.trim(),
+                    birth_date.trim(),
+                    issued_at.trim(),
+                    notes.trim(),
+                    slot_id,
+                    recommendation_id
+                ],
+            )
+            .map_err(|_| "Не вдалося оновити рекомендаційний лист.".to_string())?
+    } else {
+        connection
+            .execute(
+                "INSERT INTO staff_position_recommendations(position_name,full_name,phone,rank,birth_date,issued_at,notes,slot_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+                rusqlite::params![position_name.trim(), full_name.trim(), phone.trim(), rank.trim(), birth_date.trim(), issued_at.trim(), notes.trim(), slot_id],
+            )
+            .map_err(|_| "Не вдалося зберегти рекомендаційний лист для вільної посади.".to_string())?
+    };
+    if changed == 0 {
+        return Err("Рекомендаційний лист не знайдено.".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn update_vacancy_recommendation(
+    state: tauri::State<AppState>,
+    recommendation_id: i64,
+    slot_id: Option<String>,
+    position_name: String,
+    full_name: String,
+    phone: String,
+    rank: String,
+    birth_date: String,
+    issued_at: String,
+    notes: String,
+) -> Result<(), String> {
+    let db = state.0.lock().map_err(|_| busy())?;
+    save_vacancy_recommendation_record(
+        &db.connection,
+        Some(recommendation_id),
+        slot_id.as_deref().unwrap_or_default(),
+        &position_name,
+        &full_name,
+        &phone,
+        &rank,
+        &birth_date,
+        &issued_at,
+        &notes,
+    )
+}
+
+#[tauri::command]
+pub fn delete_vacancy_recommendation(
+    state: tauri::State<AppState>,
+    recommendation_id: i64,
+) -> Result<(), String> {
+    let db = state.0.lock().map_err(|_| busy())?;
+    delete_vacancy_recommendation_record(&db.connection, recommendation_id)
+}
+
+fn delete_vacancy_recommendation_record(
+    connection: &rusqlite::Connection,
+    recommendation_id: i64,
+) -> Result<(), String> {
+    let changed = connection
+        .execute(
+            "DELETE FROM staff_position_recommendations WHERE id=?1",
+            [recommendation_id],
+        )
+        .map_err(|_| "Не вдалося видалити рекомендаційний лист.".to_string())?;
+    if changed == 0 {
+        return Err("Рекомендаційний лист не знайдено.".into());
+    }
     Ok(())
 }
 
@@ -2022,5 +2142,70 @@ mod staff_transfer_tests {
         a.expected_position = "Застаріла".into();
         assert!(apply_staff_transfers(&db, &[a], &[]).is_err());
         assert!(apply_staff_transfers(&db, &[movement(1, 4), movement(2, 4)], &[]).is_err());
+    }
+
+    #[test]
+    fn recommendations_only_use_vacant_slots_and_support_editing_and_deletion() {
+        let db = db();
+        let occupied = save_vacancy_recommendation_record(
+            &db,
+            None,
+            "slot-1",
+            "Посада 1",
+            "Кандидат Один",
+            "",
+            "",
+            "",
+            "2026-09-26",
+            "",
+        )
+        .unwrap_err();
+        assert!(occupied.contains("вільної штатної посади"));
+
+        save_vacancy_recommendation_record(
+            &db,
+            None,
+            "slot-free",
+            "Вільна посада",
+            "Кандидат Один",
+            "",
+            "",
+            "",
+            "2026-09-26",
+            "Початкова примітка",
+        )
+        .unwrap();
+        let recommendation_id = db.last_insert_rowid();
+        save_vacancy_recommendation_record(
+            &db,
+            Some(recommendation_id),
+            "slot-free",
+            "Вільна посада",
+            "Кандидат Два",
+            "",
+            "",
+            "",
+            "2026-09-27",
+            "Оновлено",
+        )
+        .unwrap();
+        let candidate: String = db
+            .query_row(
+                "SELECT full_name FROM staff_position_recommendations WHERE id=?1",
+                [recommendation_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(candidate, "Кандидат Два");
+
+        delete_vacancy_recommendation_record(&db, recommendation_id).unwrap();
+        let remaining: i64 = db
+            .query_row(
+                "SELECT COUNT(*) FROM staff_position_recommendations WHERE id=?1",
+                [recommendation_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(remaining, 0);
     }
 }

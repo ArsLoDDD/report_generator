@@ -894,6 +894,8 @@ fn main() {
             operations::create_staff_recommendation,
             operations::list_staff_recommendations,
             operations::create_vacancy_recommendation,
+            operations::update_vacancy_recommendation,
+            operations::delete_vacancy_recommendation,
             operations::list_vacancy_recommendations,
             operations::list_positions,
             operations::create_position,
