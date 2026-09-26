@@ -232,6 +232,7 @@ describe("Картка позиції", () => {
     expect(screen.queryByText("Не є позицією")).not.toBeInTheDocument();
     expect(screen.getByText("Активних груп реко: 1")).toBeInTheDocument();
     expect(screen.getByText("до ручного завершення", { exact: false })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Відкрити рекогностування/ }));
     fireEvent.click(screen.getByRole("button", { name: "Завершити реко" }));
     fireEvent.click(screen.getByRole("button", { name: /Позицію не знайдено/ }));
     fireEvent.click(screen.getByRole("button", { name: "Завершити та вивести людей" }));
@@ -254,7 +255,8 @@ describe("Картка позиції", () => {
     });
     render(<NotificationProvider><PositionsPage /></NotificationProvider>);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Завершити реко" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Відкрити рекогностування/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Завершити реко" }));
     fireEvent.click(screen.getByRole("button", { name: /Перейти до облаштування/ }));
     expect(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ })).toBeChecked();
     fireEvent.change(screen.getByLabelText(/^Назва/), { target: { value: "ОРЕЛ" } });

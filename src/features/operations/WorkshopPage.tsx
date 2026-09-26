@@ -1,5 +1,5 @@
-import { Beaker, Plus, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Beaker, History, Plus, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Modal } from "../../shared/ui/Modal";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { PageFrame } from "../../shared/ui/PageFrame";
@@ -13,7 +13,7 @@ import { incidentDateTimeParts } from "./incident-date";
 const productUnits = ["шт", "компл"];
 const freshIngredient = (): WorkshopIngredient => ({ equipmentId: 0, equipmentName: "", quantity: 0, measurementUnit: "" });
 
-export function WorkshopPage({ embedded = false }: { embedded?: boolean }) {
+export function WorkshopPage({ embedded = false, toolbarLeading }: { embedded?: boolean; toolbarLeading?: ReactNode }) {
   const { notify } = useNotifications();
   const [components, setComponents] = useState<Equipment[]>([]);
   const [products, setProducts] = useState<WorkshopProduct[]>([]);
@@ -25,6 +25,7 @@ export function WorkshopPage({ embedded = false }: { embedded?: boolean }) {
   const [notes, setNotes] = useState("");
   const [accountedAt, setAccountedAt] = useState("");
   const [recipeId, setRecipeId] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -94,8 +95,8 @@ export function WorkshopPage({ embedded = false }: { embedded?: boolean }) {
   ];
 
   return <PageFrame className={`workshop-page ${embedded ? "workshop-page--embedded" : ""}`} header={embedded
-    ? <div className="workshop-embedded-header"><div><b>Цукерня</b><span>Виготовлення та списання складових ЗУ</span></div><button className="button primary" onClick={() => setOpen(true)}><Plus />Додати виготовлення</button></div>
-    : <PageTitle title="Цукерня" subtitle="Облік виготовлених виробів і автоматичне списання складових БК" actions={<button className="button primary" onClick={() => setOpen(true)}><Plus />Додати виготовлення</button>} />}>
+    ? <div className="workshop-embedded-header">{toolbarLeading}<div className="workshop-embedded-header__actions"><button className="button" onClick={() => setHistoryOpen(true)}><History />Історія</button><button className="button primary" onClick={() => setOpen(true)}><Plus />Виготовити</button></div></div>
+    : <PageTitle title="Цукерня" subtitle="Облік виготовлених виробів і автоматичне списання складових БК" actions={<><button className="button" onClick={() => setHistoryOpen(true)}><History />Історія</button><button className="button primary" onClick={() => setOpen(true)}><Plus />Виготовити</button></>} />}>
     <section className="panel operation-table data-table workshop-table"><EntityTable items={products} columns={columns} rowKey={(item) => item.id} emptyState={<div className="personnel-state"><Beaker /><b>Виробів ще немає</b><span>Перше виготовлення з’явиться тут після облікової операції.</span></div>} /><div className="pagination">Показано {products.length} із {products.length}</div></section>
     {open && <Modal title="Нове виготовлення" subtitle="Вкажіть тільки облікові кількості: після збереження складові будуть списані." onClose={() => { setOpen(false); reset(); }} className="operation-editor workshop-editor"><div className="operation-editor__body workshop-editor__body">
       <label className="form-field form-field--wide"><span>Використати збережений рецепт</span><Select ariaLabel="Збережений рецепт" value={recipeId} onChange={applyRecipe} options={[{ value: "", label: "Новий рецепт" }, ...products.map((product) => ({ value: String(product.id), label: `${product.name} · ${product.ingredients.length} матеріалів` }))]} /></label>
@@ -106,5 +107,6 @@ export function WorkshopPage({ embedded = false }: { embedded?: boolean }) {
       <label className="form-field form-field--wide"><span>Дата та час обліку (необов’язково)</span><input type="datetime-local" value={accountedAt} onChange={(event) => setAccountedAt(event.target.value)} /></label>
       <label className="form-field form-field--wide"><span>Примітка</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
     </div><footer className="modal-actions"><button className="button" onClick={() => { setOpen(false); reset(); }}>Скасувати</button><button className="button primary" onClick={() => void save()}><Plus />Зберегти виготовлення</button></footer></Modal>}
+    {historyOpen && <Modal title="Історія виготовлень" subtitle="Усі обліковані вироби та фактично списані складові" onClose={() => setHistoryOpen(false)} className="workshop-history-modal"><div className="workshop-history-list">{products.length ? products.map((product) => { const occurred = incidentDateTimeParts(product.createdAt); return <article key={product.id}><span className="workshop-history-list__icon"><Beaker /></span><div><header><b>{product.name}</b><time>{occurred.date} · {occurred.time}</time></header><p>Виготовлено: {product.quantity} {product.measurementUnit}</p><small>Списано: {product.ingredients.map((part) => `${part.equipmentName} — ${part.quantity} ${part.measurementUnit}`).join("; ")}</small>{product.notes && <small>Примітка: {product.notes}</small>}</div></article>; }) : <div className="personnel-state"><History /><b>Історія порожня</b><span>Виготовлення з’являться тут після першої облікової операції.</span></div>}</div></Modal>}
   </PageFrame>;
 }

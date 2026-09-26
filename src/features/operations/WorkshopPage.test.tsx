@@ -16,7 +16,7 @@ describe("Цукерня", () => {
       return Promise.resolve();
     });
     render(<NotificationProvider><WorkshopPage /></NotificationProvider>);
-    fireEvent.click(await screen.findByRole("button", { name: "Додати виготовлення" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Виготовити" }));
     fireEvent.change(screen.getByLabelText(/Назва виробу/), { target: { value: "Виріб №1" } });
     fireEvent.change(screen.getByLabelText("Матеріал 1"), { target: { value: "7" } });
     const materialQuantity = screen.getByLabelText("Кількість матеріалу 1");
