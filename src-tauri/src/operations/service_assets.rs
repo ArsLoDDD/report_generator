@@ -574,13 +574,11 @@ fn validate_draft(connection: &Connection, draft: &ServiceAssetDraft) -> Result<
     Ok(unit)
 }
 
-#[tauri::command]
-pub fn create_service_asset(
-    state: tauri::State<AppState>,
-    draft: ServiceAssetDraft,
+fn create_service_asset_record(
+    connection: &Connection,
+    draft: &ServiceAssetDraft,
 ) -> Result<i64, String> {
-    let db = state.0.lock().map_err(|_| busy())?;
-    let unit = validate_draft(&db.connection, &draft)?;
+    let unit = validate_draft(connection, draft)?;
     let category = legacy_category(&draft.service_code);
     let status = if no_condition(&draft.service_code) {
         "—"
@@ -589,16 +587,15 @@ pub fn create_service_asset(
     };
     let responsible = draft
         .personnel_id
-        .or_else(|| official_crew_responsible(&db.connection, draft.crew_id));
-    let asset_kind = asset_kind(&db.connection, &draft);
+        .or_else(|| official_crew_responsible(connection, draft.crew_id));
+    let asset_kind = asset_kind(connection, draft);
     if draft.service_code == "svt" && asset_kind == "vehicle" {
         let registration = draft
             .service_data
             .get("registration_number")
             .cloned()
             .unwrap_or_default();
-        let exists = db
-            .connection
+        let exists = connection
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM vehicles WHERE registration_number=?1)",
                 [registration.trim()],
@@ -610,7 +607,7 @@ pub fn create_service_asset(
             return Err("Техніка з таким номерним знаком уже є в обліку.".into());
         }
     }
-    let weapon_kind = weapon_kind(&db.connection, &draft);
+    let weapon_kind = weapon_kind(connection, draft);
     let full_name = if draft.full_name.trim().is_empty() {
         draft.name.trim()
     } else {
@@ -620,7 +617,7 @@ pub fn create_service_asset(
     let integral_quantity = quantity.ceil().max(1.0) as i64;
     let service_data_json = serde_json::to_string(&draft.service_data)
         .map_err(|_| "Не вдалося підготувати службові поля.".to_string())?;
-    db.connection.execute(
+    connection.execute(
         "INSERT INTO equipment(
            category,service_code,catalog_id,name,full_name,nomenclature_number,inventory_number,
            serial_number,manufacture_year,accounting_unit,quantity,asset_value,status,crew_id,
@@ -630,14 +627,14 @@ pub fn create_service_asset(
          ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,0,?25,?26,?27,CURRENT_TIMESTAMP)",
         params![category,draft.service_code,draft.catalog_id,draft.name.trim(),full_name,draft.nomenclature_number.trim(),draft.inventory_number.trim(),draft.serial_number.trim(),draft.manufacture_year.trim(),unit,quantity,draft.value.max(0.0),status,draft.crew_id,responsible,i64::from(draft.personnel_id.is_some()),draft.parent_equipment_id,asset_kind,weapon_kind,draft.asset_type,service_data_json,draft.notes.trim(),integral_quantity,integral_quantity,if draft.crew_id.is_some(){integral_quantity}else{0},draft.accounting_unit.trim_end_matches('.'),quantity]
     ).map_err(|error| format!("Не вдалося додати майно служби: {error}"))?;
-    let id = db.connection.last_insert_rowid();
+    let id = connection.last_insert_rowid();
     if draft.service_code == "svt" && asset_kind == "vehicle" {
         let registration = draft
             .service_data
             .get("registration_number")
             .cloned()
             .unwrap_or_default();
-        if let Err(error) = db.connection.execute(
+        if let Err(error) = connection.execute(
             "INSERT INTO vehicles(name,registration_number,status,personnel_id,crew_id,notes)
              VALUES(?1,?2,?3,?4,?5,?6)",
             params![
@@ -649,21 +646,21 @@ pub fn create_service_asset(
                 draft.notes.trim()
             ],
         ) {
-            db.connection
+            connection
                 .execute("DELETE FROM equipment WHERE id=?1", [id])
                 .ok();
             return Err(format!("Не вдалося додати техніку до екіпажів: {error}"));
         }
-        let vehicle_id = db.connection.last_insert_rowid();
-        db.connection.execute(
+        let vehicle_id = connection.last_insert_rowid();
+        connection.execute(
             "UPDATE equipment SET legacy_vehicle_id=?1,inventory_number=?2,serial_number=?2 WHERE id=?3",
             params![vehicle_id,registration.trim(),id],
         ).map_err(|_| "Не вдалося зв’язати техніку з автомобілем.".to_string())?;
     }
-    save_custom_values(&db.connection, id, draft.catalog_id, &draft.custom_values)?;
+    save_custom_values(connection, id, draft.catalog_id, &draft.custom_values)?;
     if draft.service_code == "sa_ppo" {
         if let Some(crew_id) = draft.crew_id {
-            db.connection
+            connection
                 .execute(
                     "UPDATE crews SET primary_uav_id=?1 WHERE id=?2 AND primary_uav_id IS NULL",
                     params![id, crew_id],
@@ -672,7 +669,7 @@ pub fn create_service_asset(
         }
     }
     append_history(
-        &db.connection,
+        connection,
         Some(id),
         draft.name.trim(),
         &draft.service_code,
@@ -686,6 +683,179 @@ pub fn create_service_asset(
         "Створено запис майна",
     )?;
     Ok(id)
+}
+
+#[tauri::command]
+pub fn create_service_asset(
+    state: tauri::State<AppState>,
+    draft: ServiceAssetDraft,
+) -> Result<i64, String> {
+    let db = state.0.lock().map_err(|_| busy())?;
+    create_service_asset_record(&db.connection, &draft)
+}
+
+#[tauri::command]
+pub fn create_service_assets(
+    state: tauri::State<AppState>,
+    drafts: Vec<ServiceAssetDraft>,
+) -> Result<Vec<i64>, String> {
+    if drafts.is_empty() {
+        return Err("Додайте хоча б один запис майна.".into());
+    }
+    if drafts.len() > 500 {
+        return Err("За один раз можна додати не більше 500 записів.".into());
+    }
+    let mut db = state.0.lock().map_err(|_| busy())?;
+    let transaction = db
+        .connection
+        .transaction()
+        .map_err(|_| "Не вдалося почати пакетне додавання майна.".to_string())?;
+    let ids = drafts
+        .iter()
+        .map(|draft| create_service_asset_record(&transaction, draft))
+        .collect::<Result<Vec<_>, _>>()?;
+    transaction
+        .commit()
+        .map_err(|_| "Не вдалося зберегти пакет майна.".to_string())?;
+    Ok(ids)
+}
+
+#[tauri::command]
+pub fn create_uav_complex_with_children(
+    state: tauri::State<AppState>,
+    complex: ServiceAssetDraft,
+    existing_child_ids: Vec<i64>,
+    new_children: Vec<ServiceAssetDraft>,
+) -> Result<i64, String> {
+    if complex.service_code != "sa_ppo" || complex.asset_type != "БпАК" {
+        return Err("Комплектацію можна створити лише для БпАК.".into());
+    }
+    let mut db = state.0.lock().map_err(|_| busy())?;
+    let transaction = db
+        .connection
+        .transaction()
+        .map_err(|_| "Не вдалося почати створення комплектації БпАК.".to_string())?;
+    let parent_id = create_service_asset_record(&transaction, &complex)?;
+    attach_uav_children(&transaction, parent_id, &existing_child_ids)?;
+    for child in new_children {
+        if child.service_code != "sa_ppo" || child.asset_type == "БпАК" {
+            return Err("До комплектації можна додати лише БпЛА або комплектуюче.".into());
+        }
+        let mut child = child;
+        child.parent_equipment_id = Some(parent_id);
+        create_service_asset_record(&transaction, &child)?;
+    }
+    transaction
+        .commit()
+        .map_err(|_| "Не вдалося зберегти комплектацію БпАК.".to_string())?;
+    Ok(parent_id)
+}
+
+fn attach_uav_children(
+    connection: &Connection,
+    parent_id: i64,
+    child_ids: &[i64],
+) -> Result<(), String> {
+    let parent_name = connection
+        .query_row(
+            "SELECT name FROM equipment WHERE id=?1 AND service_code='sa_ppo' AND asset_kind='complex'",
+            [parent_id],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(|_| "БпАК для комплектації не знайдено.".to_string())?;
+    let unique = child_ids.iter().copied().collect::<HashSet<_>>();
+    if unique.len() != child_ids.len() || unique.contains(&parent_id) {
+        return Err("Комплектація містить дублікати або сам БпАК.".into());
+    }
+    for child_id in child_ids {
+        let (child_name, quantity, previous_parent_id, previous_parent_name) = connection
+            .query_row(
+                "SELECT child.name,child.quantity,child.parent_equipment_id,COALESCE(parent.name,'')
+                 FROM equipment child LEFT JOIN equipment parent ON parent.id=child.parent_equipment_id
+                 WHERE child.id=?1 AND child.service_code='sa_ppo' AND child.asset_kind<>'complex'",
+                [child_id],
+                |row| Ok((row.get::<_, String>(0)?,row.get::<_, f64>(1)?,row.get::<_, Option<i64>>(2)?,row.get::<_, String>(3)?)),
+            )
+            .map_err(|_| "Один з обраних компонентів не знайдено або він є іншим БпАК.".to_string())?;
+        if previous_parent_id == Some(parent_id) {
+            continue;
+        }
+        let changed = connection
+            .execute(
+                "UPDATE equipment SET parent_equipment_id=?1,updated_at=CURRENT_TIMESTAMP
+                 WHERE id=?2 AND service_code='sa_ppo' AND asset_kind<>'complex'",
+                params![parent_id, child_id],
+            )
+            .map_err(|_| "Не вдалося закріпити складову за БпАК.".to_string())?;
+        if changed != 1 {
+            return Err("Один з обраних компонентів не знайдено або він є іншим БпАК.".into());
+        }
+        let details = if previous_parent_name.is_empty() {
+            format!("Додано до комплектації «{parent_name}»")
+        } else {
+            format!("Переміщено з комплектації «{previous_parent_name}» до «{parent_name}»")
+        };
+        append_history(
+            connection,
+            Some(*child_id),
+            &child_name,
+            "sa_ppo",
+            "reassigned",
+            0.0,
+            quantity,
+            None,
+            None,
+            None,
+            None,
+            &details,
+        )?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_uav_complex_children(
+    state: tauri::State<AppState>,
+    parent_id: i64,
+    child_ids: Vec<i64>,
+) -> Result<(), String> {
+    let mut db = state.0.lock().map_err(|_| busy())?;
+    let transaction = db
+        .connection
+        .transaction()
+        .map_err(|_| "Не вдалося почати оновлення комплектації.".to_string())?;
+    let selected = child_ids.iter().copied().collect::<HashSet<_>>();
+    let current_children = transaction
+        .prepare("SELECT id,name,quantity FROM equipment WHERE service_code='sa_ppo' AND parent_equipment_id=?1")
+        .and_then(|mut statement| statement.query_map([parent_id], |row| Ok((row.get::<_,i64>(0)?,row.get::<_,String>(1)?,row.get::<_,f64>(2)?)))?.collect::<Result<Vec<_>,_>>())
+        .map_err(|_| "Не вдалося прочитати попередню комплектацію.".to_string())?;
+    for (child_id, child_name, quantity) in current_children {
+        if selected.contains(&child_id) {
+            continue;
+        }
+        transaction.execute(
+            "UPDATE equipment SET parent_equipment_id=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?1",
+            [child_id],
+        ).map_err(|_| "Не вдалося від’єднати складову від БпАК.".to_string())?;
+        append_history(
+            &transaction,
+            Some(child_id),
+            &child_name,
+            "sa_ppo",
+            "reassigned",
+            0.0,
+            quantity,
+            None,
+            None,
+            None,
+            None,
+            "Від’єднано від комплектації БпАК",
+        )?;
+    }
+    attach_uav_children(&transaction, parent_id, &child_ids)?;
+    transaction
+        .commit()
+        .map_err(|_| "Не вдалося зберегти комплектацію.".to_string())
 }
 
 #[tauri::command]
@@ -1023,5 +1193,34 @@ mod tests {
     fn accounting_units_accept_old_values_without_a_dot() {
         assert_eq!(normalize_unit("шт").unwrap(), "шт.");
         assert_eq!(normalize_unit("к-т.").unwrap(), "к-т.");
+    }
+
+    #[test]
+    fn uav_component_can_be_reused_by_another_complex() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO equipment(id,category,service_code,name,asset_kind,weapon_kind)
+             VALUES(101,'uav','sa_ppo','БпАК 1','complex','weapon'),
+                   (102,'uav','sa_ppo','БпАК 2','complex','weapon'),
+                   (103,'uav','sa_ppo','Камера','aircraft','component')",
+                [],
+            )
+            .unwrap();
+
+        attach_uav_children(&connection, 101, &[103]).unwrap();
+        attach_uav_children(&connection, 102, &[103]).unwrap();
+
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT parent_equipment_id FROM equipment WHERE id=103",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            102,
+        );
     }
 }

@@ -1,6 +1,6 @@
 import {
-  Activity, Archive, BatteryCharging, Boxes, Cable, ChevronLeft, ChevronRight,
-  Crosshair, Edit3, Fuel, HeartPulse, History, PackageOpen, Plus, RefreshCw,
+  Activity, Archive, BatteryCharging, Beaker, Boxes, Cable, ChevronLeft, ChevronRight,
+  Crosshair, Edit3, Fuel, HeartPulse, History, PackageOpen, Plus,
   Shield, Trash2, Truck, Wrench,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
@@ -10,12 +10,13 @@ import { EntityDetailsPanel } from "../../shared/ui/EntityDetailsPanel";
 import { Modal } from "../../shared/ui/Modal";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { PageFrame } from "../../shared/ui/PageFrame";
-import { PageTitle } from "../../shared/ui/PageTitle";
 import { SearchInput } from "../../shared/ui/SearchInput";
 import { Select } from "../../shared/ui/Select";
 import { EntityTable, type EntityTableColumn } from "../../shared/ui/data-table/EntityTable";
 import { operationsService } from "../operations/services/operationsService";
 import type { AssetCatalog, AssetCatalogDraft, AssetHistoryEvent, AssetServiceCode, Crew, ServiceAsset, ServiceAssetDraft } from "../operations/types";
+import { WorkshopPage } from "../operations/WorkshopPage";
+import { expandSerialRange, splitSerialNumbers } from "./service-asset-serials";
 
 type ServiceDefinition = {
   code: AssetServiceCode;
@@ -62,6 +63,7 @@ const serviceDefinitions: ServiceDefinition[] = [
   { code: "rs", shortName: "РС", title: "РС", description: "Речова служба", icon: PackageOpen, hasCondition: false, fields: [] },
   { code: "sa_ppo", shortName: "СА та ППО", title: "СА та ППО", description: "БпАК, БпЛА та комплектуючі", icon: Crosshair, hasCondition: true, fields: [
     { key: "serial_number", label: "Серійний номер", shortLabel: "Серійний №", base: "serialNumber" },
+    { key: "uav_class", label: "Клас / призначення БпЛА", shortLabel: "Клас БпЛА" },
   ] },
   { code: "svt", shortName: "СВТ", title: "СВТ", description: "Техніка, акумуляторні батареї та шини", icon: Truck, hasCondition: true, fields: [] },
   { code: "pmm", shortName: "ПММ", title: "ПММ", description: "Пально-мастильні матеріали", icon: Fuel, hasCondition: false, allowsReceipt: true, fields: [] },
@@ -96,6 +98,10 @@ const setFieldValue = (draft: ServiceAssetDraft, field: ServiceField, value: str
 const shortHolder = (name: string | null) => name || "—";
 const historyLabels: Record<string, string> = { created: "Створено", updated: "Оновлено", reassigned: "Перезакріплено", received: "Надходження", deleted: "Видалено" };
 
+type SerialMode = "single" | "list" | "range";
+type KitDraft = { key: number; assetType: "БпЛА" | "Комплектуюче"; name: string; serials: string; quantity: number; uavClass: string };
+const freshKitDraft = (): KitDraft => ({ key: Date.now() + Math.random(), assetType: "Комплектуюче", name: "", serials: "", quantity: 1, uavClass: "" });
+
 const transliteration: Record<string, string> = {
   а: "a", б: "b", в: "v", г: "h", ґ: "g", д: "d", е: "e", є: "ye", ж: "zh", з: "z", и: "y", і: "i", ї: "yi", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ь: "", ю: "yu", я: "ya",
 };
@@ -123,6 +129,14 @@ export function ServicesPage({ people }: { people: Person[] }) {
   const [receiptQuantity, setReceiptQuantity] = useState(1);
   const [receiptDetails, setReceiptDetails] = useState("");
   const [showFullName, setShowFullName] = useState(false);
+  const [zuMode, setZuMode] = useState<"assets" | "workshop">("assets");
+  const [serialMode, setSerialMode] = useState<SerialMode>("single");
+  const [serialList, setSerialList] = useState("");
+  const [serialRangeStart, setSerialRangeStart] = useState("");
+  const [serialRangeEnd, setSerialRangeEnd] = useState("");
+  const [includeComposition, setIncludeComposition] = useState(false);
+  const [compositionIds, setCompositionIds] = useState<number[]>([]);
+  const [newKitItems, setNewKitItems] = useState<KitDraft[]>([]);
   const catalogStrip = useRef<HTMLDivElement>(null);
 
   const reload = useCallback(async () => {
@@ -137,6 +151,11 @@ export function ServicesPage({ people }: { people: Person[] }) {
     }
   }, [notify, serviceCode]);
   useEffect(() => { setActiveCatalogId("all"); setSelected(null); setQuery(""); void reload(); }, [reload]);
+  useEffect(() => {
+    const refresh = () => { void reload(); };
+    window.addEventListener("operational-data-updated", refresh);
+    return () => window.removeEventListener("operational-data-updated", refresh);
+  }, [reload]);
 
   const activeCatalog = catalogs.find((item) => item.id === activeCatalogId) ?? null;
   const currentFields = useMemo(() => serviceCode === "svt" ? (svtFields[activeCatalog?.name ?? ""] ?? []) : service.fields, [activeCatalog?.name, service.fields, serviceCode]);
@@ -145,21 +164,71 @@ export function ServicesPage({ people }: { people: Person[] }) {
 
   const openCreate = () => {
     const next = freshDraft(serviceCode);
-    next.catalogId = typeof activeCatalogId === "number" ? activeCatalogId : serviceCode === "svt" ? catalogs.find((item) => item.name === "Техніка")?.id ?? null : catalogs.length === 1 ? catalogs[0].id : null;
-    setDraft(next); setEditing("new");
+    next.catalogId = typeof activeCatalogId === "number"
+      ? activeCatalogId
+      : serviceCode === "svt"
+        ? catalogs.find((item) => item.name === "Техніка")?.id ?? null
+        : serviceCode === "zu"
+          ? catalogs.find((item) => item.name === "Боєприпаси")?.id ?? null
+          : catalogs.length === 1 ? catalogs[0].id : null;
+    setDraft(next);
+    setSerialMode("single"); setSerialList(""); setSerialRangeStart(""); setSerialRangeEnd("");
+    setIncludeComposition(false); setCompositionIds([]); setNewKitItems([]);
+    setEditing("new");
   };
-  const openEdit = (item: ServiceAsset) => { setDraft({
-    serviceCode: item.serviceCode, catalogId: item.catalogId, name: item.name, fullName: item.fullName,
-    nomenclatureNumber: item.nomenclatureNumber, inventoryNumber: item.inventoryNumber, serialNumber: item.serialNumber,
-    manufactureYear: item.manufactureYear, accountingUnit: item.accountingUnit, quantity: item.quantity, value: item.value,
-    status: item.status === "—" ? "Справний" : item.status, crewId: item.crewId, personnelId: item.personnelId,
-    parentEquipmentId: item.parentEquipmentId, assetType: item.assetType, serviceData: item.serviceData, customValues: item.customValues, notes: item.notes,
-  }); setEditing(item); };
+  const openEdit = (item: ServiceAsset) => {
+    setDraft({
+      serviceCode: item.serviceCode, catalogId: item.catalogId, name: item.name, fullName: item.fullName,
+      nomenclatureNumber: item.nomenclatureNumber, inventoryNumber: item.inventoryNumber, serialNumber: item.serialNumber,
+      manufactureYear: item.manufactureYear, accountingUnit: item.accountingUnit, quantity: item.quantity, value: item.value,
+      status: item.status === "—" ? "Справний" : item.status, crewId: item.crewId, personnelId: item.personnelId,
+      parentEquipmentId: item.parentEquipmentId, assetType: item.assetType, serviceData: item.serviceData, customValues: item.customValues, notes: item.notes,
+    });
+    setSerialMode("single"); setSerialList(""); setSerialRangeStart(""); setSerialRangeEnd("");
+    const isComplex = item.serviceCode === "sa_ppo" && item.assetType === "БпАК";
+    setIncludeComposition(isComplex);
+    setCompositionIds(isComplex ? assets.filter((candidate) => candidate.parentEquipmentId === item.id).map((candidate) => candidate.id) : []);
+    setNewKitItems([]);
+    setEditing(item);
+  };
+
+  const bulkSerials = () => {
+    if (serialMode === "list") return splitSerialNumbers(serialList);
+    if (serialMode === "range") return expandSerialRange(serialRangeStart, serialRangeEnd);
+    return draft.serialNumber.trim() ? [draft.serialNumber.trim()] : [];
+  };
+  const kitDrafts = () => newKitItems.flatMap((item) => {
+    if (!item.name.trim()) throw new Error("Вкажіть назву кожної нової складової комплектації.");
+    const serials = splitSerialNumbers(item.serials);
+    const base: ServiceAssetDraft = {
+      ...freshDraft("sa_ppo"), catalogId: draft.catalogId, name: item.name.trim(), fullName: item.name.trim(),
+      accountingUnit: "шт.", quantity: Math.max(1, item.quantity), value: 0, status: "Справний",
+      crewId: draft.crewId, personnelId: draft.personnelId, assetType: item.assetType,
+      serviceData: item.assetType === "БпЛА" && item.uavClass.trim() ? { uav_class: item.uavClass.trim() } : {},
+    };
+    return serials.length
+      ? serials.map((serialNumber) => ({ ...base, serialNumber, quantity: 1 }))
+      : [base];
+  });
   const save = async () => {
     if (!draft.name.trim()) return notify("Вкажіть коротку назву.", "error");
     try {
-      if (editing === "new") await operationsService.createServiceAsset(draft);
-      else if (editing) await operationsService.updateServiceAsset(editing.id, draft);
+      if (editing === "new" && serviceCode === "sa_ppo" && draft.assetType === "БпАК" && includeComposition) {
+        await operationsService.createUavComplexWithChildren(draft, compositionIds, kitDrafts());
+      } else if (editing === "new" && serviceCode === "sa_ppo" && draft.assetType !== "БпАК" && serialMode !== "single") {
+        const serials = bulkSerials();
+        if (!serials.length) throw new Error("Вкажіть хоча б один серійний номер.");
+        await operationsService.createServiceAssets(serials.map((serialNumber) => ({ ...draft, serialNumber, quantity: 1 })));
+      } else if (editing === "new") {
+        await operationsService.createServiceAsset(draft);
+      } else if (editing) {
+        await operationsService.updateServiceAsset(editing.id, draft);
+        if (serviceCode === "sa_ppo" && draft.assetType === "БпАК") {
+          const additions = includeComposition ? kitDrafts() : [];
+          const newIds = additions.length ? await operationsService.createServiceAssets(additions) : [];
+          await operationsService.setUavComplexChildren(editing.id, includeComposition ? [...compositionIds, ...newIds] : []);
+        }
+      }
       setEditing(null); await reload(); notify(editing === "new" ? "Майно додано." : "Зміни збережено.", "success");
     } catch (error) { notify(typeof error === "string" ? error : "Не вдалося зберегти майно.", "error"); }
   };
@@ -207,24 +276,62 @@ export function ServicesPage({ people }: { people: Person[] }) {
 
   const selectedCatalog = catalogs.find((item) => item.id === draft.catalogId) ?? null;
   const editorFields = serviceCode === "svt" ? (svtFields[selectedCatalog?.name ?? ""] ?? []) : service.fields;
+  const visibleEditorFields = editorFields.filter((field) => {
+    if (field.key === "uav_class" && draft.assetType !== "БпЛА") return false;
+    return !(field.base === "serialNumber" && editing === "new" && serviceCode === "sa_ppo" && draft.assetType !== "БпАК" && serialMode !== "single");
+  });
   const assignmentCrew = draft.crewId ? crews.find((item) => item.id === draft.crewId) : null;
   const parentOptions = assets.filter((item) => item.id !== (editing === "new" ? -1 : editing?.id) && (serviceCode === "sa_ppo" ? item.assetType !== "Комплектуюче" : serviceCode === "svt" ? item.catalogName === "Техніка" : true));
   const selectedItemCatalog = selected ? catalogs.find((item) => item.id === selected.catalogId) ?? null : null;
   const linkedSvtItems = selected?.catalogName === "Техніка" ? assets.filter((item) => item.parentEquipmentId === selected.id) : [];
   const serviceHasCrew = ["gz_kb", "siiz", "ets", "ovtm", "sa_ppo", "svt"].includes(serviceCode);
+  const reusableUavChildren = assets.filter((item) => item.assetType !== "БпАК" && item.id !== (editing === "new" ? -1 : editing?.id));
 
-  return <PageFrame className="services-page" header={<PageTitle title="Служби" subtitle="Єдиний облік майна за службами, каталогами та відповідальними" actions={<div className="services-page__actions"><button className="button" onClick={() => void openHistory()}><History />Історія руху</button><button className="button primary" onClick={openCreate}><Plus />Додати</button></div>} />}>
-    <nav className="services-tabs" aria-label="Служби майна">{serviceDefinitions.map((definition) => { const Icon = definition.icon; return <button key={definition.code} className={serviceCode === definition.code ? "active" : ""} onClick={() => setServiceCode(definition.code)} title={definition.description}><Icon /><b>{definition.shortName}</b></button>; })}</nav>
-    <section className="services-heading"><div><span>Служба</span><h2>{service.title}</h2><p>{service.description}</p></div><label className="services-full-name-toggle"><input type="checkbox" checked={showFullName} onChange={(event) => setShowFullName(event.target.checked)} /><span>Показати повне найменування</span></label></section>
-    <div className="catalog-carousel-shell"><button className="icon-button" aria-label="Каталоги ліворуч" onClick={() => catalogStrip.current?.scrollBy({ left: -360, behavior: "smooth" })}><ChevronLeft /></button><div className="catalog-carousel" ref={catalogStrip}><button className={activeCatalogId === "all" ? "active" : ""} onClick={() => setActiveCatalogId("all")}><PackageOpen /><span>Усе майно</span><b>{assets.length}</b></button>{catalogs.map((catalog) => <button key={catalog.id} className={activeCatalogId === catalog.id ? "active" : ""} onClick={() => setActiveCatalogId(catalog.id)} onDoubleClick={() => openCatalog(catalog)}><Boxes /><span>{catalog.name}</span><b>{assets.filter((item) => item.catalogId === catalog.id).length}</b></button>)}<button className="catalog-carousel__add" onClick={() => openCatalog("new")}><Plus /><span>Новий каталог</span></button></div><button className="icon-button" aria-label="Каталоги праворуч" onClick={() => catalogStrip.current?.scrollBy({ left: 360, behavior: "smooth" })}><ChevronRight /></button></div>
-    <div className="services-toolbar"><SearchInput value={query} onChange={setQuery} placeholder="Пошук за назвою, номером, відповідальним або екіпажем…" /><button className="button" onClick={() => void reload()}><RefreshCw />Оновити</button>{activeCatalog && <button className="button" onClick={() => openCatalog(activeCatalog)}><Edit3 />Налаштувати каталог</button>}</div>
-    <div className={`people-layout ${selected ? "with-details" : ""}`}><section className="panel data-table service-assets-table"><EntityTable items={filtered} columns={baseColumns} rowKey={(item) => item.id} selectedKey={selected?.id} onSelect={setSelected} emptyState={<div className="personnel-state"><ServiceIcon /><b>У цьому розділі ще немає майна</b><span>Додайте перший запис або оберіть інший каталог.</span></div>} /><div className="pagination">Показано {filtered.length} із {assets.length}</div></section>{selected && <EntityDetailsPanel title="Картка майна" onClose={() => setSelected(null)} identity={<div className="identity"><div className="avatar"><PackageOpen /></div><div><b>{selected.name}</b><p>{selected.catalogName ?? "Без каталогу"} · {selected.accountingUnit} {selected.quantity}</p></div></div>} actions={<><button className="button" onClick={() => void openHistory(selected)}><History />Історія</button>{service.allowsReceipt && <button className="button" onClick={() => setReceiptTarget(selected)}><Plus />Додати кількість</button>}<button className="button" onClick={() => openEdit(selected)}><Edit3 />Редагувати</button><button className="button danger" onClick={() => setDeleteTarget(selected)}><Trash2 />Видалити</button></>}>
+  const serviceSwitcher = <nav className="services-tabs" aria-label="Служби майна">{serviceDefinitions.map((definition) => { const Icon = definition.icon; return <button key={definition.code} className={serviceCode === definition.code ? "active" : ""} onClick={() => { setServiceCode(definition.code); setZuMode("assets"); }} title={definition.description}><Icon /><b>{definition.shortName}</b></button>; })}</nav>;
+
+  return <PageFrame className="services-page" tools={serviceSwitcher}>
+    {serviceCode === "zu" && <div className="services-view-toggle services-view-toggle--standalone" role="group" aria-label="Розділ ЗУ"><button className={zuMode === "assets" ? "active" : ""} onClick={() => setZuMode("assets")}><Archive />Облік ЗУ</button><button className={zuMode === "workshop" ? "active" : ""} onClick={() => setZuMode("workshop")}><Beaker />Цукерня</button></div>}
+    {serviceCode === "zu" && zuMode === "workshop" ? <WorkshopPage embedded /> : <div className="services-assets-view">
+      <div className="services-command-bar">
+        <div className="services-command-bar__actions"><label className="services-full-name-toggle"><input type="checkbox" checked={showFullName} onChange={(event) => setShowFullName(event.target.checked)} /><span>Повне найменування</span></label><button className="button" onClick={() => void openHistory()}><History />Історія руху</button><button className="button primary" onClick={openCreate}><Plus />Додати</button></div>
+      </div>
+      <div className="catalog-carousel-shell"><button className="icon-button" aria-label="Каталоги ліворуч" onClick={() => catalogStrip.current?.scrollBy({ left: -360, behavior: "smooth" })}><ChevronLeft /></button><div className="catalog-carousel" ref={catalogStrip}><button className={activeCatalogId === "all" ? "active" : ""} onClick={() => setActiveCatalogId("all")}><PackageOpen /><span>Усе майно</span><b>{assets.length}</b></button>{catalogs.map((catalog) => <button key={catalog.id} className={activeCatalogId === catalog.id ? "active" : ""} onClick={() => setActiveCatalogId(catalog.id)} onDoubleClick={() => openCatalog(catalog)}><Boxes /><span>{catalog.name}</span><b>{assets.filter((item) => item.catalogId === catalog.id).length}</b></button>)}<button className="catalog-carousel__add" onClick={() => openCatalog("new")}><Plus /><span>Новий каталог</span></button></div><button className="icon-button" aria-label="Каталоги праворуч" onClick={() => catalogStrip.current?.scrollBy({ left: 360, behavior: "smooth" })}><ChevronRight /></button></div>
+      <div className="services-toolbar"><SearchInput value={query} onChange={setQuery} placeholder="Пошук за назвою, номером, відповідальним або екіпажем…" />{activeCatalog && <button className="button" onClick={() => openCatalog(activeCatalog)}><Edit3 />Налаштувати каталог</button>}</div>
+      <div className={`people-layout ${selected ? "with-details" : ""}`}><section className="panel data-table service-assets-table"><EntityTable items={filtered} columns={baseColumns} rowKey={(item) => item.id} selectedKey={selected?.id} onSelect={setSelected} emptyState={<div className="personnel-state"><ServiceIcon /><b>У цьому розділі ще немає майна</b><span>Додайте перший запис або оберіть інший каталог.</span></div>} /><div className="pagination">Показано {filtered.length} із {assets.length}</div></section>{selected && <EntityDetailsPanel title="Картка майна" onClose={() => setSelected(null)} identity={<div className="identity"><div className="avatar"><PackageOpen /></div><div><b>{selected.name}</b><p>{selected.catalogName ?? "Без каталогу"} · {selected.accountingUnit} {selected.quantity}</p></div></div>} actions={<><button className="button" onClick={() => void openHistory(selected)}><History />Історія</button>{service.allowsReceipt && <button className="button" onClick={() => setReceiptTarget(selected)}><Plus />Додати кількість</button>}<button className="button" onClick={() => openEdit(selected)}><Edit3 />Редагувати</button><button className="button danger" onClick={() => setDeleteTarget(selected)}><Trash2 />Видалити</button></>}>
       <div className="person-detail"><span>Найменування матеріальних засобів</span><b>{selected.fullName || selected.name}</b></div><div className="person-detail"><span>Каталог</span><b>{selected.catalogName ?? "Без каталогу"}</b></div><div className="person-detail"><span>Кількість</span><b>{selected.quantity} {selected.accountingUnit}</b></div>{service.hasCondition && <div className="person-detail"><span>Стан</span><b>{selected.status}</b></div>}<div className="person-detail"><span>Закріплене</span><b>{selected.holderName || "Не закріплено"}</b></div>{serviceHasCrew && <div className="person-detail"><span>Екіпаж</span><b>{selected.crewName || "—"}</b></div>}{selected.parentName && <div className="person-detail"><span>{serviceCode === "svt" ? "Техніка" : "Належить до"}</span><b>{selected.parentName}</b></div>}{serviceCode === "sa_ppo" && <div className="person-detail"><span>Тип</span><b>{selected.assetType || "—"}</b></div>}{(serviceCode === "svt" ? (svtFields[selected.catalogName ?? ""] ?? []) : service.fields).map((field) => <div className="person-detail" key={field.key}><span>{field.label}</span><b>{fieldValue(selected, field) || "—"}</b></div>)}{selected.catalogName === "Техніка" && <><div className="person-detail"><span>АКБ</span><b>{linkedSvtItems.filter((item) => item.catalogName === "АКБ").map((item) => item.name).join(", ") || "—"}</b></div><div className="person-detail"><span>Автомобільні шини</span><b>{linkedSvtItems.filter((item) => item.catalogName === "Шини").map((item) => item.name).join(", ") || "—"}</b></div></>}{Object.entries(selected.customValues).map(([key, value]) => <div className="person-detail" key={key}><span>{selectedItemCatalog?.fields.find((field) => field.fieldKey === key)?.displayName ?? key}</span><b>{value || "—"}</b></div>)}<div className="person-detail"><span>Примітка</span><b>{selected.notes || "—"}</b></div>
-    </EntityDetailsPanel>}</div>
+      </EntityDetailsPanel>}</div>
+    </div>}
 
     {editing && <Modal title={editing === "new" ? `Нове майно · ${service.title}` : `Редагування · ${editing.name}`} subtitle="Основні облікові дані, каталог і закріплення" onClose={() => setEditing(null)} className="service-asset-editor"><div className="service-asset-editor__body">
       <section><header><b>Основні дані</b><span>Коротка назва показується у таблиці, повне найменування — у картці та за потреби окремою колонкою.</span></header><div className="service-form-grid"><label className="form-field"><span>Назва <b>*</b></span><input autoFocus value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Коротка зрозуміла назва" /></label><label className="form-field"><span>Каталог</span><Select ariaLabel="Каталог" value={draft.catalogId ? String(draft.catalogId) : ""} onChange={(value) => setDraft({ ...draft, catalogId: value ? Number(value) : null, customValues: {}, parentEquipmentId: null })} options={[...(serviceCode === "svt" ? [] : [{ value: "", label: "Без каталогу" }]), ...catalogs.map((catalog) => ({ value: String(catalog.id), label: catalog.name }))]} /></label><label className="form-field form-field--wide"><span>Найменування матеріальних засобів</span><input value={draft.fullName} onChange={(event) => setDraft({ ...draft, fullName: event.target.value })} placeholder="Повне офіційне найменування" /></label><label className="form-field"><span>Од. обліку</span><Select ariaLabel="Одиниця обліку" value={draft.accountingUnit} onChange={(accountingUnit) => setDraft({ ...draft, accountingUnit })} options={units.map((value) => ({ value, label: value }))} /></label><label className="form-field"><span>Кількість</span><input type="number" min="0" step="any" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: Math.max(0, Number(event.target.value) || 0) })} /></label>{service.hasCondition && <label className="form-field"><span>Стан</span><Select ariaLabel="Стан майна" value={draft.status} onChange={(status) => setDraft({ ...draft, status })} options={statuses.map((value) => ({ value, label: value }))} /></label>}{!["zbbr", "zu"].includes(serviceCode) && <label className="form-field"><span>Вартість, грн</span><input type="number" min="0" step="0.01" value={draft.value} onChange={(event) => setDraft({ ...draft, value: Math.max(0, Number(event.target.value) || 0) })} /></label>}</div></section>
-      {(serviceCode === "sa_ppo" || editorFields.length > 0) && <section><header><b>Службові характеристики</b><span>Основні поля цієї служби відображаються в таблиці; решта — у розгорнутій картці.</span></header><div className="service-form-grid">{serviceCode === "sa_ppo" && <><label className="form-field"><span>Тип</span><Select ariaLabel="Тип об’єкта" value={draft.assetType} onChange={(assetType) => setDraft({ ...draft, assetType, parentEquipmentId: assetType === "БпАК" ? null : draft.parentEquipmentId })} options={["БпАК", "БпЛА", "Комплектуюче"].map((value) => ({ value, label: value }))} /></label>{draft.assetType !== "БпАК" && <label className="form-field"><span>Належить до</span><Select ariaLabel="Належить до" value={draft.parentEquipmentId ? String(draft.parentEquipmentId) : ""} onChange={(value) => setDraft({ ...draft, parentEquipmentId: value ? Number(value) : null })} options={[{ value: "", label: "Самостійний об’єкт" }, ...parentOptions.map((item) => ({ value: String(item.id), label: `${item.name}${item.serialNumber ? ` · ${item.serialNumber}` : ""}` }))]} /></label>}</>}{editorFields.map((field) => <label className="form-field" key={field.key}><span>{field.label}</span>{field.kind === "select" ? <Select ariaLabel={field.label} value={fieldValue(draft, field)} onChange={(value) => setDraft(setFieldValue(draft, field, value))} options={[{ value: "", label: "Не вказано" }, ...(field.options ?? []).map((value) => ({ value, label: value }))]} /> : <input type={field.kind === "number" ? "number" : field.kind === "date" ? "date" : "text"} value={fieldValue(draft, field)} onChange={(event) => setDraft(setFieldValue(draft, field, event.target.value))} />}</label>)}</div></section>}
+      {(serviceCode === "sa_ppo" || editorFields.length > 0) && <section>
+        <header><b>Службові характеристики</b><span>Основні поля цієї служби відображаються в таблиці; решта — у розгорнутій картці.</span></header>
+        <div className="service-form-grid">
+          {serviceCode === "sa_ppo" && <>
+            <label className="form-field"><span>Тип</span><Select ariaLabel="Тип об’єкта" value={draft.assetType} disabled={editing !== "new"} onChange={(assetType) => { setDraft({ ...draft, assetType, parentEquipmentId: assetType === "БпАК" ? null : draft.parentEquipmentId }); setSerialMode("single"); setIncludeComposition(false); }} options={["БпАК", "БпЛА", "Комплектуюче"].map((value) => ({ value, label: value }))} /></label>
+            {draft.assetType !== "БпАК" && <label className="form-field"><span>Належить до</span><Select ariaLabel="Належить до" value={draft.parentEquipmentId ? String(draft.parentEquipmentId) : ""} onChange={(value) => setDraft({ ...draft, parentEquipmentId: value ? Number(value) : null })} options={[{ value: "", label: "Самостійний об’єкт" }, ...parentOptions.map((item) => ({ value: String(item.id), label: `${item.name}${item.serialNumber ? ` · ${item.serialNumber}` : ""}` }))]} /></label>}
+          </>}
+          {visibleEditorFields.map((field) => <label className="form-field" key={field.key}><span>{field.label}</span>{field.kind === "select" ? <Select ariaLabel={field.label} value={fieldValue(draft, field)} onChange={(value) => setDraft(setFieldValue(draft, field, value))} options={[{ value: "", label: "Не вказано" }, ...(field.options ?? []).map((value) => ({ value, label: value }))]} /> : <input type={field.kind === "number" ? "number" : field.kind === "date" ? "date" : "text"} value={fieldValue(draft, field)} onChange={(event) => setDraft(setFieldValue(draft, field, event.target.value))} />}</label>)}
+        </div>
+        {editing === "new" && serviceCode === "sa_ppo" && draft.assetType !== "БпАК" && <div className="serial-batch-editor">
+          <div className="serial-batch-editor__modes" role="group" aria-label="Спосіб введення серійних номерів">
+            <button className={serialMode === "single" ? "active" : ""} onClick={() => setSerialMode("single")}>Один запис</button>
+            <button className={serialMode === "list" ? "active" : ""} onClick={() => setSerialMode("list")}>Список номерів</button>
+            <button className={serialMode === "range" ? "active" : ""} onClick={() => setSerialMode("range")}>Діапазон</button>
+          </div>
+          {serialMode === "list" && <label className="form-field"><span>Серійні номери</span><textarea value={serialList} onChange={(event) => setSerialList(event.target.value)} placeholder={"FPV-001-A\nFPV-002-A\nFPV-003-A"} /><small>Кожен номер — з нового рядка; також можна розділяти комою.</small></label>}
+          {serialMode === "range" && <><div className="service-form-grid"><label className="form-field"><span>Від номера</span><input value={serialRangeStart} onChange={(event) => setSerialRangeStart(event.target.value)} placeholder="FPV-001-A" /></label><label className="form-field"><span>До номера включно</span><input value={serialRangeEnd} onChange={(event) => setSerialRangeEnd(event.target.value)} placeholder="FPV-025-A" /></label></div><small>Програма змінює числову частину, навіть якщо після неї є сталі літери. Максимум — 500 записів.</small></>}
+          {serialMode !== "single" && <p>Для кожного серійного номера буде створено окремий запис із кількістю 1.</p>}
+        </div>}
+      </section>}
+
+      {serviceCode === "sa_ppo" && draft.assetType === "БпАК" && <section className="uav-composition-editor">
+        <header><div><b>Комплектація БпАК</b><span>Складові є окремими записами: їх можна від’єднати й повторно закріпити за іншим БпАК.</span></div><label className="composition-toggle"><input type="checkbox" checked={includeComposition} onChange={(event) => setIncludeComposition(event.target.checked)} /><span>Вказати комплектацію зараз</span></label></header>
+        {includeComposition && <div className="uav-composition-editor__body">
+          <div className="uav-existing-assets"><b>Додати з наявного обліку</b><span>Якщо складова вже належить іншому БпАК, вона буде перенесена сюди.</span><div className="uav-existing-assets__list">{reusableUavChildren.map((item) => <label key={item.id}><input type="checkbox" checked={compositionIds.includes(item.id)} onChange={(event) => setCompositionIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} /><span><b>{item.name}</b><small>{item.assetType}{item.serialNumber ? ` · ${item.serialNumber}` : ""}{item.parentName ? ` · зараз у ${item.parentName}` : " · самостійний"}</small></span></label>)}{reusableUavChildren.length === 0 && <p>Вільних або раніше створених складових немає.</p>}</div></div>
+          <div className="uav-new-assets"><header><div><b>Створити нові складові</b><span>У полі серійних номерів можна вказати один номер або список з нового рядка.</span></div><button className="button" onClick={() => setNewKitItems((current) => [...current, freshKitDraft()])}><Plus />Додати складову</button></header>{newKitItems.map((item, index) => <article key={item.key}><div className="uav-new-assets__title"><b>Складова {index + 1}</b><button className="icon-button danger" aria-label={`Видалити складову ${index + 1}`} onClick={() => setNewKitItems((current) => current.filter((candidate) => candidate.key !== item.key))}><Trash2 /></button></div><div className="service-form-grid"><label className="form-field"><span>Тип</span><Select ariaLabel={`Тип складової ${index + 1}`} value={item.assetType} onChange={(assetType) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, assetType: assetType as KitDraft["assetType"] } : candidate))} options={[{ value: "БпЛА", label: "БпЛА" }, { value: "Комплектуюче", label: "Комплектуюче" }]} /></label><label className="form-field"><span>Назва <b>*</b></span><input value={item.name} onChange={(event) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, name: event.target.value } : candidate))} /></label>{item.assetType === "БпЛА" && <label className="form-field"><span>Клас / призначення БпЛА</span><input value={item.uavClass} onChange={(event) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, uavClass: event.target.value } : candidate))} placeholder="ФПВ, бомбер, літаковий ударний…" /></label>}<label className="form-field"><span>Кількість без серійників</span><input type="number" min="1" step="1" value={item.quantity} onChange={(event) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, quantity: Math.max(1, Math.trunc(Number(event.target.value) || 1)) } : candidate))} /></label><label className="form-field form-field--wide"><span>Серійний номер або список номерів</span><textarea value={item.serials} onChange={(event) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, serials: event.target.value } : candidate))} placeholder={"Необов’язково\nFPV-001-A\nFPV-002-A"} /><small>Якщо номери вказані, кожен стане окремою складовою з кількістю 1.</small></label></div></article>)}</div>
+        </div>}
+      </section>}
       {serviceCode === "svt" && ["АКБ", "Шини"].includes(selectedCatalog?.name ?? "") && <section><header><b>Закріплення за технікою</b><span>Зв’язок працює в обидві сторони: АКБ або шина показується у картці техніки, а техніка — у картці комплектуючого.</span></header><label className="form-field"><span>Техніка</span><Select ariaLabel="Закріплена техніка" value={draft.parentEquipmentId ? String(draft.parentEquipmentId) : ""} onChange={(value) => setDraft({ ...draft, parentEquipmentId: value ? Number(value) : null })} options={[{ value: "", label: "Не закріплено за технікою" }, ...parentOptions.map((item) => ({ value: String(item.id), label: `${item.name}${fieldValue(item, svtFields["Техніка"][0]) ? ` · ${fieldValue(item, svtFields["Техніка"][0])}` : ""}` }))]} /></label></section>}
       <section><header><b>Закріплення</b><span>{serviceHasCrew ? "«Закріплене» і «Екіпаж» — окремі поля. Для екіпажу відповідальним автоматично стане його офіційний командир, але його можна змінити." : "Оберіть військовослужбовця, за яким обліковується майно."}</span></header><div className="service-form-grid">{serviceHasCrew && <label className="form-field"><span>Екіпаж</span><Select ariaLabel="Екіпаж" value={draft.crewId ? String(draft.crewId) : ""} onChange={(value) => setDraft({ ...draft, crewId: value ? Number(value) : null })} options={[{ value: "", label: "Не закріплювати за екіпажем" }, ...crews.map((crew) => ({ value: String(crew.id), label: crew.name }))]} /></label>}<label className="form-field"><span>Відповідальна особа</span><Select ariaLabel="Відповідальна особа" value={draft.personnelId ? String(draft.personnelId) : ""} onChange={(value) => setDraft({ ...draft, personnelId: value ? Number(value) : null })} options={[{ value: "", label: assignmentCrew ? "Автоматично — командир екіпажу" : "Не закріплювати за людиною" }, ...people.map((person) => ({ value: String(person.id), label: person.fullName }))]} /></label></div></section>
       {selectedCatalog && selectedCatalog.fields.length > 0 && <section><header><b>Додаткові поля каталогу «{selectedCatalog.name}»</b><span>Ці поля видно в картці майна і вони доступні як змінні для рапортів.</span></header><div className="service-form-grid">{selectedCatalog.fields.map((field) => <label className="form-field" key={field.fieldKey}><span>{field.displayName}</span><input type={field.fieldType === "number" ? "number" : field.fieldType === "date" ? "date" : "text"} value={draft.customValues[field.fieldKey] ?? field.initialValue} onChange={(event) => setDraft({ ...draft, customValues: { ...draft.customValues, [field.fieldKey]: event.target.value } })} /></label>)}</div></section>}

@@ -904,7 +904,14 @@ fn initialise_service_assets(connection: &Connection) -> Result<(), String> {
                  WHEN total_quantity>0 THEN total_quantity
                  ELSE 1 END;
              INSERT OR IGNORE INTO asset_catalogs(service_code,name,is_system,sort_order)
-               VALUES('svt','Техніка',1,10),('svt','АКБ',1,20),('svt','Шини',1,30);
+               VALUES('svt','Техніка',1,10),('svt','АКБ',1,20),('svt','Шини',1,30),
+                     ('zu','Боєприпаси',1,10),('zu','Вибухові матеріали',1,20);
+             UPDATE equipment SET catalog_id=CASE
+               WHEN weapon_kind='component' THEN
+                 (SELECT id FROM asset_catalogs WHERE service_code='zu' AND name='Вибухові матеріали' LIMIT 1)
+               ELSE (SELECT id FROM asset_catalogs WHERE service_code='zu' AND name='Боєприпаси' LIMIT 1)
+               END
+             WHERE service_code='zu' AND catalog_id IS NULL;
              INSERT INTO equipment(
                category,service_code,catalog_id,name,full_name,inventory_number,serial_number,
                accounting_unit,quantity,asset_value,status,crew_id,personnel_id,responsible_manual,

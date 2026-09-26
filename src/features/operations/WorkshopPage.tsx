@@ -13,7 +13,7 @@ import { incidentDateTimeParts } from "./incident-date";
 const productUnits = ["шт", "компл"];
 const freshIngredient = (): WorkshopIngredient => ({ equipmentId: 0, equipmentName: "", quantity: 0, measurementUnit: "" });
 
-export function WorkshopPage() {
+export function WorkshopPage({ embedded = false }: { embedded?: boolean }) {
   const { notify } = useNotifications();
   const [components, setComponents] = useState<Equipment[]>([]);
   const [products, setProducts] = useState<WorkshopProduct[]>([]);
@@ -39,6 +39,11 @@ export function WorkshopPage() {
     }
   }, [notify]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const refresh = () => { void load(); };
+    window.addEventListener("operational-data-updated", refresh);
+    return () => window.removeEventListener("operational-data-updated", refresh);
+  }, [load]);
 
   const availableById = useMemo(() => new Map(components.map((item) => [item.id, item])), [components]);
   const availableComponents = useMemo(() => components.filter((item) => item.stockQuantity > 0), [components]);
@@ -88,7 +93,9 @@ export function WorkshopPage() {
     { key: "created", title: "Дата обліку", render: (item) => { const value = incidentDateTimeParts(item.createdAt); return `${value.date} · ${value.time}`; } },
   ];
 
-  return <PageFrame className="workshop-page" header={<PageTitle title="Цукерня" subtitle="Облік виготовлених виробів і автоматичне списання складових БК" actions={<button className="button primary" onClick={() => setOpen(true)}><Plus />Додати виготовлення</button>} />}>
+  return <PageFrame className={`workshop-page ${embedded ? "workshop-page--embedded" : ""}`} header={embedded
+    ? <div className="workshop-embedded-header"><div><b>Цукерня</b><span>Виготовлення та списання складових ЗУ</span></div><button className="button primary" onClick={() => setOpen(true)}><Plus />Додати виготовлення</button></div>
+    : <PageTitle title="Цукерня" subtitle="Облік виготовлених виробів і автоматичне списання складових БК" actions={<button className="button primary" onClick={() => setOpen(true)}><Plus />Додати виготовлення</button>} />}>
     <section className="panel operation-table data-table workshop-table"><EntityTable items={products} columns={columns} rowKey={(item) => item.id} emptyState={<div className="personnel-state"><Beaker /><b>Виробів ще немає</b><span>Перше виготовлення з’явиться тут після облікової операції.</span></div>} /><div className="pagination">Показано {products.length} із {products.length}</div></section>
     {open && <Modal title="Нове виготовлення" subtitle="Вкажіть тільки облікові кількості: після збереження складові будуть списані." onClose={() => { setOpen(false); reset(); }} className="operation-editor workshop-editor"><div className="operation-editor__body workshop-editor__body">
       <label className="form-field form-field--wide"><span>Використати збережений рецепт</span><Select ariaLabel="Збережений рецепт" value={recipeId} onChange={applyRecipe} options={[{ value: "", label: "Новий рецепт" }, ...products.map((product) => ({ value: String(product.id), label: `${product.name} · ${product.ingredients.length} матеріалів` }))]} /></label>

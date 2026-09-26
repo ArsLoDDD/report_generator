@@ -71,8 +71,9 @@ describe("navigation and report generation", () => {
     expect(within(accountingGroup as HTMLElement).getByText("Облік підрозділу")).toBeInTheDocument();
     expect(screen.queryByText("Техніка та майно")).not.toBeInTheDocument();
     fireEvent.click(assetsButton);
-    expect(screen.getByRole("heading", { name: "Служби" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ЗББР" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Служби" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "ЗУ" }));
     expect(screen.getByRole("button", { name: "Цукерня" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Інциденти" }));
     expect(screen.getByRole("heading", { name: "Інциденти" })).toBeInTheDocument();

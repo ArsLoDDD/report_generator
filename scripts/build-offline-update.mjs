@@ -12,7 +12,10 @@ const valueAfter = (name) => {
   return index >= 0 ? args[index + 1] : undefined;
 };
 const requestedVersion = valueAfter("--version");
-const notes = valueAfter("--notes") ?? "Оновлення Шаблонізатора";
+const requestedNotes = valueAfter("--notes")?.trim();
+const notesPath = join(projectRoot, "UPDATE_NOTES.md");
+const bundledNotes = existsSync(notesPath) ? readFileSync(notesPath, "utf8").trim() : "";
+const notes = [bundledNotes, requestedNotes].filter(Boolean).join("\n\n") || "Оновлення Шаблонізатора";
 const skipTests = args.includes("--skip-tests");
 
 if (args.includes("--help")) {

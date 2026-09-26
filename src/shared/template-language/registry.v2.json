@@ -140,6 +140,7 @@
     {"id":"кількість","sourceKey":"quantity","name":"Кількість","kind":"number","example":"4","cases":false},
     {"id":"вартість","sourceKey":"asset_value","name":"Вартість","kind":"number","example":"120000","cases":false},
     {"id":"тип_обєкта","sourceKey":"asset_type","name":"Тип об’єкта","kind":"text","example":"БпАК","cases":false},
+    {"id":"клас_бпла","sourceKey":"uav_class","name":"Клас / призначення БпЛА","kind":"text","example":"ФПВ","cases":false,"description":"Клас або бойове призначення БпЛА: ФПВ, бомбер, літаковий ударний тощо."},
     {"id":"належить_до","sourceKey":"parent_name","name":"Належить до","kind":"text","example":"БпАК SHARK №1","cases":false},
     {"id":"вид_палива","sourceKey":"fuel_type","name":"Вид палива","kind":"text","example":"ДП","cases":false},
     {"id":"номінальна_потужність","sourceKey":"nominal_power","name":"Номінальна потужність","kind":"text","example":"5 кВт","cases":false},

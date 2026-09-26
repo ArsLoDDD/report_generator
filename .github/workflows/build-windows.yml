@@ -11,7 +11,7 @@ on:
         type: string
       notes:
         description: Короткий опис змін для користувача
-        required: true
+        required: false
         type: string
 
 jobs:
@@ -52,20 +52,17 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           REQUESTED_VERSION: ${{ inputs.version }}
           REQUESTED_NOTES: ${{ inputs.notes }}
-          COMMIT_NOTES: ${{ github.event.head_commit.message }}
         run: |
           $version = $env:REQUESTED_VERSION
           if (-not $version) {
             $version = node -p "require('./package.json').version"
           }
           $notes = $env:REQUESTED_NOTES
-          if (-not $notes) {
-            $notes = $env:COMMIT_NOTES
+          if ($notes) {
+            npm run update:build -- --version $version --notes $notes --skip-tests
+          } else {
+            npm run update:build -- --version $version --skip-tests
           }
-          if (-not $notes) {
-            $notes = "Оновлення Шаблонізатора $version"
-          }
-          npm run update:build -- --version $version --notes $notes --skip-tests
       - name: Підготувати два файли для завантаження
         shell: pwsh
         run: |
