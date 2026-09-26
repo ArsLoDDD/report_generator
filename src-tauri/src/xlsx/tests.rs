@@ -247,6 +247,7 @@ fn round_trips_crews_equipment_incidents_and_custom_values() {
                 components_json: String::new(),
                 assigned_quantity: "1".into(),
                 notes: String::new(),
+                ..EquipmentRow::default()
             },
             EquipmentRow {
                 category: "uav".into(),
@@ -264,6 +265,7 @@ fn round_trips_crews_equipment_incidents_and_custom_values() {
                 components_json: String::new(),
                 assigned_quantity: "4".into(),
                 notes: String::new(),
+                ..EquipmentRow::default()
             },
             EquipmentRow {
                 category: "communications".into(),
@@ -281,6 +283,7 @@ fn round_trips_crews_equipment_incidents_and_custom_values() {
                 components_json: String::new(),
                 assigned_quantity: "1".into(),
                 notes: String::new(),
+                ..EquipmentRow::default()
             },
             EquipmentRow {
                 category: "weapon_ammo".into(),
@@ -298,6 +301,7 @@ fn round_trips_crews_equipment_incidents_and_custom_values() {
                 components_json: String::new(),
                 assigned_quantity: "1".into(),
                 notes: String::new(),
+                ..EquipmentRow::default()
             },
         ],
         &[IncidentRow {

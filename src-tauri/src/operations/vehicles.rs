@@ -40,6 +40,7 @@ pub fn create_vehicle(
         .map_err(|_| "Не вдалося додати автомобіль.".to_string())?;
     let id = db.connection.last_insert_rowid();
     db.connection.execute("INSERT INTO vehicle_custom_fields(vehicle_id,field_key,field_value) SELECT ?1,field_key,initial_value FROM vehicle_custom_field_definitions",[id]).map_err(|_|"Не вдалося встановити кастомні поля автомобіля.".to_string())?;
+    super::service_assets::sync_vehicle_assets(&db.connection)?;
     Ok(())
 }
 #[tauri::command]
@@ -68,6 +69,7 @@ pub fn update_vehicle(
             rusqlite::params![name.trim(), registration_number.trim(), status, personnel_id, crew_id, vehicle_id],
         )
         .map_err(|_| "Не вдалося оновити автомобіль. Перевірте унікальність номера.".to_string())?;
+    super::service_assets::sync_vehicle_assets(&db.connection)?;
     Ok(())
 }
 #[tauri::command]
@@ -94,6 +96,7 @@ pub fn assign_vehicle(
             rusqlite::params![personnel_id, crew_id, vehicle_id],
         )
         .map_err(|_| "Не вдалося змінити закріплення автомобіля.".to_string())?;
+    super::service_assets::sync_vehicle_assets(&db.connection)?;
     Ok(())
 }
 #[tauri::command]
@@ -108,14 +111,14 @@ pub fn update_vehicle_status(
             "UPDATE vehicles SET status=?1 WHERE id=?2",
             rusqlite::params![status, vehicle_id],
         )
-        .map_err(|_| "Не вдалося змінити статус автомобіля.".to_string())
-        .map(|_| ())
+        .map_err(|_| "Не вдалося змінити статус автомобіля.".to_string())?;
+    super::service_assets::sync_vehicle_assets(&db.connection)
 }
 #[tauri::command]
 pub fn delete_vehicle(state: tauri::State<AppState>, vehicle_id: i64) -> Result<(), String> {
     let db = state.0.lock().map_err(|_| busy())?;
     db.connection
         .execute("DELETE FROM vehicles WHERE id=?1", [vehicle_id])
-        .map_err(|_| "Не вдалося видалити автомобіль.".to_string())
-        .map(|_| ())
+        .map_err(|_| "Не вдалося видалити автомобіль.".to_string())?;
+    super::service_assets::sync_vehicle_assets(&db.connection)
 }

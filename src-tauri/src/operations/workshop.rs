@@ -111,10 +111,16 @@ pub fn create_workshop_product(
             .map_err(|_| "Не вдалося прочитати одиницю складової.".to_string())?;
         transaction
             .execute(
-                "UPDATE equipment SET stock_quantity=stock_quantity-?1 WHERE id=?2",
+                "UPDATE equipment SET stock_quantity=stock_quantity-?1,
+                   quantity=max(0,quantity-?1),updated_at=CURRENT_TIMESTAMP WHERE id=?2",
                 params![ingredient.quantity, ingredient.equipment_id],
             )
             .map_err(|_| "Не вдалося списати складову з обліку.".to_string())?;
+        transaction.execute(
+            "INSERT INTO asset_history(equipment_id,asset_name,service_code,event_type,quantity_delta,quantity_after,details)
+             SELECT id,name,service_code,'consumed',?1,quantity,?2 FROM equipment WHERE id=?3",
+            params![-ingredient.quantity,format!("Списано на виготовлення «{}»",draft.name.trim()),ingredient.equipment_id],
+        ).map_err(|_|"Не вдалося записати списання в історію руху майна.".to_string())?;
         transaction
             .execute(
                 "INSERT INTO workshop_ingredients(product_id,equipment_id,quantity,measurement_unit) VALUES(?1,?2,?3,?4)",

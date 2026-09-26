@@ -831,6 +831,7 @@ pub(crate) fn import_personnel_xlsx(
             db.connection.execute("INSERT INTO vehicle_custom_fields(vehicle_id,field_key,field_value) SELECT ?1,field_key,initial_value FROM vehicle_custom_field_definitions", [vehicle_id]).map_err(|_| "Не вдалося встановити кастомні поля автомобіля.".to_string())?;
             count += 1;
         }
+        let mut pending_asset_parents = Vec::<(i64, String)>::new();
         for equipment in data.equipment {
             let crew_id = if equipment.crew_name.trim().is_empty() {
                 None
@@ -888,8 +889,180 @@ pub(crate) fn import_personnel_xlsx(
                 .unwrap_or(if crew_id.is_some() { total } else { 0 })
                 .max(0)
                 .min(total);
-            db.connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,personnel_id,notes,total_quantity,day_quantity,night_quantity,uav_type,asset_kind,components_json,assigned_quantity,stock_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)", rusqlite::params![equipment.category,equipment.name.trim(),equipment.inventory_number.trim(),if equipment.status.trim().is_empty(){"Справний"}else{equipment.status.trim()},crew_id,holder_id,equipment.notes.trim(),total,day,night,equipment.uav_type.trim(),if equipment.asset_kind.trim()=="complex"{"complex"}else{"aircraft"},equipment.components_json,assigned,total as f64]).map_err(|_| "Не вдалося імпортувати майно.".to_string())?;
+            let service_code = if !equipment.service_code.trim().is_empty() {
+                equipment.service_code.trim().to_string()
+            } else {
+                match equipment.category.as_str() {
+                    "uav" => "sa_ppo",
+                    "generator" => "ets",
+                    "communications" => "gz_kb",
+                    "weapon_ammo" => "zbbr",
+                    _ => "gz_kb",
+                }
+                .to_string()
+            };
+            let catalog_id = if equipment.catalog_name.trim().is_empty() {
+                None
+            } else {
+                db.connection.execute(
+                    "INSERT OR IGNORE INTO asset_catalogs(service_code,name,sort_order) VALUES(?1,?2,(SELECT COALESCE(MAX(sort_order),0)+10 FROM asset_catalogs WHERE service_code=?1))",
+                    rusqlite::params![service_code,equipment.catalog_name.trim()],
+                ).map_err(|_| "Не вдалося відновити каталог майна.".to_string())?;
+                db.connection.query_row(
+                    "SELECT id FROM asset_catalogs WHERE service_code=?1 AND name=?2 COLLATE NOCASE",
+                    rusqlite::params![service_code,equipment.catalog_name.trim()],
+                    |row| row.get::<_,i64>(0),
+                ).optional().map_err(|_| "Не вдалося знайти відновлений каталог.".to_string())?
+            };
+            let quantity = equipment
+                .quantity
+                .trim()
+                .parse::<f64>()
+                .unwrap_or(total as f64)
+                .max(0.0);
+            let asset_value = equipment
+                .asset_value
+                .trim()
+                .parse::<f64>()
+                .unwrap_or(0.0)
+                .max(0.0);
+            let accounting_unit = if equipment.accounting_unit.trim().is_empty() {
+                "шт."
+            } else {
+                equipment.accounting_unit.trim()
+            };
+            let service_data_json = if serde_json::from_str::<serde_json::Value>(
+                &equipment.service_data_json,
+            )
+            .is_ok()
+            {
+                equipment.service_data_json.as_str()
+            } else {
+                "{}"
+            };
+            let full_name = if equipment.full_name.trim().is_empty() {
+                equipment.name.trim()
+            } else {
+                equipment.full_name.trim()
+            };
+            let weapon_kind = if service_code == "zu"
+                && equipment.asset_type == "Вибухові матеріали"
+            {
+                "component"
+            } else if service_code == "zu" {
+                "ammunition"
+            } else if service_code == "sa_ppo" && equipment.asset_type == "Комплектуюче"
+            {
+                "component"
+            } else {
+                "weapon"
+            };
+            let imported_asset_kind = if equipment.asset_kind.trim().is_empty() {
+                if service_code == "sa_ppo" {
+                    "aircraft"
+                } else {
+                    ""
+                }
+            } else {
+                equipment.asset_kind.trim()
+            };
+            db.connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,personnel_id,notes,total_quantity,day_quantity,night_quantity,uav_type,asset_kind,components_json,assigned_quantity,stock_quantity,service_code,catalog_id,full_name,nomenclature_number,serial_number,manufacture_year,accounting_unit,quantity,asset_value,service_data_json,responsible_manual,weapon_kind,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,CURRENT_TIMESTAMP)", rusqlite::params![equipment.category,equipment.name.trim(),equipment.inventory_number.trim(),if equipment.status.trim().is_empty(){"Справний"}else{equipment.status.trim()},crew_id,holder_id,equipment.notes.trim(),total,day,night,equipment.uav_type.trim(),imported_asset_kind,equipment.components_json,assigned,quantity,service_code,catalog_id,full_name,equipment.nomenclature_number.trim(),if equipment.serial_number.trim().is_empty(){equipment.inventory_number.trim()}else{equipment.serial_number.trim()},equipment.manufacture_year.trim(),accounting_unit,quantity,asset_value,service_data_json,i64::from(holder_id.is_some()),weapon_kind]).map_err(|_| "Не вдалося імпортувати майно.".to_string())?;
+            let equipment_id = db.connection.last_insert_rowid();
+            if service_code == "svt"
+                && equipment
+                    .catalog_name
+                    .trim()
+                    .eq_ignore_ascii_case("Техніка")
+            {
+                let service_data =
+                    serde_json::from_str::<std::collections::HashMap<String, String>>(
+                        service_data_json,
+                    )
+                    .unwrap_or_default();
+                let registration = service_data
+                    .get("registration_number")
+                    .map(String::as_str)
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or(equipment.inventory_number.trim());
+                if registration.is_empty() {
+                    warnings.push(format!("СВТ «{}»: не вказано автомобільний номерний знак. Запис імпортовано без зв’язку з планом польотів.",equipment.name.trim()));
+                } else {
+                    let vehicle_id = db
+                        .connection
+                        .query_row(
+                            "SELECT id FROM vehicles WHERE registration_number=?1",
+                            [registration],
+                            |row| row.get::<_, i64>(0),
+                        )
+                        .optional()
+                        .map_err(|_| {
+                            "Не вдалося знайти техніку СВТ серед автомобілів.".to_string()
+                        })?;
+                    let vehicle_id = if let Some(vehicle_id) = vehicle_id {
+                        vehicle_id
+                    } else {
+                        db.connection.execute("INSERT INTO vehicles(name,registration_number,status,personnel_id,crew_id,notes) VALUES(?1,?2,?3,?4,?5,?6)",rusqlite::params![equipment.name.trim(),registration,if equipment.status.trim().is_empty(){"Справний"}else{equipment.status.trim()},holder_id,crew_id,equipment.notes.trim()]).map_err(|_|"Не вдалося відновити техніку СВТ серед автомобілів.".to_string())?;
+                        db.connection.last_insert_rowid()
+                    };
+                    db.connection.execute("UPDATE equipment SET legacy_vehicle_id=?1,asset_kind='vehicle' WHERE id=?2",rusqlite::params![vehicle_id,equipment_id]).map_err(|_|"Не вдалося відновити зв’язок техніки СВТ.".to_string())?;
+                }
+            }
+            if !equipment.parent_inventory_number.trim().is_empty() {
+                pending_asset_parents.push((
+                    equipment_id,
+                    equipment.parent_inventory_number.trim().to_string(),
+                ));
+            }
+            if let Some(catalog_id) = catalog_id {
+                let field_descriptions =
+                    serde_json::from_str::<Vec<serde_json::Value>>(&equipment.catalog_fields_json)
+                        .unwrap_or_default();
+                for (index, field) in field_descriptions.iter().enumerate() {
+                    let field_key = field
+                        .get("fieldKey")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default();
+                    if field_key.is_empty() {
+                        continue;
+                    }
+                    let display_name = field
+                        .get("displayName")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or(field_key);
+                    let field_type = field
+                        .get("fieldType")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("text");
+                    let initial_value = field
+                        .get("initialValue")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default();
+                    db.connection.execute("INSERT INTO asset_catalog_fields(catalog_id,field_key,display_name,field_type,initial_value,sort_order) VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(catalog_id,field_key) DO UPDATE SET display_name=excluded.display_name,field_type=excluded.field_type,initial_value=excluded.initial_value",rusqlite::params![catalog_id,field_key,display_name,field_type,initial_value,index as i64]).map_err(|_|"Не вдалося відновити поля каталогу.".to_string())?;
+                }
+                let custom_values =
+                    serde_json::from_str::<std::collections::HashMap<String, String>>(
+                        &equipment.custom_values_json,
+                    )
+                    .unwrap_or_default();
+                for (field_key, field_value) in custom_values {
+                    db.connection.execute("INSERT OR IGNORE INTO asset_catalog_fields(catalog_id,field_key,display_name) VALUES(?1,?2,?2)",rusqlite::params![catalog_id,field_key]).map_err(|_|"Не вдалося відновити додаткове поле.".to_string())?;
+                    db.connection.execute("INSERT INTO asset_custom_values(equipment_id,field_id,field_value) SELECT ?1,id,?3 FROM asset_catalog_fields WHERE catalog_id=?2 AND field_key=?4 ON CONFLICT(equipment_id,field_id) DO UPDATE SET field_value=excluded.field_value",rusqlite::params![equipment_id,catalog_id,field_value,field_key]).map_err(|_|"Не вдалося відновити значення додаткового поля.".to_string())?;
+                }
+            }
             count += 1;
+        }
+        for (equipment_id, parent_inventory_number) in pending_asset_parents {
+            let parent_id=db.connection.query_row("SELECT id FROM equipment WHERE inventory_number=?1 OR serial_number=?1 ORDER BY id LIMIT 1",[parent_inventory_number.as_str()],|row|row.get::<_,i64>(0)).optional().map_err(|_|"Не вдалося знайти батьківський об’єкт майна.".to_string())?;
+            if let Some(parent_id) = parent_id {
+                db.connection
+                    .execute(
+                        "UPDATE equipment SET parent_equipment_id=?1 WHERE id=?2",
+                        rusqlite::params![parent_id, equipment_id],
+                    )
+                    .map_err(|_| "Не вдалося відновити належність майна.".to_string())?;
+            } else {
+                warnings.push(format!("Для майна не знайдено батьківський об’єкт «{parent_inventory_number}». Запис імпортовано без зв’язку."));
+            }
         }
         for (crew_name, inventory_number) in primary_uavs {
             if !inventory_number.trim().is_empty() {
@@ -1034,6 +1207,8 @@ fn clear_replace_import_data(connection: &Connection) -> Result<(), String> {
         "flight_plan_personnel_locations",
         "flight_plan_snapshots",
         "summary_report_drafts",
+        "asset_history",
+        "asset_custom_values",
         "position_work_periods",
         "position_work_members",
         "position_work_status_history",
@@ -1052,6 +1227,8 @@ fn clear_replace_import_data(connection: &Connection) -> Result<(), String> {
         "personnel_control_assignments",
         "positions",
         "equipment",
+        "asset_catalog_fields",
+        "asset_catalogs",
         "vehicles",
         "crews",
         "personnel",
@@ -1076,6 +1253,7 @@ pub(crate) fn export_personnel_xlsx(
         .0
         .lock()
         .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
+    operations::sync_vehicle_assets(&db.connection)?;
     let people = personnel::list(&db.connection)?;
     let mut statement = db.connection.prepare("SELECT v.name,v.registration_number,v.status,COALESCE(p.tax_id,''),COALESCE(trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic),''),COALESCE(c.name,'') FROM vehicles v LEFT JOIN personnel p ON p.id=v.personnel_id LEFT JOIN crews c ON c.id=v.crew_id ORDER BY v.id").map_err(|_| "Не вдалося прочитати автомобілі для експорту.".to_string())?;
     let vehicles = statement
@@ -1156,7 +1334,26 @@ pub(crate) fn export_personnel_xlsx(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?;
     let crew_members = db.connection.prepare("SELECT c.name,COALESCE(p.tax_id,''),trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) FROM crew_members cm JOIN crews c ON c.id=cm.crew_id JOIN personnel p ON p.id=cm.personnel_id WHERE cm.left_at IS NULL ORDER BY cm.id").map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?.query_map([], |row| Ok(xlsx::CrewMemberRow { crew_name:row.get(0)?,personnel_tax_id:row.get(1)?,personnel_full_name:row.get(2)? })).map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?;
-    let equipment = db.connection.prepare("SELECT e.category,e.name,e.inventory_number,e.status,COALESCE(c.name,''),COALESCE(p.tax_id,''),COALESCE(trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic),''),e.notes,e.total_quantity,e.day_quantity,e.night_quantity,e.uav_type,e.asset_kind,e.components_json,e.assigned_quantity FROM equipment e LEFT JOIN crews c ON c.id=e.crew_id LEFT JOIN personnel p ON p.id=e.personnel_id ORDER BY e.id").map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.query_map([], |row| Ok(xlsx::EquipmentRow { category:row.get(0)?,name:row.get(1)?,inventory_number:row.get(2)?,status:row.get(3)?,crew_name:row.get(4)?,holder_tax_id:row.get(5)?,holder_full_name:row.get(6)?,notes:row.get(7)?,total_quantity:row.get::<_,i64>(8)?.to_string(),day_quantity:row.get::<_,i64>(9)?.to_string(),night_quantity:row.get::<_,i64>(10)?.to_string(),uav_type:row.get(11)?,asset_kind:row.get(12)?,components_json:row.get(13)?,assigned_quantity:row.get::<_,i64>(14)?.to_string() })).map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?;
+    let equipment = db.connection.prepare(
+        "SELECT e.category,e.name,e.inventory_number,e.status,COALESCE(c.name,''),COALESCE(p.tax_id,''),
+                COALESCE(trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic),''),e.notes,
+                e.total_quantity,e.day_quantity,e.night_quantity,e.uav_type,e.asset_kind,e.components_json,e.assigned_quantity,
+                e.service_code,COALESCE(catalog.name,''),e.full_name,e.nomenclature_number,e.serial_number,
+                e.manufacture_year,e.accounting_unit,e.quantity,e.asset_value,
+                COALESCE(NULLIF(parent.inventory_number,''),parent.serial_number,''),
+                CASE WHEN e.service_code='sa_ppo' THEN CASE WHEN e.weapon_kind='component' THEN 'Комплектуюче' WHEN e.asset_kind='complex' THEN 'БпАК' ELSE 'БпЛА' END WHEN e.service_code='zu' AND e.weapon_kind='component' THEN 'Вибухові матеріали' ELSE e.asset_kind END,
+                e.service_data_json,
+                COALESCE((SELECT json_group_array(json_object('fieldKey',f.field_key,'displayName',f.display_name,'fieldType',f.field_type,'initialValue',f.initial_value,'sortOrder',f.sort_order)) FROM asset_catalog_fields f WHERE f.catalog_id=e.catalog_id),'[]'),
+                COALESCE((SELECT json_group_object(f.field_key,v.field_value) FROM asset_custom_values v JOIN asset_catalog_fields f ON f.id=v.field_id WHERE v.equipment_id=e.id),'{}')
+         FROM equipment e
+         LEFT JOIN crews c ON c.id=e.crew_id LEFT JOIN personnel p ON p.id=e.personnel_id
+         LEFT JOIN asset_catalogs catalog ON catalog.id=e.catalog_id LEFT JOIN equipment parent ON parent.id=e.parent_equipment_id
+         ORDER BY e.id"
+    ).map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.query_map([], |row| Ok(xlsx::EquipmentRow {
+        category:row.get(0)?,name:row.get(1)?,inventory_number:row.get(2)?,status:row.get(3)?,crew_name:row.get(4)?,holder_tax_id:row.get(5)?,holder_full_name:row.get(6)?,notes:row.get(7)?,
+        total_quantity:row.get::<_,i64>(8)?.to_string(),day_quantity:row.get::<_,i64>(9)?.to_string(),night_quantity:row.get::<_,i64>(10)?.to_string(),uav_type:row.get(11)?,asset_kind:row.get(12)?,components_json:row.get(13)?,assigned_quantity:row.get::<_,i64>(14)?.to_string(),
+        service_code:row.get(15)?,catalog_name:row.get(16)?,full_name:row.get(17)?,nomenclature_number:row.get(18)?,serial_number:row.get(19)?,manufacture_year:row.get(20)?,accounting_unit:row.get(21)?,quantity:row.get::<_,f64>(22)?.to_string(),asset_value:row.get::<_,f64>(23)?.to_string(),parent_inventory_number:row.get(24)?,asset_type:row.get(25)?,service_data_json:row.get(26)?,catalog_fields_json:row.get(27)?,custom_values_json:row.get(28)?
+    })).map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?;
     let incidents = db.connection.prepare("SELECT i.incident_type,i.occurred_at,COALESCE(c.name,''),COALESCE((SELECT group_concat(e2.category, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.category,''),COALESCE((SELECT group_concat(e2.inventory_number, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.inventory_number,''),COALESCE((SELECT group_concat(e2.name, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.name,''),i.position_name,i.reconnaissance_area,i.description FROM incidents i LEFT JOIN crews c ON c.id=i.crew_id LEFT JOIN equipment e ON e.id=i.equipment_id ORDER BY i.id").map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.query_map([], |row| Ok(xlsx::IncidentRow { incident_type:row.get(0)?,occurred_at:row.get(1)?,crew_name:row.get(2)?,equipment_category:row.get(3)?,equipment_inventory_number:row.get(4)?,equipment_name:row.get(5)?,position_name:row.get(6)?,reconnaissance_area:row.get(7)?,description:row.get(8)? })).map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?;
     let positions=db.connection.prepare("SELECT p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.condition_level,p.field_type,p.size,p.mgrs,p.suitable_uav_text,p.is_active,COALESCE(GROUP_CONCAT(c.name, ', '),''),p.notes FROM positions p LEFT JOIN crews c ON c.position_id=p.id GROUP BY p.id ORDER BY p.id").map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.query_map([],|row|Ok(xlsx::PositionRow{name:row.get(0)?,position_type:row.get(1)?,strip_name:row.get(2)?,locality:row.get(3)?,battle_order:row.get(4)?,sector:row.get(5)?,condition:row.get(6)?,condition_level:row.get::<_,i64>(7)?.to_string(),field_type:row.get(8)?,size:row.get(9)?,mgrs:row.get(10)?,suitable_uav_text:row.get(11)?,is_active:if row.get::<_,bool>(12)?{"Так".into()}else{"Ні".into()},crew_name:row.get(13)?,notes:row.get(14)?})).map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?;
     let personnel_control = load_personnel_control_sheets(&db.connection)?;

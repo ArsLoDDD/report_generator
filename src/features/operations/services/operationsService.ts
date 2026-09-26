@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightJournalDraft, FlightJournalEntry, FlightPlanCrewLocationAssignment, FlightPlanRequest, Incident, IncidentDraft, Position, PositionDraft, PositionWork, PositionWorkDraft, PositionWorkStatusEvent, StaffRecommendation, StaffingRecord, VacancyRecommendation, WorkshopDraft, WorkshopProduct } from "../types";
+import type { AssetCatalog, AssetCatalogDraft, AssetHistoryEvent, AssetServiceCode, Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightJournalDraft, FlightJournalEntry, FlightPlanCrewLocationAssignment, FlightPlanRequest, Incident, IncidentDraft, Position, PositionDraft, PositionWork, PositionWorkDraft, PositionWorkStatusEvent, ServiceAsset, ServiceAssetDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation, WorkshopDraft, WorkshopProduct } from "../types";
 
 const mutate = <T>(command: string, args?: Record<string, unknown>) => Promise.resolve(invoke<T>(command, args)).then((result) => {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("operational-data-updated", { detail: { command } }));
@@ -42,6 +42,15 @@ export const operationsService = {
   updateEquipment: (equipmentId: number, draft: EquipmentDraft) => mutate<void>("update_equipment", { equipmentId, draft }),
   assignEquipment: (equipmentId: number, crewId: number | null, quantity?: number) => mutate<void>("assign_equipment", { equipmentId, crewId, quantity }),
   deleteEquipment: (equipmentId: number) => mutate<void>("delete_equipment", { equipmentId }),
+  listAssetCatalogs: (serviceCode: AssetServiceCode) => invoke<AssetCatalog[]>("list_asset_catalogs", { serviceCode }),
+  saveAssetCatalog: (catalogId: number | null, draft: AssetCatalogDraft) => mutate<number>("save_asset_catalog", { catalogId, draft }),
+  deleteAssetCatalog: (catalogId: number) => mutate<void>("delete_asset_catalog", { catalogId }),
+  listServiceAssets: (serviceCode: AssetServiceCode) => invoke<ServiceAsset[]>("list_service_assets", { serviceCode }),
+  createServiceAsset: (draft: ServiceAssetDraft) => mutate<number>("create_service_asset", { draft }),
+  updateServiceAsset: (equipmentId: number, draft: ServiceAssetDraft) => mutate<void>("update_service_asset", { equipmentId, draft }),
+  addServiceAssetQuantity: (equipmentId: number, quantity: number, details: string) => mutate<void>("add_service_asset_quantity", { equipmentId, quantity, details }),
+  deleteServiceAsset: (equipmentId: number) => mutate<void>("delete_service_asset", { equipmentId }),
+  listAssetHistory: (serviceCode: AssetServiceCode, equipmentId: number | null = null) => invoke<AssetHistoryEvent[]>("list_asset_history", { serviceCode, equipmentId }),
   listWorkshopProducts: () => invoke<WorkshopProduct[]>("list_workshop_products"),
   createWorkshopProduct: (draft: WorkshopDraft) => mutate<void>("create_workshop_product", { draft }),
   listIncidents: () => invoke<Incident[]>("list_incidents"),

@@ -260,6 +260,39 @@ fn resolves_selected_crew_and_equipment_values() {
 }
 
 #[test]
+fn exposes_new_service_and_catalog_fields_without_breaking_legacy_equipment_tokens() {
+    let connection = Connection::open_in_memory().unwrap();
+    crate::database::initialise(&connection).unwrap();
+    connection
+        .execute(
+            "INSERT INTO asset_catalogs(service_code,name) VALUES('ets','Генератори польові')",
+            [],
+        )
+        .unwrap();
+    let catalog_id = connection.last_insert_rowid();
+    connection.execute("INSERT INTO asset_catalog_fields(catalog_id,field_key,display_name) VALUES(?1,'engine_model','Модель двигуна')",[catalog_id]).unwrap();
+    connection.execute("INSERT INTO equipment(category,service_code,catalog_id,name,full_name,inventory_number,serial_number,accounting_unit,quantity,asset_value,status,asset_kind,service_data_json) VALUES('generator','ets',?1,'GEN-1','Генератор дизельний GEN-1','INV-1','SN-1','шт.',2,125000,'Справний','','{\"fuel_type\":\"ДП\",\"nominal_power\":\"5 кВт\"}')",[catalog_id]).unwrap();
+    let equipment_id = connection.last_insert_rowid();
+    let field_id = connection
+        .query_row(
+            "SELECT id FROM asset_catalog_fields WHERE catalog_id=?1",
+            [catalog_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    connection.execute("INSERT INTO asset_custom_values(equipment_id,field_id,field_value) VALUES(?1,?2,'R195')",rusqlite::params![equipment_id,field_id]).unwrap();
+    let mut values = HashMap::new();
+    add_selected_equipment(&connection, &[equipment_id], &mut values).unwrap();
+    assert_eq!(values["генератор_1_назва"].text, "GEN-1");
+    assert_eq!(
+        values["етс_1_повне_найменування"].text,
+        "Генератор дизельний GEN-1"
+    );
+    assert_eq!(values["етс_1_вид_палива"].text, "ДП");
+    assert_eq!(values["етс_1_custom_engine_model"].text, "R195");
+}
+
+#[test]
 fn keeps_official_and_actual_crew_relations_separate_for_a_person() {
     let connection = Connection::open_in_memory().unwrap();
     crate::database::initialise(&connection).unwrap();

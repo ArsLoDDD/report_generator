@@ -259,6 +259,9 @@ pub fn validate(
         ("communications", "засобів зв’язку"),
         ("weapon_ammo", "зброї та БК"),
     ] {
+        if !required.contains_key(category) {
+            continue;
+        }
         let selected_count = equipment_ids
             .iter()
             .filter(|id| equipment_category(connection, **id).as_deref() == Some(category))
@@ -269,6 +272,22 @@ pub fn validate(
             label,
             selected_count,
             *required.get(category).unwrap_or(&0),
+        );
+    }
+    for (service_code, _prefix, label) in ASSET_SERVICE_SUBJECTS {
+        if !required.contains_key(service_code) {
+            continue;
+        }
+        let selected_count = equipment_ids
+            .iter()
+            .filter(|id| equipment_service_code(connection, **id).as_deref() == Some(service_code))
+            .count();
+        validate_selection_count(
+            &mut result.errors,
+            service_code,
+            label,
+            selected_count,
+            *required.get(service_code).unwrap_or(&0),
         );
     }
     if crew_ids.iter().any(|id| {
@@ -379,6 +398,15 @@ fn equipment_category(connection: &Connection, id: i64) -> Option<String> {
         .query_row("SELECT category FROM equipment WHERE id=?1", [id], |row| {
             row.get(0)
         })
+        .ok()
+}
+fn equipment_service_code(connection: &Connection, id: i64) -> Option<String> {
+    connection
+        .query_row(
+            "SELECT service_code FROM equipment WHERE id=?1",
+            [id],
+            |row| row.get(0),
+        )
         .ok()
 }
 pub fn generate(
@@ -729,6 +757,18 @@ fn custom_field_token(base: &str) -> bool {
                 .chars()
                 .all(|value| value == '_' || value.is_alphanumeric());
     }
+    for (_, prefix, _) in ASSET_SERVICE_SUBJECTS {
+        if let Some(rest) = base.strip_prefix(prefix) {
+            let Some((number, key)) = rest.split_once('_') else {
+                return false;
+            };
+            return number.parse::<usize>().ok().is_some_and(|value| value > 0)
+                && key.starts_with("custom_")
+                && key.chars().all(|value| {
+                    value == '_' || value.is_ascii_lowercase() || value.is_ascii_digit()
+                });
+        }
+    }
     let Some(rest) = base.strip_prefix("військовий_") else {
         return false;
     };
@@ -758,7 +798,10 @@ fn dynamic_document_parameter(base: &str) -> bool {
         "зброя_та_бк_",
     ]
     .iter()
-    .any(|prefix| base.starts_with(prefix));
+    .any(|prefix| base.starts_with(prefix))
+        || ASSET_SERVICE_SUBJECTS
+            .iter()
+            .any(|(_, prefix, _)| base.starts_with(prefix));
     let reserved_signer = registry()
         .signer_roles
         .iter()
@@ -807,27 +850,53 @@ fn nearest_known_variable(value: &str) -> Option<String> {
         .filter(|candidate| edit_distance(value, candidate) == 1)
 }
 
-fn custom_field_reference(base: &str) -> Option<(&'static str, &str)> {
+#[derive(Clone, Copy)]
+enum CustomFieldSource {
+    Personnel,
+    Vehicle,
+    Asset(&'static str),
+}
+
+fn custom_field_reference(base: &str) -> Option<(CustomFieldSource, &str)> {
     if let Some(rest) = base.strip_prefix("автомобіль_") {
         let (_number, field) = rest.split_once('_')?;
-        return Some(("vehicle_custom_field_definitions", field));
+        return Some((CustomFieldSource::Vehicle, field));
+    }
+    for (service_code, prefix, _) in ASSET_SERVICE_SUBJECTS {
+        if let Some(rest) = base.strip_prefix(prefix) {
+            let (_number, field) = rest.split_once('_')?;
+            return Some((CustomFieldSource::Asset(service_code), field));
+        }
     }
     let rest = base.strip_prefix("військовий_")?;
     let (_number, field) = rest.split_once('_')?;
     if let Some(vehicle) = field.strip_prefix("автомобіль_") {
         let (_vehicle_number, vehicle_field) = vehicle.split_once('_')?;
-        Some(("vehicle_custom_field_definitions", vehicle_field))
+        Some((CustomFieldSource::Vehicle, vehicle_field))
     } else {
-        Some(("custom_field_definitions", field))
+        Some((CustomFieldSource::Personnel, field))
     }
 }
 
 fn validate_custom_field_reference(connection: &Connection, base: &str) -> Option<String> {
-    let (table, token_field) = custom_field_reference(base)?;
-    let scope = if table == "vehicle_custom_field_definitions" {
-        "vehicle"
-    } else {
-        "personnel"
+    let (source, token_field) = custom_field_reference(base)?;
+    if let CustomFieldSource::Asset(service_code) = source {
+        let key = token_field.strip_prefix("custom_").unwrap_or(token_field);
+        let found = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM asset_catalog_fields field JOIN asset_catalogs catalog ON catalog.id=field.catalog_id WHERE catalog.service_code=?1 AND field.field_key=?2)",
+            rusqlite::params![service_code,key],
+            |row| row.get::<_,i64>(0),
+        ).ok().unwrap_or(0)!=0;
+        return (!found).then(|| {
+            format!(
+                "Змінна «{{{{{base}}}}}» посилається на відсутнє додаткове поле каталогу служби."
+            )
+        });
+    }
+    let (table, scope) = match source {
+        CustomFieldSource::Vehicle => ("vehicle_custom_field_definitions", "vehicle"),
+        CustomFieldSource::Personnel => ("custom_field_definitions", "personnel"),
+        CustomFieldSource::Asset(_) => unreachable!(),
     };
     let sql = format!("SELECT field_key, display_name FROM {table}");
     let mut statement = connection.prepare(&sql).ok()?;
@@ -918,6 +987,15 @@ fn field_for(base: &str) -> Option<&'static Field> {
         if let Some(id) = base.strip_prefix(prefix) {
             let id = numbered_subject_field(id)?;
             return registry().equipment_fields.iter().find(|f| f.id == id);
+        }
+    }
+    for (_, prefix, _) in ASSET_SERVICE_SUBJECTS {
+        if let Some(id) = base.strip_prefix(prefix) {
+            let id = numbered_subject_field(id)?;
+            return registry()
+                .equipment_fields
+                .iter()
+                .find(|field| field.id == id);
         }
     }
     if let Some(c) = base.strip_prefix("військовий_") {
@@ -1036,6 +1114,19 @@ fn numbered_subject_field(value: &str) -> Option<&str> {
         .filter(|number| *number > 0)
         .map(|_| field)
 }
+const ASSET_SERVICE_SUBJECTS: [(&str, &str, &str); 11] = [
+    ("zbbr", "зббр_", "майна ЗББР"),
+    ("zu", "зу_", "майна ЗУ"),
+    ("gz_kb", "гз_та_кб_", "майна ГЗ та КБ"),
+    ("siiz", "сііз_", "майна СІІЗ"),
+    ("ms", "мс_", "майна МС"),
+    ("ets", "етс_", "майна ЕТС"),
+    ("ovtm", "овтм_", "майна ОВТМ"),
+    ("rs", "рс_", "майна РС"),
+    ("sa_ppo", "са_та_ппо_", "майна СА та ППО"),
+    ("svt", "свт_", "майна СВТ"),
+    ("pmm", "пмм_", "майна ПММ"),
+];
 fn selection_kind(token: &str) -> Option<&'static str> {
     let base = token.split(':').next().unwrap_or_default();
     if legacy_person_parts(base).is_some() {
@@ -1053,6 +1144,9 @@ fn selection_kind(token: &str) -> Option<&'static str> {
     } else if ["генератор_", "бпла_", "звʼязок_", "зброя_та_бк_"]
         .iter()
         .any(|prefix| base.starts_with(prefix))
+        || ASSET_SERVICE_SUBJECTS
+            .iter()
+            .any(|(_, prefix, _)| base.starts_with(prefix))
     {
         Some("equipment")
     } else {
@@ -1086,6 +1180,11 @@ fn equipment_subject(base: &str) -> Option<&'static str> {
     ]
     .into_iter()
     .find_map(|(prefix, kind)| base.starts_with(prefix).then_some(kind))
+    .or_else(|| {
+        ASSET_SERVICE_SUBJECTS
+            .iter()
+            .find_map(|(service_code, prefix, _)| base.starts_with(prefix).then_some(*service_code))
+    })
 }
 
 fn selection_number(base: &str) -> Option<usize> {
@@ -1101,6 +1200,15 @@ fn selection_number(base: &str) -> Option<usize> {
         "звʼязок_",
         "зброя_та_бк_",
     ] {
+        if let Some(rest) = base.strip_prefix(prefix) {
+            return rest
+                .split_once('_')
+                .and_then(|(part, _)| part.parse::<usize>().ok())
+                .filter(|number| *number > 0)
+                .or(Some(1));
+        }
+    }
+    for (_, prefix, _) in ASSET_SERVICE_SUBJECTS {
         if let Some(rest) = base.strip_prefix(prefix) {
             return rest
                 .split_once('_')

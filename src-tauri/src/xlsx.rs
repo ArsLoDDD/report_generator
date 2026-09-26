@@ -126,6 +126,20 @@ pub const EQUIPMENT_KEYS: &[&str] = &[
     "asset_kind",
     "components_json",
     "assigned_quantity",
+    "service_code",
+    "catalog_name",
+    "full_name",
+    "nomenclature_number",
+    "serial_number",
+    "manufacture_year",
+    "accounting_unit",
+    "quantity",
+    "asset_value",
+    "parent_inventory_number",
+    "asset_type",
+    "service_data_json",
+    "catalog_fields_json",
+    "custom_values_json",
     "notes",
 ];
 pub const INCIDENT_KEYS: &[&str] = &[
@@ -264,7 +278,7 @@ pub struct CrewMemberRow {
     pub personnel_full_name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct EquipmentRow {
     pub category: String,
     pub name: String,
@@ -280,6 +294,20 @@ pub struct EquipmentRow {
     pub asset_kind: String,
     pub components_json: String,
     pub assigned_quantity: String,
+    pub service_code: String,
+    pub catalog_name: String,
+    pub full_name: String,
+    pub nomenclature_number: String,
+    pub serial_number: String,
+    pub manufacture_year: String,
+    pub accounting_unit: String,
+    pub quantity: String,
+    pub asset_value: String,
+    pub parent_inventory_number: String,
+    pub asset_type: String,
+    pub service_data_json: String,
+    pub catalog_fields_json: String,
+    pub custom_values_json: String,
     pub notes: String,
 }
 

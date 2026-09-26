@@ -3,11 +3,13 @@ import { Check, ChevronRight, Copy, Database, FileInput, Search, Signature } fro
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { SearchInput } from "../../shared/ui/SearchInput";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
-import { crewFields, customFieldId, equipmentFields, generationParameterFields, modifierRegistry, personFields, positionFields, signerFields, tokenFor, vehicleFields, type VariableDefinition } from "../../shared/template-language/registry";
+import { assetServiceSubjects, crewFields, customFieldId, equipmentFields, generationParameterFields, modifierRegistry, personFields, positionFields, signerFields, tokenFor, vehicleFields, type VariableDefinition } from "../../shared/template-language/registry";
 import { morphologyService, type UkrainianCase } from "../../shared/services/morphologyService";
 import { personnelService } from "../../shared/services/personnelService";
 import type { CustomFieldDefinition, SignerRole } from "../../shared/types/domain";
 import { settingsService } from "../settings/services/settingsService";
+import { operationsService } from "../operations/services/operationsService";
+import type { AssetCatalogField, AssetServiceCode } from "../operations/types";
 
 const textModifiers = new Set(["великими", "маленькими", "з_великої"]);
 const styleModifiers = new Set(["жирним", "підкреслити"]);
@@ -27,6 +29,7 @@ type PickerVariable = VariableDefinition & {
   numberedPrefix?: string;
   parameterNumberable?: boolean;
 };
+type CatalogVariable = { serviceCode: AssetServiceCode; serviceLabel: string; prefix: string; catalogName: string; field: AssetCatalogField };
 
 const sourceOptions: Array<{ id: PickerSource; label: string; hint: string; icon: typeof Database }> = [
   { id: "all", label: "Усі поля", hint: "Пошук у всіх джерелах", icon: Search },
@@ -99,6 +102,20 @@ const customVariable = (item: CustomFieldDefinition, subjectId: "person" | "vehi
   };
 };
 
+const assetCatalogVariable = (item: CatalogVariable): PickerVariable => ({
+  id: `${item.prefix}_1_${customFieldId(item.field.fieldKey)}`,
+  name: item.field.displayName,
+  category: `${item.serviceLabel} · ${item.catalogName}`,
+  description: `Додаткове поле каталогу «${item.catalogName}».`,
+  example: item.field.initialValue || "Приклад значення",
+  kind: item.field.fieldType === "number" ? "number" : item.field.fieldType === "date" ? "date" : "text",
+  supportsCases: false,
+  source: "accounting",
+  subjectId: `service:${item.serviceCode}`,
+  subjectLabel: `${item.serviceLabel} · ${item.catalogName}`,
+  numberedPrefix: item.prefix,
+});
+
 function Preview({ variable, modifiers }: { variable: VariableDefinition; modifiers: string[] }) {
   const [result, setResult] = useState(variable.example);
   useEffect(() => {
@@ -137,12 +154,19 @@ export function AutoFillFieldPicker({ embedded = false, mode = "copy", onApply }
   const [modifiers, setModifiers] = useState<string[]>([]);
   const [customFields, setCustomFields] = useState<CustomFieldDefinition[]>([]);
   const [vehicleCustomFields, setVehicleCustomFields] = useState<CustomFieldDefinition[]>([]);
+  const [assetCatalogFields, setAssetCatalogFields] = useState<CatalogVariable[]>([]);
   const [availableSignerRoles, setAvailableSignerRoles] = useState<SignerRole[]>([]);
   const { notify } = useNotifications();
 
   useEffect(() => {
     void personnelService.listCustomFields().then(setCustomFields).catch(() => undefined);
-    if (!isSimpleEdition) void personnelService.listVehicleCustomFields?.().then(setVehicleCustomFields).catch(() => undefined);
+    if (!isSimpleEdition) {
+      void personnelService.listVehicleCustomFields?.().then(setVehicleCustomFields).catch(() => undefined);
+      void Promise.all(assetServiceSubjects.map(async (subject) => {
+        const catalogs = await operationsService.listAssetCatalogs(subject.id);
+        return catalogs.flatMap((catalog) => catalog.fields.map((field) => ({ serviceCode: subject.id, serviceLabel: subject.label, prefix: subject.prefix, catalogName: catalog.name, field })));
+      })).then((groups) => setAssetCatalogFields(groups.flat())).catch(() => undefined);
+    }
     void settingsService.get().then((settings) => setAvailableSignerRoles(settings.signerRoles ?? [])).catch(() => undefined);
   }, []);
 
@@ -167,11 +191,13 @@ export function AutoFillFieldPicker({ embedded = false, mode = "copy", onApply }
         const label = id === "generator" ? "Генератор" : id === "uav" ? "БпЛА" : id === "communications" ? "Зв’язок" : "Зброя та БК";
         return equipmentFields.map((field) => fromField(field, { id: `${prefix}_1_${field.id}`, source: "accounting", subjectId: id, subjectLabel: label, numberedPrefix: prefix }));
       }),
+      ...assetServiceSubjects.flatMap((subject) => equipmentFields.map((field) => fromField(field, { id: `${subject.prefix}_1_${field.id}`, source: "accounting", subjectId: `service:${subject.id}`, subjectLabel: subject.label, numberedPrefix: subject.prefix }))),
+      ...assetCatalogFields.map(assetCatalogVariable),
     );
     const manual = generationParameterFields.map((field) => fromField(field, { id: field.id, source: "manual", subjectId: "document", subjectLabel: "Заповнюється перед генерацією", parameterNumberable: true }));
     const signers = signerObjects.flatMap(([id, label]) => signerFields.map((field) => fromField(field, { id: `${id}_${field.id}`, source: "signers", subjectId: id, subjectLabel: label })));
     return [...accounting, ...manual, ...signers];
-  }, [customFields, vehicleCustomFields, signerObjects]);
+  }, [assetCatalogFields, customFields, vehicleCustomFields, signerObjects]);
 
   const subjectOptions = useMemo(() => {
     const visible = source === "all" ? variables : variables.filter((item) => item.source === source);

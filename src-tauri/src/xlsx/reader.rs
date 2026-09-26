@@ -510,6 +510,48 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
                         .get("assigned_quantity")
                         .cloned()
                         .unwrap_or_default(),
+                    service_code: row.values.get("service_code").cloned().unwrap_or_default(),
+                    catalog_name: row.values.get("catalog_name").cloned().unwrap_or_default(),
+                    full_name: row.values.get("full_name").cloned().unwrap_or_default(),
+                    nomenclature_number: row
+                        .values
+                        .get("nomenclature_number")
+                        .cloned()
+                        .unwrap_or_default(),
+                    serial_number: row.values.get("serial_number").cloned().unwrap_or_default(),
+                    manufacture_year: row
+                        .values
+                        .get("manufacture_year")
+                        .cloned()
+                        .unwrap_or_default(),
+                    accounting_unit: row
+                        .values
+                        .get("accounting_unit")
+                        .cloned()
+                        .unwrap_or_default(),
+                    quantity: row.values.get("quantity").cloned().unwrap_or_default(),
+                    asset_value: row.values.get("asset_value").cloned().unwrap_or_default(),
+                    parent_inventory_number: row
+                        .values
+                        .get("parent_inventory_number")
+                        .cloned()
+                        .unwrap_or_default(),
+                    asset_type: row.values.get("asset_type").cloned().unwrap_or_default(),
+                    service_data_json: row
+                        .values
+                        .get("service_data_json")
+                        .cloned()
+                        .unwrap_or_default(),
+                    catalog_fields_json: row
+                        .values
+                        .get("catalog_fields_json")
+                        .cloned()
+                        .unwrap_or_default(),
+                    custom_values_json: row
+                        .values
+                        .get("custom_values_json")
+                        .cloned()
+                        .unwrap_or_default(),
                     notes: row.values.get("notes").cloned().unwrap_or_default(),
                 }),
         );

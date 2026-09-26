@@ -19,7 +19,15 @@ export const equipmentFields = source.equipmentFields as Field[];
 export const generationParameterFields = source.documentFields as GenerationParameterField[];
 export const signerRoles = source.signerRoles;
 export const signerFields = source.signerFields as Field[];
-const subjectPrefixes = ["військовий_", "автомобіль_", "екіпаж_", "позиція_", "генератор_", "бпла_", "звʼязок_", "зброя_та_бк_"];
+export const assetServiceSubjects = [
+  { id: "zbbr", prefix: "зббр", label: "ЗББР" }, { id: "zu", prefix: "зу", label: "ЗУ" },
+  { id: "gz_kb", prefix: "гз_та_кб", label: "ГЗ та КБ" }, { id: "siiz", prefix: "сііз", label: "СІІЗ" },
+  { id: "ms", prefix: "мс", label: "МС" }, { id: "ets", prefix: "етс", label: "ЕТС" },
+  { id: "ovtm", prefix: "овтм", label: "ОВТМ" }, { id: "rs", prefix: "рс", label: "РС" },
+  { id: "sa_ppo", prefix: "са_та_ппо", label: "СА та ППО" }, { id: "svt", prefix: "свт", label: "СВТ" },
+  { id: "pmm", prefix: "пмм", label: "ПММ" },
+] as const;
+const subjectPrefixes = ["військовий_", "автомобіль_", "екіпаж_", "позиція_", "генератор_", "бпла_", "звʼязок_", "зброя_та_бк_", ...assetServiceSubjects.map((subject) => `${subject.prefix}_`)];
 const isSignerVariable = (token: string) => signerFields.some((field) => {
   const suffix = `_${field.id}`;
   return token.length > suffix.length && token.endsWith(suffix);
@@ -104,6 +112,7 @@ export const variableRegistry: VariableDefinition[] = [
   ...crewFields.map((field) => fieldToVariable(field, `екіпаж_1_${field.id}`, "Екіпаж")),
   ...positionFields.map((field) => fieldToVariable(field, `позиція_1_${field.id}`, "Позиція")),
   ...["генератор", "бпла", "звʼязок", "зброя_та_бк"].flatMap((subject) => equipmentFields.map((field) => fieldToVariable(field, `${subject}_1_${field.id}`, subject === "бпла" ? "БпЛА" : subject === "звʼязок" ? "Зв’язок" : subject === "генератор" ? "Генератор" : "Зброя та БК"))),
+  ...assetServiceSubjects.flatMap((subject) => equipmentFields.map((field) => fieldToVariable(field, `${subject.prefix}_1_${field.id}`, subject.label))),
   ...source.signerRoles.flatMap((role) => signerFields.map((field) => fieldToVariable(field, `${role.id}_${field.id}`, role.name))),
   ...generationParameterFields.map((field) => fieldToVariable(field, field.id, "Параметри документа"))
 ];
@@ -131,8 +140,8 @@ export const customFieldId = (fieldKey: string) => `custom_${fieldKey.trim().toL
 export const modifierRegistry: ModifierDefinition[] = source.modifiers.map((item) => ({ ...item, group: item.group as ModifierDefinition["group"], description: item.group === "case" ? `Відмінює значення: ${item.name.toLowerCase()} відмінок.` : `Змінює написання: ${item.name.toLowerCase()}.` }));
 export const tokenFor = (id: string, modifiers: string[] = []) => `{{${[id, ...modifiers].join(":")}}}`;
 
-export type SelectionSubjectId = "personnel" | "vehicle" | "crew" | "position" | "generator" | "uav" | "communications" | "weaponAmmo";
-export type SelectionRequirement = { id: SelectionSubjectId; prefix: string; label: string; count: number; category?: string };
+export type SelectionSubjectId = "personnel" | "vehicle" | "crew" | "position" | "generator" | "uav" | "communications" | "weaponAmmo" | `service:${typeof assetServiceSubjects[number]["id"]}`;
+export type SelectionRequirement = { id: SelectionSubjectId; prefix: string; label: string; count: number; category?: string; serviceCode?: string };
 const selectionSubjects: Array<Omit<SelectionRequirement, "count"> & { fields: Field[] }> = [
   { id: "personnel", prefix: "військовий", label: "Військовослужбовці", fields: personFields },
   { id: "vehicle", prefix: "автомобіль", label: "Автомобілі", fields: vehicleFields },
@@ -142,6 +151,7 @@ const selectionSubjects: Array<Omit<SelectionRequirement, "count"> & { fields: F
   { id: "uav", prefix: "бпла", label: "БпЛА", category: "uav", fields: equipmentFields },
   { id: "communications", prefix: "звʼязок", label: "Засоби зв’язку", category: "communications", fields: equipmentFields },
   { id: "weaponAmmo", prefix: "зброя_та_бк", label: "Зброя та БК", category: "weapon_ammo", fields: equipmentFields },
+  ...assetServiceSubjects.map((subject) => ({ id: `service:${subject.id}` as SelectionSubjectId, prefix: subject.prefix, label: subject.label, serviceCode: subject.id, fields: equipmentFields })),
 ];
 
 /** Derives ordered, exact selection requirements from the variables used by a template. */
@@ -211,7 +221,7 @@ export function getVariable(id: string) {
       const field = positionFields.find((item) => item.id === position[1]);
       if (field) return fieldToVariable(field, id, "Позиція");
     }
-    const equipment = /^(генератор|бпла|звʼязок|зброя_та_бк)_(?:[1-9]\d*)_(.+)$/u.exec(id);
+    const equipment = new RegExp(`^(${["генератор", "бпла", "звʼязок", "зброя_та_бк", ...assetServiceSubjects.map((subject) => subject.prefix)].join("|")})_(?:[1-9]\\d*)_(.+)$`, "u").exec(id);
     if (equipment) {
       const field = equipmentFields.find((item) => item.id === equipment[2]);
       if (field) return fieldToVariable(field, id, equipment[1]);

@@ -4,6 +4,7 @@
 //! asset types can reuse the same ownership links without growing one large file.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -446,6 +447,152 @@ pub struct EquipmentDraft {
     #[serde(default)]
     pub stock_quantity: f64,
     pub notes: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetCatalogField {
+    pub id: i64,
+    pub catalog_id: i64,
+    pub field_key: String,
+    pub display_name: String,
+    pub field_type: String,
+    pub initial_value: String,
+    pub sort_order: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetCatalog {
+    pub id: i64,
+    pub service_code: String,
+    pub name: String,
+    pub is_system: bool,
+    pub sort_order: i64,
+    pub fields: Vec<AssetCatalogField>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetCatalogFieldDraft {
+    pub field_key: String,
+    pub display_name: String,
+    #[serde(default = "default_asset_field_type")]
+    pub field_type: String,
+    #[serde(default)]
+    pub initial_value: String,
+    #[serde(default)]
+    pub sort_order: i64,
+}
+
+fn default_asset_field_type() -> String {
+    "text".into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetCatalogDraft {
+    pub service_code: String,
+    pub name: String,
+    #[serde(default)]
+    pub fields: Vec<AssetCatalogFieldDraft>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceAsset {
+    pub id: i64,
+    pub category: String,
+    pub service_code: String,
+    pub catalog_id: Option<i64>,
+    pub catalog_name: Option<String>,
+    pub name: String,
+    pub full_name: String,
+    pub nomenclature_number: String,
+    pub inventory_number: String,
+    pub serial_number: String,
+    pub manufacture_year: String,
+    pub accounting_unit: String,
+    pub quantity: f64,
+    pub value: f64,
+    pub status: String,
+    pub crew_id: Option<i64>,
+    pub crew_name: Option<String>,
+    pub personnel_id: Option<i64>,
+    pub holder_name: Option<String>,
+    pub parent_equipment_id: Option<i64>,
+    pub parent_name: Option<String>,
+    pub asset_type: String,
+    pub service_data: HashMap<String, String>,
+    pub custom_values: HashMap<String, String>,
+    pub notes: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceAssetDraft {
+    pub service_code: String,
+    pub catalog_id: Option<i64>,
+    pub name: String,
+    #[serde(default)]
+    pub full_name: String,
+    #[serde(default)]
+    pub nomenclature_number: String,
+    #[serde(default)]
+    pub inventory_number: String,
+    #[serde(default)]
+    pub serial_number: String,
+    #[serde(default)]
+    pub manufacture_year: String,
+    #[serde(default = "default_accounting_unit")]
+    pub accounting_unit: String,
+    #[serde(default = "default_asset_quantity")]
+    pub quantity: f64,
+    #[serde(default)]
+    pub value: f64,
+    #[serde(default = "default_asset_status")]
+    pub status: String,
+    pub crew_id: Option<i64>,
+    pub personnel_id: Option<i64>,
+    pub parent_equipment_id: Option<i64>,
+    #[serde(default)]
+    pub asset_type: String,
+    #[serde(default)]
+    pub service_data: HashMap<String, String>,
+    #[serde(default)]
+    pub custom_values: HashMap<String, String>,
+    #[serde(default)]
+    pub notes: String,
+}
+
+fn default_accounting_unit() -> String {
+    "шт.".into()
+}
+
+fn default_asset_quantity() -> f64 {
+    1.0
+}
+
+fn default_asset_status() -> String {
+    "Справний".into()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetHistoryEvent {
+    pub id: i64,
+    pub equipment_id: Option<i64>,
+    pub asset_name: String,
+    pub service_code: String,
+    pub event_type: String,
+    pub quantity_delta: f64,
+    pub quantity_after: f64,
+    pub from_holder: String,
+    pub to_holder: String,
+    pub details: String,
+    pub occurred_at: String,
 }
 
 fn default_asset_kind() -> String {

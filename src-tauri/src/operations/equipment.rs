@@ -1,7 +1,7 @@
 use super::{busy, Equipment, EquipmentDraft};
 use crate::AppState;
 
-fn official_crew_responsible(
+pub(crate) fn official_crew_responsible(
     connection: &rusqlite::Connection,
     crew_id: Option<i64>,
 ) -> Option<i64> {
@@ -39,6 +39,7 @@ pub(crate) fn sync_crew_equipment_responsibles(
                  LIMIT 1
              )
              WHERE category<>'weapon_ammo' AND crew_id IS NOT NULL
+               AND COALESCE(responsible_manual,0)=0
                AND (?1 IS NULL OR crew_id=?1)",
             [crew_id],
         )
@@ -53,7 +54,7 @@ pub fn list_equipment(
 ) -> Result<Vec<Equipment>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
     sync_crew_equipment_responsibles(&db.connection, None)?;
-    let mut s=db.connection.prepare("SELECT e.id,e.category,e.name,e.inventory_number,e.status,e.crew_id,c.name,e.personnel_id,CASE WHEN p.id IS NULL THEN NULL ELSE trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) END,e.notes,e.total_quantity,e.day_quantity,e.night_quantity,e.uav_type,e.asset_kind,e.components_json,e.assigned_quantity,e.weapon_kind,e.measurement_unit,e.stock_quantity FROM equipment e LEFT JOIN crews c ON c.id=e.crew_id LEFT JOIN personnel p ON p.id=e.personnel_id WHERE e.category=?1 ORDER BY e.id").map_err(|_|"Не вдалося прочитати майно.".to_string())?;
+    let mut s=db.connection.prepare("SELECT e.id,e.category,e.name,e.inventory_number,e.status,e.crew_id,c.name,e.personnel_id,CASE WHEN p.id IS NULL THEN NULL ELSE trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) END,e.notes,e.total_quantity,e.day_quantity,e.night_quantity,e.uav_type,e.asset_kind,e.components_json,e.assigned_quantity,e.weapon_kind,e.measurement_unit,e.stock_quantity FROM equipment e LEFT JOIN crews c ON c.id=e.crew_id LEFT JOIN personnel p ON p.id=e.personnel_id WHERE e.category=?1 AND e.legacy_vehicle_id IS NULL ORDER BY e.id").map_err(|_|"Не вдалося прочитати майно.".to_string())?;
     let result = s
         .query_map([category], |r| {
             Ok(Equipment {
@@ -131,6 +132,20 @@ pub fn create_equipment(
     };
     db.connection.execute("INSERT INTO equipment(category,name,inventory_number,status,crew_id,personnel_id,notes,total_quantity,day_quantity,night_quantity,uav_type,asset_kind,components_json,assigned_quantity,weapon_kind,measurement_unit,stock_quantity) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",rusqlite::params![draft.category,draft.name.trim(),draft.inventory_number.trim(),draft.status,draft.crew_id,responsible,draft.notes.trim(),total,day,night,draft.uav_type.trim(),draft.asset_kind,draft.components_json,draft.assigned_quantity.max(0).min(total),draft.weapon_kind,draft.measurement_unit,stock]).map_err(|_|"Не вдалося додати запис майна.".to_string())?;
     let equipment_id = db.connection.last_insert_rowid();
+    db.connection.execute(
+        "UPDATE equipment SET service_code=CASE
+           WHEN category='uav' THEN 'sa_ppo'
+           WHEN category='generator' THEN 'ets'
+           WHEN category='communications' THEN 'gz_kb'
+           WHEN category='weapon_ammo' AND weapon_kind IN ('ammunition','component') THEN 'zu'
+           ELSE 'zbbr' END,
+         full_name=name,serial_number=inventory_number,
+         accounting_unit=CASE WHEN measurement_unit LIKE '%.' THEN measurement_unit ELSE measurement_unit || '.' END,
+         quantity=CASE WHEN category='weapon_ammo' THEN stock_quantity ELSE total_quantity END,
+         updated_at=CURRENT_TIMESTAMP
+         WHERE id=?1",
+        [equipment_id],
+    ).map_err(|_| "Не вдалося синхронізувати запис зі службами.".to_string())?;
     if draft.category == "uav"
         && draft.asset_kind != "complex"
         && draft.inventory_number.trim().is_empty()
@@ -213,6 +228,22 @@ pub fn update_equipment(
     if changed != 1 {
         return Err("Запис майна не знайдено.".into());
     }
+    db.connection.execute(
+        "UPDATE equipment SET
+           service_code=CASE
+             WHEN category='uav' THEN 'sa_ppo'
+             WHEN category='generator' THEN 'ets'
+             WHEN category='communications' THEN CASE WHEN trim(service_code)='' THEN 'gz_kb' ELSE service_code END
+             WHEN category='weapon_ammo' AND weapon_kind IN ('ammunition','component') THEN 'zu'
+             ELSE 'zbbr' END,
+           full_name=CASE WHEN trim(full_name)='' THEN name ELSE full_name END,
+           serial_number=inventory_number,
+           accounting_unit=CASE WHEN measurement_unit LIKE '%.' THEN measurement_unit ELSE measurement_unit || '.' END,
+           quantity=CASE WHEN category='weapon_ammo' THEN stock_quantity ELSE total_quantity END,
+           updated_at=CURRENT_TIMESTAMP
+         WHERE id=?1",
+        [equipment_id],
+    ).map_err(|_| "Не вдалося синхронізувати зміни зі службами.".to_string())?;
     if draft.category == "uav" {
         db.connection.execute("UPDATE crews SET primary_uav_id=NULL WHERE primary_uav_id=?1 AND (?2 IS NULL OR id<>?2)",rusqlite::params![equipment_id,draft.crew_id]).map_err(|_|"Не вдалося оновити основний БпЛА екіпажу.".to_string())?;
         if let Some(crew_id) = draft.crew_id {

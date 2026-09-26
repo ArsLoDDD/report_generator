@@ -1,5 +1,28 @@
 use super::*;
 
+type SelectedEquipmentRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    f64,
+    f64,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+);
+
 pub(super) fn selected_personnel(c: &Connection, ids: &[i64]) -> Result<Vec<Personnel>, String> {
     let all = personnel::list(c)?;
     ids.iter()
@@ -653,61 +676,155 @@ pub(super) fn add_selected_equipment(
     values: &mut HashMap<String, Value>,
 ) -> Result<(), String> {
     let mut category_indexes: HashMap<String, usize> = HashMap::new();
+    let mut service_indexes: HashMap<String, usize> = HashMap::new();
     for equipment_id in equipment_ids {
-        let (category, name, inventory_number, status, notes, crew_name, responsible_name, position_name): (
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-            String,
-        ) = connection
+        let row: SelectedEquipmentRow = connection
             .query_row(
-                "SELECT equipment.category,equipment.name,equipment.inventory_number,equipment.status,equipment.notes,COALESCE(crew.name,''),COALESCE(trim(holder.surname || ' ' || holder.given_name || ' ' || holder.patronymic),(SELECT trim(member_person.surname || ' ' || member_person.given_name || ' ' || member_person.patronymic) FROM crew_members member JOIN personnel member_person ON member_person.id=member.personnel_id WHERE member.crew_id=equipment.crew_id AND member.left_at IS NULL AND (member_person.position LIKE '%командир%' OR member_person.position LIKE '%Командир%') ORDER BY member.joined_at,member_person.id LIMIT 1),''),COALESCE(position.name,crew.position_name,'') FROM equipment LEFT JOIN crews crew ON crew.id=equipment.crew_id LEFT JOIN personnel holder ON holder.id=equipment.personnel_id LEFT JOIN positions position ON position.id=crew.position_id WHERE equipment.id=?1",
+                "SELECT equipment.category,equipment.service_code,equipment.name,
+                        equipment.full_name,equipment.inventory_number,equipment.serial_number,
+                        equipment.nomenclature_number,equipment.manufacture_year,
+                        equipment.accounting_unit,equipment.quantity,equipment.asset_value,
+                        equipment.status,equipment.notes,COALESCE(catalog.name,''),
+                        COALESCE(crew.name,''),
+                        COALESCE(trim(holder.surname || ' ' || holder.given_name || ' ' || holder.patronymic),
+                          (SELECT trim(member_person.surname || ' ' || member_person.given_name || ' ' || member_person.patronymic)
+                           FROM crew_members member
+                           JOIN personnel member_person ON member_person.id=member.personnel_id
+                           WHERE member.crew_id=equipment.crew_id AND member.left_at IS NULL
+                           ORDER BY CASE WHEN lower(member_person.position) LIKE '%командир%' THEN 0 ELSE 1 END,
+                                    member.joined_at,member_person.id LIMIT 1),''),
+                        COALESCE(position.name,crew.position_name,''),
+                        COALESCE(parent.name,''),
+                        CASE WHEN equipment.service_code='sa_ppo' THEN
+                          CASE WHEN equipment.weapon_kind='component' THEN 'Комплектуюче'
+                               WHEN equipment.asset_kind='complex' THEN 'БпАК' ELSE 'БпЛА' END
+                        WHEN equipment.service_code='zu' AND equipment.weapon_kind='component' THEN 'Вибухові матеріали'
+                        ELSE equipment.asset_kind END,
+                        equipment.service_data_json
+                 FROM equipment
+                 LEFT JOIN asset_catalogs catalog ON catalog.id=equipment.catalog_id
+                 LEFT JOIN crews crew ON crew.id=equipment.crew_id
+                 LEFT JOIN personnel holder ON holder.id=equipment.personnel_id
+                 LEFT JOIN positions position ON position.id=crew.position_id
+                 LEFT JOIN equipment parent ON parent.id=equipment.parent_equipment_id
+                 WHERE equipment.id=?1",
                 [equipment_id],
-                |row| {
-                    Ok((
-                        row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                        row.get(6)?,
-                        row.get(7)?,
-                    ))
-                },
+                |row| Ok((
+                    row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?,
+                    row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?,
+                    row.get(10)?, row.get(11)?, row.get(12)?, row.get(13)?, row.get(14)?,
+                    row.get(15)?, row.get(16)?, row.get(17)?, row.get(18)?, row.get(19)?,
+                )),
             )
             .map_err(|_| "Не вдалося прочитати вибране майно.".to_string())?;
-        let base_prefix = match category.as_str() {
+        let (
+            category,
+            service_code,
+            name,
+            full_name,
+            inventory_number,
+            serial_number,
+            nomenclature_number,
+            manufacture_year,
+            accounting_unit,
+            quantity,
+            asset_value,
+            status,
+            notes,
+            catalog_name,
+            crew_name,
+            responsible_name,
+            position_name,
+            parent_name,
+            asset_type,
+            service_data_json,
+        ) = row;
+        let service_data =
+            serde_json::from_str::<HashMap<String, String>>(&service_data_json).unwrap_or_default();
+        let custom_values = connection
+            .prepare(
+                "SELECT field.field_key,value.field_value
+                 FROM asset_custom_values value
+                 JOIN asset_catalog_fields field ON field.id=value.field_id
+                 WHERE value.equipment_id=?1",
+            )
+            .and_then(|mut statement| {
+                statement
+                    .query_map([equipment_id], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?
+                    .collect::<Result<HashMap<_, _>, _>>()
+            })
+            .unwrap_or_default();
+
+        let legacy_prefix = match category.as_str() {
             "generator" => "генератор",
             "uav" => "бпла",
             "communications" => "звʼязок",
             "weapon_ammo" => "зброя_та_бк",
             _ => continue,
         };
-        let index = category_indexes
+        let legacy_index = *category_indexes
             .entry(category.clone())
             .and_modify(|value| *value += 1)
             .or_insert(1);
-        let prefix = format!("{base_prefix}_{index}");
-        for field in &registry().equipment_fields {
-            let text = match field.source_key.as_deref() {
-                Some("name") => name.clone(),
-                Some("inventory_number") => inventory_number.clone(),
-                Some("status") => status.clone(),
-                Some("notes") => notes.clone(),
-                Some("crew_name") => crew_name.clone(),
-                Some("responsible_name") => responsible_name.clone(),
-                Some("position_name") => position_name.clone(),
-                _ => String::new(),
-            };
-            values.insert(
-                format!("{prefix}_{}", field.id),
-                Value::new(text, &field.kind, None),
-            );
+        let service_index = *service_indexes
+            .entry(service_code.clone())
+            .and_modify(|value| *value += 1)
+            .or_insert(1);
+        let service_prefix = ASSET_SERVICE_SUBJECTS.iter().find_map(|(code, prefix, _)| {
+            (*code == service_code).then_some(prefix.trim_end_matches('_'))
+        });
+
+        let mut insert_fields = |prefix: &str, index: usize| {
+            let prefix = format!("{prefix}_{index}");
+            for field in &registry().equipment_fields {
+                let source_key = field.source_key.as_deref().unwrap_or_default();
+                let text = match source_key {
+                    "name" => name.clone(),
+                    "full_name" => full_name.clone(),
+                    "inventory_number" => inventory_number.clone(),
+                    "serial_number" => serial_number.clone(),
+                    "nomenclature_number" => nomenclature_number.clone(),
+                    "manufacture_year" => manufacture_year.clone(),
+                    "accounting_unit" => accounting_unit.clone(),
+                    "quantity" => quantity.to_string(),
+                    "asset_value" => asset_value.to_string(),
+                    "status" => status.clone(),
+                    "notes" => notes.clone(),
+                    "catalog_name" => catalog_name.clone(),
+                    "crew_name" => crew_name.clone(),
+                    "responsible_name" => responsible_name.clone(),
+                    "position_name" => position_name.clone(),
+                    "parent_name" => parent_name.clone(),
+                    "asset_type" => asset_type.clone(),
+                    "commissioned_date" => service_data
+                        .get(source_key)
+                        .or_else(|| service_data.get("commissioned_year"))
+                        .cloned()
+                        .unwrap_or_default(),
+                    "resource" => service_data
+                        .get(source_key)
+                        .or_else(|| service_data.get("accumulated_resource"))
+                        .cloned()
+                        .unwrap_or_default(),
+                    _ => service_data.get(source_key).cloned().unwrap_or_default(),
+                };
+                values.insert(
+                    format!("{prefix}_{}", field.id),
+                    Value::new(text, &field.kind, None),
+                );
+            }
+            for (key, value) in &custom_values {
+                values.insert(
+                    format!("{prefix}_custom_{key}"),
+                    Value::new(value.clone(), "text", None),
+                );
+            }
+        };
+        insert_fields(legacy_prefix, legacy_index);
+        if let Some(service_prefix) = service_prefix {
+            insert_fields(service_prefix, service_index);
         }
     }
     Ok(())

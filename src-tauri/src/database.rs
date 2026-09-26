@@ -793,6 +793,139 @@ fn migrate_custom_field_template_alias_schema(connection: &Connection) -> Result
     Ok(())
 }
 
+fn initialise_service_assets(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS asset_catalogs (
+                id INTEGER PRIMARY KEY,
+                service_code TEXT NOT NULL,
+                name TEXT NOT NULL,
+                is_system INTEGER NOT NULL DEFAULT 0 CHECK(is_system IN (0,1)),
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(service_code,name COLLATE NOCASE)
+            );
+            CREATE INDEX IF NOT EXISTS asset_catalogs_service_idx
+                ON asset_catalogs(service_code,sort_order,name COLLATE NOCASE);
+            CREATE TABLE IF NOT EXISTS asset_catalog_fields (
+                id INTEGER PRIMARY KEY,
+                catalog_id INTEGER NOT NULL REFERENCES asset_catalogs(id) ON DELETE CASCADE,
+                field_key TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                field_type TEXT NOT NULL DEFAULT 'text',
+                initial_value TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(catalog_id,field_key)
+            );
+            CREATE TABLE IF NOT EXISTS asset_custom_values (
+                equipment_id INTEGER NOT NULL REFERENCES equipment(id) ON DELETE CASCADE,
+                field_id INTEGER NOT NULL REFERENCES asset_catalog_fields(id) ON DELETE CASCADE,
+                field_value TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY(equipment_id,field_id)
+            );
+            CREATE TABLE IF NOT EXISTS asset_history (
+                id INTEGER PRIMARY KEY,
+                equipment_id INTEGER REFERENCES equipment(id) ON DELETE SET NULL,
+                asset_name TEXT NOT NULL DEFAULT '',
+                service_code TEXT NOT NULL DEFAULT '',
+                event_type TEXT NOT NULL,
+                quantity_delta REAL NOT NULL DEFAULT 0,
+                quantity_after REAL NOT NULL DEFAULT 0,
+                from_personnel_id INTEGER REFERENCES personnel(id) ON DELETE SET NULL,
+                to_personnel_id INTEGER REFERENCES personnel(id) ON DELETE SET NULL,
+                from_crew_id INTEGER REFERENCES crews(id) ON DELETE SET NULL,
+                to_crew_id INTEGER REFERENCES crews(id) ON DELETE SET NULL,
+                details TEXT NOT NULL DEFAULT '',
+                occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS asset_history_asset_idx
+                ON asset_history(equipment_id,occurred_at DESC,id DESC);
+            CREATE INDEX IF NOT EXISTS asset_history_service_idx
+                ON asset_history(service_code,occurred_at DESC,id DESC);",
+        )
+        .map_err(|error| format!("Не вдалося підготувати каталоги та історію служб: {error}"))?;
+
+    for statement in [
+        "ALTER TABLE equipment ADD COLUMN service_code TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE equipment ADD COLUMN catalog_id INTEGER REFERENCES asset_catalogs(id) ON DELETE SET NULL",
+        "ALTER TABLE equipment ADD COLUMN full_name TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE equipment ADD COLUMN nomenclature_number TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE equipment ADD COLUMN serial_number TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE equipment ADD COLUMN manufacture_year TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE equipment ADD COLUMN accounting_unit TEXT NOT NULL DEFAULT 'шт.'",
+        "ALTER TABLE equipment ADD COLUMN quantity REAL NOT NULL DEFAULT 1",
+        "ALTER TABLE equipment ADD COLUMN asset_value REAL NOT NULL DEFAULT 0",
+        "ALTER TABLE equipment ADD COLUMN parent_equipment_id INTEGER REFERENCES equipment(id) ON DELETE SET NULL",
+        "ALTER TABLE equipment ADD COLUMN service_data_json TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE equipment ADD COLUMN responsible_manual INTEGER NOT NULL DEFAULT 0",
+        // SQLite does not allow CURRENT_TIMESTAMP as a default in ADD COLUMN on
+        // legacy databases. Add a constant default first, then backfill below.
+        "ALTER TABLE equipment ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE equipment ADD COLUMN legacy_vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE CASCADE",
+    ] {
+        connection.execute(statement, []).ok();
+    }
+    connection
+        .execute(
+            "UPDATE equipment
+             SET updated_at=COALESCE(NULLIF(updated_at,''),NULLIF(created_at,''),CURRENT_TIMESTAMP)
+             WHERE trim(updated_at)=''",
+            [],
+        )
+        .map_err(|error| format!("Не вдалося оновити дати обліку старого майна: {error}"))?;
+    connection
+        .execute_batch(
+            "CREATE INDEX IF NOT EXISTS equipment_service_idx ON equipment(service_code,catalog_id,id);
+             CREATE INDEX IF NOT EXISTS equipment_parent_idx ON equipment(parent_equipment_id);
+             CREATE UNIQUE INDEX IF NOT EXISTS equipment_legacy_vehicle_idx
+               ON equipment(legacy_vehicle_id) WHERE legacy_vehicle_id IS NOT NULL;
+             UPDATE equipment SET service_code=CASE
+               WHEN category='uav' THEN 'sa_ppo'
+               WHEN category='generator' THEN 'ets'
+               WHEN category='communications' THEN 'gz_kb'
+               WHEN category='weapon_ammo' AND weapon_kind IN ('ammunition','component') THEN 'zu'
+               WHEN category='weapon_ammo' THEN 'zbbr'
+               ELSE service_code END
+             WHERE trim(service_code)='';
+             UPDATE equipment SET
+               full_name=CASE WHEN trim(full_name)='' THEN name ELSE full_name END,
+               serial_number=CASE WHEN trim(serial_number)='' THEN inventory_number ELSE serial_number END,
+               accounting_unit=CASE
+                 WHEN trim(accounting_unit)='' OR accounting_unit='шт.' THEN
+                   CASE WHEN trim(measurement_unit)='' THEN 'шт.'
+                        WHEN measurement_unit LIKE '%.' THEN measurement_unit
+                        ELSE measurement_unit || '.' END
+                 ELSE accounting_unit END,
+               quantity=CASE
+                 WHEN category='weapon_ammo' AND stock_quantity>0 THEN stock_quantity
+                 WHEN total_quantity>0 THEN total_quantity
+                 ELSE 1 END;
+             INSERT OR IGNORE INTO asset_catalogs(service_code,name,is_system,sort_order)
+               VALUES('svt','Техніка',1,10),('svt','АКБ',1,20),('svt','Шини',1,30);
+             INSERT INTO equipment(
+               category,service_code,catalog_id,name,full_name,inventory_number,serial_number,
+               accounting_unit,quantity,asset_value,status,crew_id,personnel_id,responsible_manual,
+               asset_kind,service_data_json,notes,total_quantity,day_quantity,night_quantity,
+               assigned_quantity,measurement_unit,stock_quantity,legacy_vehicle_id,updated_at
+             )
+             SELECT 'communications','svt',
+                    (SELECT id FROM asset_catalogs WHERE service_code='svt' AND name='Техніка' LIMIT 1),
+                    vehicle.name,vehicle.name,vehicle.registration_number,vehicle.registration_number,
+                    'шт.',1,0,vehicle.status,vehicle.crew_id,vehicle.personnel_id,
+                    CASE WHEN vehicle.personnel_id IS NULL THEN 0 ELSE 1 END,
+                    'vehicle',json_object('registration_number',vehicle.registration_number),
+                    vehicle.notes,1,1,0,CASE WHEN vehicle.crew_id IS NULL THEN 0 ELSE 1 END,'шт',1,
+                    vehicle.id,CURRENT_TIMESTAMP
+             FROM vehicles vehicle
+             WHERE NOT EXISTS(SELECT 1 FROM equipment mirror WHERE mirror.legacy_vehicle_id=vehicle.id);",
+        )
+        .map_err(|error| format!("Не вдалося перенести старе майно до служб: {error}"))?;
+    Ok(())
+}
+
 pub fn initialise(connection: &Connection) -> Result<(), String> {
     connection.execute_batch("CREATE TABLE IF NOT EXISTS vehicles (id INTEGER PRIMARY KEY, name TEXT NOT NULL, registration_number TEXT NOT NULL UNIQUE, notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").map_err(|_| "Не вдалося створити таблицю автомобілів.".to_string())?;
     connection.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS personnel (id INTEGER PRIMARY KEY, rank TEXT NOT NULL, surname TEXT NOT NULL, given_name TEXT NOT NULL, patronymic TEXT NOT NULL DEFAULT '', position TEXT NOT NULL, tax_id TEXT NOT NULL DEFAULT '', birth_date TEXT NOT NULL, education_level TEXT NOT NULL, education_details TEXT NOT NULL, armed_forces_service_start_date TEXT NOT NULL, position_assigned_date TEXT NOT NULL, position_assignment_order TEXT NOT NULL, military_id TEXT NOT NULL, gender TEXT NOT NULL DEFAULT '' CHECK(gender IN ('', 'чоловіча', 'жіноча')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS personnel_custom_fields (personnel_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(personnel_id, field_key), FOREIGN KEY(personnel_id) REFERENCES personnel(id) ON DELETE CASCADE); CREATE TABLE IF NOT EXISTS custom_field_definitions (field_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, description TEXT NOT NULL, initial_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS vehicle_custom_field_definitions (field_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, description TEXT NOT NULL, initial_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS vehicle_custom_fields (vehicle_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(vehicle_id, field_key), FOREIGN KEY(vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE);")
@@ -1479,8 +1612,9 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     migrate_legacy_personnel_control_locations(connection)?;
     normalize_bcs_locations(connection)?;
     normalize_staff_positions(connection)?;
+    initialise_service_assets(connection)?;
     connection
-        .pragma_update(None, "user_version", 6)
+        .pragma_update(None, "user_version", 7)
         .map_err(|_| "Не вдалося завершити міграцію бази даних.".to_string())?;
     Ok(())
 }
