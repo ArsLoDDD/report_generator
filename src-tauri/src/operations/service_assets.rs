@@ -47,6 +47,14 @@ fn no_condition(service_code: &str) -> bool {
     matches!(service_code, "zu" | "ms" | "rs" | "pmm")
 }
 
+fn uav_kind(draft: &ServiceAssetDraft) -> &str {
+    draft
+        .service_data
+        .get("uav_class")
+        .map(|value| value.trim())
+        .unwrap_or_default()
+}
+
 fn catalog_name(connection: &Connection, catalog_id: Option<i64>) -> String {
     catalog_id
         .and_then(|id| {
@@ -524,6 +532,12 @@ fn validate_draft(connection: &Connection, draft: &ServiceAssetDraft) -> Result<
     if draft.service_code == "svt" && draft.catalog_id.is_none() {
         return Err("Для СВТ оберіть каталог: Техніка, АКБ або Шини.".into());
     }
+    if draft.service_code == "sa_ppo"
+        && matches!(draft.asset_type.as_str(), "БпЛА" | "БпАК")
+        && uav_kind(draft).is_empty()
+    {
+        return Err("Для БпЛА або БпАК оберіть вид.".into());
+    }
     if let Some(catalog_id) = draft.catalog_id {
         let valid = connection
             .query_row(
@@ -625,7 +639,7 @@ fn create_service_asset_record(
            service_data_json,notes,total_quantity,day_quantity,night_quantity,assigned_quantity,
            measurement_unit,stock_quantity,updated_at
          ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,0,?25,?26,?27,CURRENT_TIMESTAMP)",
-        params![category,draft.service_code,draft.catalog_id,draft.name.trim(),full_name,draft.nomenclature_number.trim(),draft.inventory_number.trim(),draft.serial_number.trim(),draft.manufacture_year.trim(),unit,quantity,draft.value.max(0.0),status,draft.crew_id,responsible,i64::from(draft.personnel_id.is_some()),draft.parent_equipment_id,asset_kind,weapon_kind,draft.asset_type,service_data_json,draft.notes.trim(),integral_quantity,integral_quantity,if draft.crew_id.is_some(){integral_quantity}else{0},draft.accounting_unit.trim_end_matches('.'),quantity]
+        params![category,draft.service_code,draft.catalog_id,draft.name.trim(),full_name,draft.nomenclature_number.trim(),draft.inventory_number.trim(),draft.serial_number.trim(),draft.manufacture_year.trim(),unit,quantity,draft.value.max(0.0),status,draft.crew_id,responsible,i64::from(draft.personnel_id.is_some()),draft.parent_equipment_id,asset_kind,weapon_kind,uav_kind(draft),service_data_json,draft.notes.trim(),integral_quantity,integral_quantity,if draft.crew_id.is_some(){integral_quantity}else{0},draft.accounting_unit.trim_end_matches('.'),quantity]
     ).map_err(|error| format!("Не вдалося додати майно служби: {error}"))?;
     let id = connection.last_insert_rowid();
     if draft.service_code == "svt" && asset_kind == "vehicle" {
@@ -922,7 +936,7 @@ pub fn update_service_asset(
            service_data_json=?21,notes=?22,total_quantity=?23,day_quantity=min(day_quantity,?23),
            assigned_quantity=CASE WHEN ?14 IS NULL THEN 0 ELSE ?23 END,measurement_unit=?24,
            stock_quantity=?11,updated_at=CURRENT_TIMESTAMP WHERE id=?25",
-        params![category,draft.service_code,draft.catalog_id,draft.name.trim(),full_name,draft.nomenclature_number.trim(),draft.inventory_number.trim(),draft.serial_number.trim(),draft.manufacture_year.trim(),unit,quantity,draft.value.max(0.0),status,draft.crew_id,responsible,i64::from(draft.personnel_id.is_some()),draft.parent_equipment_id,asset_kind,weapon_kind,draft.asset_type,service_data_json,draft.notes.trim(),integral_quantity,draft.accounting_unit.trim_end_matches('.'),equipment_id]
+        params![category,draft.service_code,draft.catalog_id,draft.name.trim(),full_name,draft.nomenclature_number.trim(),draft.inventory_number.trim(),draft.serial_number.trim(),draft.manufacture_year.trim(),unit,quantity,draft.value.max(0.0),status,draft.crew_id,responsible,i64::from(draft.personnel_id.is_some()),draft.parent_equipment_id,asset_kind,weapon_kind,uav_kind(&draft),service_data_json,draft.notes.trim(),integral_quantity,draft.accounting_unit.trim_end_matches('.'),equipment_id]
     ).map_err(|error|format!("Не вдалося оновити майно служби: {error}"))?;
     if changed == 0 {
         return Err("Запис майна не знайдено.".into());
@@ -1193,6 +1207,48 @@ mod tests {
     fn accounting_units_accept_old_values_without_a_dot() {
         assert_eq!(normalize_unit("шт").unwrap(), "шт.");
         assert_eq!(normalize_unit("к-т.").unwrap(), "к-т.");
+    }
+
+    #[test]
+    fn uav_and_complex_require_a_kind_and_store_it_for_crew_flows() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        let mut draft = ServiceAssetDraft {
+            service_code: "sa_ppo".into(),
+            catalog_id: None,
+            name: "Комплекс".into(),
+            full_name: String::new(),
+            nomenclature_number: String::new(),
+            inventory_number: String::new(),
+            serial_number: "UAV-1".into(),
+            manufacture_year: String::new(),
+            accounting_unit: "шт.".into(),
+            quantity: 1.0,
+            value: 12_500.0,
+            status: "Справний".into(),
+            crew_id: None,
+            personnel_id: None,
+            parent_equipment_id: None,
+            asset_type: "БпАК".into(),
+            service_data: HashMap::new(),
+            custom_values: HashMap::new(),
+            notes: String::new(),
+        };
+        assert!(validate_draft(&connection, &draft)
+            .unwrap_err()
+            .contains("оберіть вид"));
+        draft
+            .service_data
+            .insert("uav_class".into(), "Літаковий Розвідувальний".into());
+        let id = create_service_asset_record(&connection, &draft).unwrap();
+        let saved: (String, f64) = connection
+            .query_row(
+                "SELECT uav_type,asset_value FROM equipment WHERE id=?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(saved, ("Літаковий Розвідувальний".into(), 12_500.0));
     }
 
     #[test]

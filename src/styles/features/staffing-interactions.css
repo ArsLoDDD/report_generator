@@ -259,9 +259,56 @@
 .bcs-table .bcs-group-row td {
 	position: static;
 }
-.subgroup-editor-modal,
-.vacancy-recommendation-modal {
+.subgroup-editor-modal {
 	max-width: 760px;
+}
+.vacancy-recommendation-modal {
+	width: min(1180px, 100%);
+	grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.vacancy-recommendation-modal__body {
+	display: grid;
+	gap: 14px;
+	min-height: 0;
+	padding: 18px 20px;
+	overflow: auto;
+}
+.vacancy-recommendation-modal__body > section {
+	padding: 16px;
+	border: 1px solid var(--line);
+	border-radius: 11px;
+	background: var(--panel-soft);
+}
+.vacancy-recommendation-modal__body > section > header {
+	margin-bottom: 14px;
+}
+.vacancy-recommendation-modal__body > section > header div {
+	display: grid;
+	gap: 4px;
+}
+.vacancy-recommendation-modal__body > section > header span {
+	color: var(--muted);
+	font-size: 12px;
+}
+.vacancy-recommendation-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 13px 15px;
+}
+.vacancy-recommendation-grid--three {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.vacancy-recommendation-grid--three .form-field--span-two {
+	grid-column: span 2;
+}
+@media (max-width: 900px) {
+	.vacancy-recommendation-grid,
+	.vacancy-recommendation-grid--three {
+		grid-template-columns: 1fr;
+	}
+	.vacancy-recommendation-grid--three .form-field--span-two {
+		grid-column: auto;
+	}
 }
 @media (max-width: 900px) {
 	.transfer-layout {

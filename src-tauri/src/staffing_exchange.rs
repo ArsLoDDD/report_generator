@@ -17,10 +17,34 @@ pub const SHEETS: &[(&str, &[&str])] = &[
         &[
             "slot_id",
             "position_name",
+            "candidate_type",
             "full_name",
             "phone",
             "rank",
+            "tax_id",
             "birth_date",
+            "education",
+            "education_graduation_year",
+            "armed_forces_since",
+            "combat_participation",
+            "current_unit",
+            "current_position",
+            "staff_category",
+            "military_specialty",
+            "tariff_grade",
+            "salary",
+            "registration_address",
+            "residential_address",
+            "driver_license",
+            "passport",
+            "military_id",
+            "service_entry_type",
+            "service_start_date",
+            "service_end_date",
+            "conscription_office",
+            "conscripted_at",
+            "marital_status",
+            "relatives",
             "issued_at",
             "notes",
         ],
@@ -51,7 +75,7 @@ pub type ExtraSheets = HashMap<String, Vec<HashMap<String, String>>>;
 pub fn export(connection: &Connection) -> Result<ExtraSheets, String> {
     let queries = [
         "SELECT p.tax_id,trim(p.surname||' '||p.given_name||' '||p.patronymic),a.slot_id,a.acting_slot_id,a.acting_position FROM personnel_staff_assignments a JOIN personnel p ON p.id=a.personnel_id ORDER BY p.id",
-        "SELECT slot_id,position_name,full_name,phone,rank,birth_date,issued_at,notes FROM staff_position_recommendations ORDER BY id",
+        "SELECT slot_id,position_name,candidate_type,full_name,phone,rank,tax_id,birth_date,education,education_graduation_year,armed_forces_since,combat_participation,current_unit,current_position,staff_category,military_specialty,tariff_grade,salary,registration_address,residential_address,driver_license,passport,military_id,service_entry_type,service_start_date,service_end_date,conscription_office,conscripted_at,marital_status,relatives,issued_at,notes FROM staff_position_recommendations ORDER BY id",
         "SELECT category,group_name,full_name,rank,position,acting_slot_id,acting_position,duties,arrived_at,current_location,notes FROM temporary_personnel ORDER BY id",
         "SELECT c.name,COALESCE(p.tax_id,''),trim(p.surname||' '||p.given_name||' '||p.patronymic) FROM crew_actual_members cm JOIN crews c ON c.id=cm.crew_id JOIN personnel p ON p.id=cm.personnel_id ORDER BY c.name,p.id",
     ];
@@ -120,7 +144,17 @@ pub fn import(connection: &Connection, sheets: &ExtraSheets, replace: bool) -> R
                     connection.execute("INSERT INTO personnel_staff_assignments(personnel_id,slot_id,acting_slot_id,acting_position) VALUES(?1,?2,?3,?4) ON CONFLICT(personnel_id) DO UPDATE SET slot_id=excluded.slot_id,acting_slot_id=excluded.acting_slot_id,acting_position=excluded.acting_position",params![ids[0],get("slot_id"),get("acting_slot_id"),get("acting_position")]).map_err(|e|e.to_string())?;
                 }
                 "Рекомендаційні листи" => {
-                    connection.execute("INSERT INTO staff_position_recommendations(slot_id,position_name,full_name,phone,rank,birth_date,issued_at,notes) SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE NOT EXISTS(SELECT 1 FROM staff_position_recommendations WHERE slot_id=?1 AND position_name=?2 AND full_name=?3 AND issued_at=?7)",params![get("slot_id"),get("position_name"),get("full_name"),get("phone"),get("rank"),get("birth_date"),get("issued_at"),get("notes")]).map_err(|e|e.to_string())?;
+                    let candidate_type = if get("candidate_type").is_empty() {
+                        "Військовий"
+                    } else {
+                        get("candidate_type")
+                    };
+                    connection.execute(
+                        "INSERT INTO staff_position_recommendations(slot_id,position_name,candidate_type,full_name,phone,rank,tax_id,birth_date,education,education_graduation_year,armed_forces_since,combat_participation,current_unit,current_position,staff_category,military_specialty,tariff_grade,salary,registration_address,residential_address,driver_license,passport,military_id,service_entry_type,service_start_date,service_end_date,conscription_office,conscripted_at,marital_status,relatives,issued_at,notes)
+                         SELECT ?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32
+                         WHERE NOT EXISTS(SELECT 1 FROM staff_position_recommendations WHERE slot_id=?1 AND position_name=?2 AND full_name=?4 AND issued_at=?31)",
+                        params![get("slot_id"),get("position_name"),candidate_type,get("full_name"),get("phone"),get("rank"),get("tax_id"),get("birth_date"),get("education"),get("education_graduation_year"),get("armed_forces_since"),get("combat_participation"),get("current_unit"),get("current_position"),get("staff_category"),get("military_specialty"),get("tariff_grade"),get("salary"),get("registration_address"),get("residential_address"),get("driver_license"),get("passport"),get("military_id"),get("service_entry_type"),get("service_start_date"),get("service_end_date"),get("conscription_office"),get("conscripted_at"),get("marital_status"),get("relatives"),get("issued_at"),get("notes")]
+                    ).map_err(|e|e.to_string())?;
                 }
                 "Додані до БЧС" | "Тимчасово прибулі" => {
                     if get("full_name").trim().is_empty() || get("arrived_at").is_empty() {

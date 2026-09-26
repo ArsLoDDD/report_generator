@@ -5,12 +5,13 @@ import { PageFrame } from "../../shared/ui/PageFrame";
 import { PageTitle } from "../../shared/ui/PageTitle";
 import { Modal } from "../../shared/ui/Modal";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
+import { Select } from "../../shared/ui/Select";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { settingsService } from "../settings/services/settingsService";
 import type { UnitSettings } from "../../shared/types/domain";
 import { structureWithUnmappedPositions, usableUnitStructure } from "../../shared/unit-structure";
 import { operationsService } from "./services/operationsService";
-import type { Crew, FlightPlanEntry, FlightPlanRequest, StaffingRecord, TemporaryPerson, VacancyRecommendation } from "./types";
+import type { Crew, FlightPlanEntry, FlightPlanRequest, StaffingRecord, TemporaryPerson, VacancyRecommendation, VacancyRecommendationDraft } from "./types";
 import { buildStaffSlots, actingForSlot, type StaffSlot, type SlotTransfer, type ActingChange } from "./staffing-slots";
 import { StaffTransferModal } from "./StaffTransferModal";
 import { BcsTable } from "./BcsTable";
@@ -120,10 +121,61 @@ function StaffingLoadingSkeleton({ bcs = false }: { bcs?: boolean }) {
   return <section className="staff-loading-skeleton" aria-label="Завантаження штатки">{Array.from({ length: 3 }, (_, section) => <article key={section}><div className="skeleton-line skeleton-line--heading" /><div className="skeleton-line skeleton-line--short" />{Array.from({ length: section === 0 ? 4 : 3 }, (__, row) => <div className="staff-loading-skeleton__row" key={row}><i className="skeleton-line skeleton-line--rank" /><i className="skeleton-line skeleton-line--name" /><i className="skeleton-line skeleton-line--position" /></div>)}</article>)}</section>;
 }
 
-function VacancyRecommendationEditor({ positionName, initial, onClose, onSaved, onDelete }: { positionName: string; initial?: VacancyRecommendation; onClose: () => void; onSaved: (data: { positionName: string; fullName: string; phone: string; rank: string; birthDate: string; issuedAt: string; notes: string }) => Promise<void>; onDelete?: () => void }) {
-  const [data, setData] = useState({ positionName, fullName: initial?.fullName ?? "", phone: initial?.phone ?? "", rank: initial?.rank ?? "", birthDate: initial?.birthDate ?? "", issuedAt: initial?.issuedAt ?? new Date().toISOString().slice(0, 10), notes: initial?.notes ?? "" });
+function emptyVacancyRecommendation(positionName: string, initial?: VacancyRecommendation): VacancyRecommendationDraft {
+  return {
+    slotId: initial?.slotId ?? "", positionName, candidateType: initial?.candidateType ?? "Військовий",
+    fullName: initial?.fullName ?? "", rank: initial?.rank ?? "", taxId: initial?.taxId ?? "",
+    birthDate: initial?.birthDate ?? "", education: initial?.education ?? "", educationGraduationYear: initial?.educationGraduationYear ?? "",
+    armedForcesSince: initial?.armedForcesSince ?? "", combatParticipation: initial?.combatParticipation ?? "",
+    currentUnit: initial?.currentUnit ?? "", currentPosition: initial?.currentPosition ?? "", staffCategory: initial?.staffCategory ?? "",
+    militarySpecialty: initial?.militarySpecialty ?? "", tariffGrade: initial?.tariffGrade ?? "", salary: initial?.salary ?? "",
+    registrationAddress: initial?.registrationAddress ?? "", residentialAddress: initial?.residentialAddress ?? "",
+    driverLicense: initial?.driverLicense ?? "", passport: initial?.passport ?? "", phone: initial?.phone ?? "",
+    militaryId: initial?.militaryId ?? "", serviceEntryType: initial?.serviceEntryType ?? "",
+    serviceStartDate: initial?.serviceStartDate ?? "", serviceEndDate: initial?.serviceEndDate ?? "",
+    conscriptionOffice: initial?.conscriptionOffice ?? "", conscriptedAt: initial?.conscriptedAt ?? "",
+    maritalStatus: initial?.maritalStatus ?? "", relatives: initial?.relatives ?? "",
+    issuedAt: initial?.issuedAt ?? new Date().toISOString().slice(0, 10), notes: initial?.notes ?? "",
+  };
+}
+
+function VacancyRecommendationEditor({ positionName, initial, onClose, onSaved, onDelete }: { positionName: string; initial?: VacancyRecommendation; onClose: () => void; onSaved: (data: VacancyRecommendationDraft) => Promise<void>; onDelete?: () => void }) {
+  const [data, setData] = useState(() => emptyVacancyRecommendation(positionName, initial));
   const set = (key: keyof typeof data, value: string) => setData((current) => ({ ...current, [key]: value }));
-  return <Modal title={`${initial ? "Редагування" : "Новий"} рекомендаційний лист · ${positionName}`} onClose={onClose} className="vacancy-recommendation-modal"><div className="operation-editor__body"><div className="vacancy-callout"><b>Вільна посада</b><span>{positionName}</span></div><label className="form-field"><span>ПІБ кандидата</span><input autoFocus value={data.fullName} onChange={(event) => set("fullName", event.target.value)} /></label><label className="form-field"><span>Телефон</span><input value={data.phone} onChange={(event) => set("phone", event.target.value)} /></label><label className="form-field"><span>Звання</span><input value={data.rank} onChange={(event) => set("rank", event.target.value)} /></label><label className="form-field"><span>Дата народження</span><input type="date" value={data.birthDate} onChange={(event) => set("birthDate", event.target.value)} /></label><label className="form-field"><span>Дата видачі</span><input type="date" value={data.issuedAt} onChange={(event) => set("issuedAt", event.target.value)} /></label><label className="form-field form-field--wide"><span>Примітка</span><textarea value={data.notes} onChange={(event) => set("notes", event.target.value)} /></label></div><footer className="modal-actions">{onDelete && <button className="button danger vacancy-recommendation-modal__delete" onClick={onDelete}><Trash2 />Видалити лист</button>}<button className="button" onClick={onClose}>Скасувати</button><button className="button primary" onClick={() => void onSaved(data)}>{initial ? <Pencil /> : <FileText />}Зберегти лист</button></footer></Modal>;
+  const military = data.candidateType === "Військовий";
+  return <Modal title={`${initial ? "Редагування" : "Новий"} рекомендаційний лист`} subtitle={`Кандидат на посаду «${positionName}»`} onClose={onClose} className="vacancy-recommendation-modal"><div className="vacancy-recommendation-modal__body">
+    <div className="vacancy-callout"><b>Вільна посада</b><span>{positionName}</span></div>
+    <section><header><div><b>Основні дані</b><span>Тип кандидата визначає перелік військових відомостей.</span></div></header><div className="vacancy-recommendation-grid">
+      <label className="form-field"><span>Категорія кандидата <b>*</b></span><Select ariaLabel="Категорія кандидата" value={data.candidateType} onChange={(value) => set("candidateType", value)} options={[{ value: "Військовий", label: "Військовий" }, { value: "Цивільний", label: "Цивільний" }]} /></label>
+      <label className="form-field"><span>Дата видачі <b>*</b></span><input type="date" value={data.issuedAt} onChange={(event) => set("issuedAt", event.target.value)} /></label>
+      <label className="form-field form-field--wide"><span>ПІБ <b>*</b></span><input autoFocus value={data.fullName} onChange={(event) => set("fullName", event.target.value)} /></label>
+      {military && <label className="form-field"><span>Військове звання</span><input value={data.rank} onChange={(event) => set("rank", event.target.value)} /></label>}
+      <label className="form-field"><span>ІПН</span><input inputMode="numeric" value={data.taxId} onChange={(event) => set("taxId", event.target.value)} /></label>
+      <label className="form-field"><span>Дата народження</span><input type="date" value={data.birthDate} onChange={(event) => set("birthDate", event.target.value)} /></label>
+      <label className="form-field"><span>Освіта</span><input value={data.education} onChange={(event) => set("education", event.target.value)} /></label>
+      <label className="form-field"><span>Рік закінчення</span><input inputMode="numeric" value={data.educationGraduationYear} onChange={(event) => set("educationGraduationYear", event.target.value)} /></label>
+      {military && <><label className="form-field"><span>У ЗСУ з</span><input type="date" value={data.armedForcesSince} onChange={(event) => set("armedForcesSince", event.target.value)} /></label><label className="form-field form-field--wide"><span>Період участі в бойових діях</span><input value={data.combatParticipation} onChange={(event) => set("combatParticipation", event.target.value)} placeholder="Наприклад, 01.02.2024 — 30.06.2024" /></label></>}
+    </div></section>
+    {military && <section><header><div><b>Посада, яку кандидат займає зараз</b><span>Військова частина, повна посада та облікові дані.</span></div></header><div className="vacancy-recommendation-grid vacancy-recommendation-grid--three">
+      <label className="form-field"><span>Військова частина</span><input value={data.currentUnit} onChange={(event) => set("currentUnit", event.target.value)} /></label>
+      <label className="form-field form-field--span-two"><span>Повна посада</span><input value={data.currentPosition} onChange={(event) => set("currentPosition", event.target.value)} /></label>
+      <label className="form-field"><span>ШПК</span><input value={data.staffCategory} onChange={(event) => set("staffCategory", event.target.value)} /></label>
+      <label className="form-field"><span>ВОС</span><input value={data.militarySpecialty} onChange={(event) => set("militarySpecialty", event.target.value)} /></label>
+      <label className="form-field"><span>Тарифний розряд</span><input value={data.tariffGrade} onChange={(event) => set("tariffGrade", event.target.value)} /></label>
+      <label className="form-field"><span>Посадовий оклад</span><input value={data.salary} onChange={(event) => set("salary", event.target.value)} /></label>
+    </div></section>}
+    <section><header><div><b>Додаткові відомості</b><span>Корисна інформація для підготовки та перевірки реклиста.</span></div></header><div className="vacancy-recommendation-grid">
+      <label className="form-field"><span>Адреса реєстрації</span><input value={data.registrationAddress} onChange={(event) => set("registrationAddress", event.target.value)} /></label>
+      <label className="form-field"><span>Адреса проживання</span><input value={data.residentialAddress} onChange={(event) => set("residentialAddress", event.target.value)} /></label>
+      <label className="form-field"><span>Посвідчення водія</span><input value={data.driverLicense} onChange={(event) => set("driverLicense", event.target.value)} placeholder="Серія, номер, категорії" /></label>
+      <label className="form-field"><span>Паспорт</span><input value={data.passport} onChange={(event) => set("passport", event.target.value)} placeholder="Серія та номер" /></label>
+      <label className="form-field"><span>Номер телефону</span><input type="tel" value={data.phone} onChange={(event) => set("phone", event.target.value)} /></label>
+      {military && <><label className="form-field"><span>Військовий квиток</span><input value={data.militaryId} onChange={(event) => set("militaryId", event.target.value)} placeholder="Серія та номер" /></label><label className="form-field"><span>Підстава служби</span><Select ariaLabel="Підстава служби" value={data.serviceEntryType} onChange={(value) => set("serviceEntryType", value)} options={[{ value: "", label: "Не вказано" }, { value: "Контрактник", label: "Контрактник" }, { value: "Мобілізований", label: "Мобілізований" }]} /></label><label className="form-field"><span>{data.serviceEntryType === "Мобілізований" ? "Мобілізований" : "Контракт з"}</span><input type="date" value={data.serviceStartDate} onChange={(event) => set("serviceStartDate", event.target.value)} /></label>{data.serviceEntryType === "Контрактник" && <label className="form-field"><span>Контракт до</span><input type="date" value={data.serviceEndDate} onChange={(event) => set("serviceEndDate", event.target.value)} /></label>}<label className="form-field"><span>Яким ТЦК та СП призваний</span><input value={data.conscriptionOffice} onChange={(event) => set("conscriptionOffice", event.target.value)} /></label><label className="form-field"><span>Дата призову</span><input type="date" value={data.conscriptedAt} onChange={(event) => set("conscriptedAt", event.target.value)} /></label></>}
+      <label className="form-field"><span>Сімейний стан</span><input value={data.maritalStatus} onChange={(event) => set("maritalStatus", event.target.value)} /></label>
+      <label className="form-field form-field--wide"><span>Близькі родичі</span><textarea value={data.relatives} onChange={(event) => set("relatives", event.target.value)} placeholder="ПІБ, адреса, номер телефону — кожен родич з нового рядка" /></label>
+      <label className="form-field form-field--wide"><span>Примітка</span><textarea value={data.notes} onChange={(event) => set("notes", event.target.value)} /></label>
+    </div></section>
+  </div><footer className="modal-actions">{onDelete && <button className="button danger vacancy-recommendation-modal__delete" onClick={onDelete}><Trash2 />Видалити лист</button>}<button className="button" onClick={onClose}>Скасувати</button><button className="button primary" onClick={() => void onSaved(data)} disabled={!data.fullName.trim() || !data.issuedAt}>{initial ? <Pencil /> : <FileText />}Зберегти лист</button></footer></Modal>;
 }
 
 export function StaffingBcsPage() {
@@ -241,7 +293,7 @@ export function StaffingBcsPage() {
     if (slot.occupants.length) { notify("Рекомендаційний лист можна створити лише для вільної посади.", "error"); return; }
     setVacancyFor({ slot, recommendation });
   };
-  const saveVacancyRecommendation = async (data: { positionName: string; fullName: string; phone: string; rank: string; birthDate: string; issuedAt: string; notes: string }) => { if (!vacancyFor) return; try { const payload = { ...data, slotId: vacancyFor.slot.id }; if (vacancyFor.recommendation) await operationsService.updateVacancyRecommendation(vacancyFor.recommendation.id, payload); else await operationsService.createVacancyRecommendation(payload); const updated = Boolean(vacancyFor.recommendation); setVacancyFor(null); await reload(); notify(updated ? "Рекомендаційний лист оновлено." : "Рекомендаційний лист для вільної посади додано.", "success"); } catch (error) { notify(error instanceof Error ? error.message : String(error) || "Не вдалося зберегти лист.", "error"); } };
+  const saveVacancyRecommendation = async (data: VacancyRecommendationDraft) => { if (!vacancyFor) return; try { const payload = { ...data, slotId: vacancyFor.slot.id }; if (vacancyFor.recommendation) await operationsService.updateVacancyRecommendation(vacancyFor.recommendation.id, payload); else await operationsService.createVacancyRecommendation(payload); const updated = Boolean(vacancyFor.recommendation); setVacancyFor(null); await reload(); notify(updated ? "Рекомендаційний лист оновлено." : "Рекомендаційний лист для вільної посади додано.", "success"); } catch (error) { notify(error instanceof Error ? error.message : String(error) || "Не вдалося зберегти лист.", "error"); } };
   const deleteVacancyRecommendation = async () => { if (!recommendationToDelete) return; try { await operationsService.deleteVacancyRecommendation(recommendationToDelete.id); setRecommendationToDelete(null); setVacancyFor(null); await reload(); notify("Рекомендаційний лист видалено.", "success"); } catch (error) { notify(error instanceof Error ? error.message : String(error) || "Не вдалося видалити лист.", "error"); } };
   const setSavedBcsUnitName = (value: string) => { setBcsUnitName(value); localStorage.setItem("bcs-unit-name", value); };
   const setSavedBcsFileName = (value: string) => { setBcsFileName(value); localStorage.setItem("bcs-file-name", value); };

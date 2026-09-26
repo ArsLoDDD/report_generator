@@ -1,6 +1,6 @@
 use super::{
     busy, ActingChange, FlightPlanCrewLocationAssignment, StaffRecommendation, StaffTransfer,
-    StaffingRecord, VacancyRecommendation,
+    StaffingRecord, VacancyRecommendation, VacancyRecommendationDraft,
 };
 use crate::AppState;
 use chrono::{Duration, Local, NaiveDate};
@@ -1832,59 +1832,32 @@ pub fn list_staff_recommendations(
 }
 
 #[tauri::command]
-#[allow(clippy::too_many_arguments)] // Tauri exposes these form fields as separate command arguments.
 pub fn create_vacancy_recommendation(
     app: tauri::AppHandle,
     state: tauri::State<AppState>,
-    slot_id: Option<String>,
-    position_name: String,
-    full_name: String,
-    phone: String,
-    rank: String,
-    birth_date: String,
-    issued_at: String,
-    notes: String,
+    draft: VacancyRecommendationDraft,
 ) -> Result<(), String> {
     let valid_slot_ids = explicit_unit_position_ids(&app)?;
-    ensure_recommendation_slot_exists(
-        slot_id.as_deref().unwrap_or_default(),
-        valid_slot_ids.as_ref(),
-    )?;
+    ensure_recommendation_slot_exists(&draft.slot_id, valid_slot_ids.as_ref())?;
     let db = state.0.lock().map_err(|_| busy())?;
-    save_vacancy_recommendation_record(
-        &db.connection,
-        None,
-        slot_id.as_deref().unwrap_or_default(),
-        &position_name,
-        &full_name,
-        &phone,
-        &rank,
-        &birth_date,
-        &issued_at,
-        &notes,
-    )
+    save_vacancy_recommendation_record(&db.connection, None, &draft)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn save_vacancy_recommendation_record(
     connection: &rusqlite::Connection,
     recommendation_id: Option<i64>,
-    slot_id: &str,
-    position_name: &str,
-    full_name: &str,
-    phone: &str,
-    rank: &str,
-    birth_date: &str,
-    issued_at: &str,
-    notes: &str,
+    draft: &VacancyRecommendationDraft,
 ) -> Result<(), String> {
-    let slot_id = slot_id.trim();
+    let slot_id = draft.slot_id.trim();
     if slot_id.is_empty()
-        || position_name.trim().is_empty()
-        || full_name.trim().is_empty()
-        || issued_at.trim().is_empty()
+        || draft.position_name.trim().is_empty()
+        || draft.full_name.trim().is_empty()
+        || draft.issued_at.trim().is_empty()
     {
         return Err("Оберіть вільне штатне місце та вкажіть ПІБ кандидата і дату видачі.".into());
+    }
+    if !matches!(draft.candidate_type.trim(), "Військовий" | "Цивільний") {
+        return Err("Оберіть тип кандидата: військовий або цивільний.".into());
     }
     let occupied = connection
         .query_row(
@@ -1899,19 +1872,48 @@ fn save_vacancy_recommendation_record(
     let changed = if let Some(recommendation_id) = recommendation_id {
         connection
             .execute(
-                "UPDATE staff_position_recommendations
-                 SET position_name=?1,full_name=?2,phone=?3,rank=?4,birth_date=?5,
-                     issued_at=?6,notes=?7,slot_id=?8
-                 WHERE id=?9",
+                "UPDATE staff_position_recommendations SET
+                   position_name=?1,full_name=?2,phone=?3,rank=?4,birth_date=?5,issued_at=?6,
+                   notes=?7,slot_id=?8,candidate_type=?9,tax_id=?10,education=?11,
+                   education_graduation_year=?12,armed_forces_since=?13,combat_participation=?14,
+                   current_unit=?15,current_position=?16,staff_category=?17,military_specialty=?18,
+                   tariff_grade=?19,salary=?20,registration_address=?21,residential_address=?22,
+                   driver_license=?23,passport=?24,military_id=?25,service_entry_type=?26,
+                   service_start_date=?27,service_end_date=?28,conscription_office=?29,
+                   conscripted_at=?30,marital_status=?31,relatives=?32 WHERE id=?33",
                 rusqlite::params![
-                    position_name.trim(),
-                    full_name.trim(),
-                    phone.trim(),
-                    rank.trim(),
-                    birth_date.trim(),
-                    issued_at.trim(),
-                    notes.trim(),
+                    draft.position_name.trim(),
+                    draft.full_name.trim(),
+                    draft.phone.trim(),
+                    draft.rank.trim(),
+                    draft.birth_date.trim(),
+                    draft.issued_at.trim(),
+                    draft.notes.trim(),
                     slot_id,
+                    draft.candidate_type.trim(),
+                    draft.tax_id.trim(),
+                    draft.education.trim(),
+                    draft.education_graduation_year.trim(),
+                    draft.armed_forces_since.trim(),
+                    draft.combat_participation.trim(),
+                    draft.current_unit.trim(),
+                    draft.current_position.trim(),
+                    draft.staff_category.trim(),
+                    draft.military_specialty.trim(),
+                    draft.tariff_grade.trim(),
+                    draft.salary.trim(),
+                    draft.registration_address.trim(),
+                    draft.residential_address.trim(),
+                    draft.driver_license.trim(),
+                    draft.passport.trim(),
+                    draft.military_id.trim(),
+                    draft.service_entry_type.trim(),
+                    draft.service_start_date.trim(),
+                    draft.service_end_date.trim(),
+                    draft.conscription_office.trim(),
+                    draft.conscripted_at.trim(),
+                    draft.marital_status.trim(),
+                    draft.relatives.trim(),
                     recommendation_id
                 ],
             )
@@ -1919,8 +1921,29 @@ fn save_vacancy_recommendation_record(
     } else {
         connection
             .execute(
-                "INSERT INTO staff_position_recommendations(position_name,full_name,phone,rank,birth_date,issued_at,notes,slot_id) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
-                rusqlite::params![position_name.trim(), full_name.trim(), phone.trim(), rank.trim(), birth_date.trim(), issued_at.trim(), notes.trim(), slot_id],
+                "INSERT INTO staff_position_recommendations(
+                   position_name,full_name,phone,rank,birth_date,issued_at,notes,slot_id,
+                   candidate_type,tax_id,education,education_graduation_year,armed_forces_since,
+                   combat_participation,current_unit,current_position,staff_category,military_specialty,
+                   tariff_grade,salary,registration_address,residential_address,driver_license,passport,
+                   military_id,service_entry_type,service_start_date,service_end_date,conscription_office,
+                   conscripted_at,marital_status,relatives
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32)",
+                rusqlite::params![
+                    draft.position_name.trim(), draft.full_name.trim(), draft.phone.trim(),
+                    draft.rank.trim(), draft.birth_date.trim(), draft.issued_at.trim(),
+                    draft.notes.trim(), slot_id, draft.candidate_type.trim(), draft.tax_id.trim(),
+                    draft.education.trim(), draft.education_graduation_year.trim(),
+                    draft.armed_forces_since.trim(), draft.combat_participation.trim(),
+                    draft.current_unit.trim(), draft.current_position.trim(),
+                    draft.staff_category.trim(), draft.military_specialty.trim(),
+                    draft.tariff_grade.trim(), draft.salary.trim(), draft.registration_address.trim(),
+                    draft.residential_address.trim(), draft.driver_license.trim(), draft.passport.trim(),
+                    draft.military_id.trim(), draft.service_entry_type.trim(),
+                    draft.service_start_date.trim(), draft.service_end_date.trim(),
+                    draft.conscription_office.trim(), draft.conscripted_at.trim(),
+                    draft.marital_status.trim(), draft.relatives.trim()
+                ],
             )
             .map_err(|_| "Не вдалося зберегти рекомендаційний лист для вільної посади.".to_string())?
     };
@@ -1931,38 +1954,16 @@ fn save_vacancy_recommendation_record(
 }
 
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
 pub fn update_vacancy_recommendation(
     app: tauri::AppHandle,
     state: tauri::State<AppState>,
     recommendation_id: i64,
-    slot_id: Option<String>,
-    position_name: String,
-    full_name: String,
-    phone: String,
-    rank: String,
-    birth_date: String,
-    issued_at: String,
-    notes: String,
+    draft: VacancyRecommendationDraft,
 ) -> Result<(), String> {
     let valid_slot_ids = explicit_unit_position_ids(&app)?;
-    ensure_recommendation_slot_exists(
-        slot_id.as_deref().unwrap_or_default(),
-        valid_slot_ids.as_ref(),
-    )?;
+    ensure_recommendation_slot_exists(&draft.slot_id, valid_slot_ids.as_ref())?;
     let db = state.0.lock().map_err(|_| busy())?;
-    save_vacancy_recommendation_record(
-        &db.connection,
-        Some(recommendation_id),
-        slot_id.as_deref().unwrap_or_default(),
-        &position_name,
-        &full_name,
-        &phone,
-        &rank,
-        &birth_date,
-        &issued_at,
-        &notes,
-    )
+    save_vacancy_recommendation_record(&db.connection, Some(recommendation_id), &draft)
 }
 
 #[tauri::command]
@@ -1998,7 +1999,15 @@ pub fn list_vacancy_recommendations(
     let valid_slot_ids = explicit_unit_position_ids(&app)?;
     let db = state.0.lock().map_err(|_| busy())?;
     cleanup_vacancy_recommendations(&db.connection, valid_slot_ids.as_ref())?;
-    let mut statement = db.connection.prepare("SELECT id,position_name,full_name,phone,rank,birth_date,issued_at,notes,slot_id FROM staff_position_recommendations ORDER BY issued_at DESC,id DESC").map_err(|_| "Не вдалося прочитати рекомендації для вільних посад.".to_string())?;
+    let mut statement = db.connection.prepare(
+        "SELECT id,position_name,full_name,phone,rank,birth_date,issued_at,notes,slot_id,
+                candidate_type,tax_id,education,education_graduation_year,armed_forces_since,
+                combat_participation,current_unit,current_position,staff_category,military_specialty,
+                tariff_grade,salary,registration_address,residential_address,driver_license,passport,
+                military_id,service_entry_type,service_start_date,service_end_date,conscription_office,
+                conscripted_at,marital_status,relatives
+         FROM staff_position_recommendations ORDER BY issued_at DESC,id DESC"
+    ).map_err(|_| "Не вдалося прочитати рекомендації для вільних посад.".to_string())?;
     let result = statement
         .query_map([], |row| {
             Ok(VacancyRecommendation {
@@ -2011,6 +2020,30 @@ pub fn list_vacancy_recommendations(
                 birth_date: row.get(5)?,
                 issued_at: row.get(6)?,
                 notes: row.get(7)?,
+                candidate_type: row.get(9)?,
+                tax_id: row.get(10)?,
+                education: row.get(11)?,
+                education_graduation_year: row.get(12)?,
+                armed_forces_since: row.get(13)?,
+                combat_participation: row.get(14)?,
+                current_unit: row.get(15)?,
+                current_position: row.get(16)?,
+                staff_category: row.get(17)?,
+                military_specialty: row.get(18)?,
+                tariff_grade: row.get(19)?,
+                salary: row.get(20)?,
+                registration_address: row.get(21)?,
+                residential_address: row.get(22)?,
+                driver_license: row.get(23)?,
+                passport: row.get(24)?,
+                military_id: row.get(25)?,
+                service_entry_type: row.get(26)?,
+                service_start_date: row.get(27)?,
+                service_end_date: row.get(28)?,
+                conscription_office: row.get(29)?,
+                conscripted_at: row.get(30)?,
+                marital_status: row.get(31)?,
+                relatives: row.get(32)?,
             })
         })
         .map_err(|_| "Не вдалося прочитати рекомендації для вільних посад.".to_string())?
@@ -2119,6 +2152,46 @@ mod staff_transfer_tests {
             slot_id: format!("slot-{target}"),
             expected_position: format!("Посада {id}"),
             expected_occupant_ids: vec![target],
+        }
+    }
+    fn recommendation(
+        slot_id: &str,
+        full_name: &str,
+        issued_at: &str,
+    ) -> VacancyRecommendationDraft {
+        VacancyRecommendationDraft {
+            slot_id: slot_id.into(),
+            position_name: "Вільна посада".into(),
+            candidate_type: "Військовий".into(),
+            full_name: full_name.into(),
+            phone: String::new(),
+            rank: String::new(),
+            tax_id: String::new(),
+            birth_date: String::new(),
+            education: String::new(),
+            education_graduation_year: String::new(),
+            armed_forces_since: String::new(),
+            combat_participation: String::new(),
+            current_unit: String::new(),
+            current_position: String::new(),
+            staff_category: String::new(),
+            military_specialty: String::new(),
+            tariff_grade: String::new(),
+            salary: String::new(),
+            registration_address: String::new(),
+            residential_address: String::new(),
+            driver_license: String::new(),
+            passport: String::new(),
+            military_id: String::new(),
+            service_entry_type: String::new(),
+            service_start_date: String::new(),
+            service_end_date: String::new(),
+            conscription_office: String::new(),
+            conscripted_at: String::new(),
+            marital_status: String::new(),
+            relatives: String::new(),
+            issued_at: issued_at.into(),
+            notes: String::new(),
         }
     }
     #[test]
@@ -2240,48 +2313,19 @@ mod staff_transfer_tests {
     #[test]
     fn recommendations_only_use_vacant_slots_and_support_editing_and_deletion() {
         let db = db();
-        let occupied = save_vacancy_recommendation_record(
-            &db,
-            None,
-            "slot-1",
-            "Посада 1",
-            "Кандидат Один",
-            "",
-            "",
-            "",
-            "2026-09-26",
-            "",
-        )
-        .unwrap_err();
+        let mut occupied_draft = recommendation("slot-1", "Кандидат Один", "2026-09-26");
+        occupied_draft.position_name = "Посада 1".into();
+        let occupied = save_vacancy_recommendation_record(&db, None, &occupied_draft).unwrap_err();
         assert!(occupied.contains("вільної штатної посади"));
 
-        save_vacancy_recommendation_record(
-            &db,
-            None,
-            "slot-free",
-            "Вільна посада",
-            "Кандидат Один",
-            "",
-            "",
-            "",
-            "2026-09-26",
-            "Початкова примітка",
-        )
-        .unwrap();
+        let mut initial = recommendation("slot-free", "Кандидат Один", "2026-09-26");
+        initial.notes = "Початкова примітка".into();
+        save_vacancy_recommendation_record(&db, None, &initial).unwrap();
         let recommendation_id = db.last_insert_rowid();
-        save_vacancy_recommendation_record(
-            &db,
-            Some(recommendation_id),
-            "slot-free",
-            "Вільна посада",
-            "Кандидат Два",
-            "",
-            "",
-            "",
-            "2026-09-27",
-            "Оновлено",
-        )
-        .unwrap();
+        let mut updated = recommendation("slot-free", "Кандидат Два", "2026-09-27");
+        updated.notes = "Оновлено".into();
+        updated.tax_id = "1234567890".into();
+        save_vacancy_recommendation_record(&db, Some(recommendation_id), &updated).unwrap();
         let candidate: String = db
             .query_row(
                 "SELECT full_name FROM staff_position_recommendations WHERE id=?1",
@@ -2290,6 +2334,14 @@ mod staff_transfer_tests {
             )
             .unwrap();
         assert_eq!(candidate, "Кандидат Два");
+        let tax_id: String = db
+            .query_row(
+                "SELECT tax_id FROM staff_position_recommendations WHERE id=?1",
+                [recommendation_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(tax_id, "1234567890");
 
         delete_vacancy_recommendation_record(&db, recommendation_id).unwrap();
         let remaining: i64 = db
@@ -2316,14 +2368,7 @@ mod staff_transfer_tests {
         save_vacancy_recommendation_record(
             &db,
             None,
-            "slot-free",
-            "Вільна посада",
-            "Кандидат Один",
-            "",
-            "",
-            "",
-            "2026-09-26",
-            "",
+            &recommendation("slot-free", "Кандидат Один", "2026-09-26"),
         )
         .unwrap();
         let another_skeleton = HashSet::from(["another-slot".to_string()]);
@@ -2332,19 +2377,9 @@ mod staff_transfer_tests {
             1
         );
 
-        save_vacancy_recommendation_record(
-            &db,
-            None,
-            "slot-4",
-            "Посада 4",
-            "Кандидат Два",
-            "",
-            "",
-            "",
-            "2026-09-27",
-            "",
-        )
-        .unwrap();
+        let mut slot_four = recommendation("slot-4", "Кандидат Два", "2026-09-27");
+        slot_four.position_name = "Посада 4".into();
+        save_vacancy_recommendation_record(&db, None, &slot_four).unwrap();
         let mut assignment = movement(1, 4);
         assignment.expected_occupant_ids.clear();
         apply_staff_transfers(&db, &[assignment], &[]).unwrap();

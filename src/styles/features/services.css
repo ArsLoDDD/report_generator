@@ -47,7 +47,9 @@
 .service-assets-table td { white-space: normal; min-width: 92px; vertical-align: top; line-height: 1.35; }
 .service-assets-table td:nth-child(1) { min-width: 190px; max-width: 320px; }
 .service-assets-table td small { display: block; color: #949d8d; margin-top: 5px; }
+.service-assets-table .status-pill { display: inline-flex; align-items: center; justify-content: center; width: max-content; max-width: none; margin-left: 0; white-space: nowrap; line-height: 1.2; }
 .service-asset-editor .modal-card { width: min(1180px, calc(100vw - 44px)); }
+.service-asset-editor--sa-ppo { width: min(1480px, 100%); }
 .service-asset-editor__body { overflow: auto; padding: 22px; display: grid; gap: 15px; }
 .service-asset-editor__body > section { border: 1px solid #303a2d; border-radius: 12px; padding: 17px; background: #0d130d; }
 .service-asset-editor__body > section > header { display: grid; gap: 4px; margin-bottom: 15px; }
@@ -65,7 +67,8 @@
 .composition-toggle input { width: 17px; height: 17px; accent-color: var(--accent); }
 .uav-composition-editor__body { display: grid; grid-template-columns: minmax(260px,.8fr) minmax(0,1.4fr); gap: 14px; }
 .uav-existing-assets,.uav-new-assets { min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 13px; background: #090e09; }
-.uav-existing-assets { display: grid; grid-template-rows: auto auto minmax(0,1fr); gap: 5px; }
+.uav-existing-assets { display: grid; grid-template-rows: auto auto auto minmax(0,1fr); gap: 8px; }
+.uav-existing-assets > .search { width: 100%; min-height: 40px; margin-top: 4px; }
 .uav-existing-assets > span,.uav-new-assets > header span { color: var(--muted); font-size: 12px; }
 .uav-existing-assets__list { max-height: 360px; overflow-y: auto; display: grid; gap: 6px; margin-top: 6px; padding-right: 3px; }
 .uav-existing-assets__list > label { display: flex; align-items: center; gap: 9px; padding: 9px; border: 1px solid #293327; border-radius: 8px; cursor: pointer; }

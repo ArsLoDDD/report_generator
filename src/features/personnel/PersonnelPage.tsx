@@ -19,6 +19,7 @@ import { operationsService } from "../operations/services/operationsService";
 import type { Equipment, EquipmentCategory } from "../operations/types";
 import { PersonnelControl } from "./components/PersonnelControl";
 import { isSimpleEdition } from "../../app/navigation";
+import { CustomFieldsManager } from "../../shared/ui/custom-fields/CustomFieldsManager";
 
 type PersonnelPageProps = {
   people: Person[];
@@ -105,7 +106,7 @@ export function PersonnelPage({ people, totalCount, hasMore, isLoading, isLoadin
   };
   const selectPageTab = (value: "registry" | "control") => { setPageTab(value); localStorage.setItem("personnel-page-tab", value); };
   const pageTabs = <nav className="entity-tabs personnel-page-tabs" aria-label="Розділи особового складу"><button className={pageTab === "registry" ? "active" : ""} onClick={() => selectPageTab("registry")}><List />Особовий склад</button>{!isSimpleEdition && <button className={pageTab === "control" ? "active" : ""} onClick={() => selectPageTab("control")}><ClipboardCheck />Контроль особового складу</button>}</nav>;
-  const tools = <div className="personnel-page-tools">{pageTabs}<div className="table-tools main-tools"><SearchInput placeholder="Пошук за ПІБ, ІПН або посадою…" value={query} onChange={setQuery} /><FilterButton active={filtersOpen} onClick={() => setFiltersOpen(true)} label="Додаткові фільтри" /><button className="button primary" onClick={() => setEditingPerson("new")}><UserPlus />Додати військовослужбовця</button></div></div>;
+  const tools = <div className="personnel-page-tools">{pageTabs}<div className="table-tools main-tools"><SearchInput placeholder="Пошук за ПІБ, ІПН або посадою…" value={query} onChange={setQuery} /><FilterButton active={filtersOpen} onClick={() => setFiltersOpen(true)} label="Додаткові фільтри" /><CustomFieldsManager scope="personnel" /><button className="button primary" onClick={() => setEditingPerson("new")}><UserPlus />Додати військовослужбовця</button></div></div>;
   const personEquipment = selectedPerson ? equipment.filter((item) => item.personnelId === selectedPerson.id) : [];
   const hasPersonAssets = Boolean(selectedPerson?.assignedVehicleName || personEquipment.length);
   const detailRows = selectedPerson ? (() => {

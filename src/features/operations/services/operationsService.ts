@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AssetCatalog, AssetCatalogDraft, AssetHistoryEvent, AssetServiceCode, Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightJournalDraft, FlightJournalEntry, FlightPlanCrewLocationAssignment, FlightPlanRequest, Incident, IncidentDraft, Position, PositionDraft, PositionWork, PositionWorkDraft, PositionWorkStatusEvent, ServiceAsset, ServiceAssetDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation, WorkshopDraft, WorkshopProduct } from "../types";
+import type { AssetCatalog, AssetCatalogDraft, AssetHistoryEvent, AssetServiceCode, Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightJournalDraft, FlightJournalEntry, FlightPlanCrewLocationAssignment, FlightPlanRequest, Incident, IncidentDraft, Position, PositionDraft, PositionWork, PositionWorkDraft, PositionWorkStatusEvent, ServiceAsset, ServiceAssetDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation, VacancyRecommendationDraft, WorkshopDraft, WorkshopProduct } from "../types";
 
 const mutate = <T>(command: string, args?: Record<string, unknown>) => Promise.resolve(invoke<T>(command, args)).then((result) => {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("operational-data-updated", { detail: { command } }));
@@ -21,8 +21,8 @@ export const operationsService = {
   transferStaffingChain: (assignments: import("../staffing-slots").SlotTransfer[], actingChanges: import("../staffing-slots").ActingChange[] = []) => mutate<void>("transfer_staffing_chain", { assignments, actingChanges }),
   createStaffRecommendation: (payload: { personnelId: number; positionName: string; issuedAt: string; notes: string }) => invoke<void>("create_staff_recommendation", payload),
   listStaffRecommendations: () => invoke<StaffRecommendation[]>("list_staff_recommendations"),
-  createVacancyRecommendation: (payload: { slotId?: string; positionName: string; fullName: string; phone: string; rank: string; birthDate: string; issuedAt: string; notes: string }) => mutate<void>("create_vacancy_recommendation", payload),
-  updateVacancyRecommendation: (recommendationId: number, payload: { slotId?: string; positionName: string; fullName: string; phone: string; rank: string; birthDate: string; issuedAt: string; notes: string }) => mutate<void>("update_vacancy_recommendation", { recommendationId, ...payload }),
+  createVacancyRecommendation: (draft: VacancyRecommendationDraft) => mutate<void>("create_vacancy_recommendation", { draft }),
+  updateVacancyRecommendation: (recommendationId: number, draft: VacancyRecommendationDraft) => mutate<void>("update_vacancy_recommendation", { recommendationId, draft }),
   deleteVacancyRecommendation: (recommendationId: number) => mutate<void>("delete_vacancy_recommendation", { recommendationId }),
   listVacancyRecommendations: () => invoke<VacancyRecommendation[]>("list_vacancy_recommendations"),
   updateBcsCrewStrength: (crewId: number, value: number) => mutate<void>("update_bcs_crew_strength", { crewId, value }),

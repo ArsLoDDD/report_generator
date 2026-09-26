@@ -363,7 +363,7 @@ pub struct StaffRecommendation {
     pub notes: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VacancyRecommendation {
     pub slot_id: String,
@@ -375,6 +375,100 @@ pub struct VacancyRecommendation {
     pub birth_date: String,
     pub issued_at: String,
     pub notes: String,
+    pub candidate_type: String,
+    pub tax_id: String,
+    pub education: String,
+    pub education_graduation_year: String,
+    pub armed_forces_since: String,
+    pub combat_participation: String,
+    pub current_unit: String,
+    pub current_position: String,
+    pub staff_category: String,
+    pub military_specialty: String,
+    pub tariff_grade: String,
+    pub salary: String,
+    pub registration_address: String,
+    pub residential_address: String,
+    pub driver_license: String,
+    pub passport: String,
+    pub military_id: String,
+    pub service_entry_type: String,
+    pub service_start_date: String,
+    pub service_end_date: String,
+    pub conscription_office: String,
+    pub conscripted_at: String,
+    pub marital_status: String,
+    pub relatives: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VacancyRecommendationDraft {
+    #[serde(default)]
+    pub slot_id: String,
+    pub position_name: String,
+    #[serde(default = "default_recommendation_candidate_type")]
+    pub candidate_type: String,
+    pub full_name: String,
+    #[serde(default)]
+    pub phone: String,
+    #[serde(default)]
+    pub rank: String,
+    #[serde(default)]
+    pub tax_id: String,
+    #[serde(default)]
+    pub birth_date: String,
+    #[serde(default)]
+    pub education: String,
+    #[serde(default)]
+    pub education_graduation_year: String,
+    #[serde(default)]
+    pub armed_forces_since: String,
+    #[serde(default)]
+    pub combat_participation: String,
+    #[serde(default)]
+    pub current_unit: String,
+    #[serde(default)]
+    pub current_position: String,
+    #[serde(default)]
+    pub staff_category: String,
+    #[serde(default)]
+    pub military_specialty: String,
+    #[serde(default)]
+    pub tariff_grade: String,
+    #[serde(default)]
+    pub salary: String,
+    #[serde(default)]
+    pub registration_address: String,
+    #[serde(default)]
+    pub residential_address: String,
+    #[serde(default)]
+    pub driver_license: String,
+    #[serde(default)]
+    pub passport: String,
+    #[serde(default)]
+    pub military_id: String,
+    #[serde(default)]
+    pub service_entry_type: String,
+    #[serde(default)]
+    pub service_start_date: String,
+    #[serde(default)]
+    pub service_end_date: String,
+    #[serde(default)]
+    pub conscription_office: String,
+    #[serde(default)]
+    pub conscripted_at: String,
+    #[serde(default)]
+    pub marital_status: String,
+    #[serde(default)]
+    pub relatives: String,
+    pub issued_at: String,
+    #[serde(default)]
+    pub notes: String,
+}
+
+fn default_recommendation_candidate_type() -> String {
+    "Військовий".into()
 }
 
 #[derive(Debug, Clone, Deserialize)]

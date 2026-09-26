@@ -33,6 +33,7 @@ type ServiceField = { key: string; label: string; shortLabel?: string; kind?: "t
 
 const units = ["кг.", "шт.", "к-т.", "компл.", "пара", "уп."];
 const statuses = ["Справний", "Обмежено справний", "Потребує ремонту", "Ремонтується", "Несправний", "Списаний"];
+const uavKinds = ["Літаковий Ударний", "Літаковий Розвідувальний", "Коптер", "Бомбер", "ФПВ", "НРК", "ФПВ Перехоплювач"];
 const serviceDefinitions: ServiceDefinition[] = [
   { code: "zbbr", shortName: "ЗББР", title: "ЗББР", description: "Зброя", icon: "zbbr", hasCondition: true, fields: [
     { key: "nomenclature_number", label: "Номенклатурний номер", shortLabel: "Номенкл. №", base: "nomenclatureNumber" },
@@ -64,7 +65,7 @@ const serviceDefinitions: ServiceDefinition[] = [
   { code: "rs", shortName: "РС", title: "РС", description: "Речова служба", icon: "rs", hasCondition: false, fields: [] },
   { code: "sa_ppo", shortName: "СА та ППО", title: "СА та ППО", description: "БпАК, БпЛА та комплектуючі", icon: "sa_ppo", hasCondition: true, fields: [
     { key: "serial_number", label: "Серійний номер", shortLabel: "Серійний №", base: "serialNumber" },
-    { key: "uav_class", label: "Клас / призначення БпЛА", shortLabel: "Клас БпЛА" },
+    { key: "uav_class", label: "Вид", shortLabel: "Вид", kind: "select", options: uavKinds },
   ] },
   { code: "svt", shortName: "СВТ", title: "СВТ", description: "Техніка, акумуляторні батареї та шини", icon: Truck, hasCondition: true, fields: [] },
   { code: "pmm", shortName: "ПММ", title: "ПММ", description: "Пально-мастильні матеріали", icon: Fuel, hasCondition: false, allowsReceipt: true, fields: [] },
@@ -111,8 +112,8 @@ function AssetDetailField({ label, value, wide = false }: { label: string; value
 }
 
 type SerialMode = "single" | "list" | "range";
-type KitDraft = { key: number; assetType: "БпЛА" | "Комплектуюче"; name: string; serials: string; quantity: number; uavClass: string };
-const freshKitDraft = (): KitDraft => ({ key: Date.now() + Math.random(), assetType: "Комплектуюче", name: "", serials: "", quantity: 1, uavClass: "" });
+type KitDraft = { key: number; assetType: "БпЛА" | "Комплектуюче"; name: string; serials: string; quantity: number; uavClass: string; value: number };
+const freshKitDraft = (): KitDraft => ({ key: Date.now() + Math.random(), assetType: "Комплектуюче", name: "", serials: "", quantity: 1, uavClass: "", value: 0 });
 
 const transliteration: Record<string, string> = {
   а: "a", б: "b", в: "v", г: "h", ґ: "g", д: "d", е: "e", є: "ye", ж: "zh", з: "z", и: "y", і: "i", ї: "yi", й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ь: "", ю: "yu", я: "ya",
@@ -148,6 +149,7 @@ export function ServicesPage({ people }: { people: Person[] }) {
   const [includeComposition, setIncludeComposition] = useState(false);
   const [compositionIds, setCompositionIds] = useState<number[]>([]);
   const [newKitItems, setNewKitItems] = useState<KitDraft[]>([]);
+  const [compositionQuery, setCompositionQuery] = useState("");
   const catalogStrip = useRef<HTMLDivElement>(null);
 
   const reload = useCallback(async () => {
@@ -184,7 +186,7 @@ export function ServicesPage({ people }: { people: Person[] }) {
           : catalogs.length === 1 ? catalogs[0].id : null;
     setDraft(next);
     setSerialMode("single"); setSerialList(""); setSerialRangeStart(""); setSerialRangeEnd("");
-    setIncludeComposition(false); setCompositionIds([]); setNewKitItems([]);
+    setIncludeComposition(false); setCompositionIds([]); setNewKitItems([]); setCompositionQuery("");
     setEditing("new");
   };
   const openEdit = (item: ServiceAsset) => {
@@ -199,7 +201,7 @@ export function ServicesPage({ people }: { people: Person[] }) {
     const isComplex = item.serviceCode === "sa_ppo" && item.assetType === "БпАК";
     setIncludeComposition(isComplex);
     setCompositionIds(isComplex ? assets.filter((candidate) => candidate.parentEquipmentId === item.id).map((candidate) => candidate.id) : []);
-    setNewKitItems([]);
+    setNewKitItems([]); setCompositionQuery("");
     setEditing(item);
   };
 
@@ -210,10 +212,11 @@ export function ServicesPage({ people }: { people: Person[] }) {
   };
   const kitDrafts = () => newKitItems.flatMap((item) => {
     if (!item.name.trim()) throw new Error("Вкажіть назву кожної нової складової комплектації.");
+    if (item.assetType === "БпЛА" && !item.uavClass.trim()) throw new Error(`Оберіть вид для БпЛА «${item.name.trim()}».`);
     const serials = splitSerialNumbers(item.serials);
     const base: ServiceAssetDraft = {
       ...freshDraft("sa_ppo"), catalogId: draft.catalogId, name: item.name.trim(), fullName: item.name.trim(),
-      accountingUnit: "шт.", quantity: Math.max(1, item.quantity), value: 0, status: "Справний",
+      accountingUnit: "шт.", quantity: Math.max(1, item.quantity), value: Math.max(0, item.value), status: "Справний",
       crewId: draft.crewId, personnelId: draft.personnelId, assetType: item.assetType,
       serviceData: item.assetType === "БпЛА" && item.uavClass.trim() ? { uav_class: item.uavClass.trim() } : {},
     };
@@ -223,6 +226,7 @@ export function ServicesPage({ people }: { people: Person[] }) {
   });
   const save = async () => {
     if (!draft.name.trim()) return notify("Вкажіть коротку назву.", "error");
+    if (serviceCode === "sa_ppo" && ["БпАК", "БпЛА"].includes(draft.assetType) && !draft.serviceData.uav_class?.trim()) return notify("Оберіть вид БпЛА або БпАК.", "error");
     try {
       if (editing === "new" && serviceCode === "sa_ppo" && draft.assetType === "БпАК" && includeComposition) {
         await operationsService.createUavComplexWithChildren(draft, compositionIds, kitDrafts());
@@ -288,7 +292,7 @@ export function ServicesPage({ people }: { people: Person[] }) {
   const selectedCatalog = catalogs.find((item) => item.id === draft.catalogId) ?? null;
   const editorFields = serviceCode === "svt" ? (svtFields[selectedCatalog?.name ?? ""] ?? []) : service.fields;
   const visibleEditorFields = editorFields.filter((field) => {
-    if (field.key === "uav_class" && draft.assetType !== "БпЛА") return false;
+    if (field.key === "uav_class" && !["БпЛА", "БпАК"].includes(draft.assetType)) return false;
     if (field.key === "vehicle_type" && serviceCode === "svt" && selectedCatalog?.name === "Техніка") return false;
     return !(field.base === "serialNumber" && editing === "new" && serviceCode === "sa_ppo" && draft.assetType !== "БпАК" && serialMode !== "single");
   });
@@ -298,6 +302,7 @@ export function ServicesPage({ people }: { people: Person[] }) {
   const linkedSvtItems = selected?.catalogName === "Техніка" ? assets.filter((item) => item.parentEquipmentId === selected.id) : [];
   const serviceHasCrew = ["gz_kb", "siiz", "ets", "ovtm", "sa_ppo", "svt"].includes(serviceCode);
   const reusableUavChildren = assets.filter((item) => item.assetType !== "БпАК" && item.id !== (editing === "new" ? -1 : editing?.id));
+  const shownReusableUavChildren = reusableUavChildren.filter((item) => [item.name, item.serialNumber, item.assetType, item.parentName].join(" ").toLocaleLowerCase("uk").includes(compositionQuery.trim().toLocaleLowerCase("uk")));
 
   const serviceSwitcher = <nav className="services-tabs" aria-label="Служби майна">{serviceDefinitions.map((definition) => <button key={definition.code} className={serviceCode === definition.code ? "active" : ""} onClick={() => { setServiceCode(definition.code); setZuMode("assets"); }} title={definition.description}><DefinitionIcon icon={definition.icon} /><b>{definition.shortName}</b></button>)}</nav>;
   const zuSwitcher = <div className="services-view-toggle" role="group" aria-label="Розділ ЗУ"><button className={zuMode === "assets" ? "active" : ""} onClick={() => setZuMode("assets")}><ServiceIcon name="zu" />Облік ЗУ</button><button className={zuMode === "workshop" ? "active" : ""} onClick={() => setZuMode("workshop")}><ServiceIcon name="workshop" />Цукерня</button></div>;
@@ -318,7 +323,7 @@ export function ServicesPage({ people }: { people: Person[] }) {
       </EntityDetailsPanel>}</div>
     </div>}
 
-    {editing && <Modal title={editing === "new" ? `Нове майно · ${service.title}` : `Редагування · ${editing.name}`} subtitle="Основні облікові дані, каталог і закріплення" onClose={() => setEditing(null)} className="service-asset-editor"><div className="service-asset-editor__body">
+    {editing && <Modal title={editing === "new" ? `Нове майно · ${service.title}` : `Редагування · ${editing.name}`} subtitle="Основні облікові дані, каталог і закріплення" onClose={() => setEditing(null)} className={`service-asset-editor ${serviceCode === "sa_ppo" ? "service-asset-editor--sa-ppo" : ""}`}><div className="service-asset-editor__body">
       <section><header><b>Основні дані</b><span>Коротка назва показується у таблиці, повне найменування — у картці та за потреби окремою колонкою.</span></header><div className="service-form-grid"><label className="form-field"><span>Назва <b>*</b></span><input autoFocus value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Коротка зрозуміла назва" /></label>{serviceCode === "svt" && selectedCatalog?.name === "Техніка" && <label className="form-field"><span>Тип</span><Select ariaLabel="Тип техніки" value={draft.serviceData.vehicle_type ?? ""} onChange={(value) => setDraft({ ...draft, serviceData: { ...draft.serviceData, vehicle_type: value } })} options={[{ value: "", label: "Не вказано" }, ...["Пікап", "Бус", "ЛАТ", "ВАТ", "Інше"].map((value) => ({ value, label: value }))]} /></label>}<label className="form-field"><span>Каталог</span><Select ariaLabel="Каталог" value={draft.catalogId ? String(draft.catalogId) : ""} onChange={(value) => setDraft({ ...draft, catalogId: value ? Number(value) : null, customValues: {}, parentEquipmentId: null })} options={[...(serviceCode === "svt" ? [] : [{ value: "", label: "Без каталогу" }]), ...catalogs.map((catalog) => ({ value: String(catalog.id), label: catalog.name }))]} /></label><label className="form-field form-field--wide"><span>Найменування матеріальних засобів</span><input value={draft.fullName} onChange={(event) => setDraft({ ...draft, fullName: event.target.value })} placeholder="Повне офіційне найменування" /></label><label className="form-field"><span>Од. обліку</span><Select ariaLabel="Одиниця обліку" value={draft.accountingUnit} onChange={(accountingUnit) => setDraft({ ...draft, accountingUnit })} options={units.map((value) => ({ value, label: value }))} /></label><label className="form-field"><span>Кількість</span><input type="number" min="0" step="any" value={draft.quantity} onChange={(event) => setDraft({ ...draft, quantity: Math.max(0, Number(event.target.value) || 0) })} /></label>{service.hasCondition && <label className="form-field"><span>Стан</span><Select ariaLabel="Стан майна" value={draft.status} onChange={(status) => setDraft({ ...draft, status })} options={statuses.map((value) => ({ value, label: value }))} /></label>}{!["zbbr", "zu"].includes(serviceCode) && <label className="form-field"><span>Вартість, грн</span><input type="number" min="0" step="0.01" value={draft.value} onChange={(event) => setDraft({ ...draft, value: Math.max(0, Number(event.target.value) || 0) })} /></label>}</div></section>
       {(serviceCode === "sa_ppo" || editorFields.length > 0) && <section>
         <header><b>Службові характеристики</b><span>Основні поля цієї служби відображаються в таблиці; решта — у розгорнутій картці.</span></header>
@@ -327,7 +332,7 @@ export function ServicesPage({ people }: { people: Person[] }) {
             <label className="form-field"><span>Тип</span><Select ariaLabel="Тип об’єкта" value={draft.assetType} disabled={editing !== "new"} onChange={(assetType) => { setDraft({ ...draft, assetType, parentEquipmentId: assetType === "БпАК" ? null : draft.parentEquipmentId }); setSerialMode("single"); setIncludeComposition(false); }} options={["БпАК", "БпЛА", "Комплектуюче"].map((value) => ({ value, label: value }))} /></label>
             {draft.assetType !== "БпАК" && <label className="form-field"><span>Належить до</span><Select ariaLabel="Належить до" value={draft.parentEquipmentId ? String(draft.parentEquipmentId) : ""} onChange={(value) => setDraft({ ...draft, parentEquipmentId: value ? Number(value) : null })} options={[{ value: "", label: "Самостійний об’єкт" }, ...parentOptions.map((item) => ({ value: String(item.id), label: `${item.name}${item.serialNumber ? ` · ${item.serialNumber}` : ""}` }))]} /></label>}
           </>}
-          {visibleEditorFields.map((field) => <label className="form-field" key={field.key}><span>{field.label}</span>{field.kind === "select" ? <Select ariaLabel={field.label} value={fieldValue(draft, field)} onChange={(value) => setDraft(setFieldValue(draft, field, value))} options={[{ value: "", label: "Не вказано" }, ...(field.options ?? []).map((value) => ({ value, label: value }))]} /> : <input type={field.kind === "number" ? "number" : field.kind === "date" ? "date" : "text"} value={fieldValue(draft, field)} onChange={(event) => setDraft(setFieldValue(draft, field, event.target.value))} />}</label>)}
+          {visibleEditorFields.map((field) => <label className="form-field" key={field.key}><span>{field.label}{field.key === "uav_class" && <b> *</b>}</span>{field.kind === "select" ? <Select ariaLabel={field.label} value={fieldValue(draft, field)} onChange={(value) => setDraft(setFieldValue(draft, field, value))} options={[{ value: "", label: "Не вказано" }, ...(field.options ?? []).map((value) => ({ value, label: value }))]} /> : <input type={field.kind === "number" ? "number" : field.kind === "date" ? "date" : "text"} value={fieldValue(draft, field)} onChange={(event) => setDraft(setFieldValue(draft, field, event.target.value))} />}</label>)}
         </div>
         {editing === "new" && serviceCode === "sa_ppo" && draft.assetType !== "БпАК" && <div className="serial-batch-editor">
           <div className="serial-batch-editor__modes" role="group" aria-label="Спосіб введення серійних номерів">
@@ -344,8 +349,8 @@ export function ServicesPage({ people }: { people: Person[] }) {
       {serviceCode === "sa_ppo" && draft.assetType === "БпАК" && <section className="uav-composition-editor">
         <header><div><b>Комплектація БпАК</b><span>Складові є окремими записами: їх можна від’єднати й повторно закріпити за іншим БпАК.</span></div><label className="composition-toggle"><input type="checkbox" checked={includeComposition} onChange={(event) => setIncludeComposition(event.target.checked)} /><span>Вказати комплектацію зараз</span></label></header>
         {includeComposition && <div className="uav-composition-editor__body">
-          <div className="uav-existing-assets"><b>Додати з наявного обліку</b><span>Якщо складова вже належить іншому БпАК, вона буде перенесена сюди.</span><div className="uav-existing-assets__list">{reusableUavChildren.map((item) => <label key={item.id}><input type="checkbox" checked={compositionIds.includes(item.id)} onChange={(event) => setCompositionIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} /><span><b>{item.name}</b><small>{item.assetType}{item.serialNumber ? ` · ${item.serialNumber}` : ""}{item.parentName ? ` · зараз у ${item.parentName}` : " · самостійний"}</small></span></label>)}{reusableUavChildren.length === 0 && <p>Вільних або раніше створених складових немає.</p>}</div></div>
-          <div className="uav-new-assets"><header><div><b>Створити нові складові</b><span>У полі серійних номерів можна вказати один номер або список з нового рядка.</span></div><button className="button" onClick={() => setNewKitItems((current) => [...current, freshKitDraft()])}><Plus />Додати складову</button></header>{newKitItems.map((item, index) => <article key={item.key}><div className="uav-new-assets__title"><b>Складова {index + 1}</b><button className="icon-button danger" aria-label={`Видалити складову ${index + 1}`} onClick={() => setNewKitItems((current) => current.filter((candidate) => candidate.key !== item.key))}><Trash2 /></button></div><div className="service-form-grid"><label className="form-field"><span>Тип</span><Select ariaLabel={`Тип складової ${index + 1}`} value={item.assetType} onChange={(assetType) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, assetType: assetType as KitDraft["assetType"] } : candidate))} options={[{ value: "БпЛА", label: "БпЛА" }, { value: "Комплектуюче", label: "Комплектуюче" }]} /></label><label className="form-field"><span>Назва <b>*</b></span><input value={item.name} onChange={(event) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, name: event.target.value } : candidate))} /></label>{item.assetType === "БпЛА" && <label className="form-field"><span>Клас / призначення БпЛА</span><input value={item.uavClass} onChange={(event) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, uavClass: event.target.value } : candidate))} placeholder="ФПВ, бомбер, літаковий ударний…" /></label>}<label className="form-field"><span>Кількість без серійників</span><input type="number" min="1" step="1" value={item.quantity} onChange={(event) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, quantity: Math.max(1, Math.trunc(Number(event.target.value) || 1)) } : candidate))} /></label><label className="form-field form-field--wide"><span>Серійний номер або список номерів</span><textarea value={item.serials} onChange={(event) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, serials: event.target.value } : candidate))} placeholder={"Необов’язково\nFPV-001-A\nFPV-002-A"} /><small>Якщо номери вказані, кожен стане окремою складовою з кількістю 1.</small></label></div></article>)}</div>
+          <div className="uav-existing-assets"><b>Додати з наявного обліку</b><span>Якщо складова вже належить іншому БпАК, вона буде перенесена сюди.</span><SearchInput value={compositionQuery} onChange={setCompositionQuery} placeholder="Пошук за назвою, типом або серійним номером…" /><div className="uav-existing-assets__list">{shownReusableUavChildren.map((item) => <label key={item.id}><input type="checkbox" checked={compositionIds.includes(item.id)} onChange={(event) => setCompositionIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} /><span><b>{item.name}</b><small>{item.assetType}{item.serialNumber ? ` · ${item.serialNumber}` : ""}{item.parentName ? ` · зараз у ${item.parentName}` : " · самостійний"}</small></span></label>)}{shownReusableUavChildren.length === 0 && <p>{compositionQuery.trim() ? "За пошуком нічого не знайдено." : "Вільних або раніше створених складових немає."}</p>}</div></div>
+          <div className="uav-new-assets"><header><div><b>Створити нові складові</b><span>Кожна складова зберігається як окремий запис майна.</span></div><button className="button" onClick={() => setNewKitItems((current) => [...current, freshKitDraft()])}><Plus />Додати складову</button></header>{newKitItems.map((item, index) => <article key={item.key}><div className="uav-new-assets__title"><b>Складова {index + 1}</b><button className="icon-button danger" aria-label={`Видалити складову ${index + 1}`} onClick={() => setNewKitItems((current) => current.filter((candidate) => candidate.key !== item.key))}><Trash2 /></button></div><div className="service-form-grid"><label className="form-field"><span>Тип</span><Select ariaLabel={`Тип складової ${index + 1}`} value={item.assetType} onChange={(assetType) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, assetType: assetType as KitDraft["assetType"], uavClass: assetType === "БпЛА" ? candidate.uavClass : "" } : candidate))} options={[{ value: "БпЛА", label: "БпЛА" }, { value: "Комплектуюче", label: "Комплектуюче" }]} /></label><label className="form-field"><span>Назва <b>*</b></span><input value={item.name} onChange={(event) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, name: event.target.value } : candidate))} /></label>{item.assetType === "БпЛА" && <label className="form-field"><span>Вид <b>*</b></span><Select ariaLabel={`Вид БпЛА ${index + 1}`} value={item.uavClass} onChange={(uavClass) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, uavClass } : candidate))} options={[{ value: "", label: "Оберіть вид" }, ...uavKinds.map((value) => ({ value, label: value }))]} /></label>}<label className="form-field"><span>Вартість, грн</span><input type="number" min="0" step="0.01" value={item.value} onChange={(event) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, value: Math.max(0, Number(event.target.value) || 0) } : candidate))} /></label><label className="form-field"><span>Кількість без серійників</span><input type="number" min="1" step="1" value={item.quantity} onChange={(event) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, quantity: Math.max(1, Math.trunc(Number(event.target.value) || 1)) } : candidate))} /></label><label className="form-field form-field--wide"><span>Серійний номер або список номерів</span><textarea value={item.serials} onChange={(event) => setNewKitItems((current) => current.map((candidate) => candidate.key === item.key ? { ...candidate, serials: event.target.value } : candidate))} placeholder={"Необов’язково\nFPV-001-A\nFPV-002-A"} /><small>Якщо номери вказані, кожен стане окремою складовою з кількістю 1 і вказаною вартістю.</small></label></div></article>)}</div>
         </div>}
       </section>}
       {serviceCode === "svt" && ["АКБ", "Шини"].includes(selectedCatalog?.name ?? "") && <section><header><b>Закріплення за технікою</b><span>Зв’язок працює в обидві сторони: АКБ або шина показується у картці техніки, а техніка — у картці комплектуючого.</span></header><label className="form-field"><span>Техніка</span><Select ariaLabel="Закріплена техніка" value={draft.parentEquipmentId ? String(draft.parentEquipmentId) : ""} onChange={(value) => setDraft({ ...draft, parentEquipmentId: value ? Number(value) : null })} options={[{ value: "", label: "Не закріплено за технікою" }, ...parentOptions.map((item) => ({ value: String(item.id), label: `${item.name}${fieldValue(item, svtFields["Техніка"][0]) ? ` · ${fieldValue(item, svtFields["Техніка"][0])}` : ""}` }))]} /></label></section>}

@@ -3,6 +3,16 @@
 	gap: 12px;
 }
 
+.personnel-page .main-tools {
+	max-width: none;
+	flex-wrap: wrap;
+}
+
+.personnel-page .main-tools > .search {
+	flex: 1 1 706px;
+	max-width: 706px;
+}
+
 .personnel-page-tabs {
 	width: fit-content;
 	max-width: 100%;
