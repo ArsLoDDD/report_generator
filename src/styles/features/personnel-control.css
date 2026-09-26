@@ -5,17 +5,36 @@
 
 .personnel-page .main-tools {
 	max-width: none;
-	flex-wrap: wrap;
+	min-width: 0;
+	flex-wrap: nowrap;
+	gap: 10px;
 }
 
 .personnel-page .main-tools > .search {
-	flex: 1 1 706px;
-	max-width: 706px;
+	min-width: 210px;
+	max-width: none;
+	flex: 1 1 auto;
+}
+
+.personnel-page .main-tools > :not(.search) {
+	flex: 0 0 auto;
 }
 
 .personnel-page-tabs {
 	width: fit-content;
 	max-width: 100%;
+}
+
+@media (max-width: 1340px) {
+	.personnel-page .main-tools .filter-button {
+		width: 43px;
+		min-width: 43px;
+		padding-inline: 0;
+	}
+
+	.personnel-page .main-tools .filter-button__label {
+		display: none;
+	}
 }
 
 .personnel-page--control .page-frame__content {

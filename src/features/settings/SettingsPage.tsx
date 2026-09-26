@@ -1,5 +1,5 @@
 import { open, save } from "@tauri-apps/plugin-dialog"
-import { Archive, Building2, ClipboardCopy, Download, FileSpreadsheet, FolderOpen, Pencil, Plus, ShieldCheck, Trash2, Upload, Users } from "lucide-react"
+import { Archive, Braces, Building2, Check, ClipboardCopy, Database, Download, FileSpreadsheet, FileText, FolderOpen, Pencil, Plus, Settings2, ShieldCheck, Trash2, Upload, Users } from "lucide-react"
 import { useEffect, useState } from "react"
 import { personnelService, type ExcelImportResult } from "../../shared/services/personnelService"
 import type { SignerRole, SignerSettings, UnitSettings } from "../../shared/types/domain"
@@ -19,6 +19,17 @@ const legacyRoles = (settings: { mainSigner: SignerSettings; commander: SignerSe
   ["основний_підписант", "Основний підписант", settings.mainSigner], ["командир", "Командир", settings.commander], ["начальник_штабу", "Начальник штабу", settings.chief], ["заступник_ппп", "Заступник командира з ППП", settings.deputyPpp], ["заступник_озброєння", "Заступник командира з озброєння", settings.deputyArmament], ["заступник_тилу", "Заступник командира з тилу", settings.deputyRear], ["начальник_пмм", "Начальник ПММ", settings.fuelChief]
 ].map(([id, name, signer]) => ({ id: id as string, name: name as string, signer: signer as SignerSettings }));
 
+const exportItems = [
+  { key: "database", label: "База даних", description: "Особовий склад, екіпажі, майно, позиції та журнал операцій.", icon: Database },
+  { key: "settings", label: "Налаштування", description: "Параметри підрозділу, підписанти й налаштування програми.", icon: Settings2 },
+  { key: "customVariables", label: "Кастомні поля", description: "Створені користувачем поля та їхні визначення.", icon: Braces },
+  { key: "templates", label: "Шаблони", description: "Усі власні DOCX-шаблони документів.", icon: FileText },
+  { key: "reports", label: "Згенеровані рапорти", description: "Готові документи; можуть суттєво збільшити розмір архіву.", icon: FileSpreadsheet },
+] as const;
+
+type ExportOptionKey = (typeof exportItems)[number]["key"];
+type ExportOptions = Record<ExportOptionKey, boolean>;
+
 export function SettingsPage() {
   const { settings, errorMessage, isSaving, updateSigner, addSigner, deleteSigner, updateUnit } = useAppSettings();
   const { notify } = useNotifications();
@@ -30,7 +41,7 @@ export function SettingsPage() {
   const [deleting, setDeleting] = useState<SignerRole | null>(null);
   const [unitEditor, setUnitEditor] = useState(false);
   const [sourcePositions, setSourcePositions] = useState<UnitStructureSource[]>([]);
-  const [options, setOptions] = useState({ database: true, settings: true, customVariables: true, templates: true, reports: false });
+  const [options, setOptions] = useState<ExportOptions>({ database: true, settings: true, customVariables: true, templates: true, reports: false });
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   useEffect(() => { if (errorMessage) notify(errorMessage, "error"); }, [errorMessage, notify]);
   useEffect(() => { void operationsService.listStaffingRecords().then((records) => setSourcePositions(records.map((record) => ({ position: record.position, slotId: record.staffSlotId })))).catch(() => setSourcePositions([])); }, []);
@@ -64,6 +75,13 @@ export function SettingsPage() {
       {excelImportResult && <div className="excel-import-warning" role="status"><b>Імпорт завершено із зауваженнями</b><span>Імпортовано записів: {excelImportResult.imported}. Дані нижче не зупинили імпорт:</span><ul>{excelImportResult.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><button className="button" type="button" onClick={() => void navigator.clipboard.writeText(excelImportResult.warnings.join("\n")).then(() => notify("Зауваження скопійовано.", "success"))}><ClipboardCopy />Копіювати зауваження</button><button className="button primary" type="button" onClick={() => window.location.reload()}>Готово</button></div>}
       {!excelImportResult && <div className="personnel-import-options"><button data-modal-submit className="personnel-import-option" onClick={() => void importExcel("append")}><b>Доповнити базу даних</b><span>Додати записи з файлу до наявних. Зауваження щодо зв’язків і відповідальних будуть показані після імпорту.</span></button><button className="personnel-import-option personnel-import-option--danger" onClick={() => void importExcel("replace")}><b>Замінити базу даних</b><span>Видалити поточні інциденти, позиції, майно, автомобілі, екіпажі, особовий склад і кастомні поля. Спочатку створіть резервну копію.</span></button></div>}
     </div></Modal>}
-    {exportOpen && <Modal title="Експорт усіх даних" onClose={() => setExportOpen(false)}><p>Оберіть складові архіву.</p>{Object.entries({ database: "База даних", settings: "Налаштування", customVariables: "Кастомні поля", templates: "Шаблони", reports: "Згенеровані рапорти" }).map(([key, label]) => <label key={key}><input type="checkbox" checked={options[key as keyof typeof options]} onChange={() => setOptions((current) => ({ ...current, [key]: !current[key as keyof typeof current] }))} /> {label}</label>)}<footer className="modal-actions"><button className="button" onClick={() => setExportOpen(false)}>Скасувати</button><button className="button primary" onClick={() => void exportArchive()}>Створити архів</button></footer></Modal>}
+    {exportOpen && <Modal title="Експорт усіх даних" subtitle="Створіть архів для резервної копії або перенесення на інший комп’ютер." className="data-export-modal" onClose={() => setExportOpen(false)}>
+      <div className="data-export-modal__body">
+        <section className="data-export-summary"><span><Archive /></span><div><b>Склад архіву</b><small>Оберіть лише ті дані, які потрібно зберегти або перенести.</small></div><strong>{Object.values(options).filter(Boolean).length} з {exportItems.length}</strong></section>
+        <div className="data-export-options">{exportItems.map(({ key, label, description, icon: Icon }) => <label className={`data-export-option ${options[key] ? "is-selected" : ""}`} key={key}><input type="checkbox" checked={options[key]} onChange={() => setOptions((current) => ({ ...current, [key]: !current[key] }))} /><span className="data-export-option__icon"><Icon /></span><span className="data-export-option__copy"><b>{label}</b><small>{description}</small></span><span className="data-export-option__mark" aria-hidden="true">{options[key] && <Check />}</span></label>)}</div>
+        <p className="data-export-hint">Експорт лише копіює вибрані дані — нічого в програмі не видаляється і не змінюється.</p>
+      </div>
+      <footer className="modal-actions"><span className="data-export-selected">Вибрано: <b>{Object.values(options).filter(Boolean).length}</b></span><button className="button" onClick={() => setExportOpen(false)}>Скасувати</button><button className="button primary" disabled={!Object.values(options).some(Boolean)} onClick={() => void exportArchive()}><Archive />Створити архів</button></footer>
+    </Modal>}
   </PageFrame>;
 }
