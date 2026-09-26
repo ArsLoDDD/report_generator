@@ -14,5 +14,16 @@ export function useStartupWarnings() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+  useEffect(() => {
+    const refreshWarnings = () => { void refresh(); };
+    window.addEventListener("operational-data-updated", refreshWarnings);
+    window.addEventListener("focus", refreshWarnings);
+    const timer = window.setInterval(refreshWarnings, 60_000);
+    return () => {
+      window.removeEventListener("operational-data-updated", refreshWarnings);
+      window.removeEventListener("focus", refreshWarnings);
+      window.clearInterval(timer);
+    };
+  }, [refresh]);
   return { warnings, isLoading, refresh };
 }

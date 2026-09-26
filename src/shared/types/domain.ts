@@ -103,7 +103,7 @@ export type AppSettings = {
 };
 
 export type StartupWarning = {
-  code: "database-missing" | "templates-missing" | "personnel-empty" | "crew-callsign-missing" | "uav-type-missing" | "crew-primary-uav-missing";
+  code: "database-missing" | "templates-missing" | "personnel-empty" | "crew-callsign-missing" | "uav-type-missing" | "crew-primary-uav-missing" | `position-work-overdue-${number}`;
   title: string;
   message: string;
 };

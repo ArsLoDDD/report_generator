@@ -27,6 +27,8 @@ afterEach(cleanup);
 describe("PersonnelPage CRUD", () => {
   it("renders every approved database field as a table column", () => {
     renderPage();
+    expect(screen.queryByRole("heading", { name: "Особовий склад" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Додати військовослужбовця" })).toBeInTheDocument();
     ["Звання", "Прізвище", "Ім’я", "По батькові", "Посада", "ІПН", "Дата народження", "Формат освіти", "Де отримана освіта", "У ЗСУ з", "Дата призначення", "Наказ про призначення", "Військовий квиток", "Автомобіль", "Номер автомобіля"].forEach((name) => expect(screen.getByRole("columnheader", { name })).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Імпорт" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Експорт" })).not.toBeInTheDocument();

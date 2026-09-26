@@ -1,5 +1,57 @@
 use super::*;
 
+fn overdue_position_work_warnings(
+    connection: &Connection,
+    current_local_date_time: &str,
+) -> Vec<StartupWarning> {
+    let overdue = connection
+        .prepare(
+            "SELECT w.id,w.work_type,w.status,w.end_date,w.end_time,
+                    COALESCE(NULLIF(trim(w.position_name),''),NULLIF(trim(p.name),''),
+                             NULLIF(trim(w.position_locality),''),NULLIF(trim(w.strip_name),''),'Без назви'),
+                    COUNT(DISTINCT pwm.personnel_id)
+             FROM position_work w
+             LEFT JOIN positions p ON p.id=w.position_id
+             LEFT JOIN position_work_members pwm ON pwm.work_id=w.id
+             WHERE w.status<>'Завершили'
+               AND trim(w.end_date)<>'' AND trim(w.end_time)<>''
+               AND (w.end_date||'T'||w.end_time)<?1
+             GROUP BY w.id
+             ORDER BY w.end_date,w.end_time,w.id",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_map([current_local_date_time], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, i64>(6)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .unwrap_or_default();
+
+    overdue
+        .into_iter()
+        .map(
+            |(id, work_type, status, end_date, end_time, location, member_count)| {
+                StartupWarning {
+                    code: format!("position-work-overdue-{id}"),
+                    title: format!("Прострочено: {work_type}"),
+                    message: format!(
+                        "Група «{location}» мала завершити роботу {end_date} о {end_time}, але досі має статус «{status}». Учасників: {member_count}. Відкрийте картку та завершіть роботу вручну."
+                    ),
+                }
+            },
+        )
+        .collect()
+}
+
 #[tauri::command]
 pub(crate) fn get_startup_warnings(state: tauri::State<AppState>) -> Vec<StartupWarning> {
     let mut warnings = state.1.clone();
@@ -62,6 +114,11 @@ pub(crate) fn get_startup_warnings(state: tauri::State<AppState>) -> Vec<Startup
     if missing_primary > 0 {
         warnings.push(StartupWarning { code:"crew-primary-uav-missing".into(),title:format!("Не обрано основний БпЛА: {missing_primary}"),message:"У картках цих екіпажів оберіть основний борт серед закріплених БпЛА. Він використовується у БЧС і плані польотів.".into() });
     }
+    let current_local_date_time = Local::now().format("%Y-%m-%dT%H:%M").to_string();
+    warnings.extend(overdue_position_work_warnings(
+        &database.connection,
+        &current_local_date_time,
+    ));
     warnings
 }
 
@@ -134,4 +191,52 @@ pub(crate) fn update_unit_settings(
     });
     operations::cleanup_vacancy_recommendations(&database.connection, valid_slot_ids.as_ref())?;
     Ok(saved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn overdue_position_work_stays_warned_until_manually_completed() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE positions(id INTEGER PRIMARY KEY,name TEXT NOT NULL);
+                 CREATE TABLE position_work(
+                    id INTEGER PRIMARY KEY,position_id INTEGER,position_name TEXT NOT NULL DEFAULT '',
+                    strip_name TEXT NOT NULL DEFAULT '',position_locality TEXT NOT NULL DEFAULT '',
+                    work_type TEXT NOT NULL,status TEXT NOT NULL,end_date TEXT NOT NULL DEFAULT '',
+                    end_time TEXT NOT NULL DEFAULT ''
+                 );
+                 CREATE TABLE position_work_members(work_id INTEGER NOT NULL,personnel_id INTEGER NOT NULL);
+                 INSERT INTO positions(id,name) VALUES(1,'ТЕСТОВА ПОЗИЦІЯ');
+                 INSERT INTO position_work(id,position_id,work_type,status,end_date,end_time)
+                 VALUES
+                   (10,NULL,'Рекогностування','Продовжують','2026-09-25','12:00'),
+                   (11,1,'Облаштування','Приступили','2026-09-25','14:00'),
+                   (12,NULL,'Рекогностування','Приступили','2026-09-27','12:00'),
+                   (13,1,'Облаштування','Завершили','2026-09-24','12:00');
+                 INSERT INTO position_work_members(work_id,personnel_id) VALUES(10,1),(10,2),(11,3);",
+            )
+            .unwrap();
+
+        let warnings = overdue_position_work_warnings(&connection, "2026-09-26T10:00");
+        assert_eq!(warnings.len(), 2);
+        assert_eq!(warnings[0].code, "position-work-overdue-10");
+        assert!(warnings[0].title.contains("Рекогностування"));
+        assert!(warnings[0].message.contains("Учасників: 2"));
+        assert_eq!(warnings[1].code, "position-work-overdue-11");
+        assert!(warnings[1].message.contains("ТЕСТОВА ПОЗИЦІЯ"));
+
+        connection
+            .execute(
+                "UPDATE position_work SET status='Завершили' WHERE id=10",
+                [],
+            )
+            .unwrap();
+        let warnings = overdue_position_work_warnings(&connection, "2026-09-26T10:00");
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].code, "position-work-overdue-11");
+    }
 }
