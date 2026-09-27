@@ -12,7 +12,7 @@ import { settingsService } from "../settings/services/settingsService";
 import { flightPlanDraftRequest, flightPlanPendingDraftRequest } from "./flight-plan-storage";
 import { operationsService } from "./services/operationsService";
 import { summaryReportService } from "./services/summaryReportService";
-import { buildAlternatingDutySchedule, buildSummaryDocument, canOpenNextReport, canReturnToPreviousReport, carryForwardSummary, defaultSummaryManual, displayDate, initialReportDate, shiftDate, type SummaryCompositionItem, type SummaryDutyItem, type SummaryDutyPeriod, type SummaryFlightItem, type SummaryManual, type SummaryPositionItem, type SummaryTextItem } from "./summary-report-model";
+import { buildAlternatingDutySchedule, buildSummaryDocument, canOpenNextReport, canReturnToPreviousReport, carryForwardSummary, defaultSummaryManual, displayDate, initialReportDate, shiftDate, synchronizeSummaryUnit, type SummaryCompositionItem, type SummaryDutyItem, type SummaryDutyPeriod, type SummaryFlightItem, type SummaryManual, type SummaryPositionItem, type SummaryTextItem } from "./summary-report-model";
 import type { Crew, Equipment, FlightJournalEntry, FlightPlanRequest, Position, PositionWork, PositionWorkStatusEvent, StaffingRecord } from "./types";
 
 const parseDraft = (value: string | null): SummaryManual | null => {
@@ -258,11 +258,11 @@ export function SummaryReportPage() {
 
   const patch = <K extends keyof SummaryManual>(key: K, value: SummaryManual[K]) => setManual((current) => ({ ...current, [key]: value }));
   const setSectionOpen = (key: string, open: boolean) => setOpenSections((current) => current[key] === open ? current : { ...current, [key]: open });
-  const openParameters = () => { setParameterDraft({ reportNumber: manual.reportNumber, kspOutskirts: manual.kspOutskirts, unit: { ...settings.unit } }); setParametersOpen(true); };
+  const openParameters = () => { setParameterDraft({ reportNumber: manual.reportNumber, kspOutskirts: manual.kspOutskirts, unit: synchronizeSummaryUnit(settings.unit) }); setParametersOpen(true); };
   const saveParameters = async () => {
     setSavingParameters(true);
     try {
-      const updated = await settingsService.updateUnit(parameterDraft.unit);
+      const updated = await settingsService.updateUnit(synchronizeSummaryUnit(parameterDraft.unit));
       setSettings(updated);
       setManual((current) => ({ ...current, reportNumber: parameterDraft.reportNumber, kspOutskirts: parameterDraft.kspOutskirts }));
       setParametersOpen(false);
@@ -406,16 +406,14 @@ export function SummaryReportPage() {
     {parametersOpen && <Modal title="Параметри ПД" subtitle="Реквізити зберігаються для наступних донесень; номер і околиці належать поточному донесенню." onClose={() => setParametersOpen(false)} className="summary-parameters-modal"><div className="summary-parameters-modal__body">
       <section className="summary-modal-group"><header><div><b>Поточне донесення</b><small>Ці значення використовуються у шапці та описі КСП.</small></div></header><div className="summary-parameters-grid"><label className="form-field"><span>Номер донесення</span><input autoFocus value={parameterDraft.reportNumber} onChange={(event) => setParameterDraft((current) => ({ ...current, reportNumber: event.target.value }))} /></label><label className="form-field"><span>Дата донесення</span><input value={displayDate(reportDate)} readOnly /></label><label className="form-field"><span>Примірник</span><input value="Прим. № 1" readOnly /></label><label className="form-field"><span>Околиці населеного пункту КСП</span><input value={parameterDraft.kspOutskirts} onChange={(event) => setParameterDraft((current) => ({ ...current, kspOutskirts: event.target.value }))} placeholder="південні околиці" /><small>У документі: «КСП … – південні околиці населеного пункту …».</small></label></div></section>
       <section className="summary-modal-group"><header><div><b>Реквізити підсумкового донесення</b><small>Підказка під кожним полем показує, де саме значення буде використано.</small></div></header><div className="summary-parameters-grid">{([
-        ["battalionFullName", "Повна назва батальйону у родовому відмінку", "Для посади підписанта: «477 окремого батальйону безпілотних систем»."],
-        ["battalionShortName", "Коротка назва батальйону", "Після короткої назви підрозділу у пункті 3.3."],
-        ["militaryUnitShortName", "Коротка назва військової частини", "У дужках після короткої назви підрозділу. Використовується значення, введене в цьому полі."],
-        ["reportRecipient", "Адресат донесення", "У шапці після слова «Командиру»."],
+        ["battalionFullName", "Повна назва батальйону у родовому відмінку", "Використовується також як адресат донесення та в посаді основного підписанта."],
+        ["battalionShortName", "Коротка назва батальйону / військової частини", "Використовується як коротка назва батальйону та військової частини в усьому документі."],
         ["kspName", "Назва КСП", "У формі «КСП «НАЗВА»»."],
         ["kspLocality", "Населений пункт КСП", "Без «н.п.»; потрібний префікс додається у документі."],
         ["kspMgrs", "Координати КСП", "У дужках після району КСП."],
         ["armyCorpsNumber", "Номер АК", "Вводьте лише номер; «АК» додається у документі."],
         ["armNumber", "Номер АРМ", "У службовій позначці «АРМ № …»."],
-      ] as const).map(([key, label, help]) => <label className={`form-field ${key === "battalionFullName" || key === "reportRecipient" ? "wide" : ""}`} key={key}><span>{label}</span><input value={parameterDraft.unit[key] ?? ""} onChange={(event) => setParameterDraft((current) => ({ ...current, unit: { ...current.unit, [key]: event.target.value } }))} /><small>{help}</small></label>)}</div></section>
+      ] as const).map(([key, label, help]) => <label className={`form-field ${key === "battalionFullName" ? "wide" : ""}`} key={key}><span>{label}</span><input value={parameterDraft.unit[key] ?? ""} onChange={(event) => setParameterDraft((current) => ({ ...current, unit: { ...current.unit, [key]: event.target.value } }))} /><small>{help}</small></label>)}</div></section>
       <div className="summary-signer-note"><span>Основний підписант</span><b>{[settings.mainSigner.rank, settings.mainSigner.fullName].filter(Boolean).join(" · ") || "Не вказаний у налаштуваннях"}</b><small>У підписі використовується формат «Ім’я ПРІЗВИЩЕ» згідно з шаблоном.</small></div>
     </div><footer className="modal-actions"><button className="button" onClick={() => setParametersOpen(false)}>Скасувати</button><button className="button primary" disabled={savingParameters} onClick={() => void saveParameters()}>{savingParameters ? "Збереження…" : "Зберегти параметри"}</button></footer></Modal>}
     {reportNavigation && <Modal title={reportNavigation.direction === "next" ? "Перейти до нового донесення?" : "Повернутися до попереднього донесення?"} subtitle={`Донесення за ${displayDate(reportNavigation.targetDate)}`} onClose={() => { if (!switchingReport) setReportNavigation(null); }} className="summary-navigation-modal"><div className="summary-navigation-modal__body"><p>Усі поточні правки буде збережено перед переходом.</p>{reportNavigation.direction === "next" && <p>До 12:00 можна буде повернутися до попереднього донесення. О 12:00 програма остаточно перейде до нового.</p>}</div><footer className="modal-actions"><button className="button" disabled={switchingReport} onClick={() => setReportNavigation(null)}>Скасувати</button><button className="button primary" disabled={switchingReport} onClick={confirmReportNavigation}>{switchingReport ? "Збереження…" : "Так, перейти"}</button></footer></Modal>}

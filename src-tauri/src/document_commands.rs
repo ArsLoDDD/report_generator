@@ -5,8 +5,32 @@ use std::fs::OpenOptions;
 use std::sync::{Mutex as StdMutex, OnceLock};
 
 const DATA_ARCHIVE_FORMAT: &str = "raportgen-data-archive";
-const DATA_ARCHIVE_VERSION: u32 = 1;
+const DATA_ARCHIVE_VERSION: u32 = 2;
 const DATA_ARCHIVE_MANIFEST: &str = "raportgen-manifest.json";
+const DATA_ARCHIVE_EXCEL_PATH: &str = "data/Excel-база.xlsx";
+const DATABASE_ARCHIVE_SECTIONS: [&str; 21] = [
+    "personnel",
+    "staffing",
+    "crews",
+    "positions",
+    "personnel_control",
+    "flight_plans",
+    "flight_journal",
+    "summary_reports",
+    "incidents",
+    "workshop",
+    "zbbr",
+    "zu",
+    "gz_kb",
+    "siiz",
+    "ms",
+    "ets",
+    "ovtm",
+    "rs",
+    "sa_ppo",
+    "svt",
+    "pmm",
+];
 const MAX_ARCHIVE_ENTRIES: usize = 100_000;
 const MAX_ARCHIVE_TOTAL_SIZE: u64 = 8 * 1024 * 1024 * 1024;
 const MAX_ARCHIVE_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
@@ -27,7 +51,22 @@ struct DataArchiveManifest {
     version: u32,
     created_at: String,
     application_version: String,
+    #[serde(default)]
+    sections: Vec<String>,
     files: Vec<DataArchiveManifestFile>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DataArchiveInspection {
+    application_version: String,
+    database: bool,
+    database_sections: Vec<String>,
+    settings: bool,
+    custom_variables: bool,
+    templates: bool,
+    reports: bool,
+    excel: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +82,7 @@ struct StagedImport {
     directory: PathBuf,
     files: Vec<StagedImportFile>,
     legacy_archive: bool,
+    manifest: Option<DataArchiveManifest>,
 }
 
 #[derive(Debug, Clone)]
@@ -182,6 +222,7 @@ pub(crate) fn inspect_template(
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_template(
+    app: tauri::AppHandle,
     state: tauri::State<AppState>,
     template_path: String,
     personnel_ids: Vec<i64>,
@@ -198,6 +239,7 @@ pub(crate) fn validate_template(
         .map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
     Ok(report_generation::validate(
         &database.connection,
+        Some(&settings::load(&application_root(&app)?)?),
         &template_path,
         &personnel_ids,
         &vehicle_ids,
@@ -477,6 +519,218 @@ fn snapshot_database(connection: &Connection, destination: &Path) -> Result<(), 
     Ok(())
 }
 
+fn selected_database_sections(options: &DataArchiveOptions) -> Result<HashSet<String>, String> {
+    if !options.database && !options.excel {
+        return Ok(HashSet::new());
+    }
+    let requested = if options.database_sections.is_empty() {
+        DATABASE_ARCHIVE_SECTIONS
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect::<Vec<_>>()
+    } else {
+        options.database_sections.clone()
+    };
+    let supported = DATABASE_ARCHIVE_SECTIONS
+        .into_iter()
+        .collect::<HashSet<_>>();
+    if let Some(unknown) = requested
+        .iter()
+        .find(|value| !supported.contains(value.as_str()))
+    {
+        return Err(format!("Непідтримуваний розділ архіву: {unknown}."));
+    }
+    Ok(requested.into_iter().collect())
+}
+
+fn execute_archive_sql(connection: &Connection, sql: &str, label: &str) -> Result<(), String> {
+    connection
+        .execute_batch(sql)
+        .map_err(|error| format!("Не вдалося підготувати «{label}» для архіву: {error}"))
+}
+
+fn filter_database_snapshot(
+    path: &Path,
+    sections: &HashSet<String>,
+    include_custom_variables: bool,
+) -> Result<(), String> {
+    if sections.len() == DATABASE_ARCHIVE_SECTIONS.len() && include_custom_variables {
+        return Ok(());
+    }
+    let connection = Connection::open(path)
+        .map_err(|_| "Не вдалося відкрити знімок бази для вибіркового експорту.".to_string())?;
+    execute_archive_sql(
+        &connection,
+        "PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE;",
+        "базу даних",
+    )?;
+    let result = (|| {
+        if !sections.contains("personnel") {
+            execute_archive_sql(
+                &connection,
+                "
+                DELETE FROM personnel_custom_fields;
+                DELETE FROM personnel_staff_assignments;
+                DELETE FROM staff_recommendations;
+                DELETE FROM crew_members;
+                DELETE FROM crew_actual_members;
+                DELETE FROM personnel_control_assignments;
+                DELETE FROM personnel_control_events;
+                DELETE FROM position_work_members;
+                DELETE FROM position_work_periods;
+                DELETE FROM incident_personnel;
+                DELETE FROM flight_plan_personnel_locations;
+                UPDATE vehicles SET personnel_id=NULL;
+                UPDATE equipment SET personnel_id=NULL;
+                DELETE FROM personnel;
+                DELETE FROM temporary_personnel;",
+                "особовий склад",
+            )?;
+        }
+        if !sections.contains("staffing") {
+            execute_archive_sql(&connection, "DELETE FROM personnel_staff_assignments; DELETE FROM staff_recommendations; DELETE FROM staff_position_recommendations;", "штат і рекомендаційні листи")?;
+        }
+        if !sections.contains("crews") {
+            execute_archive_sql(
+                &connection,
+                "
+                DELETE FROM crew_members;
+                DELETE FROM crew_actual_members;
+                UPDATE vehicles SET crew_id=NULL;
+                UPDATE equipment SET crew_id=NULL;
+                UPDATE positions SET crew_id=NULL;
+                UPDATE incidents SET crew_id=NULL;
+                UPDATE flight_plan_snapshot_entries SET crew_id=NULL;
+                DELETE FROM crews;",
+                "екіпажі",
+            )?;
+        }
+        if !sections.contains("positions") {
+            execute_archive_sql(
+                &connection,
+                "
+                DELETE FROM position_uavs;
+                DELETE FROM position_work_members;
+                DELETE FROM position_work_periods;
+                DELETE FROM position_work_status_history;
+                DELETE FROM position_work;
+                DELETE FROM position_work_events;
+                UPDATE crews SET position_id=NULL;
+                UPDATE flight_journal_entries SET position_id=NULL;
+                DELETE FROM positions;",
+                "позиції",
+            )?;
+        }
+        if !sections.contains("personnel_control") {
+            execute_archive_sql(
+                &connection,
+                "DELETE FROM personnel_control_assignments; DELETE FROM personnel_control_events;",
+                "контроль особового складу",
+            )?;
+        }
+        if !sections.contains("flight_plans") {
+            execute_archive_sql(&connection, "UPDATE flight_journal_entries SET snapshot_id=NULL; DELETE FROM flight_plan_snapshot_entries; DELETE FROM flight_plan_snapshots; DELETE FROM flight_plan_personnel_locations;", "плани польотів")?;
+        }
+        if !sections.contains("flight_journal") {
+            execute_archive_sql(
+                &connection,
+                "DELETE FROM flight_journal_entries;",
+                "журнал польотів",
+            )?;
+        }
+        if !sections.contains("summary_reports") {
+            execute_archive_sql(
+                &connection,
+                "DELETE FROM summary_report_drafts;",
+                "підсумкові донесення",
+            )?;
+        }
+        if !sections.contains("incidents") {
+            execute_archive_sql(&connection, "DELETE FROM incident_equipment; DELETE FROM incident_personnel; DELETE FROM incidents;", "інциденти")?;
+        }
+        if !sections.contains("workshop") {
+            execute_archive_sql(
+                &connection,
+                "DELETE FROM workshop_ingredients; DELETE FROM workshop_products;",
+                "Цукерню",
+            )?;
+        }
+
+        let selected_services = DATABASE_ARCHIVE_SECTIONS[10..]
+            .iter()
+            .filter(|code| sections.contains(**code))
+            .copied()
+            .collect::<Vec<_>>();
+        let excluded_filter = if selected_services.is_empty() {
+            "1=1".to_string()
+        } else {
+            format!(
+                "service_code NOT IN ({})",
+                selected_services
+                    .iter()
+                    .map(|code| format!("'{code}'"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        };
+        execute_archive_sql(&connection, &format!("
+            DELETE FROM position_uavs WHERE equipment_id IN (SELECT id FROM equipment WHERE {excluded_filter});
+            DELETE FROM incident_equipment WHERE equipment_id IN (SELECT id FROM equipment WHERE {excluded_filter});
+            DELETE FROM workshop_ingredients WHERE equipment_id IN (SELECT id FROM equipment WHERE {excluded_filter});
+            DELETE FROM asset_custom_values WHERE equipment_id IN (SELECT id FROM equipment WHERE {excluded_filter});
+            UPDATE crews SET primary_uav_id=NULL WHERE primary_uav_id IN (SELECT id FROM equipment WHERE {excluded_filter});
+            UPDATE flight_journal_entries SET uav_id=NULL WHERE uav_id IN (SELECT id FROM equipment WHERE {excluded_filter});
+            UPDATE equipment SET parent_equipment_id=NULL WHERE parent_equipment_id IN (SELECT id FROM equipment WHERE {excluded_filter});
+            DELETE FROM equipment WHERE {excluded_filter};
+            DELETE FROM asset_history WHERE {excluded_filter};
+            DELETE FROM asset_catalog_fields WHERE catalog_id IN (SELECT id FROM asset_catalogs WHERE {excluded_filter});
+            DELETE FROM asset_catalogs WHERE {excluded_filter};"), "служби")?;
+        if !sections.contains("svt") {
+            execute_archive_sql(
+                &connection,
+                "DELETE FROM vehicle_custom_fields; DELETE FROM vehicles;",
+                "СВТ",
+            )?;
+        }
+        if !include_custom_variables {
+            execute_archive_sql(
+                &connection,
+                "
+                DELETE FROM personnel_custom_fields;
+                DELETE FROM vehicle_custom_fields;
+                DELETE FROM custom_field_definitions;
+                DELETE FROM vehicle_custom_field_definitions;
+                DELETE FROM custom_field_template_aliases;",
+                "кастомні поля",
+            )?;
+        }
+
+        execute_archive_sql(&connection, "
+            DELETE FROM crew_members WHERE crew_id NOT IN (SELECT id FROM crews) OR personnel_id NOT IN (SELECT id FROM personnel);
+            DELETE FROM crew_actual_members WHERE crew_id NOT IN (SELECT id FROM crews) OR personnel_id NOT IN (SELECT id FROM personnel);
+            DELETE FROM position_uavs WHERE position_id NOT IN (SELECT id FROM positions) OR equipment_id NOT IN (SELECT id FROM equipment);
+            DELETE FROM incident_equipment WHERE incident_id NOT IN (SELECT id FROM incidents) OR equipment_id NOT IN (SELECT id FROM equipment);
+            DELETE FROM incident_personnel WHERE incident_id NOT IN (SELECT id FROM incidents);
+            DELETE FROM workshop_ingredients WHERE product_id NOT IN (SELECT id FROM workshop_products) OR equipment_id NOT IN (SELECT id FROM equipment);
+            UPDATE crews SET position_id=NULL WHERE position_id IS NOT NULL AND position_id NOT IN (SELECT id FROM positions);
+            UPDATE crews SET primary_uav_id=NULL WHERE primary_uav_id IS NOT NULL AND primary_uav_id NOT IN (SELECT id FROM equipment);
+            UPDATE positions SET crew_id=NULL WHERE crew_id IS NOT NULL AND crew_id NOT IN (SELECT id FROM crews);
+            UPDATE equipment SET crew_id=NULL WHERE crew_id IS NOT NULL AND crew_id NOT IN (SELECT id FROM crews);
+            UPDATE equipment SET personnel_id=NULL WHERE personnel_id IS NOT NULL AND personnel_id NOT IN (SELECT id FROM personnel);
+            UPDATE equipment SET parent_equipment_id=NULL WHERE parent_equipment_id IS NOT NULL AND parent_equipment_id NOT IN (SELECT id FROM equipment);
+            UPDATE equipment SET catalog_id=NULL WHERE catalog_id IS NOT NULL AND catalog_id NOT IN (SELECT id FROM asset_catalogs);
+            UPDATE equipment SET legacy_vehicle_id=NULL WHERE legacy_vehicle_id IS NOT NULL AND legacy_vehicle_id NOT IN (SELECT id FROM vehicles);
+            UPDATE vehicles SET crew_id=NULL WHERE crew_id IS NOT NULL AND crew_id NOT IN (SELECT id FROM crews);
+            UPDATE vehicles SET personnel_id=NULL WHERE personnel_id IS NOT NULL AND personnel_id NOT IN (SELECT id FROM personnel);
+            COMMIT; PRAGMA foreign_keys=ON;", "зв’язки даних")?;
+        check_database_integrity(&connection)
+    })();
+    if result.is_err() {
+        let _ = connection.execute_batch("ROLLBACK; PRAGMA foreign_keys=ON;");
+    }
+    result
+}
+
 fn validate_portable_archive_path(name: &str) -> Result<(), String> {
     if name.is_empty()
         || name.starts_with('/')
@@ -545,7 +799,11 @@ fn collect_archive_directory(
     Ok(())
 }
 
-fn write_archive_contents(output: fs::File, sources: &[ArchiveSource]) -> Result<(), String> {
+fn write_archive_contents(
+    output: fs::File,
+    sources: &[ArchiveSource],
+    sections: &[String],
+) -> Result<(), String> {
     let mut archive = ZipWriter::new(output);
     let mut manifest_files = Vec::with_capacity(sources.len());
     let mut names = HashSet::new();
@@ -594,6 +852,7 @@ fn write_archive_contents(output: fs::File, sources: &[ArchiveSource]) -> Result
         version: DATA_ARCHIVE_VERSION,
         created_at: Local::now().to_rfc3339(),
         application_version: env!("CARGO_PKG_VERSION").to_string(),
+        sections: sections.to_vec(),
         files: manifest_files,
     };
     let manifest_bytes = serde_json::to_vec_pretty(&manifest)
@@ -637,7 +896,11 @@ fn replace_file_atomically(temporary: &Path, destination: &Path) -> Result<(), S
     Ok(())
 }
 
-fn write_archive_atomically(destination: &Path, sources: &[ArchiveSource]) -> Result<(), String> {
+fn write_archive_atomically(
+    destination: &Path,
+    sources: &[ArchiveSource],
+    sections: &[String],
+) -> Result<(), String> {
     let parent = destination
         .parent()
         .ok_or_else(|| "Не вдалося визначити папку архіву.".to_string())?;
@@ -650,7 +913,7 @@ fn write_archive_atomically(destination: &Path, sources: &[ArchiveSource]) -> Re
             .create_new(true)
             .open(&temporary)
             .map_err(|_| "Не вдалося створити тимчасовий архів.".to_string())?;
-        write_archive_contents(output, sources)?;
+        write_archive_contents(output, sources, sections)?;
         replace_file_atomically(&temporary, destination)
     })();
     let _ = fs::remove_dir_all(work);
@@ -671,7 +934,7 @@ fn create_unique_archive(
         let path = directory.join(format!("{base_name}{suffix}.zip"));
         match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(output) => {
-                if let Err(error) = write_archive_contents(output, sources) {
+                if let Err(error) = write_archive_contents(output, sources, &[]) {
                     let _ = fs::remove_file(&path);
                     return Err(error);
                 }
@@ -722,7 +985,10 @@ fn write_application_data_archive_from_root(
     let work_directory = create_unique_directory(root, ".application-export")?;
     let result = (|| {
         let mut sources = Vec::new();
-        if options.database {
+        let sections = selected_database_sections(options)?;
+        let mut manifest_sections = sections.iter().cloned().collect::<Vec<_>>();
+        manifest_sections.sort();
+        if options.database || options.excel {
             let snapshot = work_directory.join(DATABASE_FILE_NAME);
             {
                 let database = state
@@ -731,10 +997,26 @@ fn write_application_data_archive_from_root(
                     .map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
                 snapshot_database(&database.connection, &snapshot)?;
             }
-            sources.push(ArchiveSource {
-                source: snapshot,
-                archive_path: format!("data/{DATABASE_FILE_NAME}"),
-            });
+            filter_database_snapshot(&snapshot, &sections, options.custom_variables)?;
+            if options.database {
+                sources.push(ArchiveSource {
+                    source: snapshot.clone(),
+                    archive_path: format!("data/{DATABASE_FILE_NAME}"),
+                });
+            }
+            if options.excel {
+                let excel = work_directory.join("Excel-база.xlsx");
+                let connection = Connection::open(&snapshot)
+                    .map_err(|_| "Не вдалося відкрити дані для Excel-експорту.".to_string())?;
+                crate::personnel_commands::export_personnel_xlsx_from_connection(
+                    &connection,
+                    &excel,
+                )?;
+                sources.push(ArchiveSource {
+                    source: excel,
+                    archive_path: DATA_ARCHIVE_EXCEL_PATH.to_string(),
+                });
+            }
         }
         if options.settings {
             let source = settings::path(root);
@@ -770,7 +1052,15 @@ fn write_application_data_archive_from_root(
                 &excluded,
             )?;
         }
-        write_archive_atomically(destination, &sources)
+        write_archive_atomically(
+            destination,
+            &sources,
+            if options.database {
+                &manifest_sections
+            } else {
+                &[]
+            },
+        )
     })();
     let _ = fs::remove_dir_all(work_directory);
     result
@@ -793,10 +1083,12 @@ pub(crate) fn create_pre_update_backup(
     ));
     let options = DataArchiveOptions {
         database: true,
+        database_sections: Vec::new(),
         settings: true,
         custom_variables: true,
         templates: true,
         reports: true,
+        excel: false,
     };
     write_application_data_archive(&app, state.inner(), &path, &options)?;
     Ok(path.to_string_lossy().to_string())
@@ -892,6 +1184,18 @@ fn read_archive_manifest(
         return Err(format!(
             "Версія архіву {} новіша за підтримувану версію {}. Оновіть програму.",
             manifest.version, DATA_ARCHIVE_VERSION
+        ));
+    }
+    let supported_sections = DATABASE_ARCHIVE_SECTIONS
+        .into_iter()
+        .collect::<HashSet<_>>();
+    if let Some(unknown) = manifest
+        .sections
+        .iter()
+        .find(|section| !supported_sections.contains(section.as_str()))
+    {
+        return Err(format!(
+            "Архів містить непідтримуваний розділ бази даних: {unknown}."
         ));
     }
     Ok(Some(manifest))
@@ -1021,6 +1325,7 @@ fn stage_import_archive(root: &Path, archive_path: &Path) -> Result<StagedImport
             directory: directory.clone(),
             files,
             legacy_archive: manifest.is_none(),
+            manifest,
         })
     })();
     if result.is_err() {
@@ -1070,6 +1375,79 @@ fn validate_staged_import(staged: &StagedImport) -> Result<(), String> {
         check_database_integrity(&connection)?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn inspect_application_data_archive(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<DataArchiveInspection, String> {
+    let root = ensure_application_structure(&app)?;
+    let staged = stage_import_archive(&root, Path::new(&path))?;
+    let result = (|| {
+        validate_staged_import(&staged)?;
+        let database = staged.directory.join(DATABASE_FILE_NAME).exists();
+        let database_sections = if database {
+            match staged.manifest.as_ref() {
+                Some(manifest) if !manifest.sections.is_empty() => manifest.sections.clone(),
+                _ => DATABASE_ARCHIVE_SECTIONS
+                    .iter()
+                    .map(|section| (*section).to_string())
+                    .collect(),
+            }
+        } else {
+            Vec::new()
+        };
+        let contains_path = |path: &str| {
+            staged
+                .files
+                .iter()
+                .any(|item| item.archive_path.eq_ignore_ascii_case(path))
+        };
+        let contains_prefix = |prefix: &str| {
+            staged
+                .files
+                .iter()
+                .any(|item| item.archive_path.starts_with(prefix))
+        };
+        let excel = staged.manifest.as_ref().is_some_and(|manifest| {
+            manifest
+                .files
+                .iter()
+                .any(|file| file.path.eq_ignore_ascii_case(DATA_ARCHIVE_EXCEL_PATH))
+        });
+        let database_custom_variables = if database {
+            let connection = Connection::open(staged.directory.join(DATABASE_FILE_NAME))
+                .map_err(|_| "Не вдалося перевірити кастомні поля архіву.".to_string())?;
+            connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM custom_field_definitions LIMIT 1)
+                       OR EXISTS(SELECT 1 FROM vehicle_custom_field_definitions LIMIT 1)",
+                    [],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        Ok(DataArchiveInspection {
+            application_version: staged
+                .manifest
+                .as_ref()
+                .map(|manifest| manifest.application_version.clone())
+                .unwrap_or_else(|| "Стара версія".to_string()),
+            database,
+            database_sections,
+            settings: contains_path("data/settings.json"),
+            custom_variables: contains_path("data/custom_variables.json")
+                || database_custom_variables,
+            templates: contains_prefix("templates/"),
+            reports: contains_prefix("reports/"),
+            excel,
+        })
+    })();
+    let _ = fs::remove_dir_all(&staged.directory);
+    result
 }
 
 fn create_pre_import_backup(
@@ -1188,18 +1566,363 @@ fn install_staged_files(root: &Path, staged: &StagedImport) -> Result<InstalledI
     })
 }
 
+fn replace_import_tables(connection: &Connection, tables: &[&str]) -> Result<(), String> {
+    for table in tables {
+        connection
+            .execute_batch(&format!(
+                "DELETE FROM main.{table}; INSERT INTO main.{table} SELECT * FROM imported.{table};"
+            ))
+            .map_err(|error| format!("Не вдалося імпортувати розділ «{table}»: {error}"))?;
+    }
+    Ok(())
+}
+
+fn selected_import_sections(
+    staged: &StagedImport,
+    options: &DataImportOptions,
+) -> Result<HashSet<String>, String> {
+    if !options.database || !staged.directory.join(DATABASE_FILE_NAME).exists() {
+        return Ok(HashSet::new());
+    }
+    let available = match staged.manifest.as_ref() {
+        Some(manifest) if !manifest.sections.is_empty() => {
+            manifest.sections.iter().cloned().collect::<HashSet<_>>()
+        }
+        _ => DATABASE_ARCHIVE_SECTIONS
+            .iter()
+            .map(|section| (*section).to_string())
+            .collect(),
+    };
+    let requested = if options.database_sections.is_empty() {
+        available.clone()
+    } else {
+        options.database_sections.iter().cloned().collect()
+    };
+    if let Some(unavailable) = requested
+        .iter()
+        .find(|section| !available.contains(*section))
+    {
+        return Err(format!("В обраному архіві немає розділу «{unavailable}»."));
+    }
+    Ok(requested)
+}
+
+fn service_filter(sections: &HashSet<String>) -> String {
+    let values = DATABASE_ARCHIVE_SECTIONS[10..]
+        .iter()
+        .filter(|section| sections.contains(**section))
+        .map(|section| format!("'{section}'"))
+        .collect::<Vec<_>>();
+    if values.is_empty() {
+        "''".to_string()
+    } else {
+        values.join(",")
+    }
+}
+
+fn merge_selected_database_sections(
+    current: &Connection,
+    staged: &StagedImport,
+    sections: &HashSet<String>,
+    include_custom_variables: bool,
+) -> Result<(), String> {
+    let source = staged.directory.join(DATABASE_FILE_NAME);
+    let merged = staged.directory.join("selected-import.db");
+    snapshot_database(current, &merged)?;
+    let connection = Connection::open(&merged)
+        .map_err(|_| "Не вдалося підготувати вибірковий імпорт бази даних.".to_string())?;
+    database::initialise(&connection)?;
+    connection
+        .execute(
+            "ATTACH DATABASE ?1 AS imported",
+            [source.to_string_lossy().as_ref()],
+        )
+        .map_err(|_| "Не вдалося підключити дані з архіву для вибіркового імпорту.".to_string())?;
+
+    connection
+        .execute_batch("PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE;")
+        .map_err(|_| "Не вдалося розпочати вибірковий імпорт.".to_string())?;
+    let result = (|| {
+        if sections.contains("personnel") {
+            replace_import_tables(
+                &connection,
+                &[
+                    "personnel_custom_fields",
+                    "temporary_personnel",
+                    "personnel",
+                ],
+            )?;
+        }
+        if sections.contains("staffing") {
+            replace_import_tables(
+                &connection,
+                &[
+                    "personnel_staff_assignments",
+                    "staff_recommendations",
+                    "staff_position_recommendations",
+                ],
+            )?;
+        }
+        if sections.contains("crews") {
+            replace_import_tables(
+                &connection,
+                &["crew_actual_members", "crew_members", "crews"],
+            )?;
+        }
+        if sections.contains("positions") {
+            replace_import_tables(
+                &connection,
+                &[
+                    "position_uavs",
+                    "position_work_periods",
+                    "position_work_members",
+                    "position_work_status_history",
+                    "position_work_events",
+                    "position_work",
+                    "positions",
+                ],
+            )?;
+        }
+        if sections.contains("personnel_control") {
+            replace_import_tables(
+                &connection,
+                &["personnel_control_events", "personnel_control_assignments"],
+            )?;
+        }
+        if sections.contains("flight_plans") {
+            replace_import_tables(
+                &connection,
+                &[
+                    "flight_plan_personnel_locations",
+                    "flight_plan_snapshot_entries",
+                    "flight_plan_snapshots",
+                ],
+            )?;
+        }
+        if sections.contains("flight_journal") {
+            replace_import_tables(&connection, &["flight_journal_entries"])?;
+        }
+        if sections.contains("summary_reports") {
+            replace_import_tables(&connection, &["summary_report_drafts"])?;
+        }
+        if sections.contains("incidents") {
+            replace_import_tables(
+                &connection,
+                &["incident_equipment", "incident_personnel", "incidents"],
+            )?;
+        }
+        if sections.contains("workshop") {
+            replace_import_tables(&connection, &["workshop_ingredients", "workshop_products"])?;
+        }
+
+        let service_codes = service_filter(sections);
+        if service_codes != "''" {
+            for (table, column) in [
+                ("asset_catalogs", "id"),
+                ("equipment", "id"),
+                ("asset_history", "id"),
+            ] {
+                let conflicts: i64 = connection
+                    .query_row(
+                        &format!(
+                            "SELECT COUNT(*) FROM imported.{table} incoming
+                             JOIN main.{table} existing ON existing.{column}=incoming.{column}
+                             WHERE incoming.service_code IN ({service_codes})
+                               AND existing.service_code NOT IN ({service_codes})"
+                        ),
+                        [],
+                        |row| row.get(0),
+                    )
+                    .map_err(|_| "Не вдалося перевірити ідентифікатори майна.".to_string())?;
+                if conflicts > 0 {
+                    return Err("Вибрані служби мають конфлікт ідентифікаторів з іншим локальним майном. Імпортуйте весь розділ майна одним архівом.".to_string());
+                }
+            }
+            connection
+                .execute_batch(&format!(
+                    "DELETE FROM asset_custom_values
+                       WHERE equipment_id IN (SELECT id FROM equipment WHERE service_code IN ({service_codes}))
+                          OR field_id IN (SELECT f.id FROM asset_catalog_fields f JOIN asset_catalogs c ON c.id=f.catalog_id WHERE c.service_code IN ({service_codes}));
+                     DELETE FROM asset_catalog_fields WHERE catalog_id IN (SELECT id FROM asset_catalogs WHERE service_code IN ({service_codes}));
+                     DELETE FROM asset_history WHERE service_code IN ({service_codes});
+                     DELETE FROM equipment WHERE service_code IN ({service_codes});
+                     DELETE FROM asset_catalogs WHERE service_code IN ({service_codes});
+                     INSERT INTO asset_catalogs SELECT * FROM imported.asset_catalogs WHERE service_code IN ({service_codes});
+                     INSERT INTO asset_catalog_fields SELECT f.* FROM imported.asset_catalog_fields f JOIN imported.asset_catalogs c ON c.id=f.catalog_id WHERE c.service_code IN ({service_codes});
+                     INSERT INTO equipment SELECT * FROM imported.equipment WHERE service_code IN ({service_codes});
+                     INSERT INTO asset_custom_values SELECT v.* FROM imported.asset_custom_values v JOIN imported.equipment e ON e.id=v.equipment_id WHERE e.service_code IN ({service_codes});
+                     INSERT INTO asset_history SELECT * FROM imported.asset_history WHERE service_code IN ({service_codes});"
+                ))
+                .map_err(|error| format!("Не вдалося імпортувати майно вибраних служб: {error}"))?;
+        }
+
+        if sections.contains("svt") {
+            connection
+                .execute_batch(
+                    "UPDATE equipment SET legacy_vehicle_id=NULL WHERE service_code<>'svt';
+                 DELETE FROM vehicle_custom_fields;
+                 DELETE FROM vehicles;
+                 INSERT INTO vehicles SELECT * FROM imported.vehicles;
+                 INSERT INTO vehicle_custom_fields SELECT * FROM imported.vehicle_custom_fields;",
+                )
+                .map_err(|error| format!("Не вдалося імпортувати техніку СВТ: {error}"))?;
+        }
+        if include_custom_variables {
+            replace_import_tables(
+                &connection,
+                &[
+                    "custom_field_template_aliases",
+                    "custom_field_definitions",
+                    "vehicle_custom_field_definitions",
+                ],
+            )?;
+        }
+
+        connection.execute_batch(
+            "DELETE FROM personnel_custom_fields WHERE personnel_id NOT IN (SELECT id FROM personnel);
+             DELETE FROM personnel_staff_assignments WHERE personnel_id NOT IN (SELECT id FROM personnel);
+             DELETE FROM staff_recommendations WHERE personnel_id NOT IN (SELECT id FROM personnel);
+             DELETE FROM crew_members WHERE crew_id NOT IN (SELECT id FROM crews) OR personnel_id NOT IN (SELECT id FROM personnel);
+             DELETE FROM crew_actual_members WHERE crew_id NOT IN (SELECT id FROM crews) OR personnel_id NOT IN (SELECT id FROM personnel);
+             DELETE FROM personnel_control_assignments WHERE personnel_id NOT IN (SELECT id FROM personnel);
+             DELETE FROM flight_plan_personnel_locations WHERE personnel_id NOT IN (SELECT id FROM personnel);
+             DELETE FROM position_work_members WHERE work_id NOT IN (SELECT id FROM position_work) OR personnel_id NOT IN (SELECT id FROM personnel);
+             DELETE FROM position_work_periods WHERE work_id NOT IN (SELECT id FROM position_work) OR personnel_id NOT IN (SELECT id FROM personnel);
+             DELETE FROM position_work_status_history WHERE work_id NOT IN (SELECT id FROM position_work);
+             DELETE FROM position_uavs WHERE position_id NOT IN (SELECT id FROM positions) OR equipment_id NOT IN (SELECT id FROM equipment);
+             DELETE FROM asset_catalog_fields WHERE catalog_id NOT IN (SELECT id FROM asset_catalogs);
+             DELETE FROM asset_custom_values WHERE equipment_id NOT IN (SELECT id FROM equipment) OR field_id NOT IN (SELECT id FROM asset_catalog_fields);
+             DELETE FROM incident_equipment WHERE incident_id NOT IN (SELECT id FROM incidents) OR equipment_id NOT IN (SELECT id FROM equipment);
+             DELETE FROM incident_personnel WHERE incident_id NOT IN (SELECT id FROM incidents) OR personnel_id NOT IN (SELECT id FROM personnel);
+             DELETE FROM workshop_ingredients WHERE product_id NOT IN (SELECT id FROM workshop_products) OR equipment_id NOT IN (SELECT id FROM equipment);
+             DELETE FROM flight_plan_snapshot_entries WHERE snapshot_id NOT IN (SELECT id FROM flight_plan_snapshots);
+             UPDATE vehicles SET personnel_id=NULL WHERE personnel_id NOT IN (SELECT id FROM personnel);
+             UPDATE vehicles SET crew_id=NULL WHERE crew_id NOT IN (SELECT id FROM crews);
+             UPDATE equipment SET personnel_id=NULL WHERE personnel_id NOT IN (SELECT id FROM personnel);
+             UPDATE equipment SET crew_id=NULL WHERE crew_id NOT IN (SELECT id FROM crews);
+             UPDATE equipment SET catalog_id=NULL WHERE catalog_id NOT IN (SELECT id FROM asset_catalogs);
+             UPDATE equipment SET parent_equipment_id=NULL WHERE parent_equipment_id NOT IN (SELECT id FROM equipment);
+             UPDATE equipment SET legacy_vehicle_id=NULL WHERE legacy_vehicle_id NOT IN (SELECT id FROM vehicles);
+             UPDATE asset_history SET equipment_id=NULL WHERE equipment_id NOT IN (SELECT id FROM equipment);
+             UPDATE asset_history SET from_personnel_id=NULL WHERE from_personnel_id NOT IN (SELECT id FROM personnel);
+             UPDATE asset_history SET to_personnel_id=NULL WHERE to_personnel_id NOT IN (SELECT id FROM personnel);
+             UPDATE asset_history SET from_crew_id=NULL WHERE from_crew_id NOT IN (SELECT id FROM crews);
+             UPDATE asset_history SET to_crew_id=NULL WHERE to_crew_id NOT IN (SELECT id FROM crews);
+             UPDATE crews SET position_id=NULL WHERE position_id NOT IN (SELECT id FROM positions);
+             UPDATE crews SET primary_uav_id=NULL WHERE primary_uav_id NOT IN (SELECT id FROM equipment);
+             UPDATE positions SET crew_id=NULL WHERE crew_id NOT IN (SELECT id FROM crews);
+             UPDATE position_work SET position_id=NULL WHERE position_id NOT IN (SELECT id FROM positions);
+             UPDATE incidents SET crew_id=NULL WHERE crew_id NOT IN (SELECT id FROM crews);
+             UPDATE incidents SET equipment_id=NULL WHERE equipment_id NOT IN (SELECT id FROM equipment);
+             UPDATE flight_plan_snapshot_entries SET crew_id=NULL WHERE crew_id NOT IN (SELECT id FROM crews);
+             UPDATE flight_journal_entries SET crew_id=NULL WHERE crew_id NOT IN (SELECT id FROM crews);
+             UPDATE flight_journal_entries SET position_id=NULL WHERE position_id NOT IN (SELECT id FROM positions);
+             UPDATE flight_journal_entries SET uav_id=NULL WHERE uav_id NOT IN (SELECT id FROM equipment);
+             UPDATE flight_journal_entries SET snapshot_id=NULL WHERE snapshot_id NOT IN (SELECT id FROM flight_plan_snapshots);",
+        ).map_err(|error| format!("Не вдалося узгодити зв’язки вибіркового імпорту: {error}"))?;
+        connection
+            .execute_batch("COMMIT;")
+            .map_err(|_| "Не вдалося завершити вибірковий імпорт бази даних.".to_string())?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = connection.execute_batch("ROLLBACK;");
+    }
+    let _ = connection.execute_batch("PRAGMA foreign_keys=ON;");
+    result?;
+    database::initialise(&connection)?;
+    crate::operations::sync_crew_equipment_responsibles(&connection, None)?;
+    check_database_integrity(&connection)?;
+    let violations: i64 = connection
+        .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+            row.get(0)
+        })
+        .map_err(|_| "Не вдалося перевірити зв’язки вибірково імпортованих даних.".to_string())?;
+    if violations > 0 {
+        return Err("Вибрані частини архіву мають несумісні зв’язки. Додайте пов’язані розділи або імпортуйте весь архів.".to_string());
+    }
+    drop(connection);
+    fs::remove_file(&source)
+        .map_err(|_| "Не вдалося замінити підготовлену базу даних.".to_string())?;
+    fs::rename(&merged, &source)
+        .map_err(|_| "Не вдалося завершити підготовку вибіркового імпорту.".to_string())?;
+    Ok(())
+}
+
+fn apply_import_options(
+    staged: &mut StagedImport,
+    current: &Connection,
+    options: &DataImportOptions,
+) -> Result<(), String> {
+    let sections = selected_import_sections(staged, options)?;
+    let imports_database = options.database
+        && staged.directory.join(DATABASE_FILE_NAME).exists()
+        && !sections.is_empty();
+    if imports_database {
+        filter_database_snapshot(
+            &staged.directory.join(DATABASE_FILE_NAME),
+            &sections,
+            options.custom_variables,
+        )?;
+        if sections.len() < DATABASE_ARCHIVE_SECTIONS.len() {
+            merge_selected_database_sections(current, staged, &sections, options.custom_variables)?;
+        }
+    }
+    staged.files.retain(|item| {
+        if item.relative_path == Path::new(DATABASE_FILE_NAME) {
+            imports_database
+        } else if item.relative_path == Path::new("settings.json") {
+            options.settings
+        } else if item.relative_path == Path::new(CUSTOM_VARIABLES_FILE_NAME) {
+            options.custom_variables
+        } else if item.relative_path.starts_with(TEMPLATES_DIRECTORY_NAME) {
+            options.templates
+        } else if item.relative_path.starts_with(REPORTS_DIRECTORY_NAME) {
+            options.reports
+        } else {
+            false
+        }
+    });
+    if staged.files.is_empty() {
+        return Err("Оберіть хоча б один доступний розділ для імпорту.".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) fn import_application_data(
     app: tauri::AppHandle,
     state: tauri::State<AppState>,
     path: String,
+    options: Option<DataImportOptions>,
 ) -> Result<(), String> {
     let root = ensure_application_structure(&app)?;
-    let staged = stage_import_archive(&root, Path::new(&path))?;
+    let mut staged = stage_import_archive(&root, Path::new(&path))?;
     let result = (|| {
         validate_staged_import(&staged)?;
-        let imports_database = staged.directory.join(DATABASE_FILE_NAME).exists();
-        let imports_custom_fields = staged.directory.join(CUSTOM_VARIABLES_FILE_NAME).exists();
+        let options = options.unwrap_or(DataImportOptions {
+            database: true,
+            database_sections: Vec::new(),
+            settings: true,
+            custom_variables: true,
+            templates: true,
+            reports: true,
+        });
+        {
+            let database = state
+                .0
+                .lock()
+                .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
+            apply_import_options(&mut staged, &database.connection, &options)?;
+        }
+        let imports_database = staged
+            .files
+            .iter()
+            .any(|item| item.relative_path == Path::new(DATABASE_FILE_NAME));
+        let imports_custom_fields = staged
+            .files
+            .iter()
+            .any(|item| item.relative_path == Path::new(CUSTOM_VARIABLES_FILE_NAME));
         let mut database = state
             .0
             .lock()
@@ -1487,6 +2210,7 @@ mod archive_tests {
                 source,
                 archive_path: "data/settings.json".into(),
             }],
+            &[],
         )
         .unwrap();
 
@@ -1545,6 +2269,7 @@ mod archive_tests {
                 custom_variables: true,
                 templates: true,
                 reports: true,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1560,6 +2285,69 @@ mod archive_tests {
         ] {
             assert!(archive.by_name(&expected).is_ok(), "missing {expected}");
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn selective_export_filters_database_and_embeds_excel_copy() {
+        let root = test_directory("selective-export");
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        connection.execute("INSERT INTO personnel(rank,surname,given_name,position,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id) VALUES('солдат','Тестовий','Боєць','оператор','','','','','','','')", []).unwrap();
+        connection.execute("INSERT INTO summary_report_drafts(report_date,manual_json) VALUES('2026-09-27','{}')", []).unwrap();
+        let state = AppState(
+            Mutex::new(DatabaseState {
+                connection,
+                path: root.join(DATABASE_FILE_NAME),
+                is_persistent: false,
+            }),
+            Vec::new(),
+        );
+        let archive_path = root.join("personnel.zip");
+        write_application_data_archive_from_root(
+            &root,
+            &state,
+            &archive_path,
+            &DataArchiveOptions {
+                database: true,
+                database_sections: vec!["personnel".to_string()],
+                excel: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let file = fs::File::open(&archive_path).unwrap();
+        let mut archive = ZipArchive::new(file).unwrap();
+        let manifest = read_archive_manifest(&mut archive).unwrap().unwrap();
+        assert_eq!(manifest.sections, vec!["personnel"]);
+        assert!(archive.by_name(DATA_ARCHIVE_EXCEL_PATH).is_ok());
+        let extracted = root.join("filtered.db");
+        let mut database_file = archive
+            .by_name(&format!("data/{DATABASE_FILE_NAME}"))
+            .unwrap();
+        let mut output = fs::File::create(&extracted).unwrap();
+        io::copy(&mut database_file, &mut output).unwrap();
+        drop(database_file);
+        drop(archive);
+        let filtered = Connection::open(extracted).unwrap();
+        assert_eq!(
+            filtered
+                .query_row("SELECT COUNT(*) FROM personnel", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            filtered
+                .query_row("SELECT COUNT(*) FROM summary_report_drafts", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            0
+        );
+
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1585,6 +2373,7 @@ mod archive_tests {
             version: DATA_ARCHIVE_VERSION,
             created_at: Local::now().to_rfc3339(),
             application_version: env!("CARGO_PKG_VERSION").into(),
+            sections: Vec::new(),
             files: vec![DataArchiveManifestFile {
                 path: "data/settings.json".into(),
                 size: 2,
@@ -1682,6 +2471,7 @@ mod archive_tests {
                 },
             ],
             legacy_archive: true,
+            manifest: None,
         };
 
         assert!(install_staged_files(&root, &staged).is_err());
@@ -1690,6 +2480,54 @@ mod archive_tests {
             b"old settings"
         );
         assert!(root.join("blocked.json").is_dir());
+
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(stage).unwrap();
+    }
+
+    #[test]
+    fn selective_personnel_import_preserves_unselected_summary_reports() {
+        let root = test_directory("selective-personnel-import");
+        let stage = test_directory("selective-personnel-stage");
+        let current = Connection::open_in_memory().unwrap();
+        database::initialise(&current).unwrap();
+        current.execute("INSERT INTO personnel(rank,surname,given_name,position,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id) VALUES('солдат','Старий','Боєць','оператор','','','','','','','')", []).unwrap();
+        current.execute("INSERT INTO summary_report_drafts(report_date,manual_json) VALUES('2026-09-27','{\"local\":true}')", []).unwrap();
+
+        let source = stage.join(DATABASE_FILE_NAME);
+        let imported = Connection::open(&source).unwrap();
+        database::initialise(&imported).unwrap();
+        imported.execute("INSERT INTO personnel(rank,surname,given_name,position,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id) VALUES('сержант','Новий','Боєць','командир','','','','','','','')", []).unwrap();
+        drop(imported);
+
+        let staged = StagedImport {
+            directory: stage.clone(),
+            files: vec![StagedImportFile {
+                relative_path: PathBuf::from(DATABASE_FILE_NAME),
+                archive_path: format!("data/{DATABASE_FILE_NAME}"),
+            }],
+            legacy_archive: false,
+            manifest: None,
+        };
+        merge_selected_database_sections(
+            &current,
+            &staged,
+            &HashSet::from(["personnel".to_string()]),
+            false,
+        )
+        .unwrap();
+
+        let merged = Connection::open(stage.join(DATABASE_FILE_NAME)).unwrap();
+        let surname: String = merged
+            .query_row("SELECT surname FROM personnel", [], |row| row.get(0))
+            .unwrap();
+        let report_count: i64 = merged
+            .query_row("SELECT COUNT(*) FROM summary_report_drafts", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(surname, "Новий");
+        assert_eq!(report_count, 1);
 
         fs::remove_dir_all(root).unwrap();
         fs::remove_dir_all(stage).unwrap();

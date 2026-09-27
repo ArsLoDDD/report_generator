@@ -100,6 +100,18 @@ describe("selection requirements", () => {
     expect(getGenerationParameter("параметр_особливі_умови")).toBeDefined();
   });
 
+  it("recognises numbered commission members as settings values", () => {
+    expect(getGenerationParameter("комісія_списання_1")).toBeUndefined();
+    expect(getVariable("комісія_списання_1")).toEqual(expect.objectContaining({ kind: "person-name", supportsCases: true }));
+    expect(getVariable("комісія_списання_1_піб")).toEqual(expect.objectContaining({ kind: "person-name", supportsCases: true }));
+    expect(getVariable("комісія_списання_1_прізвище")).toEqual(expect.objectContaining({ kind: "person-name", supportsCases: true }));
+    expect(getVariable("комісія_списання_1_імя")).toEqual(expect.objectContaining({ kind: "person-name", supportsCases: true }));
+    expect(getVariable("комісія_списання_1_по_батькові")).toEqual(expect.objectContaining({ kind: "person-name", supportsCases: true }));
+    expect(getVariable("комісія_списання_2_звання")).toEqual(expect.objectContaining({ kind: "rank", supportsCases: true }));
+    expect(getVariable("комісія_списання_3_посада")).toEqual(expect.objectContaining({ kind: "position", supportsCases: true }));
+    expect(getVariable("комісія_1")).toBeUndefined();
+  });
+
   it("derives selections for legacy v1 templates without exposing aliases in the constructor", () => {
     expect(getVariable("soldier.fullName")?.category).toContain("Застаріла сумісність");
     expect(getVariable("soldiers[2].rank")?.name).toBe("Звання");

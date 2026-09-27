@@ -20,6 +20,9 @@ import { WarningsPage } from "./app/components/WarningsPage";
 import { AssetsPage } from "./features/assets/AssetsPage";
 import { SummaryReportPage } from "./features/operations/SummaryReportPage";
 import { GlobalTooltip } from "./shared/ui/GlobalTooltip";
+import { settingsService } from "./features/settings/services/settingsService";
+import { currentRelease, releaseNotesStorageKey } from "./app/releaseNotes";
+import { ReleaseNotesModal } from "./app/components/ReleaseNotesModal";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("generator");
@@ -34,7 +37,20 @@ export default function App() {
   const [templateInfo, setTemplateInfo] = useState<Template | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem("shablonizator.sidebarCollapsed") === "true");
   const [analyserVisited, setAnalyserVisited] = useState(false);
+  const [appVersion, setAppVersion] = useState(currentRelease.version);
+  const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
   const startupRouteResolved = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void settingsService.getUpdateStatus().then((status) => {
+      if (!active) return;
+      setAppVersion(status.currentVersion);
+      if (status.currentVersion !== currentRelease.version || !currentRelease.notes.length) return;
+      if (window.localStorage.getItem(releaseNotesStorageKey) !== status.currentVersion) setReleaseNotesOpen(true);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (warningState.isLoading || startupRouteResolved.current) return;
@@ -67,6 +83,11 @@ export default function App() {
     return next;
   });
 
+  const closeReleaseNotes = () => {
+    window.localStorage.setItem(releaseNotesStorageKey, currentRelease.version);
+    setReleaseNotesOpen(false);
+  };
+
   useEffect(() => {
     const closeOnBackdrop = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
@@ -77,7 +98,7 @@ export default function App() {
   }, []);
 
   return <NotificationProvider><GlobalTooltip /><div className={`product-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-    <AppSidebar screen={screen} collapsed={sidebarCollapsed} warnings={startupWarnings} onToggleCollapsed={toggleSidebar} onNavigate={(next) => { if (next === "report-analyser") setAnalyserVisited(true); setScreen(next); }} />
+    <AppSidebar screen={screen} collapsed={sidebarCollapsed} warnings={startupWarnings} appVersion={appVersion} onToggleCollapsed={toggleSidebar} onNavigate={(next) => { if (next === "report-analyser") setAnalyserVisited(true); setScreen(next); }} />
     <main className="workspace">
       {screen === "warnings" && <WarningsPage warnings={startupWarnings} isLoading={warningState.isLoading} onRefresh={() => void warningState.refresh()} onOpenPersonnel={() => setScreen("people")} onOpenPositions={() => setScreen("positions")} />}
       {screen === "generator" && <ReportGenerationPage template={selectedTemplate} templates={templates} hasMoreTemplates={templatesHasMore} isLoadingMoreTemplates={templatesLoadingMore} onLoadMoreTemplates={loadMoreTemplates} people={people} hasMorePeople={personnelHasMore} isLoadingMorePeople={personnelLoadingMore} onLoadMorePeople={loadMorePersonnel} selected={selectedPeople} onToggle={togglePerson} onAll={toggleAllPeople} onClear={clearSelectedPeople} onReorder={setSelectedPeople} onChoose={toggleTemplate} />}
@@ -101,5 +122,6 @@ export default function App() {
       {screen === "settings" && <SettingsPage />}
       {!isSimpleEdition && screen === "documentation" && <ProgramGuidePage />}
     </main>
+    {releaseNotesOpen && <ReleaseNotesModal version={currentRelease.version} notes={currentRelease.notes} onClose={closeReleaseNotes} />}
   </div></NotificationProvider>;
 }

@@ -1024,11 +1024,9 @@ flowchart TB
 
   subgraph dataActions["Дані"]
     openDir["«Відкрити директорію»"]
-    backup["«Резервна копія БД»"]
-    excelImport["«Імпорт Excel-бази»"]
-    excelExport["«Експорт Excel-бази»"]
-    zipExport["«Експортувати всі дані»"]
-    zipImport["«Імпортувати архів даних»"]
+    zipExport["«Експортувати дані»"]
+    zipImport["«Імпортувати архів»"]
+    history["«Історія версій»"]
   end
 
   settingsJson[("settings.json")]
@@ -1036,7 +1034,8 @@ flowchart TB
   custom[("custom_variables.json")]
   templates[("Шаблони")]
   reports[("Згенеровані рапорти")]
-  backupDir[("Резервні копії / дата")]
+  backupDir[("Автоматичні резервні копії")]
+  excel[("Excel-база всередині ZIP")]
   consumers["Штатка · БЧС · План · Підсумкове<br/>Конструктор · Аналізатор · Генератор"]
 
   settingsPage --> unitOpen --> unitFields --> structure --> structureAdd --> unitSave ==> settingsJson
@@ -1045,71 +1044,52 @@ flowchart TB
   settingsPage --> signerDelete ==> settingsJson
   settingsJson -.-> consumers
 
-  settingsPage --> openDir
-  settingsPage --> backup
-  database --> backup ==> backupDir
-  settingsPage --> excelImport
-  settingsPage --> excelExport
+  settingsPage --> openDir ==> database
   settingsPage --> zipExport
   settingsPage --> zipImport
+  settingsPage --> history
 
-  database --> excelExport
   database --> zipExport
   settingsJson --> zipExport
   custom --> zipExport
   templates --> zipExport
   reports --> zipExport
+  database --> excel --> zipExport
+  zipImport --> backupDir
 
   class settingsPage,consumers page;
-  class unitOpen,unitFields,structure,structureAdd,unitSave,signerAdd,signerEdit,signerForm,signerSave,signerDelete,openDir,backup,excelImport,excelExport,zipExport,zipImport action;
-  class settingsJson,database,custom,templates,reports,backupDir data;
+  class unitOpen,unitFields,structure,structureAdd,unitSave,signerAdd,signerEdit,signerForm,signerSave,signerDelete,openDir,zipExport,zipImport,history action;
+  class settingsJson,database,custom,templates,reports,backupDir,excel data;
   classDef page fill:#1f2b1b,stroke:#a8bd61,color:#f5f7ef,stroke-width:2px;
   classDef action fill:#10242c,stroke:#4f8296,color:#f5f7ef,stroke-width:1.5px;
   classDef data fill:#2a2418,stroke:#b59b53,color:#f5f7ef,stroke-width:1.5px;
 ```
 
-### Excel: сумісний імпорт старих і нових баз
+### Excel у складі архіву експорту
 
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"primaryColor":"#1f2b1b","primaryTextColor":"#f5f7ef","primaryBorderColor":"#a8bd61","lineColor":"#7e8d72","secondaryColor":"#10242c","tertiaryColor":"#2a2418","clusterBkg":"#111711","clusterBorder":"#3e4d36","fontFamily":"Inter, Arial, sans-serif"},"flowchart":{"curve":"basis","nodeSpacing":28,"rankSpacing":52,"htmlLabels":true}}}%%
 flowchart TB
-  choose["«Імпорт Excel-бази»<br/>обрати XLSX"]
-  read["Знайти аркуші за видимою назвою<br/>прочитати два рядки заголовків"]
-  old{"У старому XLSX немає<br/>нових колонок або аркушів?"}
-  defaults["Додати безпечні defaults<br/>і відновити доступні legacy-зв’язки"]
-  fatal{"Є фатальна помилка структури,<br/>дублі, зламане посилання або запис?"}
-  mode{"Режим імпорту"}
-  append["«Доповнити базу даних»<br/>додати / upsert"]
-  replace["«Замінити базу даних»<br/>очистити залежні таблиці"]
-  transaction["Одна SQLite-транзакція<br/>відновити всі зв’язки"]
-  result{"Транзакція успішна?"}
-  rollback["ROLLBACK<br/>чинна база не змінюється"]
-  commit["COMMIT"]
-  warnings["Показати нефатальні зауваження<br/>«Копіювати зауваження»"]
-  error["Показати помилку<br/>«Копіювати помилку»"]
-  done["«Готово» → перечитати застосунок"]
-  db[("SQLite з актуальною схемою<br/>відсутні нові колонки додаються міграціями")]
-  export["«Експорт Excel-бази»<br/>створити структуровані аркуші"]
+  export["«Експортувати дані»"]
+  mode{"Повний архів чи<br/>вибрати склад даних?"}
+  sections["Обрати розділи SQLite<br/>ОС · екіпажі · позиції · служби · інше"]
+  excelChoice{"Позначено<br/>«Excel-база»?"}
+  snapshot["Узгоджений знімок SQLite<br/>лише з вибраними розділами"]
+  build["Сформувати структуровані<br/>аркуші з цього знімка"]
   xlsx[("XLSX")]
+  zip[("ZIP із manifest та SHA-256")]
 
-  choose --> read --> old
-  old -->|"так"| defaults --> fatal
-  old -->|"ні"| fatal
-  fatal -->|"так"| error --> rollback
-  fatal -->|"ні"| mode
-  mode -->|"доповнити"| append --> transaction
-  mode -->|"замінити"| replace --> transaction
-  transaction --> result
-  result -->|"ні"| rollback
-  result -->|"так"| commit ==> db
-  commit --> warnings --> done
-  db --> export ==> xlsx
+  export --> mode
+  mode -->|"повний"| snapshot
+  mode -->|"вибірковий"| sections --> snapshot
+  snapshot --> excelChoice
+  excelChoice -->|"так"| build ==> xlsx --> zip
+  excelChoice -->|"ні"| zip
 
-  class choose,append,replace,warnings,error,done,export action;
-  class read,defaults,transaction,commit,rollback auto;
-  class db data;
-  class xlsx file;
-  class old,fatal,mode,result warn;
+  class export,sections action;
+  class snapshot,build auto;
+  class xlsx,zip file;
+  class mode,excelChoice warn;
   classDef action fill:#10242c,stroke:#4f8296,color:#f5f7ef,stroke-width:1.5px;
   classDef data fill:#2a2418,stroke:#b59b53,color:#f5f7ef,stroke-width:1.5px;
   classDef auto fill:#281b2e,stroke:#9470a7,color:#f5f7ef,stroke-width:1.5px;
@@ -1122,17 +1102,19 @@ flowchart TB
 ```mermaid
 %%{init: {"theme":"base","themeVariables":{"primaryColor":"#1f2b1b","primaryTextColor":"#f5f7ef","primaryBorderColor":"#a8bd61","lineColor":"#7e8d72","secondaryColor":"#10242c","tertiaryColor":"#2a2418","clusterBkg":"#111711","clusterBorder":"#3e4d36","fontFamily":"Inter, Arial, sans-serif"},"flowchart":{"curve":"basis","nodeSpacing":28,"rankSpacing":52,"htmlLabels":true}}}%%
 flowchart LR
-  exportButton["«Експортувати всі дані»"]
-  selectParts["Обрати склад архіву<br/>БД · налаштування · кастомні поля · шаблони · рапорти"]
+  exportButton["«Експортувати дані»"]
+  selectParts["Повний архів або вибрати склад<br/>ОС · екіпажі · позиції · служби · файли · Excel"]
   create["«Створити архів»"]
   manifest["Manifest<br/>версія · перелік · розмір · SHA-256"]
   zip[("ZIP")]
 
-  importButton["«Імпортувати архів даних»"]
+  importButton["«Імпортувати архів»"]
   stage["Розпакувати у staging"]
   verify{"Безпечні шляхи, ліміти,<br/>manifest, hash, JSON і SQLite quick_check правильні?"}
+  inspect["Показати доступний склад<br/>«Увесь архів» / «Вибрати склад даних»"]
   backup["Автоматично скопіювати<br/>поточні замінювані дані"]
-  install["Встановити файли<br/>і виконати міграції БД"]
+  merge["Для вибіркового режиму<br/>зберегти необрані локальні розділи"]
+  install["Встановити вибрані файли<br/>і виконати міграції БД"]
   reopen{"Нові дані<br/>успішно відкрились?"}
   rollback["Rollback<br/>повернути попередні файли"]
   reload["Перезапустити UI"]
@@ -1140,12 +1122,12 @@ flowchart LR
   exportButton --> selectParts --> create --> manifest ==> zip
   zip --> importButton --> stage --> verify
   verify -->|"ні"| rollback
-  verify -->|"так"| backup --> install --> reopen
+  verify -->|"так"| inspect --> backup --> merge --> install --> reopen
   reopen -->|"ні"| rollback
   reopen -->|"так"| reload
 
-  class exportButton,selectParts,create,importButton action;
-  class manifest,stage,backup,install,reload auto;
+  class exportButton,selectParts,create,importButton,inspect action;
+  class manifest,stage,backup,merge,install,reload auto;
   class zip file;
   class verify,reopen,rollback warn;
   classDef action fill:#10242c,stroke:#4f8296,color:#f5f7ef,stroke-width:1.5px;

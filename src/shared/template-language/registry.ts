@@ -32,6 +32,18 @@ const isSignerVariable = (token: string) => signerFields.some((field) => {
   const suffix = `_${field.id}`;
   return token.length > suffix.length && token.endsWith(suffix);
 });
+const commissionVariable = (token: string) => {
+  if (!token.startsWith("комісія_")) return undefined;
+  const direct = /^(комісія_[\p{L}\p{N}_]*[\p{L}\p{N}])_([1-9]\d*)$/u.exec(token);
+  if (direct) return { prefix: direct[1], number: Number(direct[2]), fieldId: "піб" };
+  const field = signerFields
+    .filter((item) => token.endsWith(`_${item.id}`))
+    .sort((left, right) => right.id.length - left.id.length)[0];
+  if (!field) return undefined;
+  const withoutField = token.slice(0, -(field.id.length + 1));
+  const numbered = /^(комісія_[\p{L}\p{N}_]*[\p{L}\p{N}])_([1-9]\d*)$/u.exec(withoutField);
+  return numbered ? { prefix: numbered[1], number: Number(numbered[2]), fieldId: field.id } : undefined;
+};
 const editDistance = (left: string, right: string) => {
   const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
   for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
@@ -59,6 +71,7 @@ const looksLikeKnownTokenTypo = (token: string) => {
 const isDynamicDocumentParameter = (token: string) =>
   /^\p{L}[\p{L}\p{N}_]*$/u.test(token)
   && /[а-щьюяєіїґ]/iu.test(token)
+  && !token.startsWith("комісія_")
   && !subjectPrefixes.some((prefix) => token.startsWith(prefix))
   && !signerRoles.some((role) => token.startsWith(`${role.id}_`))
   && !isSignerVariable(token)
@@ -197,6 +210,11 @@ export function getVariable(id: string) {
     if (field) return fieldToVariable(field, id, "Застаріла сумісність · Підписант");
   }
   if (id === "mainSignature") return { id, name: "Підпис основного підписанта", category: "Застаріла сумісність · Підписант", description: "Застарілий маркер підпису. Як і в попередній версії, замінюється порожнім значенням.", example: "", kind: "text", supportsCases: false } satisfies VariableDefinition;
+  const commission = commissionVariable(id);
+  if (commission) {
+    const field = signerFields.find((item) => item.id === commission.fieldId);
+    if (field) return fieldToVariable(field, id, `Комісія · учасник №${commission.number}`);
+  }
   const generationParameter = getGenerationParameter(id);
   if (generationParameter) return fieldToVariable(generationParameter, id, "Параметри документа");
   const runtimeSignerField = signerFields

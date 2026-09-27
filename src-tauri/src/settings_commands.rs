@@ -154,6 +154,22 @@ pub(crate) fn delete_signer(
 }
 
 #[tauri::command]
+pub(crate) fn save_commission(
+    app: tauri::AppHandle,
+    commission: settings::CommissionTemplate,
+) -> Result<settings::AppSettings, String> {
+    settings::save_commission(&application_root(&app)?, commission)
+}
+
+#[tauri::command]
+pub(crate) fn delete_commission(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<settings::AppSettings, String> {
+    settings::delete_commission(&application_root(&app)?, &id)
+}
+
+#[tauri::command]
 pub(crate) fn update_visible_personnel_columns(
     app: tauri::AppHandle,
     columns: Vec<String>,

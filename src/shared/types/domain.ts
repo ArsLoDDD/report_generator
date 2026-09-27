@@ -85,7 +85,18 @@ export type SignerSettings = {
 };
 
 export type SignerRole = { id: string; name: string; signer: SignerSettings };
-export type UnitStructureNode = { id: string; parentId: string | null; kind: "group" | "position"; name: string; order: number };
+export type CommissionMember = { id: string; signerRoleId: string; order: number };
+export type CommissionTemplate = { id: string; name: string; variable: string; members: CommissionMember[] };
+export type UnitStructureNode = {
+  id: string;
+  parentId: string | null;
+  kind: "group" | "position";
+  name: string;
+  order: number;
+  rankRequirement?: string;
+  vos?: string;
+  tariffGrade?: string;
+};
 export type UnitSettings = { kind: "Рота" | "Окремий взвод" | "Інше"; shortName: string; fullName?: string; unitCode?: string; authorizedStrength: number; structure?: UnitStructureNode[]; battalionFullName?: string; battalionShortName?: string; militaryUnitShortName?: string; reportRecipient?: string; kspName?: string; kspLocality?: string; kspMgrs?: string; armyCorpsNumber?: string; armNumber?: string };
 
 export type AppSettings = {
@@ -97,6 +108,7 @@ export type AppSettings = {
   deputyRear: SignerSettings;
   fuelChief: SignerSettings;
   signerRoles: SignerRole[];
+  commissionTemplates?: CommissionTemplate[];
   visiblePersonnelColumns?: string[];
   visibleVehicleColumns?: string[];
   unit: UnitSettings;

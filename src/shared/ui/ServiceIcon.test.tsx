@@ -4,7 +4,7 @@ import { ServiceIcon, type ServiceIconName } from "./ServiceIcon";
 
 describe("ServiceIcon", () => {
   it("embeds every service SVG instead of depending on an external asset URL", () => {
-    const names: ServiceIconName[] = ["zbbr", "zu", "gz_kb", "siiz", "ovtm", "rs", "sa_ppo", "workshop"];
+    const names: ServiceIconName[] = ["zbbr", "zu", "gz_kb", "siiz", "ovtm", "rs", "sa_ppo", "workshop", "settings-unit", "settings-signers"];
 
     for (const name of names) {
       const { container, unmount } = render(<ServiceIcon name={name} />);

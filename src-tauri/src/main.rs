@@ -78,13 +78,39 @@ struct GeneratedReportsPage {
     items: Vec<GeneratedReportFile>,
     total_count: u64,
 }
-#[derive(serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DataArchiveOptions {
+    #[serde(default)]
     database: bool,
+    #[serde(default)]
+    database_sections: Vec<String>,
+    #[serde(default)]
     settings: bool,
+    #[serde(default)]
     custom_variables: bool,
+    #[serde(default)]
     templates: bool,
+    #[serde(default)]
+    reports: bool,
+    #[serde(default)]
+    excel: bool,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DataImportOptions {
+    #[serde(default)]
+    database: bool,
+    #[serde(default)]
+    database_sections: Vec<String>,
+    #[serde(default)]
+    settings: bool,
+    #[serde(default)]
+    custom_variables: bool,
+    #[serde(default)]
+    templates: bool,
+    #[serde(default)]
     reports: bool,
 }
 
@@ -794,6 +820,8 @@ fn main() {
             update_signer_settings,
             add_signer,
             delete_signer,
+            save_commission,
+            delete_commission,
             update_visible_personnel_columns,
             list_templates,
             select_template_file,
@@ -812,6 +840,7 @@ fn main() {
             open_application_directory,
             create_database_backup,
             export_application_data,
+            inspect_application_data_archive,
             import_application_data,
             app_updates::get_update_status,
             app_updates::inspect_offline_update,
@@ -840,6 +869,8 @@ fn main() {
             update_signer_settings,
             add_signer,
             delete_signer,
+            save_commission,
+            delete_commission,
             update_visible_personnel_columns,
             update_visible_vehicle_columns,
             list_templates,
@@ -859,6 +890,7 @@ fn main() {
             open_application_directory,
             create_database_backup,
             export_application_data,
+            inspect_application_data_archive,
             import_application_data,
             app_updates::get_update_status,
             app_updates::inspect_offline_update,

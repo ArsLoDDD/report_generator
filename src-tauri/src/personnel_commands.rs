@@ -1248,14 +1248,29 @@ pub(crate) fn export_personnel_xlsx(
     state: tauri::State<AppState>,
     path: String,
 ) -> Result<(), String> {
-    let path = PathBuf::from(path);
     let db = state
         .0
         .lock()
         .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
-    operations::sync_vehicle_assets(&db.connection)?;
-    let people = personnel::list(&db.connection)?;
-    let mut statement = db.connection.prepare("SELECT v.name,v.registration_number,v.status,COALESCE(p.tax_id,''),COALESCE(trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic),''),COALESCE(c.name,'') FROM vehicles v LEFT JOIN personnel p ON p.id=v.personnel_id LEFT JOIN crews c ON c.id=v.crew_id ORDER BY v.id").map_err(|_| "Не вдалося прочитати автомобілі для експорту.".to_string())?;
+    export_personnel_xlsx_from_connection(&db.connection, Path::new(&path))
+}
+
+pub(crate) fn export_personnel_xlsx_from_connection(
+    connection: &Connection,
+    path: &Path,
+) -> Result<(), String> {
+    let has_svt_catalog = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM asset_catalogs WHERE service_code='svt' AND name='Техніка')",
+            [],
+            |row| row.get::<_, bool>(0),
+        )
+        .unwrap_or(false);
+    if has_svt_catalog {
+        operations::sync_vehicle_assets(connection)?;
+    }
+    let people = personnel::list(connection)?;
+    let mut statement = connection.prepare("SELECT v.name,v.registration_number,v.status,COALESCE(p.tax_id,''),COALESCE(trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic),''),COALESCE(c.name,'') FROM vehicles v LEFT JOIN personnel p ON p.id=v.personnel_id LEFT JOIN crews c ON c.id=v.crew_id ORDER BY v.id").map_err(|_| "Не вдалося прочитати автомобілі для експорту.".to_string())?;
     let vehicles = statement
         .query_map([], |row| {
             Ok(xlsx::VehicleRow {
@@ -1270,7 +1285,7 @@ pub(crate) fn export_personnel_xlsx(
         .map_err(|_| "Не вдалося прочитати автомобілі для експорту.".to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| "Не вдалося прочитати автомобілі для експорту.".to_string())?;
-    let personnel_custom_maps = database::list_custom_fields(&db.connection)?
+    let personnel_custom_maps = database::list_custom_fields(connection)?
         .into_iter()
         .map(|field| xlsx::CustomFieldMapRow {
             display_name: field.display_name,
@@ -1279,7 +1294,7 @@ pub(crate) fn export_personnel_xlsx(
             initial_value: field.initial_value,
         })
         .collect::<Vec<_>>();
-    let vehicle_custom_maps = database::list_vehicle_custom_fields(&db.connection)?
+    let vehicle_custom_maps = database::list_vehicle_custom_fields(connection)?
         .into_iter()
         .map(|field| xlsx::CustomFieldMapRow {
             display_name: field.display_name,
@@ -1289,8 +1304,7 @@ pub(crate) fn export_personnel_xlsx(
         })
         .collect::<Vec<_>>();
     let custom_rows = |query: &str| -> Result<Vec<xlsx::CustomValueRow>, String> {
-        let mut statement = db
-            .connection
+        let mut statement = connection
             .prepare(query)
             .map_err(|_| "Не вдалося прочитати кастомні поля для Excel.".to_string())?;
         let entries = statement
@@ -1316,8 +1330,7 @@ pub(crate) fn export_personnel_xlsx(
     };
     let personnel_custom_values = custom_rows("SELECT CASE WHEN p.tax_id<>'' THEN p.tax_id ELSE trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) END,v.field_key,v.field_value FROM personnel_custom_fields v JOIN personnel p ON p.id=v.personnel_id")?;
     let vehicle_custom_values = custom_rows("SELECT v.registration_number,c.field_key,c.field_value FROM vehicle_custom_fields c JOIN vehicles v ON v.id=c.vehicle_id")?;
-    let crews = db
-        .connection
+    let crews = connection
         .prepare("SELECT c.name,c.platoon,COALESCE(p.name,c.position_name),COALESCE(p.locality,c.reconnaissance_area),c.unit_type,c.company_name,COALESCE(p.battle_order,c.battle_order),c.sector,c.official_strength,c.status,c.uav_name,c.uav_type,c.functional_duties,c.current_location,c.notes,(SELECT COUNT(*) FROM crew_actual_members am WHERE am.crew_id=c.id),COALESCE((SELECT inventory_number FROM equipment WHERE id=c.primary_uav_id),'') FROM crews c LEFT JOIN positions p ON p.id=c.position_id ORDER BY c.id")
         .map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?
         .query_map([], |row| {
@@ -1333,8 +1346,8 @@ pub(crate) fn export_personnel_xlsx(
         .map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| "Не вдалося прочитати екіпажі для експорту.".to_string())?;
-    let crew_members = db.connection.prepare("SELECT c.name,COALESCE(p.tax_id,''),trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) FROM crew_members cm JOIN crews c ON c.id=cm.crew_id JOIN personnel p ON p.id=cm.personnel_id WHERE cm.left_at IS NULL ORDER BY cm.id").map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?.query_map([], |row| Ok(xlsx::CrewMemberRow { crew_name:row.get(0)?,personnel_tax_id:row.get(1)?,personnel_full_name:row.get(2)? })).map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?;
-    let equipment = db.connection.prepare(
+    let crew_members = connection.prepare("SELECT c.name,COALESCE(p.tax_id,''),trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic) FROM crew_members cm JOIN crews c ON c.id=cm.crew_id JOIN personnel p ON p.id=cm.personnel_id WHERE cm.left_at IS NULL ORDER BY cm.id").map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?.query_map([], |row| Ok(xlsx::CrewMemberRow { crew_name:row.get(0)?,personnel_tax_id:row.get(1)?,personnel_full_name:row.get(2)? })).map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати склад екіпажів для експорту.".to_string())?;
+    let equipment = connection.prepare(
         "SELECT e.category,e.name,e.inventory_number,e.status,COALESCE(c.name,''),COALESCE(p.tax_id,''),
                 COALESCE(trim(p.surname || ' ' || p.given_name || ' ' || p.patronymic),''),e.notes,
                 e.total_quantity,e.day_quantity,e.night_quantity,e.uav_type,e.asset_kind,e.components_json,e.assigned_quantity,
@@ -1354,12 +1367,12 @@ pub(crate) fn export_personnel_xlsx(
         total_quantity:row.get::<_,i64>(8)?.to_string(),day_quantity:row.get::<_,i64>(9)?.to_string(),night_quantity:row.get::<_,i64>(10)?.to_string(),uav_type:row.get(11)?,asset_kind:row.get(12)?,components_json:row.get(13)?,assigned_quantity:row.get::<_,i64>(14)?.to_string(),
         service_code:row.get(15)?,catalog_name:row.get(16)?,full_name:row.get(17)?,nomenclature_number:row.get(18)?,serial_number:row.get(19)?,manufacture_year:row.get(20)?,accounting_unit:row.get(21)?,quantity:row.get::<_,f64>(22)?.to_string(),asset_value:row.get::<_,f64>(23)?.to_string(),parent_inventory_number:row.get(24)?,asset_type:row.get(25)?,service_data_json:row.get(26)?,catalog_fields_json:row.get(27)?,custom_values_json:row.get(28)?
     })).map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?;
-    let incidents = db.connection.prepare("SELECT i.incident_type,i.occurred_at,COALESCE(c.name,''),COALESCE((SELECT group_concat(e2.category, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.category,''),COALESCE((SELECT group_concat(e2.inventory_number, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.inventory_number,''),COALESCE((SELECT group_concat(e2.name, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.name,''),i.position_name,i.reconnaissance_area,i.description FROM incidents i LEFT JOIN crews c ON c.id=i.crew_id LEFT JOIN equipment e ON e.id=i.equipment_id ORDER BY i.id").map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.query_map([], |row| Ok(xlsx::IncidentRow { incident_type:row.get(0)?,occurred_at:row.get(1)?,crew_name:row.get(2)?,equipment_category:row.get(3)?,equipment_inventory_number:row.get(4)?,equipment_name:row.get(5)?,position_name:row.get(6)?,reconnaissance_area:row.get(7)?,description:row.get(8)? })).map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?;
-    let positions=db.connection.prepare("SELECT p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.condition_level,p.field_type,p.size,p.mgrs,p.suitable_uav_text,p.is_active,COALESCE(GROUP_CONCAT(c.name, ', '),''),p.notes FROM positions p LEFT JOIN crews c ON c.position_id=p.id GROUP BY p.id ORDER BY p.id").map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.query_map([],|row|Ok(xlsx::PositionRow{name:row.get(0)?,position_type:row.get(1)?,strip_name:row.get(2)?,locality:row.get(3)?,battle_order:row.get(4)?,sector:row.get(5)?,condition:row.get(6)?,condition_level:row.get::<_,i64>(7)?.to_string(),field_type:row.get(8)?,size:row.get(9)?,mgrs:row.get(10)?,suitable_uav_text:row.get(11)?,is_active:if row.get::<_,bool>(12)?{"Так".into()}else{"Ні".into()},crew_name:row.get(13)?,notes:row.get(14)?})).map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?;
-    let personnel_control = load_personnel_control_sheets(&db.connection)?;
+    let incidents = connection.prepare("SELECT i.incident_type,i.occurred_at,COALESCE(c.name,''),COALESCE((SELECT group_concat(e2.category, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.category,''),COALESCE((SELECT group_concat(e2.inventory_number, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.inventory_number,''),COALESCE((SELECT group_concat(e2.name, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.name,''),i.position_name,i.reconnaissance_area,i.description FROM incidents i LEFT JOIN crews c ON c.id=i.crew_id LEFT JOIN equipment e ON e.id=i.equipment_id ORDER BY i.id").map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.query_map([], |row| Ok(xlsx::IncidentRow { incident_type:row.get(0)?,occurred_at:row.get(1)?,crew_name:row.get(2)?,equipment_category:row.get(3)?,equipment_inventory_number:row.get(4)?,equipment_name:row.get(5)?,position_name:row.get(6)?,reconnaissance_area:row.get(7)?,description:row.get(8)? })).map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?;
+    let positions=connection.prepare("SELECT p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.condition_level,p.field_type,p.size,p.mgrs,p.suitable_uav_text,p.is_active,COALESCE(GROUP_CONCAT(c.name, ', '),''),p.notes FROM positions p LEFT JOIN crews c ON c.position_id=p.id GROUP BY p.id ORDER BY p.id").map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.query_map([],|row|Ok(xlsx::PositionRow{name:row.get(0)?,position_type:row.get(1)?,strip_name:row.get(2)?,locality:row.get(3)?,battle_order:row.get(4)?,sector:row.get(5)?,condition:row.get(6)?,condition_level:row.get::<_,i64>(7)?.to_string(),field_type:row.get(8)?,size:row.get(9)?,mgrs:row.get(10)?,suitable_uav_text:row.get(11)?,is_active:if row.get::<_,bool>(12)?{"Так".into()}else{"Ні".into()},crew_name:row.get(13)?,notes:row.get(14)?})).map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?;
+    let personnel_control = load_personnel_control_sheets(connection)?;
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         xlsx::export_with_staffing(
-            &path,
+            path,
             &people,
             &vehicles,
             &personnel_custom_maps,
@@ -1372,7 +1385,7 @@ pub(crate) fn export_personnel_xlsx(
             &incidents,
             &positions,
             &personnel_control,
-            &staffing_exchange::export(&db.connection)?,
+            &staffing_exchange::export(connection)?,
         )
     }))
     .map_err(|_| "Не вдалося сформувати Excel-файл: внутрішня помилка архіву.".to_string())??;

@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppSettings, SignerSettings, UnitSettings } from "../../../shared/types/domain";
+import type { AppSettings, CommissionTemplate, SignerSettings, UnitSettings } from "../../../shared/types/domain";
 
 export type UpdateStatus = {
   currentVersion: string;
@@ -16,6 +16,29 @@ export type OfflineUpdateInfo = {
   sizeBytes: number;
 };
 
+export type DataArchiveOptions = {
+  database: boolean;
+  databaseSections: string[];
+  settings: boolean;
+  customVariables: boolean;
+  templates: boolean;
+  reports: boolean;
+  excel: boolean;
+};
+
+export type DataImportOptions = Omit<DataArchiveOptions, "excel">;
+
+export type DataArchiveInspection = {
+  applicationVersion: string;
+  database: boolean;
+  databaseSections: string[];
+  settings: boolean;
+  customVariables: boolean;
+  templates: boolean;
+  reports: boolean;
+  excel: boolean;
+};
+
 const mutateSettings = <T>(command: string, args?: Record<string, unknown>) => Promise.resolve(invoke<T>(command, args)).then((result) => {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("settings-updated", { detail: { command } }));
   return result;
@@ -26,6 +49,8 @@ export const settingsService = {
   updateSigner: (role: string, signer: SignerSettings) => mutateSettings<AppSettings>("update_signer_settings", { role, signer }),
   addSigner: (name: string, signer: SignerSettings) => mutateSettings<AppSettings>("add_signer", { name, signer }),
   deleteSigner: (id: string) => mutateSettings<AppSettings>("delete_signer", { id }),
+  saveCommission: (commission: CommissionTemplate) => mutateSettings<AppSettings>("save_commission", { commission }),
+  deleteCommission: (id: string) => mutateSettings<AppSettings>("delete_commission", { id }),
   updateVisiblePersonnelColumns: (columns: string[]) => invoke<AppSettings>("update_visible_personnel_columns", { columns }),
   updateVisibleVehicleColumns: (columns: string[]) => invoke<AppSettings>("update_visible_vehicle_columns", { columns }),
   updateUnit: (unit: UnitSettings) => mutateSettings<AppSettings>("update_unit_settings", { unit }),
@@ -34,6 +59,7 @@ export const settingsService = {
   getUpdateStatus: () => invoke<UpdateStatus>("get_update_status"),
   inspectOfflineUpdate: (path: string) => invoke<OfflineUpdateInfo>("inspect_offline_update", { path }),
   installOfflineUpdate: (path: string) => invoke<void>("install_offline_update", { path }),
-  exportApplicationData: (path: string, options: { database: boolean; settings: boolean; customVariables: boolean; templates: boolean; reports: boolean }) => invoke<void>("export_application_data", { path, options }),
-  importApplicationData: (path: string) => invoke<void>("import_application_data", { path })
+  exportApplicationData: (path: string, options: DataArchiveOptions) => invoke<void>("export_application_data", { path, options }),
+  inspectApplicationDataArchive: (path: string) => invoke<DataArchiveInspection>("inspect_application_data_archive", { path }),
+  importApplicationData: (path: string, options: DataImportOptions) => invoke<void>("import_application_data", { path, options })
 };

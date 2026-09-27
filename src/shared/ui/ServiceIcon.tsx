@@ -6,8 +6,10 @@ import siizIcon from "../../assets/service-icons/service-siiz.svg?raw";
 import workshopIcon from "../../assets/service-icons/service-workshop.svg?raw";
 import zbbrIcon from "../../assets/service-icons/service-zbbr.svg?raw";
 import zuIcon from "../../assets/service-icons/service-zu.svg?raw";
+import settingsSignersIcon from "../../assets/service-icons/settings-signers.svg?raw";
+import settingsUnitIcon from "../../assets/service-icons/settings-unit.svg?raw";
 
-export type ServiceIconName = "zbbr" | "zu" | "gz_kb" | "siiz" | "ovtm" | "rs" | "sa_ppo" | "workshop";
+export type ServiceIconName = "zbbr" | "zu" | "gz_kb" | "siiz" | "ovtm" | "rs" | "sa_ppo" | "workshop" | "settings-unit" | "settings-signers";
 
 const iconUrls: Record<ServiceIconName, string> = {
   zbbr: zbbrIcon,
@@ -18,6 +20,8 @@ const iconUrls: Record<ServiceIconName, string> = {
   rs: rsIcon,
   sa_ppo: saPpoIcon,
   workshop: workshopIcon,
+  "settings-unit": settingsUnitIcon,
+  "settings-signers": settingsSignersIcon,
 };
 
 const inlineIcons = Object.fromEntries(Object.entries(iconUrls).map(([name, source]) => [

@@ -58,9 +58,9 @@ describe("Довідник", () => {
     expect(window.location.hash).toBe("#guide-custom-fields");
   });
 
-  it("documents destructive imports, exact plan checks and irreversible field deletion", () => {
-    expect(topicText("settings-backup")).toMatch(/«Замінити базу даних».+видаляє інциденти, позиції, майно, автомобілі, екіпажі, особовий склад і визначення кастомних полів/u);
-    expect(topicText("settings-backup")).toMatch(/«Доповнити базу даних» додає нові записи, але не оновлює наявні дублікати/u);
+  it("documents selective imports, exact plan checks and irreversible field deletion", () => {
+    expect(topicText("settings-backup")).toMatch(/«Вибрати склад даних» замінює тільки позначені розділи й зберігає решту локальних даних/u);
+    expect(topicText("settings-backup")).toMatch(/автоматично створює резервну копію поточних даних/u);
     expect(topicText("custom-fields")).toMatch(/безповоротно видаляє його значення для всіх записів/u);
     expect(topicText("custom-fields")).toMatch(/починатися з малої латинської літери.+a–z, цифри або знак підкреслення/u);
     expect(topicText("flight-plan")).toMatch(/Чернетка автоматично зберігається.+коректний графік переходів/u);

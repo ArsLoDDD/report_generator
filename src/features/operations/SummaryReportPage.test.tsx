@@ -62,8 +62,9 @@ const pendingSummaryDraft = (label: string, invalid = false) => {
 const setupInvoke = () => {
   const manual = defaultSummaryManual();
   manual.reportNumber = "2555/8580-в/дск";
-  invoke.mockImplementation((command: string) => {
+  invoke.mockImplementation((command: string, args?: unknown) => {
     if (command === "get_app_settings") return Promise.resolve(settings);
+    if (command === "update_unit_settings") return Promise.resolve({ ...settings, unit: (args as { unit: typeof settings.unit }).unit });
     if (command === "load_summary_report_draft") return Promise.resolve({ current: JSON.stringify(manual), previous: null });
     if (command === "get_flight_plan_snapshot") return Promise.resolve(null);
     if (command === "render_summary_report_preview") return Promise.resolve([80, 75, 3, 4]);
@@ -76,6 +77,25 @@ beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); setupInvoke(); });
 afterEach(() => { cleanup(); localStorage.clear(); vi.useRealTimers(); });
 
 describe("Підсумкове донесення", () => {
+  it("uses one value for the duplicate battalion and report-recipient fields", async () => {
+    render(<NotificationProvider><SummaryReportPage /></NotificationProvider>);
+    fireEvent.click(await screen.findByRole("button", { name: "Параметри ПД" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Параметри ПД" });
+    expect(within(dialog).queryByLabelText("Адресат донесення")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Коротка назва військової частини")).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText(/^Повна назва батальйону у родовому відмінку/u), { target: { value: "першого батальйону безпілотних систем" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Коротка назва батальйону \/ військової частини/u), { target: { value: "1 ББпС" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Зберегти параметри" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_unit_settings", { unit: expect.objectContaining({
+      battalionFullName: "першого батальйону безпілотних систем",
+      reportRecipient: "першого батальйону безпілотних систем",
+      battalionShortName: "1 ББпС",
+      militaryUnitShortName: "1 ББпС",
+    }) }));
+  });
+
   it("бере плани за D−1 і D та не підмішує завтрашню локальну чернетку", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 8, 17, 14, 0));

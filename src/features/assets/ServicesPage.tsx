@@ -11,6 +11,7 @@ import { Modal } from "../../shared/ui/Modal";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { SearchInput } from "../../shared/ui/SearchInput";
+import { SectionTabs } from "../../shared/ui/SectionTabs";
 import { ServiceIcon, type ServiceIconName } from "../../shared/ui/ServiceIcon";
 import { Select } from "../../shared/ui/Select";
 import { EntityTable, type EntityTableColumn } from "../../shared/ui/data-table/EntityTable";
@@ -304,7 +305,12 @@ export function ServicesPage({ people }: { people: Person[] }) {
   const reusableUavChildren = assets.filter((item) => item.assetType !== "БпАК" && item.id !== (editing === "new" ? -1 : editing?.id));
   const shownReusableUavChildren = reusableUavChildren.filter((item) => [item.name, item.serialNumber, item.assetType, item.parentName].join(" ").toLocaleLowerCase("uk").includes(compositionQuery.trim().toLocaleLowerCase("uk")));
 
-  const serviceSwitcher = <nav className="services-tabs" aria-label="Служби майна">{serviceDefinitions.map((definition) => <button key={definition.code} className={serviceCode === definition.code ? "active" : ""} onClick={() => { setServiceCode(definition.code); setZuMode("assets"); }} title={definition.description}><DefinitionIcon icon={definition.icon} /><b>{definition.shortName}</b></button>)}</nav>;
+  const serviceSwitcher = <SectionTabs
+    ariaLabel="Служби майна"
+    value={serviceCode}
+    onChange={(code) => { setServiceCode(code); setZuMode("assets"); }}
+    tabs={serviceDefinitions.map((definition) => ({ id: definition.code, label: definition.shortName, title: definition.description, icon: <DefinitionIcon icon={definition.icon} /> }))}
+  />;
   const zuSwitcher = <div className="services-view-toggle" role="group" aria-label="Розділ ЗУ"><button className={zuMode === "assets" ? "active" : ""} onClick={() => setZuMode("assets")}><ServiceIcon name="zu" />Облік ЗУ</button><button className={zuMode === "workshop" ? "active" : ""} onClick={() => setZuMode("workshop")}><ServiceIcon name="workshop" />Цукерня</button></div>;
 
   return <PageFrame className="services-page" tools={serviceSwitcher}>

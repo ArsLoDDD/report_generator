@@ -1,4 +1,4 @@
-import type { AppSettings } from "../../shared/types/domain";
+import type { AppSettings, UnitSettings } from "../../shared/types/domain";
 import type { Crew, Equipment, FlightJournalEntry, FlightPlanPersonnelTransition, FlightPlanRequest, Position, PositionWork, PositionWorkStatusEvent, StaffingRecord } from "./types";
 
 export type SummaryTextItem = { id: string; text: string; date?: string; time?: string };
@@ -12,6 +12,14 @@ export type SummaryFlightItem = { id: string; crewId: number; workStrip: string;
 export type SummaryBlockRun = { text: string; bold?: boolean };
 export type SummaryBlockLine = { text: string; runs?: SummaryBlockRun[]; bold?: boolean; kind?: "paragraph" | "item" | "continuation" };
 export type SummaryShelling = { id: string; time: string; shellingType: string; target: string; direction: string; response: string };
+export const summaryBattalionNames = (unit: UnitSettings) => ({
+  full: (unit.battalionFullName?.trim() || unit.reportRecipient?.trim() || "").replace(/^Командиру\s*/iu, "").trim(),
+  short: unit.battalionShortName?.trim() || unit.militaryUnitShortName?.trim() || "",
+});
+export const synchronizeSummaryUnit = (unit: UnitSettings): UnitSettings => {
+  const names = summaryBattalionNames(unit);
+  return { ...unit, battalionFullName: names.full, reportRecipient: names.full, battalionShortName: names.short, militaryUnitShortName: names.short };
+};
 export type SummaryManual = {
   reportNumber: string;
   enemyLosses: Record<string, string>;
@@ -142,7 +150,7 @@ const CANONICAL_COMPANY_COMMANDER_POSITION = "Командир роти безп
 const isCanonicalCompanyCommanderPosition = (position: string) => /^Командир роти безпілотних авіаційних комплексів(?:\s+військової частини(?:\s+\S+)*)?$/iu.test(position);
 const summarySignerPosition = (settings: AppSettings): { text: string; warning: string } => {
   const position = settings.mainSigner.position?.trim() || "";
-  const battalionFullName = settings.unit.battalionFullName?.trim().replace(/безпілолтних/giu, "безпілотних") || "";
+  const battalionFullName = summaryBattalionNames(settings.unit).full.replace(/безпілолтних/giu, "безпілотних");
   const battalionNumber = [settings.unit.militaryUnitShortName, settings.unit.battalionShortName]
     .map((name) => name?.trim().match(/^(\d+)/u)?.[1])
     .find(Boolean);
@@ -215,7 +223,7 @@ const crewPositionItems = (crews: Crew[], positions: Position[], equipment: Equi
 const compositionLines = (items: SummaryCompositionItem[], settings: AppSettings): SummaryBlockLine[] => items.map((item) => {
   const count = Math.max(0, Number(item.count) || 0);
   const noun = count === 1 ? item.uavKind.replace(/^екіпажі/u, "екіпаж") : item.uavKind;
-  return { text: `${countWord(count)} ${noun} (${settings.unit.shortName || "назву не вказано"} ${settings.unit.militaryUnitShortName || settings.unit.unitCode || "військову частину не вказано"}) забезпечує виконання бойових (спеціальних) завдань в межах смуги оборони ${item.battleOrder || "БрО не вказано"} в оперативній взаємодії з підрозділами ${item.workStrip || "смугу роботи не вказано"};`, kind: "paragraph" };
+  return { text: `${countWord(count)} ${noun} (${settings.unit.shortName || "назву не вказано"} ${settings.unit.militaryUnitShortName || settings.unit.battalionShortName || settings.unit.unitCode || "військову частину не вказано"}) забезпечує виконання бойових (спеціальних) завдань в межах смуги оборони ${item.battleOrder || "БрО не вказано"} в оперативній взаємодії з підрозділами ${item.workStrip || "смугу роботи не вказано"};`, kind: "paragraph" };
 });
 const positionLines = (items: SummaryPositionItem[], settings: AppSettings): SummaryBlockLine[] => {
   const grouped = new Map<string, SummaryPositionItem[]>();
@@ -724,7 +732,7 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
         .filter(Boolean);
       return [`${group.rank} ${personName(group.fullName)}:`, ...periods].join("\n");
     }).join("\n");
-    const commander = settings.unit.militaryUnitShortName || settings.unit.unitCode || settings.unit.battalionShortName || "батальйону";
+    const commander = settings.unit.militaryUnitShortName || settings.unit.battalionShortName || settings.unit.unitCode || "батальйону";
     const order = work.battleOrder ? ` на виконання БОЙОВОГО РОЗПОРЯДЖЕННЯ КОМАНДИРА ${commander} ${work.battleOrder}` : "";
     const locationText = work.workType === "Рекогностування" && work.positionId == null
       ? `у смузі «${stripName || "не вказано"}» в районі ${positionLocality || "населений пункт не вказано"}`
@@ -752,12 +760,13 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
   const signerPosition = summarySignerPosition(settings);
   const automatic = { forceComposition, positions: positionText, flightOperations, periodEvents };
   const auto = (key: keyof typeof automatic) => manual.autoOverrides[key]?.trim() || automatic[key];
-  const warnings = [!settings.unit.shortName && "Не вказана коротка назва підрозділу.", !settings.unit.reportRecipient && "Не вказаний адресат донесення.", !settings.unit.kspName && "Не вказана назва КСП.", !settings.unit.kspLocality && "Не вказаний населений пункт КСП.", !manual.reportNumber && "Не вказаний номер донесення.", !signer.fullName && "Не вказаний основний підписант.", signerPosition.warning, input.journal.some((flight) => flight.flightDate >= shiftDate(reportDate, -1) && flight.flightDate <= reportDate && !flight.skyTime) && "У журналі є політ без часу «Небо».", commandCoverage, guardCoverage, kspConflict && "Людина з чергування КСП одночасно зазначена на позиції. Приберіть її з КСП або плану польотів."].filter((item): item is string => Boolean(item));
+  const { full: fullBattalionName, short: shortBattalionName } = summaryBattalionNames(settings.unit);
+  const warnings = [!settings.unit.shortName && "Не вказана коротка назва підрозділу.", !fullBattalionName && "Не вказана повна назва батальйону / адресат донесення.", !settings.unit.kspName && "Не вказана назва КСП.", !settings.unit.kspLocality && "Не вказаний населений пункт КСП.", !manual.reportNumber && "Не вказаний номер донесення.", !signer.fullName && "Не вказаний основний підписант.", signerPosition.warning, input.journal.some((flight) => flight.flightDate >= shiftDate(reportDate, -1) && flight.flightDate <= reportDate && !flight.skyTime) && "У журналі є політ без часу «Небо».", commandCoverage, guardCoverage, kspConflict && "Людина з чергування КСП одночасно зазначена на позиції. Приберіть її з КСП або плану польотів."].filter((item): item is string => Boolean(item));
   const enemy = manual.enemyLosses;
   const values: Record<string, string> = {
-    recipient: settings.unit.reportRecipient || "не вказано", report_number: manual.reportNumber || "не вказано", unit_short_name: settings.unit.shortName || "назву не вказано", military_unit_short_name: settings.unit.militaryUnitShortName || settings.unit.unitCode || "військову частину не вказано", ksp_name: settings.unit.kspName || "назву не вказано", ksp_locality: settings.unit.kspLocality || "населений пункт не вказано", report_date: displayDate(reportDate),
+    recipient: fullBattalionName || "не вказано", report_number: manual.reportNumber || "не вказано", unit_short_name: settings.unit.shortName || "назву не вказано", military_unit_short_name: shortBattalionName || settings.unit.unitCode || "військову частину не вказано", ksp_name: settings.unit.kspName || "назву не вказано", ksp_locality: settings.unit.kspLocality || "населений пункт не вказано", report_date: displayDate(reportDate),
     composition_changes: manual.compositionOverride ? manual.compositionChanges : "Без змін", force_composition: auto("forceComposition"), completeness: `о/с–${manual.completeness.personnel || "0"}%; ОВТ: АТ–${manual.completeness.automotive || "0"}%, БпАК (${manual.completeness.uavType || "розвідувальні літакового типу"}) – ${manual.completeness.uav || "0"}%, ЗББР – ${manual.completeness.zbbr || "0"}%, ПММ – ${manual.completeness.fuel || "0"}%.`, positions: auto("positions"),
-    enemy_actions: "", assault_actions: "", battalion_short_name: settings.unit.battalionShortName || "назву батальйону не вказано", period_start_date: displayDate(shiftDate(reportDate, -1)), period_end_date: displayDate(reportDate), flight_count: flights.length ? `здійснювалися ${flights.length} рази.` : "не здійснювалися.", flight_operations: flightOperations,
+    enemy_actions: "", assault_actions: "", battalion_short_name: shortBattalionName || "назву батальйону не вказано", period_start_date: displayDate(shiftDate(reportDate, -1)), period_end_date: displayDate(reportDate), flight_count: flights.length ? `здійснювалися ${flights.length} рази.` : "не здійснювалися.", flight_operations: flightOperations,
     ksp_mgrs: settings.unit.kspMgrs || "координати не вказано", ksp_outskirts: manual.kspOutskirts || "південні околиці", command_duties: "", guard_duties: "", period_events: auto("periodEvents"), commissions: manual.commissionsOverride ? manual.commissions : "В поточному періоді не працювали.", fortification: manual.fortificationOverride ? manual.fortification : "Заходи з фортифікаційного обладнання не велись.", dzvin: manual.dzvinOverride ? manual.dzvin : "Зміни не відбувалися.", next_tasks: joinItems(manual.nextTasks),
     personnel_losses: `Загальні втрати особового складу за період з 18:01 год ${displayDate(shiftDate(reportDate, -1))} по 18:00 год ${displayDate(reportDate)} склали ${value(manual.personnelLosses, "total")} осіб, з них:\nБезповоротні – ${value(manual.personnelLosses, "irreversible")}, у тому числі:\nБойові – ${value(manual.personnelLosses, "combatIrreversible")}, з них:\nзагинули – ${value(manual.personnelLosses, "killed")};\nпомерли від ран – ${value(manual.personnelLosses, "diedFromWounds")};\nІнші – ${value(manual.personnelLosses, "other")};\nТимчасові – ${value(manual.personnelLosses, "temporary")}, у тому числі:\nБойові – ${value(manual.personnelLosses, "combatTemporary")}, з них:\nсанітарні бойові – ${value(manual.personnelLosses, "wounded")};\nполон – ${value(manual.personnelLosses, "captured")};\nзникли безвісті – ${value(manual.personnelLosses, "missing")};\nдезертири – ${value(manual.personnelLosses, "deserters")};\nСЗЧ – ${value(manual.personnelLosses, "szch")};`, equipment_losses: `Всього: – ${value(manual.equipmentLosses, "total")} од., з них: знищено – ${value(manual.equipmentLosses, "destroyed")} од., втрачено – ${value(manual.equipmentLosses, "lost")} од., пошкоджено – ${value(manual.equipmentLosses, "damaged")} од.;\nтанків – ${value(manual.equipmentLosses, "tanks")} од.;\nББМ – ${value(manual.equipmentLosses, "afv")} од.;\nГіМ – ${value(manual.equipmentLosses, "artillery")} од.;\nзасоби ППО – ${value(manual.equipmentLosses, "airDefence")} од.;\nАТ – ${value(manual.equipmentLosses, "vehicles")} од.;\nзасоби РЕБ – ${value(manual.equipmentLosses, "reb")} од.; засоби зв’язку – ${value(manual.equipmentLosses, "communications")} од.;\nБпЛА – ${value(manual.equipmentLosses, "uav")} од.`, equipment_losses_details: manual.equipmentLossesDetails || "Відсутні.", ammunition_expenses: manual.ammunitionExpenses || "-не застосовувалися.", problems: manual.problems || "не вказано", other_issues: joinItems(manual.otherIssues, "-відсутні."), signer_position: signerPosition.text, signer_rank: signer.rank || "не вказано", signer_given_name: name[1] || "ім’я не вказано", signer_surname: name[0]?.toLocaleUpperCase("uk") || "прізвище не вказано", arm_number: settings.unit.armNumber || settings.unit.armyCorpsNumber || "номер не вказано",
   };
@@ -798,7 +807,7 @@ export function buildSummaryDocument(input: { reportDate: string; manual: Summar
       { text: `авіаційних ударів - ${manual.airStrikes || "0"} (ВА - ${manual.va || "0"}; ША - ${manual.sha || "0"}; АА - ${manual.aa || "0"});`, kind: "paragraph" },
       { text: manual.enemyAssault ? manual.enemyAssaultText : "Противник не проводив наступальні дії;", bold: true, kind: "paragraph" },
     ],
-    assault_actions: [{ text: manual.ownAssault ? manual.ownAssaultText : `Штурмові дії ${settings.unit.shortName || "підрозділу"} ${settings.unit.battalionShortName || ""} по противнику не проводились.`.replace(/\s+/gu, " "), kind: "paragraph" }],
+    assault_actions: [{ text: manual.ownAssault ? manual.ownAssaultText : `Штурмові дії ${settings.unit.shortName || "підрозділу"} ${shortBattalionName || ""} по противнику не проводились.`.replace(/\s+/gu, " "), kind: "paragraph" }],
     flight_operations: flightLines,
     command_duties: commandLines.length ? commandLines : [{ text: "Чергових не зазначено.", kind: "paragraph" }],
     guard_duties: guardLines.length ? guardLines : [{ text: "Склад охорони не зазначено.", kind: "paragraph" }],

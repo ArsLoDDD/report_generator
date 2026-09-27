@@ -214,6 +214,7 @@ pub fn inspect(template_path: &str) -> TemplateValidationResult {
 #[allow(clippy::too_many_arguments)]
 pub fn validate(
     connection: &Connection,
+    settings: Option<&settings::AppSettings>,
     template_path: &str,
     ids: &[i64],
     vehicle_ids: &[i64],
@@ -333,6 +334,34 @@ pub fn validate(
     }
     for token in &result.variables {
         let base = token.split(':').next().unwrap_or_default();
+        if let Some((variable, number, _)) = commission_variable_parts(base) {
+            if let Some(settings) = settings {
+                let issue = settings
+                    .commission_templates
+                    .iter()
+                    .find(|commission| commission.variable == variable)
+                    .map(|commission| {
+                        let mut members = commission.members.iter().collect::<Vec<_>>();
+                        members.sort_by_key(|member| member.order);
+                        members.get(number - 1).map_or_else(
+                            || Some(format!("Змінна «{{{{{base}}}}}» посилається на відсутнього учасника комісії №{number}.")),
+                            |member| {
+                                let assigned = settings.signer_roles.iter().any(|role| {
+                                    role.id == member.signer_role_id
+                                        && !role.signer.full_name.trim().is_empty()
+                                });
+                                (!assigned).then(|| format!("Для учасника №{number} комісії «{}» не обрано заповненого підписанта.", commission.name))
+                            },
+                        )
+                    })
+                    .unwrap_or_else(|| Some(format!("Змінна «{{{{{base}}}}}» посилається на відсутню комісію.")));
+                if let Some(issue) = issue {
+                    if !result.errors.contains(&issue) {
+                        result.errors.push(issue);
+                    }
+                }
+            }
+        }
         if field_for(base).is_none() && custom_field_token(base) {
             if let Some(error) = validate_custom_field_reference(connection, base) {
                 result.errors.push(error);
@@ -414,8 +443,10 @@ pub fn generate(
     root: &Path,
     request: GenerateReportRequest,
 ) -> Result<GeneratedReport, String> {
+    let settings = settings::load(root)?;
     let check = validate(
         connection,
+        Some(&settings),
         &request.template_path,
         &request.personnel_ids,
         &request.vehicle_ids,
@@ -432,7 +463,7 @@ pub fn generate(
     let mut values = values_for(
         connection,
         &people,
-        &settings::load(root)?,
+        &settings,
         request.report_date.as_deref(),
         None,
     )?;
@@ -824,6 +855,7 @@ fn dynamic_document_parameter(base: &str) -> bool {
 
     !reserved_subject
         && !reserved_signer
+        && !base.starts_with("комісія_")
         && !signer_field_suffix
         && !reserved_document_parameter
         && nearest_known_variable(base).is_none()
@@ -965,6 +997,13 @@ fn field_for(base: &str) -> Option<&'static Field> {
     }
     if let Some(field) = document_field_for(base) {
         return Some(field);
+    }
+    if let Some((_, _, field_id)) = commission_variable_parts(base) {
+        let field_id = field_id.unwrap_or("піб");
+        return registry()
+            .signer_fields
+            .iter()
+            .find(|field| field.id == field_id);
     }
     if let Some(id) = base.strip_prefix("автомобіль_") {
         let id = numbered_subject_field(id)?;
@@ -1113,6 +1152,29 @@ fn numbered_subject_field(value: &str) -> Option<&str> {
         .ok()
         .filter(|number| *number > 0)
         .map(|_| field)
+}
+fn commission_variable_parts(base: &str) -> Option<(&str, usize, Option<&str>)> {
+    if !base.starts_with("комісія_") {
+        return None;
+    }
+    let (without_last, last) = base.rsplit_once('_')?;
+    if let Ok(number) = last.parse::<usize>() {
+        return (number > 0 && without_last.len() > "комісія_".len()).then_some((
+            without_last,
+            number,
+            None,
+        ));
+    }
+    if !registry()
+        .signer_fields
+        .iter()
+        .any(|field| field.id == last)
+    {
+        return None;
+    }
+    let (variable, number) = without_last.rsplit_once('_')?;
+    let number = number.parse::<usize>().ok()?;
+    (number > 0 && variable.len() > "комісія_".len()).then_some((variable, number, Some(last)))
 }
 const ASSET_SERVICE_SUBJECTS: [(&str, &str, &str); 11] = [
     ("zbbr", "зббр_", "майна ЗББР"),

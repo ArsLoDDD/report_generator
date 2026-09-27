@@ -6,7 +6,7 @@ import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { assetServiceSubjects, crewFields, customFieldId, equipmentFields, generationParameterFields, modifierRegistry, personFields, positionFields, signerFields, tokenFor, vehicleFields, type VariableDefinition } from "../../shared/template-language/registry";
 import { morphologyService, type UkrainianCase } from "../../shared/services/morphologyService";
 import { personnelService } from "../../shared/services/personnelService";
-import type { CustomFieldDefinition, SignerRole } from "../../shared/types/domain";
+import type { CommissionTemplate, CustomFieldDefinition, SignerRole } from "../../shared/types/domain";
 import { settingsService } from "../settings/services/settingsService";
 import { operationsService } from "../operations/services/operationsService";
 import type { AssetCatalogField, AssetServiceCode } from "../operations/types";
@@ -35,7 +35,7 @@ const sourceOptions: Array<{ id: PickerSource; label: string; hint: string; icon
   { id: "all", label: "Усі поля", hint: "Пошук у всіх джерелах", icon: Search },
   { id: "accounting", label: "З обліку", hint: "Особовий склад, техніка та підрозділ", icon: Database },
   { id: "manual", label: "Запитати під час створення", hint: "Значення, яке введе користувач", icon: FileInput },
-  { id: "signers", label: "Підписанти", hint: "Дані з параметрів програми", icon: Signature },
+  { id: "signers", label: "Підписанти й комісії", hint: "Дані з параметрів програми", icon: Signature },
 ];
 
 const caseQuestions: Record<string, string> = {
@@ -156,6 +156,7 @@ export function AutoFillFieldPicker({ embedded = false, mode = "copy", onApply }
   const [vehicleCustomFields, setVehicleCustomFields] = useState<CustomFieldDefinition[]>([]);
   const [assetCatalogFields, setAssetCatalogFields] = useState<CatalogVariable[]>([]);
   const [availableSignerRoles, setAvailableSignerRoles] = useState<SignerRole[]>([]);
+  const [availableCommissions, setAvailableCommissions] = useState<CommissionTemplate[]>([]);
   const { notify } = useNotifications();
 
   useEffect(() => {
@@ -167,7 +168,10 @@ export function AutoFillFieldPicker({ embedded = false, mode = "copy", onApply }
         return catalogs.flatMap((catalog) => catalog.fields.map((field) => ({ serviceCode: subject.id, serviceLabel: subject.label, prefix: subject.prefix, catalogName: catalog.name, field })));
       })).then((groups) => setAssetCatalogFields(groups.flat())).catch(() => undefined);
     }
-    void settingsService.get().then((settings) => setAvailableSignerRoles(settings.signerRoles ?? [])).catch(() => undefined);
+    void settingsService.get().then((settings) => {
+      setAvailableSignerRoles(settings.signerRoles ?? []);
+      setAvailableCommissions(settings.commissionTemplates ?? []);
+    }).catch(() => undefined);
   }, []);
 
   const signerObjects = useMemo(() => availableSignerRoles.length
@@ -196,8 +200,15 @@ export function AutoFillFieldPicker({ embedded = false, mode = "copy", onApply }
     );
     const manual = generationParameterFields.map((field) => fromField(field, { id: field.id, source: "manual", subjectId: "document", subjectLabel: "Заповнюється перед генерацією", parameterNumberable: true }));
     const signers = signerObjects.flatMap(([id, label]) => signerFields.map((field) => fromField(field, { id: `${id}_${field.id}`, source: "signers", subjectId: id, subjectLabel: label })));
-    return [...accounting, ...manual, ...signers];
-  }, [assetCatalogFields, customFields, vehicleCustomFields, signerObjects]);
+    const commissions: PickerVariable[] = availableCommissions.flatMap((commission) => [...commission.members]
+      .sort((left, right) => left.order - right.order)
+      .flatMap((_member, index) => {
+        const number = index + 1;
+        const subject = { source: "signers" as const, subjectId: `${commission.variable}_${number}`, subjectLabel: `${commission.name} · учасник №${number}` };
+        return signerFields.map((field) => fromField(field, { ...subject, id: `${commission.variable}_${number}_${field.id}` }));
+      }));
+    return [...accounting, ...manual, ...signers, ...commissions];
+  }, [assetCatalogFields, availableCommissions, customFields, vehicleCustomFields, signerObjects]);
 
   const subjectOptions = useMemo(() => {
     const visible = source === "all" ? variables : variables.filter((item) => item.source === source);

@@ -81,6 +81,22 @@ describe("підсумкове донесення", () => {
     expect(result.document.values.signer_position).not.toContain("А2222");
   });
 
+  it("removes the legacy recipient prefix before inserting it after Командиру", () => {
+    const manual = defaultSummaryManual();
+    manual.reportNumber = "1";
+    const result = buildSummaryDocument({
+      reportDate: "2026-09-15",
+      manual,
+      settings: {
+        mainSigner: { fullName: "ШКОЛЬНІКОВ Арсеній Едуардович", rank: "молодший лейтенант", position: "Командир" },
+        unit: { kind: "Рота", shortName: "РБАК", authorizedStrength: 4, reportRecipient: "Командиру 477 ОББпС", kspName: "ОРІОН", kspLocality: "КАЛИНІВКА" },
+      } as never,
+      crews: [], positions: [], journal: [], snapshots: [],
+    });
+
+    expect(result.document.values.recipient).toBe("477 ОББпС");
+  });
+
   it("never keeps a legacy military-unit suffix when the battalion name is missing", () => {
     const result = buildSummaryDocument({
       reportDate: "2026-09-15",

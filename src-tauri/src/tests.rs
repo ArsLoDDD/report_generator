@@ -42,7 +42,7 @@ fn windows_installer_creates_the_desktop_shortcut() {
     let hooks = include_str!("../windows/installer-hooks.nsh");
     assert!(hooks.contains("!macro NSIS_HOOK_POSTINSTALL"));
     assert!(hooks.contains(
-        r#"CreateShortcut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe""#
+        r#"CreateShortcut "$DESKTOP\Шаблонізатор ${VERSION}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe""#
     ));
 }
 

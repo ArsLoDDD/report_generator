@@ -115,4 +115,20 @@ describe("Поля автозаповнення", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("{{військовий_1_звання}}"));
     expect(await screen.findByText("Поле автозаповнення скопійовано.")).toBeInTheDocument();
   });
+
+  it("exposes full and split commission member fields with numbered variables", async () => {
+    settingsService.get.mockResolvedValue({
+      signerRoles: [{ id: "член_комісії", name: "Член комісії", signer: { fullName: "ПЕТРЕНКО Петро Петрович", rank: "капітан", position: "офіцер" } }],
+      commissionTemplates: [{ id: "commission_1", name: "Комісія зі списання", variable: "комісія_списання", members: [{ id: "member_1", signerRoleId: "член_комісії", order: 0 }] }],
+    });
+    renderPicker();
+    fireEvent.click(screen.getByRole("tab", { name: /Підписанти й комісії/ }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "ПІБ, Комісія зі списання · учасник №1" }));
+    fireEvent.click(screen.getByText("Додатково: технічний код"));
+    expect(screen.getByText("{{комісія_списання_1_піб}}")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Посада, Комісія зі списання · учасник №1" }));
+    expect(screen.getByText("{{комісія_списання_1_посада}}")).toBeInTheDocument();
+  });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AppSettings, SignerSettings, UnitSettings } from "../../../shared/types/domain";
+import type { AppSettings, CommissionTemplate, SignerSettings, UnitSettings } from "../../../shared/types/domain";
 import { settingsService } from "../services/settingsService";
 
 export function useAppSettings() {
@@ -35,5 +35,17 @@ export function useAppSettings() {
     catch (error) { setErrorMessage(error instanceof Error ? error.message : "Не вдалося зберегти налаштування підрозділу."); return false; }
     finally { setIsSaving(false); }
   };
-  return { settings, errorMessage, isSaving, updateSigner, addSigner, deleteSigner, updateUnit };
+  const saveCommission = async (commission: CommissionTemplate) => {
+    setIsSaving(true); setErrorMessage(null);
+    try { setSettings(await settingsService.saveCommission(commission)); return true; }
+    catch (error) { setErrorMessage(error instanceof Error ? error.message : "Не вдалося зберегти комісію."); return false; }
+    finally { setIsSaving(false); }
+  };
+  const deleteCommission = async (id: string) => {
+    setIsSaving(true); setErrorMessage(null);
+    try { setSettings(await settingsService.deleteCommission(id)); return true; }
+    catch (error) { setErrorMessage(error instanceof Error ? error.message : "Не вдалося видалити комісію."); return false; }
+    finally { setIsSaving(false); }
+  };
+  return { settings, errorMessage, isSaving, updateSigner, addSigner, deleteSigner, updateUnit, saveCommission, deleteCommission };
 }

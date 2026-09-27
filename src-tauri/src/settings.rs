@@ -19,12 +19,37 @@ pub struct SignerRole {
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CommissionMember {
+    pub id: String,
+    pub signer_role_id: String,
+    pub order: i64,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommissionTemplate {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub variable: String,
+    #[serde(default)]
+    pub members: Vec<CommissionMember>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UnitStructureNode {
     pub id: String,
     pub parent_id: Option<String>,
     pub kind: String,
     pub name: String,
     pub order: i64,
+    #[serde(default)]
+    pub rank_requirement: String,
+    #[serde(default)]
+    pub vos: String,
+    #[serde(default)]
+    pub tariff_grade: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -78,6 +103,8 @@ pub struct AppSettings {
     pub fuel_chief: SignerSettings,
     #[serde(default)]
     pub signer_roles: Vec<SignerRole>,
+    #[serde(default)]
+    pub commission_templates: Vec<CommissionTemplate>,
     #[serde(default)]
     pub visible_personnel_columns: Vec<String>,
     #[serde(default)]
@@ -198,6 +225,7 @@ pub fn defaults() -> AppSettings {
         deputy_rear: empty_signer(""),
         fuel_chief: empty_signer(""),
         signer_roles: Vec::new(),
+        commission_templates: Vec::new(),
         visible_personnel_columns: Vec::new(),
         visible_vehicle_columns: Vec::new(),
         unit: default_unit(),
@@ -243,7 +271,17 @@ pub fn update_unit_settings(root: &Path, unit: UnitSettings) -> Result<AppSettin
         full_name: unit.full_name.trim().into(),
         unit_code,
         authorized_strength: unit.authorized_strength,
-        structure: unit.structure,
+        structure: unit
+            .structure
+            .into_iter()
+            .map(|mut item| {
+                item.name = item.name.trim().into();
+                item.rank_requirement = item.rank_requirement.trim().into();
+                item.vos = item.vos.trim().into();
+                item.tariff_grade = item.tariff_grade.trim().into();
+                item
+            })
+            .collect(),
         battalion_full_name: unit.battalion_full_name.trim().into(),
         battalion_short_name: unit.battalion_short_name.trim().into(),
         military_unit_short_name: unit.military_unit_short_name.trim().into(),
@@ -286,8 +324,51 @@ pub fn load(root: &Path) -> Result<AppSettings, String> {
     let settings_path = path(root);
     if let Ok(content) = fs::read_to_string(&settings_path) {
         if let Ok(mut settings) = serde_json::from_str::<AppSettings>(&content) {
+            let mut changed = false;
             if settings.signer_roles.is_empty() {
                 settings.signer_roles = migrated_roles(&settings);
+                changed = true;
+            }
+            let mut used_variables = std::collections::HashSet::new();
+            for commission in &mut settings.commission_templates {
+                let source = if commission.variable.trim().is_empty() {
+                    if commission.id.starts_with("комісія_") {
+                        commission.id.clone()
+                    } else {
+                        role_id(&commission.name)
+                            .map(|value| {
+                                if value.starts_with("комісія_") {
+                                    value
+                                } else {
+                                    format!("комісія_{value}")
+                                }
+                            })
+                            .unwrap_or_else(|_| "комісія_без_назви".into())
+                    }
+                } else {
+                    commission.variable.clone()
+                };
+                let canonical = role_id(&source).unwrap_or_else(|_| "комісія_без_назви".into());
+                let mut variable = if canonical.starts_with("комісія_") {
+                    canonical
+                } else {
+                    format!("комісія_{canonical}")
+                };
+                if used_variables.contains(&variable) {
+                    let base = variable.clone();
+                    let mut suffix = 2;
+                    while used_variables.contains(&variable) {
+                        variable = format!("{base}_{suffix}");
+                        suffix += 1;
+                    }
+                }
+                used_variables.insert(variable.clone());
+                if commission.variable != variable {
+                    commission.variable = variable;
+                    changed = true;
+                }
+            }
+            if changed {
                 save(root, &settings)?;
             }
             return Ok(settings);
@@ -386,6 +467,100 @@ pub fn delete_signer(root: &Path, id: &str) -> Result<AppSettings, String> {
     settings.signer_roles.retain(|item| item.id != id);
     if before == settings.signer_roles.len() {
         return Err("Підписанта не знайдено.".into());
+    }
+    for commission in &mut settings.commission_templates {
+        for member in &mut commission.members {
+            if member.signer_role_id == id {
+                member.signer_role_id.clear();
+            }
+        }
+    }
+    save(root, &settings)?;
+    Ok(settings)
+}
+
+pub fn save_commission(
+    root: &Path,
+    mut commission: CommissionTemplate,
+) -> Result<AppSettings, String> {
+    if commission.name.trim().is_empty() {
+        return Err("Вкажіть назву комісії.".into());
+    }
+    if commission.members.is_empty() {
+        return Err("Додайте хоча б одного учасника до комісії.".into());
+    }
+    let mut settings = load(root)?;
+    let variable = role_id(&commission.variable)
+        .map_err(|_| "Вкажіть назву змінної після префікса «комісія_».".to_string())?;
+    if !variable.starts_with("комісія_") {
+        return Err("Назва змінної комісії повинна починатися з «комісія_».".into());
+    }
+    commission.variable = variable;
+    let existing_index = (!commission.id.trim().is_empty())
+        .then(|| {
+            settings
+                .commission_templates
+                .iter()
+                .position(|item| item.id == commission.id)
+        })
+        .flatten();
+    if !commission.id.trim().is_empty() && existing_index.is_none() {
+        return Err("Комісію для редагування не знайдено.".into());
+    }
+    if settings
+        .commission_templates
+        .iter()
+        .enumerate()
+        .any(|(index, item)| Some(index) != existing_index && item.variable == commission.variable)
+    {
+        return Err("Комісія з такою змінною вже існує.".into());
+    }
+    if commission.id.trim().is_empty() {
+        let mut number = settings.commission_templates.len() + 1;
+        loop {
+            let candidate = format!("commission_{number}");
+            if !settings
+                .commission_templates
+                .iter()
+                .any(|item| item.id == candidate)
+            {
+                commission.id = candidate;
+                break;
+            }
+            number += 1;
+        }
+    }
+    let signer_ids = settings
+        .signer_roles
+        .iter()
+        .map(|role| role.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    for (index, member) in commission.members.iter_mut().enumerate() {
+        if !member.signer_role_id.is_empty() && !signer_ids.contains(member.signer_role_id.as_str())
+        {
+            return Err("Один із підписантів комісії більше не існує.".into());
+        }
+        if member.id.trim().is_empty() {
+            member.id = format!("member-{}", index + 1);
+        }
+        member.order = index as i64;
+    }
+    commission.name = commission.name.trim().into();
+    if let Some(index) = existing_index {
+        settings.commission_templates[index] = commission;
+    } else {
+        settings.commission_templates.push(commission);
+    }
+    save(root, &settings)?;
+    Ok(settings)
+}
+
+pub fn delete_commission(root: &Path, id: &str) -> Result<AppSettings, String> {
+    let mut settings = load(root)?;
+    let before = settings.commission_templates.len();
+    settings.commission_templates.retain(|item| item.id != id);
+    if before == settings.commission_templates.len() {
+        return Err("Комісію не знайдено.".into());
     }
     save(root, &settings)?;
     Ok(settings)
@@ -496,6 +671,99 @@ mod tests {
         unit.unit_code = "A0000".into();
         let saved = update_unit_settings(&root, unit).unwrap();
         assert_eq!(saved.unit.unit_code, "А0000");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn saves_commissions_and_clears_a_removed_signer_assignment() {
+        let root =
+            std::env::temp_dir().join(format!("shablonizator-commissions-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let signer = SignerSettings {
+            full_name: "ПЕТРЕНКО Петро Петрович".into(),
+            rank: "капітан".into(),
+            position: "Черговий частини".into(),
+        };
+        add_signer(&root, "Черговий частини".into(), signer).unwrap();
+        let saved = save_commission(
+            &root,
+            CommissionTemplate {
+                id: String::new(),
+                name: "Комісія зі списання".into(),
+                variable: "комісія_списання".into(),
+                members: vec![CommissionMember {
+                    id: "member-1".into(),
+                    signer_role_id: "черговий_частини".into(),
+                    order: 8,
+                }],
+            },
+        )
+        .unwrap();
+        assert_eq!(saved.commission_templates.len(), 1);
+        assert_eq!(saved.commission_templates[0].id, "commission_1");
+        assert_eq!(saved.commission_templates[0].variable, "комісія_списання");
+        assert_eq!(saved.commission_templates[0].members[0].order, 0);
+
+        let after_delete = delete_signer(&root, "черговий_частини").unwrap();
+        assert!(after_delete.commission_templates[0].members[0]
+            .signer_role_id
+            .is_empty());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn opens_an_older_settings_file_without_new_structure_metadata() {
+        let root =
+            std::env::temp_dir().join(format!("shablonizator-old-settings-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let mut json = serde_json::to_value(defaults()).unwrap();
+        json.as_object_mut().unwrap().remove("commissionTemplates");
+        json["unit"]["shortName"] = serde_json::Value::String("РБАК".into());
+        json["unit"]["structure"] = serde_json::json!([{
+            "id": "position-old",
+            "parentId": null,
+            "kind": "position",
+            "name": "Командир",
+            "order": 0
+        }]);
+        fs::write(path(&root), serde_json::to_string_pretty(&json).unwrap()).unwrap();
+
+        let loaded = load(&root).unwrap();
+        assert!(loaded.commission_templates.is_empty());
+        assert!(loaded.unit.structure[0].rank_requirement.is_empty());
+        assert!(loaded.unit.structure[0].vos.is_empty());
+        assert!(loaded.unit.structure[0].tariff_grade.is_empty());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn migrates_an_old_commission_to_a_prefixed_template_variable() {
+        let root = std::env::temp_dir().join(format!(
+            "shablonizator-old-commission-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let mut json = serde_json::to_value(defaults()).unwrap();
+        json["commissionTemplates"] = serde_json::json!([{
+            "id": "списання",
+            "name": "Списання",
+            "members": [{
+                "id": "member-1",
+                "roleName": "Голова комісії",
+                "signerRoleId": "командир",
+                "order": 0
+            }]
+        }]);
+        fs::write(path(&root), serde_json::to_string_pretty(&json).unwrap()).unwrap();
+
+        let loaded = load(&root).unwrap();
+        assert_eq!(loaded.commission_templates[0].variable, "комісія_списання");
+        assert_eq!(
+            loaded.commission_templates[0].members[0].signer_role_id,
+            "командир"
+        );
+        let saved = fs::read_to_string(path(&root)).unwrap();
+        assert!(!saved.contains("roleName"));
         let _ = fs::remove_dir_all(root);
     }
 }

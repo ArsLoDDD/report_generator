@@ -1,5 +1,6 @@
 /* Feature styles are imported in their original cascade order. */
 @import "./features/app-shell.css";
+@import "./features/release-notes.css";
 @import "./features/settings.css";
 @import "./features/report-analyser.css";
 @import "./features/equipment-registry.css";

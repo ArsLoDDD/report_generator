@@ -1,7 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { currentRelease, releaseNotesStorageKey } from "./app/releaseNotes";
 import { applicationService } from "./app/services/applicationService";
+import { settingsService } from "./features/settings/services/settingsService";
 import { templateService } from "./features/templates/services/templateService";
 
 vi.mock("./shared/services/personnelService", () => ({
@@ -51,6 +53,28 @@ vi.mock("./features/templates/services/templateService", () => ({
 afterEach(cleanup);
 
 describe("navigation and report generation", () => {
+  it("shows the current release notes only once and displays the version in the brand", async () => {
+    window.localStorage.removeItem(releaseNotesStorageKey);
+    vi.mocked(settingsService.getUpdateStatus).mockResolvedValueOnce({ currentVersion: currentRelease.version, supported: true, dataDirectory: "/data" });
+    const firstView = render(<App />);
+
+    const releaseDialog = await screen.findByRole("dialog", { name: "Що нового" });
+    expect(within(releaseDialog).getByText(`Шаблонізатор оновлено до версії ${currentRelease.version}`)).toBeInTheDocument();
+    expect(within(releaseDialog).getByText(/Сторінку налаштувань перебудовано/u)).toBeInTheDocument();
+    expect(document.querySelector(".product-logo small")).toHaveTextContent(`Версія ${currentRelease.version}`);
+
+    fireEvent.click(within(releaseDialog).getByRole("button", { name: "Зрозуміло" }));
+    expect(screen.queryByRole("dialog", { name: "Що нового" })).not.toBeInTheDocument();
+    expect(window.localStorage.getItem(releaseNotesStorageKey)).toBe(currentRelease.version);
+    firstView.unmount();
+
+    vi.mocked(settingsService.getUpdateStatus).mockResolvedValueOnce({ currentVersion: currentRelease.version, supported: true, dataDirectory: "/data" });
+    render(<App />);
+    await waitFor(() => expect(settingsService.getUpdateStatus).toHaveBeenCalled());
+    expect(screen.queryByRole("dialog", { name: "Що нового" })).not.toBeInTheDocument();
+    window.localStorage.removeItem(releaseNotesStorageKey);
+  });
+
   it("opens every primary workspace from the sidebar", async () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: "Виберіть шаблон рапорту" })).toBeInTheDocument();
@@ -83,6 +107,7 @@ describe("navigation and report generation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
     expect(screen.getByRole("heading", { name: "Налаштування" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Оновити застосунок" })).not.toBeInTheDocument();
+    expect(document.querySelector(".settings-version")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Довідник" }));
     expect(screen.getByRole("heading", { name: "Як працювати з програмою" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Конструктор змінних" })).not.toBeInTheDocument();
@@ -220,11 +245,16 @@ describe("navigation and report generation", () => {
   it("shows saved signer settings without editable paths", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Підписанти/ }));
     await waitFor(() => expect(screen.getByText(/Основний підписант/)).toBeInTheDocument());
     expect(screen.getAllByText(/Начальник ПММ/).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Змінити" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Резервна копія БД" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Резервна копія БД" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Резервна копія БД" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Імпорт Excel-бази" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Дані" }));
+    fireEvent.click(screen.getByRole("button", { name: /Системна папка/ }));
+    await waitFor(() => expect(settingsService.openApplicationDirectory).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: /Історія версій/ })).toBeInTheDocument();
   });
 
   it("shows template variables and recent reports without a templates footer", async () => {

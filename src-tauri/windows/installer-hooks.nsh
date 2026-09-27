@@ -63,5 +63,7 @@
 
 !macro NSIS_HOOK_POSTINSTALL
   ; Інсталятор і кожне файлове оновлення залишають актуальний ярлик програми.
-  CreateShortcut "$DESKTOP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+  Delete "$DESKTOP\${PRODUCTNAME}.lnk"
+  Delete "$DESKTOP\Шаблонізатор *.lnk"
+  CreateShortcut "$DESKTOP\Шаблонізатор ${VERSION}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
 !macroend

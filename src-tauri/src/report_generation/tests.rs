@@ -486,6 +486,51 @@ fn resolves_variables_for_a_signer_added_in_settings() {
         "ПЕТРЕНКО Петро Петрович"
     );
 }
+
+#[test]
+fn resolves_numbered_commission_members_without_internal_roles() {
+    let connection = Connection::open_in_memory().unwrap();
+    let mut configured = settings::defaults();
+    configured.signer_roles.push(settings::SignerRole {
+        id: "член_комісії".into(),
+        name: "Член комісії".into(),
+        signer: settings::SignerSettings {
+            full_name: "ПЕТРЕНКО Петро Петрович".into(),
+            rank: "капітан".into(),
+            position: "офіцер".into(),
+        },
+    });
+    configured
+        .commission_templates
+        .push(settings::CommissionTemplate {
+            id: "commission_1".into(),
+            name: "Комісія зі списання".into(),
+            variable: "комісія_списання".into(),
+            members: vec![settings::CommissionMember {
+                id: "member-1".into(),
+                signer_role_id: "член_комісії".into(),
+                order: 0,
+            }],
+        });
+
+    assert!(validate_token("комісія_списання_1").is_empty());
+    assert!(validate_token("комісія_списання_1_піб").is_empty());
+    assert!(validate_token("комісія_списання_1_прізвище").is_empty());
+    assert!(validate_token("комісія_списання_1_імя").is_empty());
+    assert!(validate_token("комісія_списання_1_по_батькові").is_empty());
+    assert!(validate_token("комісія_списання_1_звання").is_empty());
+    let values = values_for(&connection, &[], &configured, None, None).unwrap();
+    assert_eq!(values["комісія_списання_1"].text, "ПЕТРЕНКО Петро Петрович");
+    assert_eq!(
+        values["комісія_списання_1_піб"].text,
+        "ПЕТРЕНКО Петро Петрович"
+    );
+    assert_eq!(values["комісія_списання_1_прізвище"].text, "ПЕТРЕНКО");
+    assert_eq!(values["комісія_списання_1_імя"].text, "Петро");
+    assert_eq!(values["комісія_списання_1_по_батькові"].text, "Петрович");
+    assert_eq!(values["комісія_списання_1_звання"].text, "капітан");
+    assert_eq!(values["комісія_списання_1_посада"].text, "офіцер");
+}
 #[test]
 fn accepts_v1_compatibility_variables_and_explains_typos() {
     for field in [

@@ -216,6 +216,20 @@ pub(super) fn values_for(
     for role in &roles {
         add_signer(&mut map, &role.id, &role.signer)
     }
+    for commission in &s.commission_templates {
+        let mut members = commission.members.iter().collect::<Vec<_>>();
+        members.sort_by_key(|member| member.order);
+        for (index, member) in members.into_iter().enumerate() {
+            let Some(role) = roles.iter().find(|role| role.id == member.signer_role_id) else {
+                continue;
+            };
+            let prefix = format!("{}_{}", commission.variable, index + 1);
+            add_signer(&mut map, &prefix, &role.signer);
+            if let Some(full_name) = map.get(&format!("{prefix}_піб")).cloned() {
+                map.insert(prefix, full_name);
+            }
+        }
+    }
     for (legacy, role, field) in [
         ("mainRank", "основний_підписант", "звання"),
         ("mainName", "основний_підписант", "піб"),
