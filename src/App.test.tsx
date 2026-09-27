@@ -4,6 +4,7 @@ import App from "./App";
 import { currentRelease, releaseNotesStorageKey } from "./app/releaseNotes";
 import { applicationService } from "./app/services/applicationService";
 import { settingsService } from "./features/settings/services/settingsService";
+import { deadlineReminderService } from "./features/settings/services/deadlineReminderService";
 import { templateService } from "./features/templates/services/templateService";
 
 vi.mock("./shared/services/personnelService", () => ({
@@ -15,6 +16,16 @@ vi.mock("./shared/services/personnelService", () => ({
 
 vi.mock("./app/services/applicationService", () => ({
   applicationService: { getStartupWarnings: vi.fn().mockResolvedValue([]) }
+}));
+
+vi.mock("./features/settings/services/deadlineReminderService", () => ({
+  deadlineReminderService: {
+    listNotifications: vi.fn().mockResolvedValue([]),
+    acknowledgeNotification: vi.fn().mockResolvedValue(undefined),
+    acknowledgeWarnings: vi.fn().mockResolvedValue(undefined),
+    list: vi.fn().mockResolvedValue([]),
+    save: vi.fn(), complete: vi.fn(), delete: vi.fn(),
+  },
 }));
 
 vi.mock("./features/generated-reports/services/generatedReportsService", () => ({
@@ -118,6 +129,15 @@ describe("navigation and report generation", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByRole("button", { name: /Попередження/u })).toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "Попередження" })).toBeInTheDocument();
+  });
+
+  it("dismisses a 48-hour deadline warning only after leaving the warnings page", async () => {
+    vi.mocked(applicationService.getStartupWarnings).mockResolvedValueOnce([{ code: "deadline-reminder-9", title: "Наближається контрольний строк", message: "Надіслати відповідь." }]);
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Попередження" })).toBeInTheDocument());
+    expect(deadlineReminderService.acknowledgeWarnings).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Налаштування" }));
+    await waitFor(() => expect(deadlineReminderService.acknowledgeWarnings).toHaveBeenCalledWith([9]));
   });
 
   it("collapses the sidebar to icons and restores it", () => {

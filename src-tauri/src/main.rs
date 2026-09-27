@@ -1,6 +1,7 @@
 mod app_updates;
 mod bcs_export;
 mod database;
+mod deadline_reminders;
 mod document_commands;
 mod flight_plan;
 mod operations;
@@ -816,6 +817,13 @@ fn main() {
             update_custom_field,
             delete_custom_field,
             get_startup_warnings,
+            deadline_reminders::list_deadline_reminders,
+            deadline_reminders::save_deadline_reminder,
+            deadline_reminders::complete_deadline_reminder,
+            deadline_reminders::delete_deadline_reminder,
+            deadline_reminders::acknowledge_deadline_warnings,
+            deadline_reminders::list_deadline_notifications,
+            deadline_reminders::acknowledge_deadline_notification,
             get_app_settings,
             update_signer_settings,
             add_signer,
@@ -865,6 +873,13 @@ fn main() {
             update_vehicle_custom_field,
             delete_vehicle_custom_field,
             get_startup_warnings,
+            deadline_reminders::list_deadline_reminders,
+            deadline_reminders::save_deadline_reminder,
+            deadline_reminders::complete_deadline_reminder,
+            deadline_reminders::delete_deadline_reminder,
+            deadline_reminders::acknowledge_deadline_warnings,
+            deadline_reminders::list_deadline_notifications,
+            deadline_reminders::acknowledge_deadline_notification,
             get_app_settings,
             update_signer_settings,
             add_signer,

@@ -23,12 +23,15 @@ import { GlobalTooltip } from "./shared/ui/GlobalTooltip";
 import { settingsService } from "./features/settings/services/settingsService";
 import { currentRelease, releaseNotesStorageKey } from "./app/releaseNotes";
 import { ReleaseNotesModal } from "./app/components/ReleaseNotesModal";
+import { DeadlineReminderNotifications } from "./app/components/DeadlineReminderNotifications";
+import { deadlineReminderService } from "./features/settings/services/deadlineReminderService";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("generator");
   const { personnel: people, totalCount: personnelTotalCount, hasMore: personnelHasMore, isLoading: personnelLoading, isLoadingMore: personnelLoadingMore, errorMessage: personnelError, refresh: refreshPersonnel, loadMore: loadMorePersonnel, createPersonnel, updatePersonnel, deletePersonnel } = usePersonnel();
   const { templates, totalCount: templatesTotalCount, hasMore: templatesHasMore, isRefreshing: templatesRefreshing, isLoadingMore: templatesLoadingMore, errorMessage: templatesError, loadMore: loadMoreTemplates, refresh: refreshTemplates } = useTemplates();
   const warningState = useStartupWarnings();
+  const refreshWarnings = warningState.refresh;
   const startupWarnings = warningState.warnings.filter((warning) =>
     !["personnel-empty", "database-missing"].includes(warning.code) || people.length === 0,
   );
@@ -40,6 +43,8 @@ export default function App() {
   const [appVersion, setAppVersion] = useState(currentRelease.version);
   const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
   const startupRouteResolved = useRef(false);
+  const previousScreen = useRef<Screen>(screen);
+  const viewedDeadlineWarnings = useRef<number[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -57,6 +62,20 @@ export default function App() {
     startupRouteResolved.current = true;
     if (startupWarnings.length) setScreen("warnings");
   }, [startupWarnings, warningState.isLoading]);
+
+  useEffect(() => {
+    if (screen === "warnings") {
+      viewedDeadlineWarnings.current = startupWarnings.flatMap((warning) => {
+        const match = /^deadline-reminder-(\d+)$/u.exec(warning.code);
+        return match ? [Number(match[1])] : [];
+      });
+    } else if (previousScreen.current === "warnings" && viewedDeadlineWarnings.current.length) {
+      const ids = viewedDeadlineWarnings.current;
+      viewedDeadlineWarnings.current = [];
+      void deadlineReminderService.acknowledgeWarnings(ids).then(() => refreshWarnings()).catch(() => undefined);
+    }
+    previousScreen.current = screen;
+  }, [screen, startupWarnings, refreshWarnings]);
 
   const togglePerson = (id: number) => setSelectedPeople((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   const toggleAllPeople = () => setSelectedPeople((current) => current.length === people.length ? [] : people.map((person) => person.id));
@@ -97,7 +116,7 @@ export default function App() {
     return () => document.removeEventListener("click", closeOnBackdrop);
   }, []);
 
-  return <NotificationProvider><GlobalTooltip /><div className={`product-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+  return <NotificationProvider><GlobalTooltip /><DeadlineReminderNotifications /><div className={`product-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <AppSidebar screen={screen} collapsed={sidebarCollapsed} warnings={startupWarnings} appVersion={appVersion} onToggleCollapsed={toggleSidebar} onNavigate={(next) => { if (next === "report-analyser") setAnalyserVisited(true); setScreen(next); }} />
     <main className="workspace">
       {screen === "warnings" && <WarningsPage warnings={startupWarnings} isLoading={warningState.isLoading} onRefresh={() => void warningState.refresh()} onOpenPersonnel={() => setScreen("people")} onOpenPositions={() => setScreen("positions")} />}

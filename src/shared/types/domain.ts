@@ -115,9 +115,28 @@ export type AppSettings = {
 };
 
 export type StartupWarning = {
-  code: "database-missing" | "templates-missing" | "personnel-empty" | "crew-callsign-missing" | "uav-type-missing" | "crew-primary-uav-missing" | `position-work-overdue-${number}`;
+  code: "database-missing" | "templates-missing" | "personnel-empty" | "crew-callsign-missing" | "uav-type-missing" | "crew-primary-uav-missing" | `position-work-overdue-${number}` | `deadline-reminder-${number}`;
   title: string;
   message: string;
+};
+
+export type DeadlineReminder = {
+  id: number;
+  description: string;
+  dueAt: string;
+  status: "active" | "completed";
+  warningSeenAt?: string | null;
+  lastNotificationSlot?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DeadlineNotification = {
+  reminder: DeadlineReminder;
+  slot: string;
+  cadenceMinutes: number;
+  overdue: boolean;
 };
 
 export type Screen = "warnings" | "generator" | "templates" | "report-analyser" | "summary-report" | "people" | "staffing-bcs" | "flight-planning" | "flight-journal" | "positions" | "assets" | "vehicles" | "generators" | "uavs" | "communications" | "weapons" | "crews" | "incidents" | "generated" | "settings" | "documentation";

@@ -119,6 +119,10 @@ pub(crate) fn get_startup_warnings(state: tauri::State<AppState>) -> Vec<Startup
         &database.connection,
         &current_local_date_time,
     ));
+    warnings.extend(deadline_reminders::warning_rows(
+        &database.connection,
+        Local::now().naive_local(),
+    ));
     warnings
 }
 

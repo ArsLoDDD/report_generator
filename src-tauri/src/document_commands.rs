@@ -8,7 +8,7 @@ const DATA_ARCHIVE_FORMAT: &str = "raportgen-data-archive";
 const DATA_ARCHIVE_VERSION: u32 = 2;
 const DATA_ARCHIVE_MANIFEST: &str = "raportgen-manifest.json";
 const DATA_ARCHIVE_EXCEL_PATH: &str = "data/Excel-база.xlsx";
-const DATABASE_ARCHIVE_SECTIONS: [&str; 21] = [
+const DATABASE_ARCHIVE_SECTIONS: [&str; 22] = [
     "personnel",
     "staffing",
     "crews",
@@ -19,6 +19,7 @@ const DATABASE_ARCHIVE_SECTIONS: [&str; 21] = [
     "summary_reports",
     "incidents",
     "workshop",
+    "deadlines",
     "zbbr",
     "zu",
     "gz_kb",
@@ -30,6 +31,9 @@ const DATABASE_ARCHIVE_SECTIONS: [&str; 21] = [
     "sa_ppo",
     "svt",
     "pmm",
+];
+const SERVICE_ARCHIVE_SECTIONS: [&str; 11] = [
+    "zbbr", "zu", "gz_kb", "siiz", "ms", "ets", "ovtm", "rs", "sa_ppo", "svt", "pmm",
 ];
 const MAX_ARCHIVE_ENTRIES: usize = 100_000;
 const MAX_ARCHIVE_TOTAL_SIZE: u64 = 8 * 1024 * 1024 * 1024;
@@ -655,8 +659,15 @@ fn filter_database_snapshot(
                 "Цукерню",
             )?;
         }
+        if !sections.contains("deadlines") {
+            execute_archive_sql(
+                &connection,
+                "DELETE FROM deadline_reminders;",
+                "контроль строків",
+            )?;
+        }
 
-        let selected_services = DATABASE_ARCHIVE_SECTIONS[10..]
+        let selected_services = SERVICE_ARCHIVE_SECTIONS
             .iter()
             .filter(|code| sections.contains(**code))
             .copied()
@@ -1608,7 +1619,7 @@ fn selected_import_sections(
 }
 
 fn service_filter(sections: &HashSet<String>) -> String {
-    let values = DATABASE_ARCHIVE_SECTIONS[10..]
+    let values = SERVICE_ARCHIVE_SECTIONS
         .iter()
         .filter(|section| sections.contains(**section))
         .map(|section| format!("'{section}'"))
@@ -1714,6 +1725,9 @@ fn merge_selected_database_sections(
         if sections.contains("workshop") {
             replace_import_tables(&connection, &["workshop_ingredients", "workshop_products"])?;
         }
+        if sections.contains("deadlines") {
+            replace_import_tables(&connection, &["deadline_reminders"])?;
+        }
 
         let service_codes = service_filter(sections);
         if service_codes != "''" {
@@ -1785,6 +1799,7 @@ fn merge_selected_database_sections(
              DELETE FROM crew_members WHERE crew_id NOT IN (SELECT id FROM crews) OR personnel_id NOT IN (SELECT id FROM personnel);
              DELETE FROM crew_actual_members WHERE crew_id NOT IN (SELECT id FROM crews) OR personnel_id NOT IN (SELECT id FROM personnel);
              DELETE FROM personnel_control_assignments WHERE personnel_id NOT IN (SELECT id FROM personnel);
+             UPDATE personnel_control_events SET assignment_id=NULL WHERE assignment_id IS NOT NULL AND assignment_id NOT IN (SELECT id FROM personnel_control_assignments);
              DELETE FROM flight_plan_personnel_locations WHERE personnel_id NOT IN (SELECT id FROM personnel);
              DELETE FROM position_work_members WHERE work_id NOT IN (SELECT id FROM position_work) OR personnel_id NOT IN (SELECT id FROM personnel);
              DELETE FROM position_work_periods WHERE work_id NOT IN (SELECT id FROM position_work) OR personnel_id NOT IN (SELECT id FROM personnel);
@@ -2347,7 +2362,57 @@ mod archive_tests {
                 .unwrap(),
             0
         );
+        drop(filtered);
+        drop(output);
+        fs::remove_dir_all(root).unwrap();
+    }
 
+    #[test]
+    fn selective_asset_export_clears_a_responsible_person_that_is_not_exported() {
+        let root = test_directory("selective-asset-missing-person");
+        let database_path = root.join(DATABASE_FILE_NAME);
+        let connection = Connection::open(&database_path).unwrap();
+        database::initialise(&connection).unwrap();
+        connection.execute("INSERT INTO personnel(id,rank,surname,given_name,position,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id) VALUES(1,'солдат','Тестовий','Боєць','оператор','','','','','','','')", []).unwrap();
+        connection.execute("INSERT INTO equipment(category,name,service_code,personnel_id) VALUES('communications','Тестове майно','ovtm',1)", []).unwrap();
+        drop(connection);
+
+        filter_database_snapshot(&database_path, &HashSet::from(["ovtm".to_string()]), false)
+            .unwrap();
+
+        let filtered = Connection::open(&database_path).unwrap();
+        assert_eq!(
+            filtered
+                .query_row("SELECT COUNT(*) FROM personnel", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            filtered
+                .query_row(
+                    "SELECT COUNT(*) FROM equipment WHERE service_code='ovtm'",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        let responsible: Option<i64> = filtered
+            .query_row(
+                "SELECT personnel_id FROM equipment WHERE service_code='ovtm'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(responsible, None);
+        let violations: i64 = filtered
+            .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(violations, 0);
+        drop(filtered);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -2528,8 +2593,72 @@ mod archive_tests {
             .unwrap();
         assert_eq!(surname, "Новий");
         assert_eq!(report_count, 1);
-
+        drop(merged);
+        drop(current);
         fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(stage).unwrap();
+    }
+
+    #[test]
+    fn selective_control_import_skips_a_missing_person_without_failing() {
+        let stage = test_directory("selective-control-missing-person");
+        let current = Connection::open_in_memory().unwrap();
+        database::initialise(&current).unwrap();
+
+        let source = stage.join(DATABASE_FILE_NAME);
+        let imported = Connection::open(&source).unwrap();
+        database::initialise(&imported).unwrap();
+        imported.execute("INSERT INTO personnel(id,rank,surname,given_name,position,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id) VALUES(44,'солдат','Відсутній','Боєць','оператор','','','','','','','')", []).unwrap();
+        imported.execute("INSERT INTO personnel_control_assignments(id,personnel_id,location_type,institution,start_date) VALUES(10,44,'ВІДР','Навчальний центр','2026-09-27')", []).unwrap();
+        imported.execute("INSERT INTO personnel_control_events(id,assignment_id,personnel_id,full_name_snapshot,action,location_type,start_date) VALUES(11,10,44,'ВІДСУТНІЙ Боєць','created','ВІДР','2026-09-27')", []).unwrap();
+        drop(imported);
+
+        let staged = StagedImport {
+            directory: stage.clone(),
+            files: vec![StagedImportFile {
+                relative_path: PathBuf::from(DATABASE_FILE_NAME),
+                archive_path: format!("data/{DATABASE_FILE_NAME}"),
+            }],
+            legacy_archive: false,
+            manifest: None,
+        };
+        merge_selected_database_sections(
+            &current,
+            &staged,
+            &HashSet::from(["personnel_control".to_string()]),
+            false,
+        )
+        .unwrap();
+
+        let merged = Connection::open(stage.join(DATABASE_FILE_NAME)).unwrap();
+        assert_eq!(
+            merged
+                .query_row(
+                    "SELECT COUNT(*) FROM personnel_control_assignments",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            0
+        );
+        let assignment_id: Option<i64> = merged
+            .query_row(
+                "SELECT assignment_id FROM personnel_control_events WHERE id=11",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(assignment_id, None);
+        assert_eq!(
+            merged
+                .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            0
+        );
+        drop(merged);
+        drop(current);
         fs::remove_dir_all(stage).unwrap();
     }
 

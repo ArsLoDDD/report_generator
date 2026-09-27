@@ -7,6 +7,7 @@ import { applicationService } from "../../app/services/applicationService";
 import { generatedReportsService } from "../../features/generated-reports/services/generatedReportsService";
 import { reportGenerationService } from "../../features/report-generation/services/reportGenerationService";
 import { settingsService } from "../../features/settings/services/settingsService";
+import { deadlineReminderService } from "../../features/settings/services/deadlineReminderService";
 import { templateService } from "../../features/templates/services/templateService";
 import { personnelService } from "./personnelService";
 
@@ -32,11 +33,13 @@ describe("Tauri command contracts", () => {
     templateService.list(0, 20); templateService.inspect("/templates/a.docx"); templateService.open("/templates/a.docx"); templateService.openDirectory(); templateService.delete("/templates/a.docx");
     reportGenerationService.selectTemplateFile(); reportGenerationService.inspectTemplate("/templates/a.docx"); reportGenerationService.validateTemplate("/templates/a.docx", [1], { дата_рапорту: "2026-08-11" }); reportGenerationService.generateReport({ templatePath: "/templates/a.docx", personnelIds: [1], parameters: { дата_рапорту: "2026-08-11" } }); reportGenerationService.openGeneratedReport("/reports/a.docx"); reportGenerationService.openGeneratedReportFolder("/reports");
     generatedReportsService.list(0, 20); generatedReportsService.openDocument("/reports/a.docx"); generatedReportsService.openFolder("/reports"); generatedReportsService.delete(["/reports/a.docx"]); applicationService.getStartupWarnings();
+    deadlineReminderService.list(); deadlineReminderService.listNotifications(); deadlineReminderService.acknowledgeNotification(4, "hour-1");
     expect(invoke.mock.calls).toEqual(expect.arrayContaining([
       ["get_app_settings"], ["update_signer_settings", { role: "main", signer: { fullName: "Іваненко Іван", rank: "майор", position: "командир" } }], ["save_commission", { commission }], ["delete_commission", { id: "комісія" }], ["update_visible_personnel_columns", { columns: ["rank"] }], ["open_application_directory"], ["create_database_backup"], ["get_update_status"], ["inspect_offline_update", { path: "/tmp/update.shupd" }], ["install_offline_update", { path: "/tmp/update.shupd" }], ["export_application_data", { path: "/tmp/backup.zip", options: { database: true, databaseSections: ["personnel"], settings: true, customVariables: true, templates: true, reports: false, excel: true } }], ["inspect_application_data_archive", { path: "/tmp/backup.zip" }], ["import_application_data", { path: "/tmp/backup.zip", options: { database: true, databaseSections: ["personnel"], settings: true, customVariables: true, templates: true, reports: false } }],
       ["list_templates", { offset: 0, limit: 20 }], ["inspect_template", { templatePath: "/templates/a.docx" }], ["open_template", { templatePath: "/templates/a.docx" }], ["open_templates_directory"], ["delete_template", { templatePath: "/templates/a.docx" }],
       ["select_template_file"], ["validate_template", { templatePath: "/templates/a.docx", personnelIds: [1], vehicleIds: [], crewIds: [], equipmentIds: [], positionIds: [], parameters: { дата_рапорту: "2026-08-11" } }], ["generate_report", { request: { templatePath: "/templates/a.docx", personnelIds: [1], parameters: { дата_рапорту: "2026-08-11" } } }], ["open_generated_report", { reportPath: "/reports/a.docx" }], ["open_generated_report_folder", { folderPath: "/reports" }],
-      ["list_generated_reports", { offset: 0, limit: 20, query: null, fromDate: null }], ["open_generated_report", { reportPath: "/reports/a.docx" }], ["open_generated_report_folder", { folderPath: "/reports" }], ["delete_generated_reports", { reportPaths: ["/reports/a.docx"] }], ["get_startup_warnings"]
+      ["list_generated_reports", { offset: 0, limit: 20, query: null, fromDate: null }], ["open_generated_report", { reportPath: "/reports/a.docx" }], ["open_generated_report_folder", { folderPath: "/reports" }], ["delete_generated_reports", { reportPaths: ["/reports/a.docx"] }], ["get_startup_warnings"],
+      ["list_deadline_reminders"], ["list_deadline_notifications"], ["acknowledge_deadline_notification", { id: 4, slot: "hour-1" }]
     ]));
   });
 });

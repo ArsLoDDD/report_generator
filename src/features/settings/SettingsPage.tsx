@@ -1,5 +1,5 @@
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { Archive, Braces, Check, ChevronDown, Database, Download, FileSpreadsheet, FileText, FolderOpen, GitBranch, History, Pencil, Plus, Settings2, Trash2, Upload, UserRoundCheck, Users } from "lucide-react";
+import { Archive, BellRing, Braces, Check, ChevronDown, Database, Download, FileSpreadsheet, FileText, FlaskConical, FolderOpen, GitBranch, History, Pencil, Plus, Settings2, Trash2, Upload, UserRoundCheck, Users } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { ReleaseHistoryModal } from "../../app/components/ReleaseHistoryModal";
 import type { CommissionTemplate, SignerRole, SignerSettings, UnitSettings, UnitStructureNode } from "../../shared/types/domain";
@@ -13,6 +13,8 @@ import { ServiceIcon } from "../../shared/ui/ServiceIcon";
 import { structureWithUnmappedPositions, type UnitStructureSource } from "../../shared/unit-structure";
 import { operationsService } from "../operations/services/operationsService";
 import { CommissionEditorModal } from "./components/CommissionEditorModal";
+import { DeadlineControlPanel } from "./components/DeadlineControlPanel";
+import { DeveloperReminderPanel } from "./components/DeveloperReminderPanel";
 import { SignerEditorModal } from "./components/SignerEditorModal";
 import { UnitEditorModal } from "./components/UnitEditorModal";
 import { UnitStructureEditor } from "./components/UnitStructureEditor";
@@ -24,7 +26,7 @@ const legacyRoles = (settings: { mainSigner: SignerSettings; commander: SignerSe
 ].map(([id, name, signer]) => ({ id: id as string, name: name as string, signer: signer as SignerSettings }));
 
 const databaseGroups = [
-  { title: "Підрозділ", items: [["personnel", "Особовий склад"], ["staffing", "Штат і рекомендаційні листи"], ["crews", "Екіпажі"], ["positions", "Позиції та роботи"], ["personnel_control", "Контроль особового складу"]] },
+  { title: "Підрозділ", items: [["personnel", "Особовий склад"], ["staffing", "Штат і рекомендаційні листи"], ["crews", "Екіпажі"], ["positions", "Позиції та роботи"], ["personnel_control", "Контроль особового складу"], ["deadlines", "Контроль строків"]] },
   { title: "Польоти й події", items: [["flight_plans", "Плани польотів"], ["flight_journal", "Журнал польотів"], ["summary_reports", "Підсумкові донесення"], ["incidents", "Інциденти"]] },
   { title: "Служби", items: [["zbbr", "ЗББР"], ["zu", "ЗУ"], ["gz_kb", "ГЗ та КБ"], ["siiz", "СІІЗ"], ["ms", "МС"], ["ets", "ЕТС"], ["ovtm", "ОВТМ"], ["rs", "РС"], ["sa_ppo", "СА та ППО"], ["svt", "СВТ"], ["pmm", "ПММ"], ["workshop", "Цукерня"]] },
 ] as const;
@@ -33,7 +35,7 @@ const databaseSections = databaseGroups.flatMap((group) => group.items.map(([key
 type FileOptionKey = "settings" | "customVariables" | "templates" | "reports" | "excel";
 type FileOptions = Record<FileOptionKey, boolean>;
 type TransferMode = "all" | "custom";
-type SettingsTab = "unit" | "structure" | "signers" | "data";
+type SettingsTab = "unit" | "structure" | "signers" | "deadlines" | "data";
 type SignersTab = "people" | "commissions";
 
 const fileItems = [
@@ -93,6 +95,7 @@ export function SettingsPage() {
   const [importSections, setImportSections] = useState<string[]>([]);
   const [importFiles, setImportFiles] = useState<FileOptions>(allFiles);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [developerPanelOpen, setDeveloperPanelOpen] = useState(false);
   const [transferBusy, setTransferBusy] = useState(false);
 
   useEffect(() => { if (errorMessage) notify(errorMessage, "error"); }, [errorMessage, notify]);
@@ -194,8 +197,8 @@ export function SettingsPage() {
   const removeCommissionTemplate = async () => { if (!deletingCommission) return; if (await deleteCommission(deletingCommission.id)) { setDeletingCommission(null); notify("Комісію видалено.", "success"); } };
 
   return <PageFrame
-    header={<PageTitle title="Налаштування" subtitle="Підрозділ, структура, підписанти та локальні дані" />}
-    tools={<SectionTabs
+    header={<PageTitle title="Налаштування" subtitle="Підрозділ, структура, підписанти, строки та локальні дані" />}
+    tools={<div className="settings-tools-row"><SectionTabs
       ariaLabel="Розділи налаштувань"
       value={tab}
       onChange={setTab}
@@ -203,9 +206,10 @@ export function SettingsPage() {
         { id: "unit", label: "Підрозділ", icon: <ServiceIcon name="settings-unit" /> },
         { id: "structure", label: "Структура", icon: <GitBranch /> },
         { id: "signers", label: "Підписанти", icon: <ServiceIcon name="settings-signers" /> },
+        { id: "deadlines", label: "Контроль строків", icon: <BellRing /> },
         { id: "data", label: "Дані", icon: <Database /> },
       ]}
-    />}
+    />{import.meta.env.DEV && <button type="button" className="button icon-only settings-developer-button" aria-label="Відкрити панель тестування" title="Панель тестування" onClick={() => setDeveloperPanelOpen(true)}><FlaskConical /></button>}</div>}
     className="settings-page"
   >
     {tab === "unit" && <section className="settings-tab-content settings-unit-tab">
@@ -239,6 +243,8 @@ export function SettingsPage() {
       })}</tbody></table></div>{commissionTemplates.length === 0 && <div className="settings-empty-state"><UserRoundCheck /><b>Комісій ще немає</b><span>Створіть комісію, задайте змінну та оберіть її учасників.</span></div>}</section>}
     </section>}
 
+    {tab === "deadlines" && <DeadlineControlPanel />}
+
     {tab === "data" && <section className="settings-tab-content settings-data-tab"><div className="settings-data-grid">
       <button className="panel settings-data-card" onClick={() => void openDataDirectory()}><span><FolderOpen /></span><div><b>Системна папка</b><small>Відкрити директорію, де зберігаються поточні дані.</small></div></button>
       <button className="panel settings-data-card" onClick={() => setExportOpen(true)}><span><Download /></span><div><b>Експортувати дані</b><small>Створити повний архів або вибрати окремі розділи.</small></div></button>
@@ -252,7 +258,8 @@ export function SettingsPage() {
     {deleting && <ConfirmDialog title="Видалити підписанта?" message={`Підписант «${deleting.name}» і змінні з префіксом {{${deleting.id}_…}} стануть недоступними. У комісіях його призначення буде очищене.`} confirmLabel="Видалити" onConfirm={() => void removeSigner()} onCancel={() => setDeleting(null)} busy={isSaving} />}
     {deletingCommission && <ConfirmDialog title="Видалити комісію?" message={`Комісію «${deletingCommission.name}» буде видалено з налаштувань.`} confirmLabel="Видалити" onConfirm={() => void removeCommissionTemplate()} onCancel={() => setDeletingCommission(null)} busy={isSaving} />}
     {historyOpen && <ReleaseHistoryModal onClose={() => setHistoryOpen(false)} />}
+    {import.meta.env.DEV && developerPanelOpen && <DeveloperReminderPanel onClose={() => setDeveloperPanelOpen(false)} />}
     {exportOpen && <Modal title="Експорт даних" subtitle="Створіть один архів із повним або вибраним складом даних." className="data-export-modal data-transfer-modal" onClose={() => setExportOpen(false)}><div className="data-export-modal__body"><section className="data-export-summary"><span><Archive /></span><div><b>Склад архіву</b><small>Excel-база тепер експортується разом з іншими даними.</small></div><strong>{exportCount} вибрано</strong></section><ModeSwitch value={exportMode} onChange={setExportMode} />{exportMode === "custom" && <><DatabaseOptions selected={exportSections} onToggle={(section) => toggleSection(setExportSections, section)} /><FileOptionsGrid selected={exportFiles} includeExcel onToggle={(key) => toggleFile(setExportFiles, key)} /></>}{exportMode === "all" && <p className="data-transfer-all"><Check />До архіву увійдуть усі розділи бази, налаштування, кастомні поля, шаблони, рапорти та Excel-база.</p>}<p className="data-export-hint">Експорт лише копіює дані — нічого в програмі не видаляється і не змінюється.</p></div><footer className="modal-actions"><span className="data-export-selected">Вибрано: <b>{exportCount}</b></span><button className="button" onClick={() => setExportOpen(false)}>Скасувати</button><button className="button primary" disabled={exportCount === 0 || transferBusy} onClick={() => void exportData()}><Archive />Створити архів</button></footer></Modal>}
-    {importArchive && <Modal title="Імпорт даних" subtitle={`Архів створено у версії ${importArchive.inspection.applicationVersion}.`} className="data-export-modal data-transfer-modal" onClose={() => setImportArchive(null)}><div className="data-export-modal__body"><section className="data-export-summary"><span><Upload /></span><div><b>Безпечне відновлення</b><small>Перед змінами програма автоматично збереже резервну копію поточних даних.</small></div><strong>{importCount} вибрано</strong></section><ModeSwitch value={importMode} onChange={setImportMode} importMode />{importMode === "custom" && <><DatabaseOptions selected={importSections} available={availableImportSections} onToggle={(section) => toggleSection(setImportSections, section)} /><FileOptionsGrid selected={importFiles} available={importArchive.inspection} includeExcel={false} onToggle={(key) => toggleFile(setImportFiles, key)} /></>}{importMode === "all" && <p className="data-transfer-all"><Check />Буде імпортовано весь підтримуваний вміст архіву. Excel-файл залишиться довідковою копією й не замінюватиме базу.</p>}<details className="data-transfer-details"><summary>Що станеться з іншими даними?<ChevronDown /></summary><p>Під час вибіркового імпорту програма замінить тільки обрані розділи. Необрані локальні дані, налаштування та власні шаблони залишаться без змін.</p></details></div><footer className="modal-actions"><span className="data-export-selected">Вибрано: <b>{importCount}</b></span><button className="button" onClick={() => setImportArchive(null)}>Скасувати</button><button className="button primary" disabled={importCount === 0 || transferBusy} onClick={() => void restoreData()}><Upload />Імпортувати</button></footer></Modal>}
+    {importArchive && <Modal title="Імпорт даних" subtitle={`Архів створено у версії ${importArchive.inspection.applicationVersion}.`} className="data-export-modal data-transfer-modal" onClose={() => setImportArchive(null)}><div className="data-export-modal__body"><section className="data-export-summary"><span><Upload /></span><div><b>Безпечне відновлення</b><small>Перед змінами програма автоматично збереже резервну копію поточних даних.</small></div><strong>{importCount} вибрано</strong></section><ModeSwitch value={importMode} onChange={setImportMode} importMode />{importMode === "custom" && <><DatabaseOptions selected={importSections} available={availableImportSections} onToggle={(section) => toggleSection(setImportSections, section)} /><FileOptionsGrid selected={importFiles} available={importArchive.inspection} includeExcel={false} onToggle={(key) => toggleFile(setImportFiles, key)} /></>}{importMode === "all" && <p className="data-transfer-all"><Check />Буде імпортовано весь підтримуваний вміст архіву. Excel-файл залишиться довідковою копією й не замінюватиме базу.</p>}<details className="data-transfer-details"><summary>Що станеться з іншими даними?<ChevronDown /></summary><p>Програма замінить тільки обрані розділи. Необрані локальні дані залишаться без змін, а посилання на відсутніх людей, екіпажі, позиції чи майно будуть безпечно пропущені.</p></details></div><footer className="modal-actions"><span className="data-export-selected">Вибрано: <b>{importCount}</b></span><button className="button" onClick={() => setImportArchive(null)}>Скасувати</button><button className="button primary" disabled={importCount === 0 || transferBusy} onClick={() => void restoreData()}><Upload />Імпортувати</button></footer></Modal>}
   </PageFrame>;
 }

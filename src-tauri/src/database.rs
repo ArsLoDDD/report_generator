@@ -1669,7 +1669,24 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     normalize_staff_positions(connection)?;
     initialise_service_assets(connection)?;
     connection
-        .pragma_update(None, "user_version", 7)
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS deadline_reminders (
+                id INTEGER PRIMARY KEY,
+                description TEXT NOT NULL,
+                due_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','completed')),
+                warning_seen_at TEXT,
+                last_notification_slot TEXT,
+                completed_at TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS deadline_reminders_active_due_idx
+                ON deadline_reminders(status,due_at);",
+        )
+        .map_err(|_| "Не вдалося підготувати контроль строків.".to_string())?;
+    connection
+        .pragma_update(None, "user_version", 8)
         .map_err(|_| "Не вдалося завершити міграцію бази даних.".to_string())?;
     Ok(())
 }

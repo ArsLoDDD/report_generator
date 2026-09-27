@@ -100,6 +100,8 @@
 .release-history-modal {
 	width: min(820px, calc(100vw - 36px));
 	max-height: min(850px, calc(100vh - 32px));
+	grid-template-rows: auto minmax(0, 1fr) auto;
+	overflow: hidden;
 }
 
 .release-history-modal__body {
