@@ -1031,9 +1031,29 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         "ALTER TABLE incidents ADD COLUMN snapshot_source TEXT NOT NULL DEFAULT 'current'",
         "ALTER TABLE incidents ADD COLUMN reported_to TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE incidents ADD COLUMN reported_at TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE incidents ADD COLUMN source_flight_id INTEGER REFERENCES flight_journal_entries(id) ON DELETE SET NULL",
+        "ALTER TABLE incidents ADD COLUMN event_data_json TEXT NOT NULL DEFAULT '{}'",
     ] {
         connection.execute(sql, []).ok();
     }
+    connection
+        .execute(
+            "UPDATE incidents SET status='Чернетка' WHERE trim(status)='' OR status='Новий'",
+            [],
+        )
+        .map_err(|_| "Не вдалося оновити стани старих інцидентів.".to_string())?;
+    connection
+        .execute(
+            "UPDATE incidents SET category='БпЛА' WHERE incident_type='Втрата БпЛА' AND category='БпЛА та майно'",
+            [],
+        )
+        .map_err(|_| "Не вдалося відокремити старі інциденти БпЛА.".to_string())?;
+    connection
+        .execute(
+            "UPDATE incidents SET category='Майно' WHERE incident_type IN ('Втрата майна','Втрата військового квитка/посвідчення УБД') AND category='БпЛА та майно'",
+            [],
+        )
+        .map_err(|_| "Не вдалося відокремити старі інциденти майна.".to_string())?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS incident_personnel (
             incident_id INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
@@ -1041,10 +1061,106 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             full_name_snapshot TEXT NOT NULL,
             rank_snapshot TEXT NOT NULL DEFAULT '',
             position_snapshot TEXT NOT NULL DEFAULT '',
+            selection_order INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY(incident_id,personnel_id)
         );
         CREATE INDEX IF NOT EXISTS incident_personnel_incident_idx ON incident_personnel(incident_id);"
     ).map_err(|_| "Не вдалося підготувати осіб інцидентів.".to_string())?;
+    let incident_personnel_columns = connection
+        .prepare("PRAGMA table_info(incident_personnel)")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get::<_, String>(1))
+                .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+        })
+        .map_err(|_| "Не вдалося прочитати структуру осіб інцидентів.".to_string())?;
+    if !incident_personnel_columns
+        .iter()
+        .any(|column| column == "selection_order")
+    {
+        connection
+            .execute(
+                "ALTER TABLE incident_personnel ADD COLUMN selection_order INTEGER NOT NULL DEFAULT 0",
+                [],
+            )
+            .map_err(|_| "Не вдалося додати порядок осіб інцидентів.".to_string())?;
+        connection
+            .execute_batch(
+                "WITH ranked AS (
+                   SELECT rowid AS source_rowid,
+                          ROW_NUMBER() OVER(PARTITION BY incident_id ORDER BY rowid) - 1 AS ordinal
+                   FROM incident_personnel
+                 )
+                 UPDATE incident_personnel
+                 SET selection_order=(
+                   SELECT ordinal FROM ranked WHERE ranked.source_rowid=incident_personnel.rowid
+                 );",
+            )
+            .map_err(|_| "Не вдалося зберегти порядок осіб старих інцидентів.".to_string())?;
+    }
+    connection.execute_batch(
+        "CREATE TABLE IF NOT EXISTS incident_steps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            incident_id INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+            step_order INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            is_required INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'Не розпочато',
+            due_at TEXT NOT NULL DEFAULT '',
+            completed_at TEXT NOT NULL DEFAULT '',
+            comment TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS incident_steps_order_idx ON incident_steps(incident_id,step_order);
+        CREATE TABLE IF NOT EXISTS incident_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            incident_id INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+            document_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Не створено',
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(incident_id,document_type)
+        );
+        CREATE TABLE IF NOT EXISTS incident_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            incident_id INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+            action TEXT NOT NULL,
+            details TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS incident_history_incident_idx ON incident_history(incident_id,id DESC);
+        INSERT INTO incident_history(incident_id,action,details,created_at)
+        SELECT i.id,'Інцидент створено','Імпортований або раніше створений запис',COALESCE(i.created_at,CURRENT_TIMESTAMP)
+        FROM incidents i
+        WHERE NOT EXISTS(SELECT 1 FROM incident_history h WHERE h.incident_id=i.id);
+        INSERT OR IGNORE INTO incident_steps(incident_id,step_order,title,description,is_required)
+        SELECT id,1,'Негайна доповідь черговому/командиру','Зафіксувати факт і час первинної доповіді',1 FROM incidents WHERE incident_type='Втрата БпЛА';
+        INSERT OR IGNORE INTO incident_steps(incident_id,step_order,title,description,is_required)
+        SELECT id,2,'Першочергове донесення','Підготувати та подати першочергове донесення',1 FROM incidents WHERE incident_type='Втрата БпЛА';
+        INSERT OR IGNORE INTO incident_steps(incident_id,step_order,title,description,is_required)
+        SELECT id,3,'Позатермінове донесення','Підготувати та подати позатермінове донесення',1 FROM incidents WHERE incident_type='Втрата БпЛА';
+        INSERT OR IGNORE INTO incident_steps(incident_id,step_order,title,description,is_required)
+        SELECT id,4,'Рапорт на втрату','Підготувати рапорт на втрату',1 FROM incidents WHERE incident_type='Втрата БпЛА';
+        INSERT OR IGNORE INTO incident_steps(incident_id,step_order,title,description,is_required)
+        SELECT id,5,'Передача матеріалів для списання','Передати майно та матеріали у процес списання',1 FROM incidents WHERE incident_type='Втрата БпЛА';
+        INSERT OR IGNORE INTO incident_steps(incident_id,step_order,title,description,is_required)
+        SELECT id,6,'Закриття інциденту','Перевірити виконання обов’язкових дій',1 FROM incidents WHERE incident_type='Втрата БпЛА';
+        UPDATE incident_steps
+        SET due_at=COALESCE((SELECT strftime('%Y-%m-%dT%H:%M',i.occurred_at,'+3 hours') FROM incidents i WHERE i.id=incident_steps.incident_id),'')
+        WHERE title='Першочергове донесення' AND trim(due_at)='';
+        UPDATE incident_steps
+        SET due_at=COALESCE((SELECT strftime('%Y-%m-%dT%H:%M',i.occurred_at,'+24 hours') FROM incidents i WHERE i.id=incident_steps.incident_id),'')
+        WHERE title='Позатермінове донесення' AND trim(due_at)='';
+        UPDATE incident_steps
+        SET due_at=COALESCE((SELECT strftime('%Y-%m-%dT%H:%M',i.occurred_at,'+3 days') FROM incidents i WHERE i.id=incident_steps.incident_id),'')
+        WHERE title='Рапорт на втрату' AND trim(due_at)='';
+        INSERT OR IGNORE INTO incident_documents(incident_id,document_type)
+        SELECT id,'Першочергове донесення' FROM incidents WHERE incident_type='Втрата БпЛА';
+        INSERT OR IGNORE INTO incident_documents(incident_id,document_type)
+        SELECT id,'Позатермінове донесення' FROM incidents WHERE incident_type='Втрата БпЛА';
+        INSERT OR IGNORE INTO incident_documents(incident_id,document_type)
+        SELECT id,'Рапорт на втрату' FROM incidents WHERE incident_type='Втрата БпЛА';"
+    ).map_err(|_| "Не вдалося підготувати супровід інцидентів.".to_string())?;
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS personnel_staff_assignments (
             personnel_id INTEGER PRIMARY KEY REFERENCES personnel(id) ON DELETE CASCADE,
@@ -1253,6 +1369,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS summary_report_drafts_updated_idx ON summary_report_drafts(updated_at DESC);"
     ).map_err(|_| "Не вдалося підготувати збереження підсумкових донесень.".to_string())?;
     connection.execute("ALTER TABLE flight_journal_entries ADD COLUMN uav_type_snapshot TEXT NOT NULL DEFAULT ''", []).ok();
+    connection.execute("ALTER TABLE flight_journal_entries ADD COLUMN personnel_snapshot_json TEXT NOT NULL DEFAULT '[]'", []).ok();
     for obsolete_column in ["status", "personnel_snapshot", "result", "source"] {
         connection
             .execute(

@@ -145,14 +145,34 @@ pub(crate) fn normalize_stale_daily_locations(
     transaction
         .execute(
             "UPDATE personnel
-             SET current_location=CASE current_location WHEN 'ЗБЗ' THEN 'На позиції' ELSE 'ОХ' END,
+             SET current_location=CASE
+                   WHEN NOT EXISTS(
+                     SELECT 1 FROM crew_members official
+                     WHERE official.personnel_id=personnel.id AND official.left_at IS NULL
+                     UNION
+                     SELECT 1 FROM crew_actual_members actual
+                     WHERE actual.personnel_id=personnel.id
+                   ) THEN 'ОХ'
+                   WHEN current_location='ЗБЗ' THEN 'На позиції'
+                   ELSE 'ОХ'
+                 END,
                  updated_at=CURRENT_TIMESTAMP
-             WHERE current_location IN ('ЗБЗ','ПБЗ')
+             WHERE current_location IN ('На позиції','ЗБЗ','ПБЗ')
                AND EXISTS(
                  SELECT 1
                  FROM flight_plan_personnel_locations state
                  WHERE state.personnel_id=personnel.id
                    AND date(state.plan_date) < date(?1)
+               )
+               AND (
+                 current_location IN ('ЗБЗ','ПБЗ')
+                 OR NOT EXISTS(
+                   SELECT 1 FROM crew_members official
+                   WHERE official.personnel_id=personnel.id AND official.left_at IS NULL
+                   UNION
+                   SELECT 1 FROM crew_actual_members actual
+                   WHERE actual.personnel_id=personnel.id
+                 )
                )",
             [local_today],
         )
@@ -189,6 +209,28 @@ fn is_flight_plan_owned_location(value: &str) -> bool {
     )
 }
 
+fn eligible_crew_member_ids(
+    connection: &rusqlite::Connection,
+    crew_id: i64,
+) -> Result<HashSet<i64>, String> {
+    // A planned rotation may deliberately include an official member before
+    // that person is moved into the factual roster. IDs absent from both
+    // rosters are stale snapshot data and must never reactivate a location.
+    let mut statement = connection
+        .prepare(
+            "SELECT personnel_id FROM crew_members WHERE crew_id=?1 AND left_at IS NULL
+             UNION
+             SELECT personnel_id FROM crew_actual_members WHERE crew_id=?1",
+        )
+        .map_err(|_| "Не вдалося перевірити актуальний склад екіпажу.".to_string())?;
+    let member_ids = statement
+        .query_map([crew_id], |row| row.get::<_, i64>(0))
+        .map_err(|_| "Не вдалося перевірити актуальний склад екіпажу.".to_string())?
+        .collect::<Result<HashSet<_>, _>>()
+        .map_err(|_| "Не вдалося перевірити актуальний склад екіпажу.".to_string())?;
+    Ok(member_ids)
+}
+
 pub(crate) fn reconcile_flight_plan_for_now(
     connection: &rusqlite::Connection,
 ) -> Result<(), String> {
@@ -215,7 +257,21 @@ pub(crate) fn reconcile_flight_plan_for_moment(
     let now_minute = minute_of_day(local_time)
         .ok_or_else(|| "Некоректний поточний час для синхронізації БЧС.".to_string())?;
     let mut desired = HashMap::<i64, &'static str>::new();
-    for schedule in schedules {
+    let mut eligible_members_by_crew = HashMap::<i64, HashSet<i64>>::new();
+    for mut schedule in schedules {
+        let eligible_members =
+            if let Some(member_ids) = eligible_members_by_crew.get(&schedule.crew_id) {
+                member_ids.clone()
+            } else {
+                let member_ids = eligible_crew_member_ids(connection, schedule.crew_id)?;
+                eligible_members_by_crew.insert(schedule.crew_id, member_ids.clone());
+                member_ids
+            };
+        for stage in &mut schedule.stages {
+            stage
+                .member_ids
+                .retain(|personnel_id| eligible_members.contains(personnel_id));
+        }
         let Some(primary) = schedule.stages.first() else {
             continue;
         };
@@ -610,6 +666,12 @@ mod flight_plan_location_tests {
             .unwrap();
         connection
             .execute(
+                "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(1,1),(2,2)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
                 "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json) VALUES(?1,1,?2),(?3,1,?4)",
                 rusqlite::params![
                     "2026-09-23",
@@ -778,6 +840,121 @@ mod flight_plan_location_tests {
         assert_eq!((location(1), location(2)), ("ПБЗ".into(), "ОХ".into()));
         reconcile_flight_plan_for_moment(&connection, "2026-09-18", "20:00").unwrap();
         assert_eq!((location(1), location(2)), ("ПБЗ".into(), "ЗБЗ".into()));
+    }
+
+    #[test]
+    fn stale_snapshot_members_absent_from_current_crews_are_not_reintroduced_at_0500() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(1,'БАРС')", [])
+            .unwrap();
+        insert_test_personnel(&connection, 1, "ОХ");
+        insert_test_personnel(&connection, 2, "ЗБЗ");
+        insert_test_personnel(&connection, 3, "ОХ");
+        insert_test_personnel(&connection, 4, "На позиції");
+        connection
+            .execute(
+                "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(1,1)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO crew_members(crew_id,personnel_id) VALUES(1,3)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO flight_plan_personnel_locations(personnel_id,plan_date,location)
+                 VALUES(2,'2026-09-17','ЗБЗ'),(4,'2026-09-17','На позиції')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json)
+                 VALUES('2026-09-18',1,?1)",
+                [serde_json::json!({"entries":[{
+                    "crewId":1,
+                    "actualMemberIds":[1,2,3,4],
+                    "startTime":"05:00",
+                    "arrivesToday":true
+                }]})
+                .to_string()],
+            )
+            .unwrap();
+
+        reconcile_flight_plan_for_moment(&connection, "2026-09-18", "05:00").unwrap();
+
+        let location = |id| {
+            connection
+                .query_row(
+                    "SELECT current_location FROM personnel WHERE id=?1",
+                    [id],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(location(1), "ЗБЗ");
+        assert_eq!(location(2), "ОХ");
+        assert_eq!(location(3), "ЗБЗ");
+        assert_eq!(location(4), "ОХ");
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM flight_plan_personnel_locations WHERE personnel_id=2",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn tomorrow_fallback_ignores_members_absent_from_current_crews() {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(1,'БАРС')", [])
+            .unwrap();
+        insert_test_personnel(&connection, 1, "ОХ");
+        insert_test_personnel(&connection, 2, "ОХ");
+        connection
+            .execute(
+                "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(1,1)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json)
+                 VALUES('2026-09-19',1,?1)",
+                [serde_json::json!({"entries":[{
+                    "crewId":1,
+                    "actualMemberIds":[1,2],
+                    "startTime":"05:00",
+                    "arrivesToday":false
+                }]})
+                .to_string()],
+            )
+            .unwrap();
+
+        reconcile_flight_plan_for_moment(&connection, "2026-09-18", "12:00").unwrap();
+
+        let location = |id| {
+            connection
+                .query_row(
+                    "SELECT current_location FROM personnel WHERE id=?1",
+                    [id],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(location(1), "На позиції");
+        assert_eq!(location(2), "ОХ");
     }
 
     #[test]
@@ -1151,6 +1328,9 @@ mod flight_plan_location_tests {
     fn listing_normalizes_only_stale_daily_transition_locations() {
         let connection = rusqlite::Connection::open_in_memory().unwrap();
         crate::database::initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(1,'БАРС')", [])
+            .unwrap();
         for (id, location, updated_at) in [
             (1, "ЗБЗ", "2026-09-14 12:00:00"),
             (2, "ПБЗ", "2026-09-14 12:00:00"),
@@ -1168,6 +1348,12 @@ mod flight_plan_location_tests {
                     )
                     .unwrap();
             }
+            connection
+                .execute(
+                    "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(1,?1)",
+                    [id],
+                )
+                .unwrap();
         }
 
         normalize_stale_daily_locations(&connection, "2026-09-15").unwrap();
@@ -1207,6 +1393,12 @@ mod flight_plan_location_tests {
         connection
             .execute(
                 "INSERT INTO crew_members(crew_id,personnel_id) VALUES(1,1)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(1,1)",
                 [],
             )
             .unwrap();
@@ -1323,6 +1515,12 @@ mod flight_plan_location_tests {
                     [id],
                 )
                 .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(1,?1)",
+                    [id],
+                )
+                .unwrap();
         }
         connection.execute(
             "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json)
@@ -1391,6 +1589,12 @@ mod flight_plan_location_tests {
                     [id],
                 )
                 .unwrap();
+            connection
+                .execute(
+                    "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(1,?1)",
+                    [id],
+                )
+                .unwrap();
         }
         connection.execute("INSERT INTO personnel_control_assignments(personnel_id,location_type,institution,start_date,end_date,previous_location) VALUES(1,'НАВЧ','Центр','2026-09-17','2026-09-19','ОХ')", []).unwrap();
         connection.execute("INSERT INTO position_work(id,position_id,work_type,status,start_date,start_time) VALUES(10,1,'Рекогностування','Продовжують','2026-09-18','08:00')", []).unwrap();
@@ -1450,6 +1654,14 @@ mod flight_plan_location_tests {
             (6, "На позиції"),
         ] {
             insert_test_personnel(&connection, id, location);
+        }
+        for id in [1, 2, 6] {
+            connection
+                .execute(
+                    "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(1,?1)",
+                    [id],
+                )
+                .unwrap();
         }
         connection.execute("INSERT INTO personnel_control_assignments(personnel_id,location_type,institution,start_date,end_date,previous_location) VALUES(3,'НАВЧ','Центр','2026-09-17','2026-09-19','ОХ')", []).unwrap();
         connection.execute("INSERT INTO position_work(id,position_id,work_type,status,start_date,start_time) VALUES(10,1,'Рекогностування','Продовжують','2026-09-18','08:00')", []).unwrap();
@@ -1537,6 +1749,12 @@ mod flight_plan_location_tests {
             .execute("INSERT INTO crews(id,name) VALUES(1,'БАРС')", [])
             .unwrap();
         insert_test_personnel(&connection, 1, "ОХ");
+        connection
+            .execute(
+                "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(1,1)",
+                [],
+            )
+            .unwrap();
         insert_location_snapshot(&connection, &[1, 999]);
 
         reconcile_flight_plan_for_moment(&connection, "2026-09-18", "09:00").unwrap();

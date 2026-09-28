@@ -154,6 +154,9 @@ export type AssetHistoryEvent = { id: number; equipmentId: number | null; assetN
 export type WorkshopIngredient = { equipmentId: number; equipmentName: string; quantity: number; measurementUnit: string };
 export type WorkshopProduct = { id: number; name: string; quantity: number; measurementUnit: string; ingredients: WorkshopIngredient[]; notes: string; createdAt: string };
 export type WorkshopDraft = Omit<WorkshopProduct, "id" | "createdAt"> & { accountedAt: string };
+export type IncidentStep = { id: number; order: number; title: string; description: string; required: boolean; status: string; dueAt: string; completedAt: string; comment: string; updatedAt: string };
+export type IncidentDocument = { id: number; documentType: string; status: string; updatedAt: string };
+export type IncidentHistoryEvent = { id: number; action: string; details: string; createdAt: string };
 export type Incident = {
   id: number;
   category: string;
@@ -180,8 +183,14 @@ export type Incident = {
   snapshotSource: string;
   reportedTo: string;
   reportedAt: string;
+  sourceFlightId: number | null;
+  eventData: Record<string, unknown>;
+  steps: IncidentStep[];
+  documents: IncidentDocument[];
+  history: IncidentHistoryEvent[];
 };
-export type IncidentDraft = Omit<Incident, "id" | "crewName" | "equipmentName" | "equipmentNames" | "personnelNames" | "crewSnapshot" | "vehicleName">;
+export type IncidentDraft = Omit<Incident, "id" | "crewName" | "equipmentName" | "equipmentNames" | "personnelNames" | "crewSnapshot" | "vehicleName" | "steps" | "documents" | "history">;
+export type IncidentDataDraft = Pick<Incident, "description" | "flightStage" | "preliminaryCause" | "eventData">;
 export type FlightPlanWeather = { temperature: string; windFrom: string; windTo: string; gustFrom: string; gustTo: string; cloudiness: string; cloudHeight: string; precipitation: string };
 export type FlightPlanUavSelection = { equipmentId: number; dayQuantity: number; nightQuantity: number };
 export type FlightPlanPayloadSelection = { sourceType: "equipment" | "workshop"; sourceId: number };

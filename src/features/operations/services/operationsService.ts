@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AssetCatalog, AssetCatalogDraft, AssetHistoryEvent, AssetServiceCode, Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightJournalDraft, FlightJournalEntry, FlightPlanCrewLocationAssignment, FlightPlanRequest, Incident, IncidentDraft, Position, PositionDraft, PositionWork, PositionWorkDraft, PositionWorkStatusEvent, ServiceAsset, ServiceAssetDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation, VacancyRecommendationDraft, WorkshopDraft, WorkshopProduct } from "../types";
+import type { AssetCatalog, AssetCatalogDraft, AssetHistoryEvent, AssetServiceCode, Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightJournalDraft, FlightJournalEntry, FlightPlanCrewLocationAssignment, FlightPlanRequest, Incident, IncidentDataDraft, IncidentDraft, Position, PositionDraft, PositionWork, PositionWorkDraft, PositionWorkStatusEvent, ServiceAsset, ServiceAssetDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation, VacancyRecommendationDraft, WorkshopDraft, WorkshopProduct } from "../types";
 
 const mutate = <T>(command: string, args?: Record<string, unknown>) => Promise.resolve(invoke<T>(command, args)).then((result) => {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("operational-data-updated", { detail: { command } }));
@@ -60,6 +60,10 @@ export const operationsService = {
   createWorkshopProduct: (draft: WorkshopDraft) => mutate<void>("create_workshop_product", { draft }),
   listIncidents: () => invoke<Incident[]>("list_incidents"),
   createIncident: (draft: IncidentDraft) => mutate<void>("create_incident", { draft }),
+  updateIncidentData: (incidentId: number, draft: IncidentDataDraft) => mutate<void>("update_incident_data", { incidentId, draft }),
+  updateIncidentStatus: (incidentId: number, status: string, reason = "") => mutate<void>("update_incident_status", { incidentId, status, reason }),
+  updateIncidentStep: (incidentId: number, stepId: number, status: string, comment = "") => mutate<void>("update_incident_step", { incidentId, stepId, status, comment }),
+  updateIncidentDocumentStatus: (incidentId: number, documentId: number, status: string) => mutate<void>("update_incident_document_status", { incidentId, documentId, status }),
   listFlightJournalEntries: () => invoke<FlightJournalEntry[]>("list_flight_journal_entries"),
   createFlightJournalEntry: (draft: FlightJournalDraft) => mutate<void>("create_flight_journal_entry", { draft }),
 };

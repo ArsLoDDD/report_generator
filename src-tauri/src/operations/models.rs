@@ -764,6 +764,44 @@ pub struct Incident {
     pub snapshot_source: String,
     pub reported_to: String,
     pub reported_at: String,
+    pub source_flight_id: Option<i64>,
+    pub event_data: serde_json::Value,
+    pub steps: Vec<IncidentStep>,
+    pub documents: Vec<IncidentDocument>,
+    pub history: Vec<IncidentHistoryEvent>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IncidentStep {
+    pub id: i64,
+    pub order: i64,
+    pub title: String,
+    pub description: String,
+    pub required: bool,
+    pub status: String,
+    pub due_at: String,
+    pub completed_at: String,
+    pub comment: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IncidentDocument {
+    pub id: i64,
+    pub document_type: String,
+    pub status: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IncidentHistoryEvent {
+    pub id: i64,
+    pub action: String,
+    pub details: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -798,6 +836,23 @@ pub struct IncidentDraft {
     pub reported_to: String,
     #[serde(default)]
     pub reported_at: String,
+    #[serde(default)]
+    pub source_flight_id: Option<i64>,
+    #[serde(default)]
+    pub event_data: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IncidentDataDraft {
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub flight_stage: String,
+    #[serde(default)]
+    pub preliminary_cause: String,
+    #[serde(default)]
+    pub event_data: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize)]

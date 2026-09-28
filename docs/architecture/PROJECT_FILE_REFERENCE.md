@@ -219,6 +219,7 @@
 - `scripts/build_excel_template.mjs` — відтворюване створення офіційного Excel-шаблону.
 - `scripts/inspect_bcs_reference.mjs` — діагностує стилі еталонного БЧС.
 - `scripts/seed-development-data.sql` — тестові дані для локальної розробки.
+- `scripts/seed-flight-journal-demo.sql` — ручне, повторно безпечне наповнення журналу демонстраційними записами зі знімків плану; програма сама його не запускає.
 - `docs/template-language.md`, `docs/architecture/template-language-v2.md` — синтаксис і архітектура мови шаблонів.
 - `docs/architecture/2026-08-02-personnel-template-language.md` — початковий контракт особового складу та змінних.
 - `docs/architecture/2026-08-03-application-data-layout.md` — розміщення даних у desktop-застосунку.

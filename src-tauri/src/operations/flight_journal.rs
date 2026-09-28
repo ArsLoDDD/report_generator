@@ -1,6 +1,6 @@
 use super::{busy, FlightJournalDraft, FlightJournalEntry};
 use crate::AppState;
-use rusqlite::params;
+use rusqlite::{params, Connection};
 
 fn valid_iso_date(value: &str) -> bool {
     chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok()
@@ -8,6 +8,98 @@ fn valid_iso_date(value: &str) -> bool {
 
 fn valid_required_time(value: &str) -> bool {
     !value.is_empty() && chrono::NaiveTime::parse_from_str(value, "%H:%M").is_ok()
+}
+
+fn frozen_personnel_snapshot(
+    connection: &Connection,
+    flight_date: &str,
+    crew_id: Option<i64>,
+    sky_time: &str,
+) -> (Option<i64>, String) {
+    let Some(crew_id) = crew_id else {
+        return (None, "[]".into());
+    };
+    let snapshot = connection
+        .query_row(
+            "SELECT id,snapshot_json FROM flight_plan_snapshots WHERE plan_date=?1 ORDER BY revision DESC,id DESC LIMIT 1",
+            [flight_date],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
+        )
+        .ok();
+    let Some((snapshot_id, snapshot_json)) = snapshot else {
+        return (None, "[]".into());
+    };
+    let Some(snapshot) = serde_json::from_str::<serde_json::Value>(&snapshot_json).ok() else {
+        return (Some(snapshot_id), "[]".into());
+    };
+    let entry = snapshot
+        .get("entries")
+        .and_then(|value| value.as_array())
+        .and_then(|entries| {
+            entries
+                .iter()
+                .find(|entry| {
+                    entry.get("crewId").and_then(|value| value.as_i64()) == Some(crew_id)
+                        && entry.get("startTime").and_then(|value| value.as_str()) == Some(sky_time)
+                })
+                .or_else(|| {
+                    entries.iter().find(|entry| {
+                        entry.get("crewId").and_then(|value| value.as_i64()) == Some(crew_id)
+                    })
+                })
+        });
+    let Some(entry) = entry else {
+        return (Some(snapshot_id), "[]".into());
+    };
+    let commander_id = entry
+        .get("actualCommanderId")
+        .and_then(|value| value.as_i64());
+    let mut ids = entry
+        .get("actualMemberIds")
+        .and_then(|value| value.as_array())
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(|value| value.as_i64())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if let Some(commander_id) = commander_id {
+        ids.retain(|id| *id != commander_id);
+        ids.insert(0, commander_id);
+    }
+    let members = entry
+        .get("memberSnapshots")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let frozen = ids
+        .into_iter()
+        .filter_map(|personnel_id| {
+            let member = members.iter().find(|member| {
+                member.get("personnelId").and_then(|value| value.as_i64())
+                    == Some(personnel_id)
+            })?;
+            let position = connection
+                .query_row(
+                    "SELECT position FROM personnel WHERE id=?1",
+                    [personnel_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap_or_default();
+            Some(serde_json::json!({
+                "personnelId": personnel_id,
+                "fullName": member.get("fullName").and_then(|value| value.as_str()).unwrap_or_default(),
+                "rank": member.get("rank").and_then(|value| value.as_str()).unwrap_or_default(),
+                "position": position,
+                "isCommander": commander_id == Some(personnel_id),
+            }))
+        })
+        .collect::<Vec<_>>();
+    (
+        Some(snapshot_id),
+        serde_json::to_string(&frozen).unwrap_or_else(|_| "[]".into()),
+    )
 }
 
 #[tauri::command]
@@ -70,8 +162,10 @@ pub fn create_flight_journal_entry(
         return Err("Оберіть екіпаж.".into());
     }
     let db = state.0.lock().map_err(|_| busy())?;
+    let (snapshot_id, personnel_snapshot_json) =
+        frozen_personnel_snapshot(&db.connection, flight_date, draft.crew_id, sky_time);
     db.connection.execute(
-        "INSERT INTO flight_journal_entries(flight_date,sky_time,ground_time,crew_id,position_id,uav_id,crew_name_snapshot,position_name_snapshot,battle_order_snapshot,work_strip_snapshot,uav_name_snapshot,uav_type_snapshot,uav_serial_snapshot,mission,payload_source,payload_id,payload_type_snapshot,payload_serial_snapshot,notes) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
+        "INSERT INTO flight_journal_entries(flight_date,sky_time,ground_time,crew_id,position_id,uav_id,snapshot_id,crew_name_snapshot,position_name_snapshot,battle_order_snapshot,work_strip_snapshot,uav_name_snapshot,uav_type_snapshot,uav_serial_snapshot,mission,payload_source,payload_id,payload_type_snapshot,payload_serial_snapshot,notes,personnel_snapshot_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)",
         params![
             flight_date,
             sky_time,
@@ -79,6 +173,7 @@ pub fn create_flight_journal_entry(
             draft.crew_id,
             draft.position_id,
             draft.uav_id,
+            snapshot_id,
             draft.crew_name.trim(),
             draft.position_name.trim(),
             draft.battle_order.trim(),
@@ -92,6 +187,7 @@ pub fn create_flight_journal_entry(
             draft.payload_type.trim(),
             draft.payload_serial_number.trim(),
             draft.notes.trim(),
+            personnel_snapshot_json,
         ],
     ).map_err(|_| "Не вдалося зберегти запис журналу польотів.".to_string())?;
     Ok(())
@@ -108,5 +204,31 @@ mod tests {
         assert!(!valid_required_time(""));
         assert!(valid_required_time("07:05"));
         assert!(!valid_required_time("25:00"));
+    }
+
+    #[test]
+    fn freezes_the_plan_personnel_in_flight_order() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(4,'ГРІМ')", [])
+            .unwrap();
+        connection.execute(
+            "INSERT INTO personnel(id,surname,given_name,patronymic,rank,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id) VALUES(41,'ІВАНЕНКО','Іван','Іванович','солдат','оператор','1','','','','','','',''),(42,'ПЕТРЕНКО','Петро','Петрович','сержант','командир','2','','','','','','','')",
+            [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO flight_plan_snapshots(id,plan_date,revision,snapshot_json) VALUES(1,'2026-09-12',1,?1)",
+            [r#"{"entries":[{"crewId":4,"startTime":"14:45","actualMemberIds":[41,42],"actualCommanderId":42,"memberSnapshots":[{"personnelId":41,"fullName":"ІВАНЕНКО Іван Іванович","rank":"солдат"},{"personnelId":42,"fullName":"ПЕТРЕНКО Петро Петрович","rank":"сержант"}]}]}"#],
+        ).unwrap();
+
+        let (snapshot_id, personnel_json) =
+            frozen_personnel_snapshot(&connection, "2026-09-12", Some(4), "14:45");
+        let personnel: serde_json::Value = serde_json::from_str(&personnel_json).unwrap();
+
+        assert_eq!(snapshot_id, Some(1));
+        assert_eq!(personnel[0]["personnelId"], 42);
+        assert_eq!(personnel[0]["position"], "командир");
+        assert_eq!(personnel[1]["personnelId"], 41);
     }
 }

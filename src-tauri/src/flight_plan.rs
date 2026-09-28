@@ -147,6 +147,7 @@ pub(crate) struct FlightPlanLocationStage {
 
 #[derive(Debug, Clone)]
 pub(crate) struct FlightPlanLocationSchedule {
+    pub crew_id: i64,
     pub stages: Vec<FlightPlanLocationStage>,
     pub arrives_on_plan_date: bool,
     pub departs_on_plan_date: bool,
@@ -489,6 +490,7 @@ fn merge_location_actions(
     transitions: Vec<StoredPersonnelTransition>,
     inferred_from_next_day: bool,
 ) -> FlightPlanLocationSchedule {
+    let crew_id = primary.crew_id;
     let arrives_on_plan_date = !inferred_from_next_day && primary.arrives_today;
     let departs_on_plan_date = !inferred_from_next_day && primary.departs_today;
     let departure_time = if inferred_from_next_day {
@@ -577,6 +579,7 @@ fn merge_location_actions(
     actions.sort_by_key(|action| (action.minute, action.priority, action.sequence));
     if inferred_from_next_day {
         return FlightPlanLocationSchedule {
+            crew_id,
             stages: vec![FlightPlanLocationStage {
                 member_ids,
                 start_time: "00:00".into(),
@@ -610,6 +613,7 @@ fn merge_location_actions(
         });
     }
     FlightPlanLocationSchedule {
+        crew_id,
         stages,
         arrives_on_plan_date,
         departs_on_plan_date,

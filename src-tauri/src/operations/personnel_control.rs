@@ -1304,6 +1304,15 @@ mod tests {
     fn opening_control_directly_normalizes_yesterdays_transition_state() {
         let connection = connection();
         connection
+            .execute("INSERT INTO crews(id,name) VALUES(1,'БАРС')", [])
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO crew_actual_members(crew_id,personnel_id) VALUES(1,1)",
+                [],
+            )
+            .unwrap();
+        connection
             .execute("UPDATE personnel SET current_location='ЗБЗ' WHERE id=1", [])
             .unwrap();
         connection

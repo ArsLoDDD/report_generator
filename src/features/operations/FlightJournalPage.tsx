@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type UIEventHandler } from "react";
-import { BookOpenText, Clock3, MapPin, PackageOpen, Plane, Plus, UsersRound } from "lucide-react";
+import { BookOpenText, FileText, Plus } from "lucide-react";
+import type { CommissionTemplate } from "../../shared/types/domain";
+import { CheckBox } from "../../shared/ui/CheckBox";
+import { DateNavigator } from "../../shared/ui/DateNavigator";
 import { Modal } from "../../shared/ui/Modal";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { PageTitle } from "../../shared/ui/PageTitle";
@@ -7,8 +10,10 @@ import { Select } from "../../shared/ui/Select";
 import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { EntityTable, type EntityTableColumn } from "../../shared/ui/data-table/EntityTable";
 import { useEntityCollection } from "../../shared/hooks/useEntityCollection";
+import { settingsService } from "../settings/services/settingsService";
 import { flightPlanDraftRequest, flightPlanPendingDraftRequest } from "./flight-plan-storage";
 import { operationsService } from "./services/operationsService";
+import { FlightJournalCard, visibleFlightNotes } from "./FlightJournalCard";
 import type { Crew, Equipment, FlightJournalDraft, FlightJournalEntry, FlightPlanRequest, Position, WorkshopProduct } from "./types";
 
 type PayloadOption = { key: string; source: "equipment" | "workshop"; id: number; name: string; serial: string };
@@ -36,7 +41,7 @@ const columns: EntityTableColumn<FlightJournalEntry>[] = [
   { key: "mission", title: "Мета польоту", render: (item) => item.mission || "—" },
   { key: "payload", title: "Тип БК", render: (item) => item.payloadType || "—" },
   { key: "payload-serial", title: "Серійний номер БК", render: (item) => item.payloadSerialNumber || "—" },
-  { key: "notes", title: "Нотатки", render: (item) => item.notes || "—" },
+  { key: "notes", title: "Нотатки", render: (item) => visibleFlightNotes(item.notes) || "—" },
 ];
 
 export function FlightJournalPage() {
@@ -49,6 +54,14 @@ export function FlightJournalPage() {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<FlightJournalEntry | null>(null);
   const [visibleLimit, setVisibleLimit] = useState(20);
+  const [journalDate, setJournalDate] = useState(todayIso);
+  const [showAllDates, setShowAllDates] = useState(false);
+  const [commissions, setCommissions] = useState<CommissionTemplate[]>([]);
+  const [commissionsLoaded, setCommissionsLoaded] = useState(false);
+  const [apOpen, setApOpen] = useState(false);
+  const [apDate, setApDate] = useState(todayIso);
+  const [apSelectedIds, setApSelectedIds] = useState<Set<number>>(() => new Set());
+  const [apCommissionId, setApCommissionId] = useState("");
   const [draft, setDraft] = useState<FlightJournalDraft>(emptyDraft);
   const [saving, setSaving] = useState(false);
   const planRequestRef = useRef(0);
@@ -56,9 +69,21 @@ export function FlightJournalPage() {
   const savingRef = useRef(false);
   const loadEntries = useCallback(() => operationsService.listFlightJournalEntries(), []);
   const onLoadError = useCallback(() => notify("Не вдалося завантажити журнал польотів.", "error"), [notify]);
-  const { items, reload } = useEntityCollection({ load: loadEntries, onError: onLoadError });
+  const { items, isLoading, reload } = useEntityCollection({ load: loadEntries, onError: onLoadError });
 
   useEffect(() => { void Promise.all([operationsService.listCrews(), operationsService.listPositions(), operationsService.listEquipment("uav"), operationsService.listEquipment("weapon_ammo"), operationsService.listWorkshopProducts()]).then(([nextCrews, nextPositions, nextUavs, nextAmmunition, nextProducts]) => { setCrews(nextCrews); setPositions(nextPositions); setUavs(nextUavs); setAmmunition(nextAmmunition); setProducts(nextProducts); }).catch(() => notify("Не вдалося завантажити довідники журналу.", "error")); }, [notify]);
+  useEffect(() => {
+    let active = true;
+    void settingsService.get().then((settings) => {
+      if (!active) return;
+      const nextCommissions = settings?.commissionTemplates ?? [];
+      setCommissions(nextCommissions);
+      setApCommissionId((current) => nextCommissions.some((commission) => commission.id === current) ? current : nextCommissions[0]?.id ?? "");
+    }).catch(() => {
+      if (active) notify("Не вдалося завантажити комісії з налаштувань.", "error");
+    }).finally(() => { if (active) setCommissionsLoaded(true); });
+    return () => { active = false; };
+  }, [notify]);
 
   const payloadOptions = useMemo<PayloadOption[]>(() => [
     ...ammunition.filter((item) => item.weaponKind === "ammunition").map((item) => ({ key: `equipment:${item.id}`, source: "equipment" as const, id: item.id, name: item.name, serial: item.inventoryNumber })),
@@ -110,7 +135,7 @@ export function FlightJournalPage() {
   const chooseUav = (value: string) => { const uav = uavs.find((item) => item.id === Number(value)); setDraft((current) => ({ ...current, uavId: uav?.id ?? null, uavName: uav?.name ?? "", uavType: uav?.uavType ?? "", uavSerialNumber: uav?.inventoryNumber ?? "" })); };
   const choosePayload = (value: string) => { const payload = payloadOptions.find((item) => item.key === value); setDraft((current) => ({ ...current, payloadSource: payload?.source ?? "", payloadId: payload?.id ?? null, payloadType: payload?.name ?? "", payloadSerialNumber: payload?.serial ?? "" })); };
   const dismissEditor = () => { planRequestRef.current += 1; setOpen(false); setDraft(emptyDraft()); setSaving(false); savingRef.current = false; };
-  const openEditor = () => { const next = emptyDraft(); planRequestRef.current += 1; initialDraftRef.current = JSON.stringify(next); setDraft(next); setOpen(true); };
+  const openEditor = () => { const next = { ...emptyDraft(), flightDate: showAllDates ? todayIso() : journalDate }; planRequestRef.current += 1; initialDraftRef.current = JSON.stringify(next); setDraft(next); setOpen(true); };
   const save = async () => {
     if (savingRef.current) return false;
     if (!draft.skyTime || !draft.groundTime) { notify("Вкажіть обов’язкові часи «Небо» та «Земля».", "error"); return; }
@@ -128,11 +153,39 @@ export function FlightJournalPage() {
     if (JSON.stringify(draft) === initialDraftRef.current) { dismissEditor(); return; }
     void save();
   };
-  const onScroll: UIEventHandler<HTMLDivElement> = (event) => { const element = event.currentTarget; if (element.scrollHeight - element.scrollTop - element.clientHeight < 100) setVisibleLimit((current) => Math.min(current + 20, items.length)); };
-  const visibleItems = items.slice(0, visibleLimit);
+  const filteredItems = useMemo(() => showAllDates ? items : items.filter((item) => item.flightDate === journalDate), [items, journalDate, showAllDates]);
+  const visibleItems = filteredItems.slice(0, visibleLimit);
+  const selectJournalDate = (value: string) => { if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return; setJournalDate(value); setShowAllDates(false); setVisibleLimit(20); setSelected(null); };
+  const showAllJournalEntries = () => { setShowAllDates((current) => !current); setVisibleLimit(20); setSelected(null); };
+  const onScroll: UIEventHandler<HTMLDivElement> = (event) => { const element = event.currentTarget; if (element.scrollHeight - element.scrollTop - element.clientHeight < 100) setVisibleLimit((current) => Math.min(current + 20, filteredItems.length)); };
 
-  return <PageFrame className="flight-journal-page" header={<PageTitle title="Журнал польотів" subtitle="Фактичні польоти екіпажів із даними БпЛА та БК" actions={<button className="button primary" onClick={openEditor}><Plus />Додати</button>} />}>
-    <section className="panel operation-table data-table flight-journal-table"><EntityTable className="operation-table__table" items={visibleItems} columns={columns} rowKey={(item) => item.id} numberBy={false} selectedKey={selected?.id} onSelect={setSelected} onScroll={onScroll} emptyState={<div className="personnel-state"><BookOpenText /><b>Підтверджених польотів ще немає</b><span>План підставляє дані у форму, але запис журналу створюється лише після внесення фактичних часів «Небо» і «Земля».</span></div>} /><div className="pagination">Показано {visibleItems.length} із {items.length}</div></section>
+  const apEntries = useMemo(() => items.filter((item) => item.flightDate === apDate), [apDate, items]);
+  const apSelectedEntries = useMemo(() => apEntries.filter((item) => apSelectedIds.has(item.id)), [apEntries, apSelectedIds]);
+  const apCommission = commissions.find((commission) => commission.id === apCommissionId) ?? null;
+  const openApPreview = () => {
+    if (isLoading) return;
+    const nextDate = journalDate;
+    setApDate(nextDate);
+    setApSelectedIds(new Set(items.filter((item) => item.flightDate === nextDate).map((item) => item.id)));
+    setApCommissionId((current) => commissions.some((commission) => commission.id === current) ? current : commissions[0]?.id ?? "");
+    setApOpen(true);
+  };
+  const selectApDate = (value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return;
+    setApDate(value);
+    setApSelectedIds(new Set(items.filter((item) => item.flightDate === value).map((item) => item.id)));
+  };
+  const toggleApEntry = (id: number) => setApSelectedIds((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const toggleAllApEntries = () => setApSelectedIds((current) => apEntries.length > 0 && apEntries.every((entry) => current.has(entry.id)) ? new Set() : new Set(apEntries.map((entry) => entry.id)));
+  const selectedCrewCount = new Set(apSelectedEntries.map((entry) => entry.crewName.trim()).filter(Boolean)).size;
+  const selectedUavCount = new Set(apSelectedEntries.map((entry) => `${entry.uavId ?? "snapshot"}:${entry.uavSerialNumber || entry.uavName}`).filter((value) => !value.endsWith(":"))).size;
+
+  return <PageFrame className="flight-journal-page" header={<PageTitle title="Журнал польотів" subtitle="Фактичні польоти екіпажів із даними БпЛА та БК" actions={<><button className="button" onClick={openApPreview} disabled={isLoading}><FileText />{isLoading ? "Завантаження…" : "Сформувати АП"}</button><button className="button primary" onClick={openEditor}><Plus />Додати</button></>} />} tools={<div className="flight-journal-toolbar"><DateNavigator ariaLabel="Фільтр журналу за датою" dateLabel="Дата польоту" value={journalDate} onChange={selectJournalDate} allTime={{ active: showAllDates, onSelect: showAllJournalEntries }} /></div>}>
+    <section className="panel operation-table data-table flight-journal-table"><EntityTable className="operation-table__table" items={visibleItems} columns={columns} rowKey={(item) => item.id} numberBy={false} selectedKey={selected?.id} onSelect={setSelected} onScroll={onScroll} emptyState={<div className="personnel-state"><BookOpenText /><b>{showAllDates ? "Підтверджених польотів ще немає" : `За ${displayDate(journalDate)} польотів немає`}</b><span>План підставляє дані у форму, але запис журналу створюється лише після внесення фактичних часів «Небо» і «Земля».</span></div>} /><div className="pagination">Показано {visibleItems.length} із {filteredItems.length}</div></section>
     {open && <Modal title="Новий запис польоту" subtitle="Поля з плану та картки екіпажу можна змінити перед збереженням." onClose={closeAndSave} className="flight-journal-editor"><div className="operation-editor__body">
       <label className="form-field"><span>Дата <b>*</b></span><input type="date" value={draft.flightDate} onChange={(event) => { planRequestRef.current += 1; setDraft({ ...emptyDraft(), flightDate: event.target.value }); }} /></label>
       <label className="form-field"><span>Екіпаж <b>*</b></span><Select ariaLabel="Екіпаж польоту" value={draft.crewId?.toString() ?? ""} onChange={(value)=>{void chooseCrew(value);}} options={[{ value: "", label: "Оберіть екіпаж" }, ...crews.map((crew) => ({ value: String(crew.id), label: crew.name }))]} /></label>
@@ -149,6 +202,13 @@ export function FlightJournalPage() {
       <label className="form-field"><span>Серійний номер БК</span><input value={draft.payloadSerialNumber} onChange={(event) => setDraft({ ...draft, payloadSerialNumber: event.target.value })} /></label>
       <label className="form-field form-field--wide"><span>Нотатки</span><textarea value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label>
     </div><footer className="modal-actions"><button className="button" onClick={dismissEditor} disabled={saving}>Скасувати</button><button className="button primary" onClick={() => void save()} disabled={saving}>{saving ? "Збереження…" : "Зберегти запис"}</button></footer></Modal>}
-    {selected && <Modal title={`Політ №${selected.id}`} subtitle={`${displayDate(selected.flightDate)} · ${selected.crewName}`} onClose={() => setSelected(null)} className="flight-journal-details"><div className="flight-journal-details__body"><div className="incident-details__facts"><article><Clock3 /><span>Небо / Земля<b>{selected.skyTime || "—"} / {selected.groundTime || "—"}</b></span></article><article><UsersRound /><span>Екіпаж<b>{selected.crewName}</b></span></article><article><MapPin /><span>Позиція та БрО<b>{selected.positionName || "—"} · {selected.battleOrder || "—"}</b></span></article><article><Plane /><span>БпЛА<b>{selected.uavName || "—"} · {selected.uavType || "—"}</b></span></article><article><PackageOpen /><span>БК<b>{selected.payloadType || "—"} · {selected.payloadSerialNumber || "без номера"}</b></span></article></div><section><span>Смуга роботи</span><p>{selected.workStrip || "Не вказано"}</p></section><section><span>Мета польоту</span><p>{selected.mission || "Не вказано"}</p></section><section><span>Нотатки</span><p>{selected.notes || "Без нотаток"}</p></section></div><footer className="modal-actions"><button className="button primary" onClick={() => setSelected(null)}>Готово</button></footer></Modal>}
+    {apOpen && <Modal title="Сформувати АП" subtitle="Підготовка акта пуску за записами журналу" onClose={() => setApOpen(false)} className="flight-journal-ap-modal"><div className="flight-journal-ap__body">
+      <p className="flight-journal-ap__notice" role="note"><b>Формування АП у розробці</b>. Зараз доступні вибір польотів, комісії та перевірка підсумку без списання майна.</p>
+      <div className="flight-journal-ap__controls"><label className="form-field"><span>Дата польотів</span><input aria-label="Дата польотів для АП" type="date" value={apDate} onChange={(event) => selectApDate(event.target.value)} /></label><label className="form-field"><span>Комісія</span><Select ariaLabel="Комісія для АП" value={apCommissionId} disabled={!commissions.length} onChange={setApCommissionId} options={commissions.length ? commissions.map((commission) => ({ value: commission.id, label: commission.name })) : [{ value: "", label: commissionsLoaded ? "Комісій немає" : "Завантаження…" }]} /></label></div>
+      {!commissions.length && commissionsLoaded && <p className="flight-journal-ap__empty-commission">Комісію можна створити у налаштуваннях.</p>}
+      <div className="flight-journal-ap__workspace"><section className="flight-journal-ap__selection"><header><div><b>Польоти за {displayDate(apDate)}</b><small>Вибрано: {apSelectedEntries.length} із {apEntries.length}</small></div><label className="flight-journal-ap__select-all"><CheckBox label="Обрати всі польоти" checked={apEntries.length > 0 && apEntries.every((entry) => apSelectedIds.has(entry.id))} disabled={apEntries.length === 0} onChange={toggleAllApEntries} /><span>Усі</span></label></header><div className="flight-journal-ap__entry-list">{apEntries.map((entry) => <label className={`flight-journal-ap__entry ${apSelectedIds.has(entry.id) ? "selected" : ""}`} key={entry.id}><CheckBox label={`Обрати політ №${entry.id}`} checked={apSelectedIds.has(entry.id)} onChange={() => toggleApEntry(entry.id)} /><span className="flight-journal-ap__entry-main"><b>{entry.crewName || "Екіпаж не вказано"}</b><small>{entry.positionName || "Позиція не вказана"} · {entry.skyTime || "—"}–{entry.groundTime || "—"}</small><span>{entry.uavName || "БпЛА не вказано"} · {entry.uavSerialNumber || "без номера"}</span>{entry.payloadType && <small>БК: {entry.payloadType}{entry.payloadSerialNumber ? ` · ${entry.payloadSerialNumber}` : ""}</small>}</span></label>)}{apEntries.length === 0 && <div className="flight-journal-ap__empty">За цю дату в журналі немає польотів.</div>}</div></section>
+      <section className="flight-journal-ap__summary" aria-label="Підсумок вибору"><header><b>Підсумок вибору</b><span>{displayDate(apDate)}</span></header><div><article><strong>{apSelectedEntries.length}</strong><span>польотів</span></article><article><strong>{selectedCrewCount}</strong><span>екіпажів</span></article><article><strong>{selectedUavCount}</strong><span>БпЛА</span></article><article><strong>{apCommission?.members.length ?? 0}</strong><span>членів комісії</span></article></div><p>Комісія: <b>{apCommission?.name ?? "не обрана"}</b></p><p>Вартість і служби з’являться після погодження зв’язків із майном.</p></section></div>
+    </div><footer className="modal-actions"><button className="button" onClick={() => setApOpen(false)}>Закрити</button><button className="button primary" disabled title="Формування АП ще недоступне">Сформувати АП</button></footer></Modal>}
+    {selected && <FlightJournalCard entry={selected} onClose={() => setSelected(null)} />}
   </PageFrame>;
 }
