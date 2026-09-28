@@ -1,4 +1,4 @@
-name: Windows installers
+name: Windows update and installer
 
 on:
   push:
@@ -14,6 +14,10 @@ on:
         required: false
         type: string
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     name: Перевірки
@@ -27,12 +31,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+      - name: Відновити кеш Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: windows-ci
       - run: npm ci
       - run: npm run test:full
 
-  build:
-    name: Просунута версія та файл оновлення
-    if: github.event_name != 'pull_request'
+  build-update:
+    name: Файл оновлення
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: verify
     runs-on: windows-latest
     steps:
@@ -44,8 +53,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+      - name: Відновити кеш Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: windows-ci
+      - name: Відновити кеш NSIS
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/tauri/NSIS
+          key: tauri-nsis-3.11-utils-0.5.3-windows
       - run: npm ci
-      - name: Зібрати інсталятор і підписаний файл оновлення
+      - name: Зібрати підписаний файл оновлення
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -63,32 +82,28 @@ jobs:
           } else {
             npm run update:build -- --version $version --skip-tests
           }
-      - name: Підготувати два файли для завантаження
+      - name: Підготувати файл оновлення
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          New-Item -ItemType Directory -Path artifact -Force | Out-Null
-          Copy-Item -Path "src-tauri/target/release/bundle/nsis/*.exe" -Destination artifact
-          Copy-Item -Path "release/*.shupd" -Destination artifact
+          New-Item -ItemType Directory -Path update-artifact -Force | Out-Null
+          Copy-Item -Path "release/*.shupd" -Destination update-artifact
       - uses: actions/upload-artifact@v4
         with:
-          name: Shablonizator-Advanced-Windows
-          path: artifact/*
+          name: Shablonizator-Update-Windows
+          path: update-artifact/*.shupd
           if-no-files-found: error
-
-  pull-request-build:
-    name: Перевірка збірки просунутої версії
-    if: github.event_name == 'pull_request'
-    needs: verify
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Підготувати інсталятор
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Path installer-artifact -Force | Out-Null
+          Copy-Item -Path "src-tauri/target/release/bundle/nsis/*.exe" -Destination installer-artifact
+      - name: Завантажити інсталятор
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
         with:
-          node-version: 22
-          cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-      - run: npm ci
-      - run: npm run tauri:build:advanced
+          name: Shablonizator-Installer-Windows
+          path: installer-artifact/*.exe
+          if-no-files-found: error
