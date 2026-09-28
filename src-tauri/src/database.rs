@@ -1802,6 +1802,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
                 ON deadline_reminders(status,due_at);",
         )
         .map_err(|_| "Не вдалося підготувати контроль строків.".to_string())?;
+    crate::operations::initialize_all_incident_workflows(connection)?;
     connection
         .pragma_update(None, "user_version", 8)
         .map_err(|_| "Не вдалося завершити міграцію бази даних.".to_string())?;

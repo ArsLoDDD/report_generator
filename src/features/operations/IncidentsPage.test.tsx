@@ -38,11 +38,13 @@ describe("Журнал інцидентів", () => {
     const { container } = render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
 
     expect(await screen.findByText("Показано 20 із 25")).toBeInTheDocument();
-    expect(screen.queryByText("Подія 25")).not.toBeInTheDocument();
+    expect(screen.getByText("Подія 25")).toBeInTheDocument();
+    expect(screen.queryByText("Подія 1")).not.toBeInTheDocument();
     const scroll = container.querySelector<HTMLElement>(".data-table__scroll")!;
     Object.defineProperties(scroll, { scrollHeight: { value: 1000 }, clientHeight: { value: 500 }, scrollTop: { value: 450, configurable: true } });
     fireEvent.scroll(scroll);
     await waitFor(() => expect(screen.getByText("Показано 25 із 25")).toBeInTheDocument());
+    expect(screen.getByText("Подія 1")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Подія 25"));
     expect(screen.getByRole("heading", { name: "Подія 25 - ЖУК Д.П. - 18.08.2026" })).toBeInTheDocument();
@@ -374,5 +376,22 @@ describe("Журнал інцидентів", () => {
     expect(screen.getByRole("heading", { name: "Документи" })).toBeInTheDocument();
     expect(screen.getByText("із 2 сформовано")).toBeInTheDocument();
     for (const button of screen.getAllByRole("button", { name: "Створити документ" })) expect(button).toBeDisabled();
+  });
+
+  it("не показує статус «у розробці» для порожніх алгоритму та документів", async () => {
+    const item = { ...incident(53), incidentType: "Втрата майна" };
+    invoke.mockImplementation((command: string) => command === "list_incidents" ? Promise.resolve([item]) : command === "list_crews" || command === "list_equipment" || command === "list_flight_journal_entries" ? Promise.resolve([]) : Promise.resolve());
+    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
+
+    expect(await screen.findByText("Алгоритм не налаштовано")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Втрата майна"));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Алгоритм" }));
+    expect(within(dialog).getByText("Алгоритм не налаштовано")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/у розробці|в розробці/iu)).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Документи" }));
+    expect(within(dialog).getByText("Документів ще немає")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/у розробці|в розробці/iu)).not.toBeInTheDocument();
   });
 });

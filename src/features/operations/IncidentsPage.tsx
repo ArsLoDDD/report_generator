@@ -26,7 +26,7 @@ const parsePlan = (value: string | null | undefined): FlightPlanRequest | null =
 type Explanation = { personId: string; text: string };
 const emptyDraft = () => ({ category: "Майно", incidentType: "Втрата майна", customEvent: "", status: "Чернетка", ...localDateParts(), crewId: "", equipmentIds: [] as number[], personnelIds: [] as number[], positionName: "", reconnaissanceArea: "", description: "", immediateActions: "", consequences: "", flightStage: "", preliminaryCause: "", reportedTo: "", reportedDate: "", reportedTime: "", sourceFlightId: "", eventData: {} as Record<string, string>, explanations: [{ personId: "", text: "" }, { personId: "", text: "" }] as Explanation[] });
 
-const nextStepLabel = (item: Incident) => (item.steps ?? []).find((step) => !["Виконано", "Пропущено"].includes(step.status))?.title || ((item.steps ?? []).length ? "Обов’язкові кроки завершено" : "Алгоритм у розробці");
+const nextStepLabel = (item: Incident) => (item.steps ?? []).find((step) => !["Виконано", "Пропущено"].includes(step.status))?.title || ((item.steps ?? []).length ? "Обов’язкові кроки завершено" : "Алгоритм не налаштовано");
 const incidentColumns = (equipment: Equipment[], crews: Crew[]): EntityTableColumn<Incident>[] => [
   { key: "id", title: "№", render: (item) => item.id },
   { key: "event", title: "Інцидент", render: (item) => <><b>{item.incidentType}</b><small>{incidentPrimaryName(item, equipment, crews)}</small></> },
@@ -50,7 +50,7 @@ export function IncidentsPage() {
   const [datedPlanEntries, setDatedPlanEntries] = useState<FlightPlanEntry[]>([]);
   const { notify } = useNotifications();
   const [draft, setDraft] = useState(emptyDraft);
-  const loadIncidents = useCallback(() => operationsService.listIncidents(), []);
+  const loadIncidents = useCallback(async () => [...await operationsService.listIncidents()].sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id - left.id), []);
   const onLoadError = useCallback(() => notify("Не вдалося завантажити інциденти.", "error"), [notify]);
   const { items, reload: reloadItems } = useEntityCollection({ load: loadIncidents, onError: onLoadError });
 
