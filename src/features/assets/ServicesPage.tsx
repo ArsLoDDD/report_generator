@@ -1,6 +1,6 @@
 import {
   Activity, BatteryCharging, Boxes, ChevronLeft, ChevronRight,
-  Edit3, Fuel, HeartPulse, History, PackageOpen, Plus,
+  Edit3, FileX2, Fuel, HeartPulse, History, PackageOpen, Plus,
   Trash2, Truck,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
@@ -18,6 +18,7 @@ import { EntityTable, type EntityTableColumn } from "../../shared/ui/data-table/
 import { operationsService } from "../operations/services/operationsService";
 import type { AssetCatalog, AssetCatalogDraft, AssetHistoryEvent, AssetServiceCode, Crew, ServiceAsset, ServiceAssetDraft } from "../operations/types";
 import { WorkshopPage } from "../operations/WorkshopPage";
+import { AssetWriteOffsView } from "./AssetWriteOffsView";
 import { expandSerialRange, splitSerialNumbers } from "./service-asset-serials";
 
 type ServiceDefinition = {
@@ -100,7 +101,7 @@ const setFieldValue = (draft: ServiceAssetDraft, field: ServiceField, value: str
   ? { ...draft, [field.base]: value }
   : { ...draft, serviceData: { ...draft.serviceData, [field.key]: value } };
 const shortHolder = (name: string | null) => name || "—";
-const historyLabels: Record<string, string> = { created: "Створено", updated: "Оновлено", reassigned: "Перезакріплено", received: "Надходження", deleted: "Видалено" };
+const historyLabels: Record<string, string> = { created: "Створено", updated: "Оновлено", reassigned: "Перезакріплено", received: "Надходження", deleted: "Видалено", written_off: "Списано" };
 
 function DefinitionIcon({ icon }: { icon: ServiceDefinition["icon"] }) {
   if (typeof icon === "string") return <ServiceIcon name={icon} />;
@@ -124,6 +125,7 @@ const fieldKeyFromName = (value: string) => value.toLocaleLowerCase("uk").split(
 export function ServicesPage({ people }: { people: Person[] }) {
   const { notify } = useNotifications();
   const [serviceCode, setServiceCode] = useState<AssetServiceCode>("zbbr");
+  const [pageView, setPageView] = useState<"assets" | "write_off">("assets");
   const service = serviceByCode[serviceCode];
   const [assets, setAssets] = useState<ServiceAsset[]>([]);
   const [catalogs, setCatalogs] = useState<AssetCatalog[]>([]);
@@ -307,14 +309,14 @@ export function ServicesPage({ people }: { people: Person[] }) {
 
   const serviceSwitcher = <SectionTabs
     ariaLabel="Служби майна"
-    value={serviceCode}
-    onChange={(code) => { setServiceCode(code); setZuMode("assets"); }}
-    tabs={serviceDefinitions.map((definition) => ({ id: definition.code, label: definition.shortName, title: definition.description, icon: <DefinitionIcon icon={definition.icon} /> }))}
+    value={pageView === "write_off" ? "write_off" : serviceCode}
+    onChange={(code) => { if (code === "write_off") { setPageView("write_off"); setSelected(null); return; } setPageView("assets"); setServiceCode(code); setZuMode("assets"); }}
+    tabs={[...serviceDefinitions.map((definition) => ({ id: definition.code, label: definition.shortName, title: definition.description, icon: <DefinitionIcon icon={definition.icon} /> })), { id: "write_off" as const, label: "Списання", title: "Контроль списання майна", icon: <FileX2 /> }]}
   />;
   const zuSwitcher = <div className="services-view-toggle" role="group" aria-label="Розділ ЗУ"><button className={zuMode === "assets" ? "active" : ""} onClick={() => setZuMode("assets")}><ServiceIcon name="zu" />Облік ЗУ</button><button className={zuMode === "workshop" ? "active" : ""} onClick={() => setZuMode("workshop")}><ServiceIcon name="workshop" />Цукерня</button></div>;
 
   return <PageFrame className="services-page" tools={serviceSwitcher}>
-    {serviceCode === "zu" && zuMode === "workshop" ? <WorkshopPage embedded toolbarLeading={zuSwitcher} /> : <div className="services-assets-view">
+    {pageView === "write_off" ? <AssetWriteOffsView /> : serviceCode === "zu" && zuMode === "workshop" ? <WorkshopPage embedded toolbarLeading={zuSwitcher} /> : <div className="services-assets-view">
       <div className="services-command-bar">
         {serviceCode === "zu" && zuSwitcher}
         <div className="services-command-bar__actions"><label className="services-full-name-toggle"><input type="checkbox" checked={showFullName} onChange={(event) => setShowFullName(event.target.checked)} /><span>Повне найменування</span></label><button className="button" onClick={() => void openHistory()}><History />Історія руху</button><button className="button primary" onClick={openCreate}><Plus />Додати</button></div>

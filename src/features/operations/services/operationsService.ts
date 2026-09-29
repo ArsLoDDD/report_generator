@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AssetCatalog, AssetCatalogDraft, AssetHistoryEvent, AssetServiceCode, Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightJournalDraft, FlightJournalEntry, FlightPlanCrewLocationAssignment, FlightPlanRequest, Incident, IncidentDataDraft, IncidentDraft, Position, PositionDraft, PositionWork, PositionWorkDraft, PositionWorkStatusEvent, ServiceAsset, ServiceAssetDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation, VacancyRecommendationDraft, WorkshopDraft, WorkshopProduct } from "../types";
+import type { AssetCatalog, AssetCatalogDraft, AssetHistoryEvent, AssetServiceCode, AssetWriteOff, AssetWriteOffHistoryEvent, Crew, CrewDraft, Equipment, EquipmentCategory, EquipmentDraft, FlightJournalDraft, FlightJournalEntry, FlightPlanCrewLocationAssignment, FlightPlanRequest, Incident, IncidentDataDraft, IncidentDraft, Position, PositionDraft, PositionWork, PositionWorkDraft, PositionWorkStatusEvent, ServiceAsset, ServiceAssetDraft, StaffRecommendation, StaffingRecord, VacancyRecommendation, VacancyRecommendationDraft, WorkshopDraft, WorkshopProduct } from "../types";
 
 const mutate = <T>(command: string, args?: Record<string, unknown>) => Promise.resolve(invoke<T>(command, args)).then((result) => {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("operational-data-updated", { detail: { command } }));
@@ -56,6 +56,9 @@ export const operationsService = {
   addServiceAssetQuantity: (equipmentId: number, quantity: number, details: string) => mutate<void>("add_service_asset_quantity", { equipmentId, quantity, details }),
   deleteServiceAsset: (equipmentId: number) => mutate<void>("delete_service_asset", { equipmentId }),
   listAssetHistory: (serviceCode: AssetServiceCode, equipmentId: number | null = null) => invoke<AssetHistoryEvent[]>("list_asset_history", { serviceCode, equipmentId }),
+  listAssetWriteOffs: () => invoke<AssetWriteOff[]>("list_asset_write_offs"),
+  listAssetWriteOffHistory: (writeOffId: number) => invoke<AssetWriteOffHistoryEvent[]>("list_asset_write_off_history", { writeOffId }),
+  updateAssetWriteOff: (writeOffId: number, status: string, notes: string) => mutate<void>("update_asset_write_off", { writeOffId, status, notes }),
   listWorkshopProducts: () => invoke<WorkshopProduct[]>("list_workshop_products"),
   createWorkshopProduct: (draft: WorkshopDraft) => mutate<void>("create_workshop_product", { draft }),
   listIncidents: () => invoke<Incident[]>("list_incidents"),
@@ -66,4 +69,5 @@ export const operationsService = {
   updateIncidentDocumentStatus: (incidentId: number, documentId: number, status: string) => mutate<void>("update_incident_document_status", { incidentId, documentId, status }),
   listFlightJournalEntries: () => invoke<FlightJournalEntry[]>("list_flight_journal_entries"),
   createFlightJournalEntry: (draft: FlightJournalDraft) => mutate<void>("create_flight_journal_entry", { draft }),
+  updateFlightJournalProgress: (flightId: number, eventType: "Небо" | "Земля" | "Втрата" | "Відпрацювання", eventTime: string, completionDetail = "") => mutate<void>("update_flight_journal_progress", { flightId, eventType, eventTime, completionDetail }),
 };

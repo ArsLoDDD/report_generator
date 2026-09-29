@@ -52,7 +52,7 @@ export default function App() {
       if (!active) return;
       setAppVersion(status.currentVersion);
       if (status.currentVersion !== currentRelease.version || !currentRelease.notes.length) return;
-      if (window.localStorage.getItem(releaseNotesStorageKey) !== status.currentVersion) setReleaseNotesOpen(true);
+      if (window.localStorage.getItem(releaseNotesStorageKey) !== currentRelease.fingerprint) setReleaseNotesOpen(true);
     }).catch(() => undefined);
     return () => { active = false; };
   }, []);
@@ -103,7 +103,7 @@ export default function App() {
   });
 
   const closeReleaseNotes = () => {
-    window.localStorage.setItem(releaseNotesStorageKey, currentRelease.version);
+    window.localStorage.setItem(releaseNotesStorageKey, currentRelease.fingerprint);
     setReleaseNotesOpen(false);
   };
 

@@ -1119,6 +1119,27 @@ pub fn create_incident(state: tauri::State<AppState>, draft: IncidentDraft) -> R
             )
             .map_err(|_| "Не вдалося зберегти майно інциденту.".to_string())?;
     }
+    super::sync_incident_write_offs(&db.connection, incident_id, draft.incident_type.trim())?;
+    if draft.incident_type.trim() == "Втрата БпЛА" {
+        if let Some(source_flight_id) = draft.source_flight_id {
+            let completion_time = occurred_at
+                .rsplit_once('T')
+                .map(|(_, time)| time)
+                .unwrap_or("");
+            db.connection
+                .execute(
+                    "UPDATE flight_journal_entries
+                 SET completion_type='Втрата',completion_time=?1,completion_detail=?2,ground_time=''
+                 WHERE id=?3 AND trim(completion_type)=''",
+                    rusqlite::params![
+                        completion_time,
+                        draft.preliminary_cause.trim(),
+                        source_flight_id
+                    ],
+                )
+                .map_err(|_| "Не вдалося позначити політ як втрачений.".to_string())?;
+        }
+    }
     for (selection_order, personnel_id) in personnel_ids.into_iter().enumerate() {
         let current_snapshot = db.connection.query_row(
             "SELECT trim(surname || ' ' || given_name || ' ' || patronymic),rank,position FROM personnel WHERE id=?1",

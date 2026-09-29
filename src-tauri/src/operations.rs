@@ -1,4 +1,5 @@
 //! Commands and queries for operational records.
+mod asset_write_offs;
 mod bcs;
 mod crews;
 mod equipment;
@@ -13,6 +14,7 @@ mod staffing;
 mod vehicles;
 mod workshop;
 
+pub use asset_write_offs::*;
 pub use bcs::*;
 pub use crews::*;
 pub use equipment::*;

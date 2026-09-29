@@ -983,4 +983,30 @@ mod tests {
             )
             .unwrap();
     }
+
+    #[test]
+    fn migrates_legacy_uav_hit_to_a_strike_result() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialise(&connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO flight_journal_entries(
+                    id,flight_date,sky_time,completion_type,completion_time
+                 ) VALUES(5,'2026-09-29','09:00','Ураження','09:25')",
+                [],
+            )
+            .unwrap();
+
+        initialise(&connection).unwrap();
+
+        let migrated: (String, String) = connection
+            .query_row(
+                "SELECT completion_type,completion_detail
+                 FROM flight_journal_entries WHERE id=5",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(migrated, ("Відпрацювання".into(), "Уражено".into()));
+    }
 }

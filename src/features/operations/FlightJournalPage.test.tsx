@@ -6,13 +6,17 @@ import { FLIGHT_PLAN_STORAGE_KEY } from "./flight-plan-storage";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
+const todayIso = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+};
 
 const crew = { id: 4, name: "ГРІМ", positionName: "САПСАН", positionId: 2, battleOrder: "БРО-02", sector: "СМУГА СХІД", primaryUavId: 8, uavName: "MAVIC 3T", uavType: "Коптер", status: "Працюючий", actualMembers: [], members: [] };
 const uav = { id: 8, category: "uav", name: "MAVIC 3T", inventoryNumber: "UAV-008", uavType: "Коптер", crewId: 4, weaponKind: "weapon" };
 const position = { id: 2, name: "САПСАН", battleOrder: "БРО-02" };
 const pendingPlan = (overrides: Record<string, unknown> = {}) => ({
   schemaVersion: 3,
-  date: "13.09.2026",
+  date: todayIso().split("-").reverse().join("."),
   unitName: "РБПАК",
   selected: [4],
   entries: {
@@ -28,13 +32,16 @@ const pendingPlan = (overrides: Record<string, unknown> = {}) => ({
     },
   },
   rotations: {},
-  pendingSave: { date: "2026-09-13", revision: 2, updatedAt: 200 },
+  pendingSave: { date: todayIso(), revision: 2, updatedAt: 200 },
 });
 const journalEntry = (id: number, flightDate: string, crewName = `ЕКІПАЖ-${id}`) => ({
   id,
   flightDate,
   skyTime: "08:00",
   groundTime: "09:00",
+  completionType: "Земля",
+  completionTime: "09:00",
+  completionDetail: "",
   crewId: id,
   crewName,
   positionId: id,
@@ -69,8 +76,28 @@ const scrollToBottom = (element: HTMLElement) => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); localStorage.clear(); });
 
 describe("Журнал польотів", () => {
+  it("сортує польоти від пізнішого часу «Небо» до ранішого", async () => {
+    const early = { ...journalEntry(1, todayIso(), "РАННІЙ"), skyTime: "09:20" };
+    const late = { ...journalEntry(2, todayIso(), "ПІЗНІЙ"), skyTime: "09:30" };
+    const withoutSky = { ...journalEntry(3, todayIso(), "БЕЗ НЕБА"), skyTime: "", groundTime: "", completionType: "", completionTime: "" };
+    invoke.mockImplementation((command: string) => {
+      if (command === "list_flight_journal_entries") return Promise.resolve([early, withoutSky, late]);
+      if (["list_crews", "list_positions", "list_equipment", "list_workshop_products"].includes(command)) return Promise.resolve([]);
+      if (command === "get_app_settings") return Promise.resolve({ commissionTemplates: [] });
+      return Promise.resolve();
+    });
+
+    render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
+
+    await screen.findByText("ПІЗНІЙ");
+    const rows = screen.getAllByRole("row");
+    expect(within(rows[1]).getByText("ПІЗНІЙ")).toBeInTheDocument();
+    expect(within(rows[2]).getByText("РАННІЙ")).toBeInTheDocument();
+    expect(within(rows[3]).getByText("БЕЗ НЕБА")).toBeInTheDocument();
+  });
+
   it("не позначає тестове наповнення окремим статусом у журналі та картці", async () => {
-    const seeded = { ...journalEntry(1, "2026-09-28", "ГРІМ"), notes: "[DEV-SEED:flight-journal-v1] Демонстраційний запис — не є підтвердженим фактом польоту." };
+    const seeded = { ...journalEntry(1, todayIso(), "ГРІМ"), notes: "[DEV-SEED:flight-journal-v1] Демонстраційний запис — не є підтвердженим фактом польоту." };
     invoke.mockImplementation((command: string) => {
       if (command === "list_flight_journal_entries") return Promise.resolve([seeded]);
       if (["list_crews", "list_positions", "list_equipment", "list_workshop_products"].includes(command)) return Promise.resolve([]);
@@ -98,7 +125,7 @@ describe("Журнал польотів", () => {
     expect(await screen.findByLabelText("Дата польоту")).toHaveValue(today);
   });
 
-  it("підставляє погоджені поля з плану, не показує джерело та залишає нотатки останніми", async () => {
+  it("підставляє дані з плану, але не переносить плановий час як фактичний", async () => {
     invoke.mockImplementation((command: string, args?: { category?: string }) => {
       if (command === "list_flight_journal_entries") return Promise.resolve([]);
       if (command === "list_crews") return Promise.resolve([crew]);
@@ -113,10 +140,10 @@ describe("Журнал польотів", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).queryByText(/Джерело даних/i)).not.toBeInTheDocument();
-    fireEvent.change(dialog.querySelector<HTMLInputElement>('input[type="date"]')!, { target: { value: "2026-09-13" } });
     fireEvent.change(within(dialog).getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
-    expect(await within(dialog).findByDisplayValue("06:10")).toBeInTheDocument();
-    expect(within(dialog).getByDisplayValue("07:25")).toBeInTheDocument();
+    expect(await within(dialog).findByDisplayValue("Розвідка")).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Час «Небо»")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Час «Земля»")).not.toBeInTheDocument();
     expect(within(dialog).getByDisplayValue("СМУГА СХІД")).toBeInTheDocument();
     expect(within(dialog).getByDisplayValue("UAV-008")).toBeInTheDocument();
     const fieldNames = [...dialog.querySelectorAll<HTMLElement>(".operation-editor__body > .form-field > span")].map((element) => element.textContent?.trim());
@@ -138,13 +165,11 @@ describe("Журнал польотів", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(dialog.querySelector<HTMLInputElement>('input[type="date"]')!, { target: { value: "2026-09-13" } });
     fireEvent.change(within(dialog).getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
 
-    expect(await within(dialog).findByDisplayValue("08:40")).toBeInTheDocument();
-    expect(within(dialog).getByDisplayValue("09:55")).toBeInTheDocument();
-    expect(within(dialog).getByDisplayValue("Виправлене завдання")).toBeInTheDocument();
-    expect(invoke).toHaveBeenCalledWith("get_flight_plan_snapshot", { planDate: "2026-09-13" });
+    expect(await within(dialog).findByDisplayValue("Виправлене завдання")).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Час «Небо»")).not.toBeInTheDocument();
+    expect(invoke).toHaveBeenCalledWith("get_flight_plan_snapshot", { planDate: todayIso() });
   });
 
   it("ігнорує невалідний pending і використовує знімок БД", async () => {
@@ -162,12 +187,10 @@ describe("Журнал польотів", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(dialog.querySelector<HTMLInputElement>('input[type="date"]')!, { target: { value: "2026-09-13" } });
     fireEvent.change(within(dialog).getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
 
-    expect(await within(dialog).findByDisplayValue("06:10")).toBeInTheDocument();
-    expect(within(dialog).getByDisplayValue("07:25")).toBeInTheDocument();
-    expect(within(dialog).getByDisplayValue("Знімок БД")).toBeInTheDocument();
+    expect(await within(dialog).findByDisplayValue("Знімок БД")).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Час «Небо»")).not.toBeInTheDocument();
   });
 
   it("зберігає датовані назви екіпажу, позиції та БпЛА, навіть якщо пов’язані записи вже змінені або видалені", async () => {
@@ -201,7 +224,6 @@ describe("Журнал польотів", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(dialog.querySelector<HTMLInputElement>('input[type="date"]')!, { target: { value: "2026-09-13" } });
     fireEvent.change(within(dialog).getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
 
     expect(await within(dialog).findByText(/АРХІВНА ПОЗИЦІЯ · зі знімка/u)).toBeInTheDocument();
@@ -222,41 +244,6 @@ describe("Журнал польотів", () => {
         uavSerialNumber: "UAV-OLD",
       }),
     }));
-  });
-
-  it("не застосовує запізнілу відповідь після зміни дати", async () => {
-    let resolveOld: ((value: string) => void) | undefined;
-    let resolveNew: ((value: string) => void) | undefined;
-    invoke.mockImplementation((command: string, args?: { category?: string; planDate?: string }) => {
-      if (command === "list_flight_journal_entries") return Promise.resolve([]);
-      if (command === "list_crews") return Promise.resolve([crew]);
-      if (command === "list_positions") return Promise.resolve([position]);
-      if (command === "list_equipment") return Promise.resolve(args?.category === "uav" ? [uav] : []);
-      if (command === "list_workshop_products") return Promise.resolve([]);
-      if (command === "get_flight_plan_snapshot") return new Promise<string>((resolve) => {
-        if (args?.planDate === "2026-09-12") resolveOld = resolve;
-        else resolveNew = resolve;
-      });
-      return Promise.resolve();
-    });
-    render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
-    const dialog = screen.getByRole("dialog");
-    const dateInput = dialog.querySelector<HTMLInputElement>('input[type="date"]')!;
-    fireEvent.change(dateInput, { target: { value: "2026-09-12" } });
-    fireEvent.change(within(dialog).getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
-    await waitFor(() => expect(resolveOld).toBeTypeOf("function"));
-
-    fireEvent.change(dateInput, { target: { value: "2026-09-13" } });
-    fireEvent.change(within(dialog).getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
-    await waitFor(() => expect(resolveNew).toBeTypeOf("function"));
-    await act(async () => resolveNew?.(JSON.stringify({ unitName: "РБПАК", entries: [{ crewId: 4, startTime: "08:00", endTime: "09:00", task: "НОВЕ ЗАВДАННЯ" }] })));
-    expect(await within(dialog).findByDisplayValue("НОВЕ ЗАВДАННЯ")).toBeInTheDocument();
-
-    await act(async () => resolveOld?.(JSON.stringify({ unitName: "РБПАК", entries: [{ crewId: 4, startTime: "06:00", endTime: "07:00", task: "СТАРЕ ЗАВДАННЯ" }] })));
-    expect(within(dialog).getByDisplayValue("НОВЕ ЗАВДАННЯ")).toBeInTheDocument();
-    expect(within(dialog).queryByDisplayValue("СТАРЕ ЗАВДАННЯ")).not.toBeInTheDocument();
   });
 
   it("не дозволяє повільному запиту попереднього екіпажу перезаписати новий вибір", async () => {
@@ -293,45 +280,73 @@ describe("Журнал польотів", () => {
     render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
     fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
     fireEvent.change(screen.getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
-    fireEvent.change(screen.getByLabelText("Час «Небо»"), { target: { value: "07:10" } });
-    fireEvent.change(screen.getByLabelText("Час «Земля»"), { target: { value: "08:20" } });
     fireEvent.click(screen.getByRole("button", { name: "Зберегти запис" }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_flight_journal_entry", { draft: expect.not.objectContaining({ source: expect.anything() }) }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_flight_journal_entry", { draft: expect.objectContaining({ skyTime: "", groundTime: "" }) }));
+    expect(invoke).toHaveBeenCalledWith("create_flight_journal_entry", { draft: expect.not.objectContaining({ source: expect.anything() }) });
   });
 
-  it("зберігає заповнений фактичний політ при закритті вікна хрестиком", async () => {
+  it("зберігає підготовлений запис без фактичних часів при закритті вікна хрестиком", async () => {
     invoke.mockImplementation((command: string) => command === "list_flight_journal_entries" || command === "list_positions" || command === "list_equipment" || command === "list_workshop_products" ? Promise.resolve([]) : command === "list_crews" ? Promise.resolve([crew]) : command === "get_flight_plan_snapshot" ? Promise.resolve(null) : Promise.resolve());
     render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
     fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
     const dialog = screen.getByRole("dialog", { name: "Новий запис польоту" });
     fireEvent.change(within(dialog).getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
-    fireEvent.change(within(dialog).getByLabelText("Час «Небо»"), { target: { value: "07:10" } });
-    fireEvent.change(within(dialog).getByLabelText("Час «Земля»"), { target: { value: "08:20" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Закрити" }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_flight_journal_entry", { draft: expect.objectContaining({ crewId: 4, skyTime: "07:10", groundTime: "08:20" }) }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_flight_journal_entry", { draft: expect.objectContaining({ crewId: 4, skyTime: "", groundTime: "" }) }));
   });
 
-  it("не зберігає політ без обох обов’язкових часів Небо і Земля", async () => {
+  it("не показує фактичні часи під час створення та вимагає екіпаж", async () => {
     invoke.mockImplementation((command: string) => command === "list_flight_journal_entries" || command === "list_crews" || command === "list_positions" || command === "list_equipment" || command === "list_workshop_products" ? Promise.resolve(command === "list_crews" ? [crew] : []) : Promise.resolve());
     render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
     fireEvent.click(await screen.findByRole("button", { name: "Додати" }));
+    expect(screen.queryByLabelText("Час «Небо»")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Час «Земля»")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти запис" }));
+    expect(await screen.findByText("Оберіть екіпаж.")).toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalledWith("create_flight_journal_entry", expect.anything());
+
     fireEvent.change(screen.getByLabelText("Екіпаж польоту"), { target: { value: "4" } });
-    const skyTime=screen.getByLabelText("Час «Небо»");
-    const groundTime=screen.getByLabelText("Час «Земля»");
-    expect(skyTime).toBeRequired();
-    expect(groundTime).toBeRequired();
-
     fireEvent.click(screen.getByRole("button", { name: "Зберегти запис" }));
-    expect(await screen.findByText("Вкажіть обов’язкові часи «Небо» та «Земля».")).toBeInTheDocument();
-    expect(invoke).not.toHaveBeenCalledWith("create_flight_journal_entry", expect.anything());
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_flight_journal_entry", { draft: expect.objectContaining({ crewId: 4, flightDate: todayIso(), skyTime: "", groundTime: "" }) }));
+  });
 
-    fireEvent.change(skyTime, { target: { value: "07:10" } });
-    fireEvent.click(screen.getByRole("button", { name: "Зберегти запис" }));
-    expect(invoke).not.toHaveBeenCalledWith("create_flight_journal_entry", expect.anything());
+  it("для ФПВ завершує політ втратою з обов’язковою причиною", async () => {
+    const openFlight = { ...journalEntry(7, todayIso(), "УДАРНИЙ"), uavType: "ФПВ", groundTime: "", completionType: "", completionTime: "" };
+    invoke.mockImplementation((command: string) => {
+      if (command === "list_flight_journal_entries") return Promise.resolve([openFlight]);
+      if (["list_crews", "list_positions", "list_equipment", "list_workshop_products"].includes(command)) return Promise.resolve([]);
+      if (command === "get_app_settings") return Promise.resolve({ commissionTemplates: [] });
+      return Promise.resolve();
+    });
+    render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
 
-    fireEvent.change(groundTime, { target: { value: "08:20" } });
-    fireEvent.click(screen.getByRole("button", { name: "Зберегти запис" }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_flight_journal_entry", { draft: expect.objectContaining({ skyTime: "07:10", groundTime: "08:20" }) }));
+    fireEvent.click(await screen.findByText("УДАРНИЙ"));
+    const dialog = screen.getByRole("dialog", { name: "Політ №7" });
+    expect(within(dialog).getByRole("option", { name: "Відпрацювання" })).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("Завершення польоту"), { target: { value: "Втрата" } });
+    expect(within(dialog).getByRole("option", { name: "Обрив" })).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("Причина втрати"), { target: { value: "Обрив" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Завершити політ" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_flight_journal_progress", expect.objectContaining({ flightId: 7, eventType: "Втрата", completionDetail: "Обрив" })));
+  });
+
+  it("показує відпрацювання лише ударним типам", async () => {
+    const openFlight = { ...journalEntry(8, todayIso(), "РОЗВІДНИК"), uavType: "Літаковий розвідувальний", groundTime: "", completionType: "", completionTime: "" };
+    invoke.mockImplementation((command: string) => {
+      if (command === "list_flight_journal_entries") return Promise.resolve([openFlight]);
+      if (["list_crews", "list_positions", "list_equipment", "list_workshop_products"].includes(command)) return Promise.resolve([]);
+      if (command === "get_app_settings") return Promise.resolve({ commissionTemplates: [] });
+      return Promise.resolve();
+    });
+    render(<NotificationProvider><FlightJournalPage /></NotificationProvider>);
+
+    fireEvent.click(await screen.findByText("РОЗВІДНИК"));
+    const dialog = screen.getByRole("dialog", { name: "Політ №8" });
+    expect(within(dialog).queryByRole("option", { name: "Відпрацювання" })).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("Завершення польоту"), { target: { value: "Втрата" } });
+    expect(within(dialog).queryByRole("option", { name: "Обрив" })).not.toBeInTheDocument();
   });
 
   it("фільтрує записи за датою, перемикає сусідні дні та пагінує вже відфільтрований список", async () => {
@@ -375,7 +390,7 @@ describe("Журнал польотів", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Додати" }));
     const editor = screen.getByRole("dialog", { name: "Новий запис польоту" });
-    expect(editor.querySelector<HTMLInputElement>('input[type="date"]')).toHaveValue(secondDate);
+    expect(editor.querySelector<HTMLInputElement>('input[type="date"]')).toHaveValue(todayIso());
     fireEvent.click(within(editor).getByRole("button", { name: "Скасувати" }));
   });
 

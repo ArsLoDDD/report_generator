@@ -151,6 +151,25 @@ export type ServiceAsset = {
 };
 export type ServiceAssetDraft = Omit<ServiceAsset, "id" | "category" | "catalogName" | "crewName" | "holderName" | "parentName" | "createdAt" | "updatedAt">;
 export type AssetHistoryEvent = { id: number; equipmentId: number | null; assetName: string; serviceCode: AssetServiceCode; eventType: string; quantityDelta: number; quantityAfter: number; fromHolder: string; toHolder: string; details: string; occurredAt: string };
+export type AssetWriteOff = {
+  id: number;
+  incidentId: number | null;
+  equipmentId: number | null;
+  serviceCode: AssetServiceCode | "";
+  incidentType: string;
+  incidentOccurredAt: string;
+  assetName: string;
+  inventoryNumber: string;
+  serialNumber: string;
+  accountingUnit: string;
+  quantity: number;
+  status: string;
+  notes: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string;
+};
+export type AssetWriteOffHistoryEvent = { id: number; writeOffId: number; status: string; notes: string; createdAt: string };
 export type WorkshopIngredient = { equipmentId: number; equipmentName: string; quantity: number; measurementUnit: string };
 export type WorkshopProduct = { id: number; name: string; quantity: number; measurementUnit: string; ingredients: WorkshopIngredient[]; notes: string; createdAt: string };
 export type WorkshopDraft = Omit<WorkshopProduct, "id" | "createdAt"> & { accountedAt: string };
@@ -214,6 +233,9 @@ export type FlightJournalEntry = {
   flightDate: string;
   skyTime: string;
   groundTime: string;
+  completionType?: string;
+  completionTime?: string;
+  completionDetail?: string;
   crewId: number | null;
   crewName: string;
   positionId: number | null;

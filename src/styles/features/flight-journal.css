@@ -96,7 +96,7 @@
 }
 .flight-card .modal-header { min-height: 78px; padding: 15px 20px; }
 .flight-card__body { scrollbar-gutter: stable; padding: 14px 20px 20px; }
-.flight-card__summary { display: grid; grid-template-columns: 100px 100px minmax(160px, 1fr) minmax(160px, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.flight-card__summary { display: grid; grid-template-columns: 90px minmax(150px, .8fr) minmax(160px, 1fr) minmax(160px, 1fr); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .flight-card__summary > div { display: grid; min-width: 0; gap: 4px; padding: 10px 12px; border-right: 1px solid var(--line); }
 .flight-card__summary > div:last-child { border-right: 0; }
 .flight-card__summary span,.flight-card__detail dt { color: var(--muted); font-size: 11px; }
@@ -110,6 +110,10 @@
 .flight-card__detail dd { min-width: 0; margin: 0; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
 .flight-card__notes h3 { margin: 0; font-size: 14px; }
 .flight-card__notes { margin-top: 10px; padding: 10px 12px; border-radius: 8px; }
+.flight-card__progress { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.flight-card__progress .form-field { width: min(180px, 100%); }
+.flight-card__progress > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.flight-card__progress .button { min-width: 96px; }
 .flight-journal-ap-modal {
 	width: min(980px, calc(100vw - 40px));
 	height: min(720px, calc(100vh - 40px));
@@ -138,4 +142,6 @@
 	.flight-card__register { grid-template-columns: 1fr; }
 	.flight-card__detail,.flight-card__detail--wide { grid-column: 1; border-right: 0; border-bottom: 1px solid var(--line); }
 	.flight-card__detail:last-child { border-bottom: 0; }
+	.flight-card__progress { align-items: stretch; flex-direction: column; }
+	.flight-card__progress > div { justify-content: flex-start; }
 }

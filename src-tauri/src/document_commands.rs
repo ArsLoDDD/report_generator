@@ -650,7 +650,7 @@ fn filter_database_snapshot(
             )?;
         }
         if !sections.contains("incidents") {
-            execute_archive_sql(&connection, "DELETE FROM incident_equipment; DELETE FROM incident_personnel; DELETE FROM incidents;", "інциденти")?;
+            execute_archive_sql(&connection, "UPDATE asset_write_offs SET incident_id=NULL; DELETE FROM incident_equipment; DELETE FROM incident_personnel; DELETE FROM incidents;", "інциденти")?;
         }
         if !sections.contains("workshop") {
             execute_archive_sql(
@@ -685,6 +685,8 @@ fn filter_database_snapshot(
             )
         };
         execute_archive_sql(&connection, &format!("
+            DELETE FROM asset_write_off_history WHERE write_off_id IN (SELECT id FROM asset_write_offs WHERE equipment_id IN (SELECT id FROM equipment WHERE {excluded_filter}));
+            DELETE FROM asset_write_offs WHERE equipment_id IN (SELECT id FROM equipment WHERE {excluded_filter});
             DELETE FROM position_uavs WHERE equipment_id IN (SELECT id FROM equipment WHERE {excluded_filter});
             DELETE FROM incident_equipment WHERE equipment_id IN (SELECT id FROM equipment WHERE {excluded_filter});
             DELETE FROM workshop_ingredients WHERE equipment_id IN (SELECT id FROM equipment WHERE {excluded_filter});
@@ -722,6 +724,8 @@ fn filter_database_snapshot(
             DELETE FROM position_uavs WHERE position_id NOT IN (SELECT id FROM positions) OR equipment_id NOT IN (SELECT id FROM equipment);
             DELETE FROM incident_equipment WHERE incident_id NOT IN (SELECT id FROM incidents) OR equipment_id NOT IN (SELECT id FROM equipment);
             DELETE FROM incident_personnel WHERE incident_id NOT IN (SELECT id FROM incidents);
+            UPDATE asset_write_offs SET incident_id=NULL WHERE incident_id IS NOT NULL AND incident_id NOT IN (SELECT id FROM incidents);
+            UPDATE asset_write_offs SET equipment_id=NULL WHERE equipment_id IS NOT NULL AND equipment_id NOT IN (SELECT id FROM equipment);
             DELETE FROM workshop_ingredients WHERE product_id NOT IN (SELECT id FROM workshop_products) OR equipment_id NOT IN (SELECT id FROM equipment);
             UPDATE crews SET position_id=NULL WHERE position_id IS NOT NULL AND position_id NOT IN (SELECT id FROM positions);
             UPDATE crews SET primary_uav_id=NULL WHERE primary_uav_id IS NOT NULL AND primary_uav_id NOT IN (SELECT id FROM equipment);
@@ -1577,11 +1581,58 @@ fn install_staged_files(root: &Path, staged: &StagedImport) -> Result<InstalledI
     })
 }
 
+fn import_table_columns(
+    connection: &Connection,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<String>, String> {
+    if !schema
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || character == '_')
+        || !table
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+    {
+        return Err("Некоректна назва таблиці в архіві.".to_string());
+    }
+    let mut statement = connection
+        .prepare(&format!("PRAGMA {schema}.table_info({table})"))
+        .map_err(|error| format!("Не вдалося перевірити структуру таблиці «{table}»: {error}"))?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| format!("Не вдалося прочитати структуру таблиці «{table}»: {error}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("Не вдалося прочитати поля таблиці «{table}»: {error}"))
+}
+
+fn quote_import_identifier(value: &str) -> String {
+    format!("\"{}\"", value.replace('"', "\"\""))
+}
+
 fn replace_import_tables(connection: &Connection, tables: &[&str]) -> Result<(), String> {
     for table in tables {
+        let current_columns = import_table_columns(connection, "main", table)?;
+        let imported_columns = import_table_columns(connection, "imported", table)?;
+        if imported_columns.is_empty() {
+            return Err(format!("В архіві немає таблиці «{table}»."));
+        }
+        let imported_columns = imported_columns.into_iter().collect::<HashSet<_>>();
+        let shared_columns = current_columns
+            .into_iter()
+            .filter(|column| imported_columns.contains(column))
+            .collect::<Vec<_>>();
+        if shared_columns.is_empty() {
+            return Err(format!("Таблиця «{table}» в архіві не має сумісних полів."));
+        }
+        let columns = shared_columns
+            .iter()
+            .map(|column| quote_import_identifier(column))
+            .collect::<Vec<_>>()
+            .join(", ");
         connection
             .execute_batch(&format!(
-                "DELETE FROM main.{table}; INSERT INTO main.{table} SELECT * FROM imported.{table};"
+                "DELETE FROM main.{table};\n\
+                 INSERT INTO main.{table} ({columns}) SELECT {columns} FROM imported.{table};"
             ))
             .map_err(|error| format!("Не вдалося імпортувати розділ «{table}»: {error}"))?;
     }
@@ -1717,6 +1768,11 @@ fn merge_selected_database_sections(
             replace_import_tables(&connection, &["summary_report_drafts"])?;
         }
         if sections.contains("incidents") {
+            connection
+                .execute("UPDATE asset_write_offs SET incident_id=NULL", [])
+                .map_err(|_| {
+                    "Не вдалося від’єднати старі записи списання від інцидентів.".to_string()
+                })?;
             replace_import_tables(
                 &connection,
                 &["incident_equipment", "incident_personnel", "incidents"],
@@ -2596,6 +2652,63 @@ mod archive_tests {
         drop(merged);
         drop(current);
         fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(stage).unwrap();
+    }
+
+    #[test]
+    fn selective_import_accepts_an_older_table_without_new_columns() {
+        let stage = test_directory("selective-old-schema");
+        let source = stage.join(DATABASE_FILE_NAME);
+        let imported = Connection::open(&source).unwrap();
+        imported
+            .execute_batch(
+                "CREATE TABLE flight_journal_entries (
+                    id INTEGER PRIMARY KEY,
+                    flight_date TEXT NOT NULL
+                );
+                INSERT INTO flight_journal_entries (id, flight_date)
+                VALUES (17, '2026-09-28');",
+            )
+            .unwrap();
+        drop(imported);
+
+        let current = Connection::open_in_memory().unwrap();
+        current
+            .execute_batch(
+                "CREATE TABLE flight_journal_entries (
+                    id INTEGER PRIMARY KEY,
+                    flight_date TEXT NOT NULL,
+                    completion_type TEXT NOT NULL DEFAULT '',
+                    completion_time TEXT NOT NULL DEFAULT ''
+                );
+                INSERT INTO flight_journal_entries (id, flight_date)
+                VALUES (3, '2026-09-29');",
+            )
+            .unwrap();
+        current
+            .execute(
+                "ATTACH DATABASE ?1 AS imported",
+                [source.to_string_lossy().as_ref()],
+            )
+            .unwrap();
+
+        replace_import_tables(&current, &["flight_journal_entries"]).unwrap();
+
+        let imported_row: (i64, String, String, String) = current
+            .query_row(
+                "SELECT id, flight_date, completion_type, completion_time
+                 FROM flight_journal_entries",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            imported_row,
+            (17, "2026-09-28".to_string(), String::new(), String::new())
+        );
+
+        current.execute_batch("DETACH DATABASE imported").unwrap();
+        drop(current);
         fs::remove_dir_all(stage).unwrap();
     }
 

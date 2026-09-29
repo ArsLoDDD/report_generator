@@ -1197,6 +1197,8 @@ pub(crate) fn import_personnel_xlsx(
 /// equipment, crews, or positions.
 fn clear_replace_import_data(connection: &Connection) -> Result<(), String> {
     const TABLES: &[&str] = &[
+        "asset_write_off_history",
+        "asset_write_offs",
         "workshop_ingredients",
         "workshop_products",
         "incident_equipment",

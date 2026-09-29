@@ -661,6 +661,37 @@ pub struct ServiceAssetDraft {
     pub notes: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetWriteOff {
+    pub id: i64,
+    pub incident_id: Option<i64>,
+    pub equipment_id: Option<i64>,
+    pub service_code: String,
+    pub incident_type: String,
+    pub incident_occurred_at: String,
+    pub asset_name: String,
+    pub inventory_number: String,
+    pub serial_number: String,
+    pub accounting_unit: String,
+    pub quantity: f64,
+    pub status: String,
+    pub notes: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub completed_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetWriteOffHistoryEvent {
+    pub id: i64,
+    pub write_off_id: i64,
+    pub status: String,
+    pub notes: String,
+    pub created_at: String,
+}
+
 fn default_accounting_unit() -> String {
     "шт.".into()
 }
@@ -862,6 +893,9 @@ pub struct FlightJournalEntry {
     pub flight_date: String,
     pub sky_time: String,
     pub ground_time: String,
+    pub completion_type: String,
+    pub completion_time: String,
+    pub completion_detail: String,
     pub crew_id: Option<i64>,
     pub crew_name: String,
     pub position_id: Option<i64>,
@@ -888,8 +922,11 @@ pub struct FlightJournalDraft {
     pub sky_time: String,
     #[serde(default)]
     pub ground_time: String,
+    #[serde(default)]
+    pub completion_type: String,
+    #[serde(default)]
+    pub completion_time: String,
     pub crew_id: Option<i64>,
-    pub crew_name: String,
     pub position_id: Option<i64>,
     #[serde(default)]
     pub position_name: String,

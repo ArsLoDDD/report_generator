@@ -933,6 +933,63 @@ fn initialise_service_assets(connection: &Connection) -> Result<(), String> {
     Ok(())
 }
 
+fn initialise_asset_write_offs(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS asset_write_offs (
+                id INTEGER PRIMARY KEY,
+                incident_id INTEGER REFERENCES incidents(id) ON DELETE SET NULL,
+                equipment_id INTEGER REFERENCES equipment(id) ON DELETE SET NULL,
+                service_code TEXT NOT NULL DEFAULT '',
+                incident_type TEXT NOT NULL DEFAULT '',
+                incident_occurred_at TEXT NOT NULL DEFAULT '',
+                asset_name_snapshot TEXT NOT NULL DEFAULT '',
+                inventory_number_snapshot TEXT NOT NULL DEFAULT '',
+                serial_number_snapshot TEXT NOT NULL DEFAULT '',
+                accounting_unit_snapshot TEXT NOT NULL DEFAULT 'шт.',
+                quantity REAL NOT NULL DEFAULT 1,
+                status TEXT NOT NULL DEFAULT 'Очікує списання',
+                notes TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                completed_at TEXT NOT NULL DEFAULT ''
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS asset_write_off_incident_asset_idx
+                ON asset_write_offs(incident_id,equipment_id)
+                WHERE incident_id IS NOT NULL AND equipment_id IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS asset_write_off_status_idx
+                ON asset_write_offs(status,created_at DESC,id DESC);
+            CREATE TABLE IF NOT EXISTS asset_write_off_history (
+                id INTEGER PRIMARY KEY,
+                write_off_id INTEGER NOT NULL REFERENCES asset_write_offs(id) ON DELETE CASCADE,
+                status TEXT NOT NULL,
+                notes TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS asset_write_off_history_item_idx
+                ON asset_write_off_history(write_off_id,id DESC);
+            INSERT OR IGNORE INTO asset_write_offs(
+                incident_id,equipment_id,service_code,incident_type,incident_occurred_at,
+                asset_name_snapshot,inventory_number_snapshot,serial_number_snapshot,
+                accounting_unit_snapshot,quantity
+            )
+            SELECT i.id,e.id,e.service_code,i.incident_type,i.occurred_at,
+                   e.name,e.inventory_number,e.serial_number,e.accounting_unit,e.quantity
+            FROM incidents i
+            JOIN incident_equipment ie ON ie.incident_id=i.id
+            JOIN equipment e ON e.id=ie.equipment_id
+            WHERE i.incident_type IN ('Втрата майна','Втрата БпЛА');
+            INSERT INTO asset_write_off_history(write_off_id,status,notes,created_at)
+            SELECT w.id,w.status,'Автоматично передано з інциденту',w.created_at
+            FROM asset_write_offs w
+            WHERE NOT EXISTS(
+                SELECT 1 FROM asset_write_off_history h WHERE h.write_off_id=w.id
+            );",
+        )
+        .map_err(|error| format!("Не вдалося підготувати облік списання майна: {error}"))?;
+    Ok(())
+}
+
 pub fn initialise(connection: &Connection) -> Result<(), String> {
     connection.execute_batch("CREATE TABLE IF NOT EXISTS vehicles (id INTEGER PRIMARY KEY, name TEXT NOT NULL, registration_number TEXT NOT NULL UNIQUE, notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);").map_err(|_| "Не вдалося створити таблицю автомобілів.".to_string())?;
     connection.execute_batch("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS personnel (id INTEGER PRIMARY KEY, rank TEXT NOT NULL, surname TEXT NOT NULL, given_name TEXT NOT NULL, patronymic TEXT NOT NULL DEFAULT '', position TEXT NOT NULL, tax_id TEXT NOT NULL DEFAULT '', birth_date TEXT NOT NULL, education_level TEXT NOT NULL, education_details TEXT NOT NULL, armed_forces_service_start_date TEXT NOT NULL, position_assigned_date TEXT NOT NULL, position_assignment_order TEXT NOT NULL, military_id TEXT NOT NULL, gender TEXT NOT NULL DEFAULT '' CHECK(gender IN ('', 'чоловіча', 'жіноча')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS personnel_custom_fields (personnel_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(personnel_id, field_key), FOREIGN KEY(personnel_id) REFERENCES personnel(id) ON DELETE CASCADE); CREATE TABLE IF NOT EXISTS custom_field_definitions (field_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, description TEXT NOT NULL, initial_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS vehicle_custom_field_definitions (field_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, description TEXT NOT NULL, initial_value TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE IF NOT EXISTS vehicle_custom_fields (vehicle_id INTEGER NOT NULL, field_key TEXT NOT NULL, field_value TEXT NOT NULL, PRIMARY KEY(vehicle_id, field_key), FOREIGN KEY(vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE);")
@@ -1370,6 +1427,25 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     ).map_err(|_| "Не вдалося підготувати збереження підсумкових донесень.".to_string())?;
     connection.execute("ALTER TABLE flight_journal_entries ADD COLUMN uav_type_snapshot TEXT NOT NULL DEFAULT ''", []).ok();
     connection.execute("ALTER TABLE flight_journal_entries ADD COLUMN personnel_snapshot_json TEXT NOT NULL DEFAULT '[]'", []).ok();
+    connection.execute("ALTER TABLE flight_journal_entries ADD COLUMN completion_type TEXT NOT NULL DEFAULT ''", []).ok();
+    connection.execute("ALTER TABLE flight_journal_entries ADD COLUMN completion_time TEXT NOT NULL DEFAULT ''", []).ok();
+    connection.execute("ALTER TABLE flight_journal_entries ADD COLUMN completion_detail TEXT NOT NULL DEFAULT ''", []).ok();
+    connection
+        .execute(
+            "UPDATE flight_journal_entries
+         SET completion_type='Земля',completion_time=ground_time
+         WHERE trim(ground_time)<>'' AND trim(completion_type)=''",
+            [],
+        )
+        .map_err(|_| "Не вдалося оновити завершення старих польотів.".to_string())?;
+    connection
+        .execute(
+            "UPDATE flight_journal_entries
+         SET completion_type='Відпрацювання',completion_detail='Уражено'
+         WHERE completion_type='Ураження'",
+            [],
+        )
+        .map_err(|_| "Не вдалося оновити результати старих польотів.".to_string())?;
     for obsolete_column in ["status", "personnel_snapshot", "result", "source"] {
         connection
             .execute(
@@ -1785,6 +1861,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     normalize_bcs_locations(connection)?;
     normalize_staff_positions(connection)?;
     initialise_service_assets(connection)?;
+    initialise_asset_write_offs(connection)?;
     connection
         .execute_batch(
             "CREATE TABLE IF NOT EXISTS deadline_reminders (

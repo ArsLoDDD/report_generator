@@ -76,7 +76,7 @@ describe("navigation and report generation", () => {
 
     fireEvent.click(within(releaseDialog).getByRole("button", { name: "Зрозуміло" }));
     expect(screen.queryByRole("dialog", { name: "Що нового" })).not.toBeInTheDocument();
-    expect(window.localStorage.getItem(releaseNotesStorageKey)).toBe(currentRelease.version);
+    expect(window.localStorage.getItem(releaseNotesStorageKey)).toBe(currentRelease.fingerprint);
     firstView.unmount();
 
     vi.mocked(settingsService.getUpdateStatus).mockResolvedValueOnce({ currentVersion: currentRelease.version, supported: true, dataDirectory: "/data" });

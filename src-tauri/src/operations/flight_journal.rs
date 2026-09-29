@@ -10,6 +10,41 @@ fn valid_required_time(value: &str) -> bool {
     !value.is_empty() && chrono::NaiveTime::parse_from_str(value, "%H:%M").is_ok()
 }
 
+fn is_strike_uav_type(value: &str) -> bool {
+    matches!(
+        value.trim().to_lowercase().as_str(),
+        "літаковий ударний" | "фпв" | "бомбер" | "фпв перехоплювач" | "коптер"
+    )
+}
+
+fn is_fpv_uav_type(value: &str) -> bool {
+    value.trim().to_lowercase().contains("фпв")
+}
+
+fn validate_completion_detail(
+    event_type: &str,
+    uav_type: &str,
+    completion_detail: &str,
+) -> Result<(), String> {
+    if event_type == "Відпрацювання" {
+        if !is_strike_uav_type(uav_type) {
+            return Err("«Відпрацювання» доступне лише для ударного БпЛА.".into());
+        }
+        if !matches!(completion_detail, "Уражено" | "Не уражено") {
+            return Err("Оберіть результат відпрацювання.".into());
+        }
+    }
+    if event_type == "Втрата" && !matches!(completion_detail, "Подавлення" | "Збиття" | "Обрив")
+    {
+        return Err("Оберіть причину втрати.".into());
+    }
+    if event_type == "Втрата" && completion_detail == "Обрив" && !is_fpv_uav_type(uav_type)
+    {
+        return Err("Причина «Обрив» доступна лише для ФПВ.".into());
+    }
+    Ok(())
+}
+
 fn frozen_personnel_snapshot(
     connection: &Connection,
     flight_date: &str,
@@ -108,7 +143,7 @@ pub fn list_flight_journal_entries(
 ) -> Result<Vec<FlightJournalEntry>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
     let mut statement = db.connection.prepare(
-        "SELECT id,flight_date,sky_time,ground_time,crew_id,crew_name_snapshot,position_id,position_name_snapshot,battle_order_snapshot,work_strip_snapshot,uav_id,uav_name_snapshot,uav_type_snapshot,uav_serial_snapshot,mission,payload_source,payload_id,payload_type_snapshot,payload_serial_snapshot,notes FROM flight_journal_entries ORDER BY flight_date DESC,sky_time DESC,id DESC",
+        "SELECT id,flight_date,sky_time,ground_time,completion_type,completion_time,completion_detail,crew_id,crew_name_snapshot,position_id,position_name_snapshot,battle_order_snapshot,work_strip_snapshot,uav_id,uav_name_snapshot,uav_type_snapshot,uav_serial_snapshot,mission,payload_source,payload_id,payload_type_snapshot,payload_serial_snapshot,notes FROM flight_journal_entries ORDER BY flight_date DESC,sky_time DESC,id DESC",
     ).map_err(|_| "Не вдалося прочитати журнал польотів.".to_string())?;
     let entries = statement
         .query_map([], |row| {
@@ -117,22 +152,25 @@ pub fn list_flight_journal_entries(
                 flight_date: row.get(1)?,
                 sky_time: row.get(2)?,
                 ground_time: row.get(3)?,
-                crew_id: row.get(4)?,
-                crew_name: row.get(5)?,
-                position_id: row.get(6)?,
-                position_name: row.get(7)?,
-                battle_order: row.get(8)?,
-                work_strip: row.get(9)?,
-                uav_id: row.get(10)?,
-                uav_name: row.get(11)?,
-                uav_type: row.get(12)?,
-                uav_serial_number: row.get(13)?,
-                mission: row.get(14)?,
-                payload_source: row.get(15)?,
-                payload_id: row.get(16)?,
-                payload_type: row.get(17)?,
-                payload_serial_number: row.get(18)?,
-                notes: row.get(19)?,
+                completion_type: row.get(4)?,
+                completion_time: row.get(5)?,
+                completion_detail: row.get(6)?,
+                crew_id: row.get(7)?,
+                crew_name: row.get(8)?,
+                position_id: row.get(9)?,
+                position_name: row.get(10)?,
+                battle_order: row.get(11)?,
+                work_strip: row.get(12)?,
+                uav_id: row.get(13)?,
+                uav_name: row.get(14)?,
+                uav_type: row.get(15)?,
+                uav_serial_number: row.get(16)?,
+                mission: row.get(17)?,
+                payload_source: row.get(18)?,
+                payload_id: row.get(19)?,
+                payload_type: row.get(20)?,
+                payload_serial_number: row.get(21)?,
+                notes: row.get(22)?,
             })
         })
         .map_err(|_| "Не вдалося прочитати журнал польотів.".to_string())?
@@ -147,34 +185,50 @@ pub fn create_flight_journal_entry(
     draft: FlightJournalDraft,
 ) -> Result<(), String> {
     let flight_date = draft.flight_date.trim();
-    if !valid_iso_date(flight_date) {
-        return Err("Вкажіть коректну дату польоту.".into());
+    if !valid_iso_date(flight_date)
+        || flight_date != chrono::Local::now().format("%Y-%m-%d").to_string()
+    {
+        return Err("Новий політ можна створити лише поточною датою.".into());
     }
-    let sky_time = draft.sky_time.trim();
-    let ground_time = draft.ground_time.trim();
-    if sky_time.is_empty() || ground_time.is_empty() {
-        return Err("Вкажіть обов’язкові часи «Небо» та «Земля».".into());
+    if !draft.sky_time.trim().is_empty()
+        || !draft.ground_time.trim().is_empty()
+        || !draft.completion_type.trim().is_empty()
+        || !draft.completion_time.trim().is_empty()
+    {
+        return Err("Час і завершення польоту фіксуються у картці після створення запису.".into());
     }
-    if !valid_required_time(sky_time) || !valid_required_time(ground_time) {
-        return Err("Вкажіть часи «Небо» та «Земля» у форматі ГГ:ХХ.".into());
-    }
-    if draft.crew_name.trim().is_empty() {
+    let Some(crew_id) = draft.crew_id else {
         return Err("Оберіть екіпаж.".into());
+    };
+    if !is_strike_uav_type(&draft.uav_type)
+        && (!draft.payload_type.trim().is_empty() || draft.payload_id.is_some())
+    {
+        return Err("БК можна вказувати лише для ударного БпЛА.".into());
     }
+    let sky_time = "";
+    let ground_time = "";
     let db = state.0.lock().map_err(|_| busy())?;
+    let crew_name = db
+        .connection
+        .query_row("SELECT name FROM crews WHERE id=?1", [crew_id], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(|_| "Обраний екіпаж не знайдено.".to_string())?;
     let (snapshot_id, personnel_snapshot_json) =
-        frozen_personnel_snapshot(&db.connection, flight_date, draft.crew_id, sky_time);
+        frozen_personnel_snapshot(&db.connection, flight_date, Some(crew_id), sky_time);
     db.connection.execute(
-        "INSERT INTO flight_journal_entries(flight_date,sky_time,ground_time,crew_id,position_id,uav_id,snapshot_id,crew_name_snapshot,position_name_snapshot,battle_order_snapshot,work_strip_snapshot,uav_name_snapshot,uav_type_snapshot,uav_serial_snapshot,mission,payload_source,payload_id,payload_type_snapshot,payload_serial_snapshot,notes,personnel_snapshot_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)",
+        "INSERT INTO flight_journal_entries(flight_date,sky_time,ground_time,completion_type,completion_time,crew_id,position_id,uav_id,snapshot_id,crew_name_snapshot,position_name_snapshot,battle_order_snapshot,work_strip_snapshot,uav_name_snapshot,uav_type_snapshot,uav_serial_snapshot,mission,payload_source,payload_id,payload_type_snapshot,payload_serial_snapshot,notes,personnel_snapshot_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23)",
         params![
             flight_date,
             sky_time,
             ground_time,
-            draft.crew_id,
+            "",
+            "",
+            crew_id,
             draft.position_id,
             draft.uav_id,
             snapshot_id,
-            draft.crew_name.trim(),
+            crew_name,
             draft.position_name.trim(),
             draft.battle_order.trim(),
             draft.work_strip.trim(),
@@ -193,6 +247,65 @@ pub fn create_flight_journal_entry(
     Ok(())
 }
 
+#[tauri::command]
+pub fn update_flight_journal_progress(
+    state: tauri::State<AppState>,
+    flight_id: i64,
+    event_type: String,
+    event_time: String,
+    completion_detail: String,
+) -> Result<(), String> {
+    let event_type = event_type.trim();
+    if !matches!(event_type, "Небо" | "Земля" | "Втрата" | "Відпрацювання")
+    {
+        return Err("Оберіть коректну подію польоту.".into());
+    }
+    let event_time = if event_time.trim().is_empty() {
+        chrono::Local::now().format("%H:%M").to_string()
+    } else {
+        event_time.trim().to_string()
+    };
+    if !valid_required_time(&event_time) {
+        return Err("Вкажіть час події у форматі ГГ:ХХ.".into());
+    }
+    let db = state.0.lock().map_err(|_| busy())?;
+    let current = db.connection.query_row(
+        "SELECT flight_date,sky_time,completion_type,crew_id,uav_type_snapshot FROM flight_journal_entries WHERE id=?1",
+        [flight_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, Option<i64>>(3)?, row.get::<_, String>(4)?)),
+    ).map_err(|_| "Запис польоту не знайдено.".to_string())?;
+    if event_type == "Небо" {
+        if !current.1.is_empty() {
+            return Err("Час «Небо» вже зафіксовано.".into());
+        }
+        let (snapshot_id, personnel_snapshot_json) =
+            frozen_personnel_snapshot(&db.connection, &current.0, current.3, &event_time);
+        db.connection.execute(
+            "UPDATE flight_journal_entries SET sky_time=?1,snapshot_id=?2,personnel_snapshot_json=?3 WHERE id=?4",
+            params![event_time, snapshot_id, personnel_snapshot_json, flight_id],
+        ).map_err(|_| "Не вдалося зафіксувати час «Небо».".to_string())?;
+        return Ok(());
+    }
+    if current.1.is_empty() {
+        return Err("Спочатку зафіксуйте час «Небо».".into());
+    }
+    if !current.2.is_empty() {
+        return Err("Політ уже завершено.".into());
+    }
+    let completion_detail = completion_detail.trim();
+    validate_completion_detail(event_type, &current.4, completion_detail)?;
+    let ground_time = if event_type == "Земля" {
+        event_time.as_str()
+    } else {
+        ""
+    };
+    db.connection.execute(
+        "UPDATE flight_journal_entries SET ground_time=?1,completion_type=?2,completion_time=?3,completion_detail=?4 WHERE id=?5",
+        params![ground_time, event_type, event_time, completion_detail, flight_id],
+    ).map_err(|_| "Не вдалося завершити політ.".to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,6 +317,35 @@ mod tests {
         assert!(!valid_required_time(""));
         assert!(valid_required_time("07:05"));
         assert!(!valid_required_time("25:00"));
+    }
+
+    #[test]
+    fn recognises_only_agreed_strike_uav_types() {
+        for value in [
+            "Літаковий ударний",
+            "ФПВ",
+            "Бомбер",
+            "ФПВ перехоплювач",
+            "Коптер",
+        ] {
+            assert!(is_strike_uav_type(value), "{value}");
+        }
+        assert!(!is_strike_uav_type("Літаковий розвідувальний"));
+        assert!(!is_strike_uav_type("НРК"));
+    }
+
+    #[test]
+    fn validates_loss_causes_and_strike_results() {
+        assert!(validate_completion_detail("Втрата", "ФПВ", "Обрив").is_ok());
+        assert!(validate_completion_detail("Втрата", "Коптер", "Обрив").is_err());
+        assert!(validate_completion_detail("Втрата", "Коптер", "Збиття").is_ok());
+        assert!(validate_completion_detail("Відпрацювання", "ФПВ", "Уражено").is_ok());
+        assert!(validate_completion_detail(
+            "Відпрацювання",
+            "Літаковий розвідувальний",
+            "Не уражено"
+        )
+        .is_err());
     }
 
     #[test]
