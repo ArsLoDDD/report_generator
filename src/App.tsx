@@ -25,6 +25,7 @@ import { currentRelease, releaseNotesStorageKey } from "./app/releaseNotes";
 import { ReleaseNotesModal } from "./app/components/ReleaseNotesModal";
 import { DeadlineReminderNotifications } from "./app/components/DeadlineReminderNotifications";
 import { deadlineReminderService } from "./features/settings/services/deadlineReminderService";
+import { PaymentsPage } from "./features/payments/PaymentsPage";
 
 export default function App() {
   const [screen, setScreen] = useState<Screen>("generator");
@@ -125,6 +126,7 @@ export default function App() {
       {(screen === "report-analyser" || analyserVisited) && <div className="persistent-screen" hidden={screen !== "report-analyser"}><ReportAnalyserPage onCreated={(createdPath) => { void refreshTemplates().then((items) => { setTemplateInfo(items.find((template) => template.sourcePath === createdPath) ?? null); setScreen("templates"); }); }} /></div>}
       {screen === "people" && <PersonnelPage people={people} totalCount={personnelTotalCount} hasMore={personnelHasMore} isLoading={personnelLoading} isLoadingMore={personnelLoadingMore} errorMessage={personnelError} onCreate={createPersonnel} onUpdate={updatePersonnel} onDelete={deletePersonnel} onRefresh={refreshPersonnel} onLoadMore={loadMorePersonnel} />}
       {!isSimpleEdition && screen === "staffing-bcs" && <StaffingBcsPage />}
+      {!isSimpleEdition && screen === "payments" && <PaymentsPage />}
       {!isSimpleEdition && screen === "flight-planning" && <FlightPlanningPage />}
       {!isSimpleEdition && screen === "flight-journal" && <FlightJournalPage />}
       {!isSimpleEdition && screen === "positions" && <PositionsPage />}

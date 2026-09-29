@@ -139,4 +139,4 @@ export type DeadlineNotification = {
   overdue: boolean;
 };
 
-export type Screen = "warnings" | "generator" | "templates" | "report-analyser" | "summary-report" | "people" | "staffing-bcs" | "flight-planning" | "flight-journal" | "positions" | "assets" | "vehicles" | "generators" | "uavs" | "communications" | "weapons" | "crews" | "incidents" | "generated" | "settings" | "documentation";
+export type Screen = "warnings" | "generator" | "templates" | "report-analyser" | "summary-report" | "people" | "staffing-bcs" | "payments" | "flight-planning" | "flight-journal" | "positions" | "assets" | "vehicles" | "generators" | "uavs" | "communications" | "weapons" | "crews" | "incidents" | "generated" | "settings" | "documentation";

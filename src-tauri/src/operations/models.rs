@@ -822,6 +822,8 @@ pub struct IncidentStep {
 pub struct IncidentDocument {
     pub id: i64,
     pub document_type: String,
+    pub requirement: String,
+    pub action_kind: String,
     pub status: String,
     pub updated_at: String,
 }

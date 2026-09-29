@@ -249,15 +249,17 @@ fn incident_documents(
     connection: &Connection,
     incident_id: i64,
 ) -> Result<Vec<IncidentDocument>, String> {
-    let mut statement = connection.prepare("SELECT id,document_type,status,updated_at FROM incident_documents WHERE incident_id=?1 ORDER BY id")
+    let mut statement = connection.prepare("SELECT id,document_type,requirement,action_kind,status,updated_at FROM incident_documents WHERE incident_id=?1 ORDER BY id")
         .map_err(|_| "Не вдалося прочитати документи інциденту.".to_string())?;
     let result = statement
         .query_map([incident_id], |row| {
             Ok(IncidentDocument {
                 id: row.get(0)?,
                 document_type: row.get(1)?,
-                status: row.get(2)?,
-                updated_at: row.get(3)?,
+                requirement: row.get(2)?,
+                action_kind: row.get(3)?,
+                status: row.get(4)?,
+                updated_at: row.get(5)?,
             })
         })
         .map_err(|_| "Не вдалося прочитати документи інциденту.".to_string())?
@@ -401,456 +403,595 @@ pub fn list_incidents(state: tauri::State<AppState>) -> Result<Vec<Incident>, St
 }
 
 type WorkflowStepTemplate = (i64, &'static str, &'static str, Option<i64>);
+type WorkflowDocumentTemplate = (&'static str, &'static str, &'static str);
 
 struct WorkflowTemplate {
     steps: &'static [WorkflowStepTemplate],
-    documents: &'static [&'static str],
+    documents: &'static [WorkflowDocumentTemplate],
 }
 
 const UAV_LOSS_STEPS: &[WorkflowStepTemplate] = &[
     (
         1,
-        "Негайна доповідь черговому/командиру",
-        "Зафіксувати факт і час первинної доповіді",
-        None,
+        "Доповідь командиру та черговому",
+        "Строк: у момент 100% втрати",
+        Some(0),
     ),
     (
         2,
-        "Першочергове донесення",
-        "Підготувати та подати першочергове донесення",
-        Some(3),
+        "Позачергове повідомлення оперативному черговому",
+        "Строк: протягом години після втрати",
+        Some(1),
     ),
     (
         3,
-        "Позатермінове донесення",
-        "Підготувати та подати позатермінове донесення",
+        "Позатермінове повідомлення оперативному черговому",
+        "Строк: до 1 доби",
         Some(24),
     ),
     (
         4,
-        "Рапорт на втрату",
-        "Підготувати рапорт на втрату",
-        Some(72),
+        "Внесення даних у підсумкове донесення / ЖБД",
+        "Строк: у день втрати",
+        None,
     ),
+    (5, "Пояснення від екіпажу", "Строк: до 2 діб", Some(48)),
+    (6, "Рапорт на втрату", "Строк: до 3 діб", Some(72)),
     (
-        5,
-        "Передача матеріалів для списання",
-        "Передати майно та матеріали у процес списання",
+        7,
+        "Очікування інформації від групи списання щодо правок",
+        "Безстроково",
         None,
     ),
     (
-        6,
-        "Закриття інциденту",
-        "Перевірити виконання обов’язкових дій",
+        8,
+        "Списання борта і виключення його зі списків обліку підрозділу",
+        "Безстроково",
         None,
     ),
 ];
-const UAV_LOSS_DOCUMENTS: &[&str] = &[
-    "Першочергове донесення",
-    "Позатермінове донесення",
-    "Рапорт на втрату",
+const UAV_LOSS_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Позачергове повідомлення", "Так", "copy"),
+    ("Позатермінове", "Так", "document"),
+    ("Пояснення від усіх учасників", "Так", "document"),
+    ("Рапорт на втрату", "Так", "document"),
 ];
 const ASSET_LOSS_STEPS: &[WorkflowStepTemplate] = &[
-    (
-        1,
-        "Зафіксувати втрату майна",
-        "Перевірити найменування, кількість, одиницю обліку, дату й час події",
-        None,
-    ),
+    (1, "Доповідь командиру", "Строк: у день втрати", None),
     (
         2,
-        "Доповісти про втрату",
-        "Зафіксувати факт первинної доповіді",
+        "Позатермінове повідомлення оперативному черговому",
+        "Строк: у день втрати",
         None,
     ),
     (
         3,
-        "Зібрати пояснення",
-        "Додати пояснення щодо обставин втрати",
+        "Внесення даних у підсумкове донесення / ЖБД",
+        "Строк: у день втрати",
         None,
     ),
-    (
-        4,
-        "Передати матеріали на списання",
-        "Підготувати й передати матеріали для рішення щодо списання",
-        None,
-    ),
+    (4, "Рапорт-доповідь на втрату", "Строк: у день втрати", None),
     (
         5,
-        "Зафіксувати результат",
-        "Внести прийняте рішення та завершити інцидент після виконання обов’язкових дій",
-        None,
-    ),
-];
-const ASSET_LOSS_DOCUMENTS: &[&str] = &[
-    "Доповідь про втрату майна",
-    "Пояснення щодо втрати",
-    "Матеріали на списання",
-];
-const VEHICLE_STEPS: &[WorkflowStepTemplate] = &[
-    (
-        1,
-        "Зафіксувати стан машини",
-        "Вказати машину, водія, місце, час і характер пошкодження або знищення",
-        None,
-    ),
-    (
-        2,
-        "Доповісти про подію",
-        "Зафіксувати первинну доповідь про машину",
-        None,
-    ),
-    (
-        3,
-        "Зібрати матеріали",
-        "Додати відомості про обставини та пошкодження",
-        None,
-    ),
-    (
-        4,
-        "Визначити подальше рішення",
-        "Зафіксувати ремонт, списання або повернення машини в стрій",
-        None,
-    ),
-    (
-        5,
-        "Завершити інцидент",
-        "Перевірити виконання обов’язкових дій і зафіксувати результат",
-        None,
-    ),
-];
-const VEHICLE_DOCUMENTS: &[&str] = &[
-    "Доповідь про подію з машиною",
-    "Матеріали щодо пошкоджень",
-    "Рішення про ремонт або списання",
-];
-const ACCIDENT_STEPS: &[WorkflowStepTemplate] = &[
-    (
-        1,
-        "Зафіксувати ДТП",
-        "Вказати машину, водія, учасників, постраждалих і свідків",
-        None,
-    ),
-    (
-        2,
-        "Доповісти про ДТП",
-        "Зафіксувати первинну доповідь",
-        None,
-    ),
-    (
-        3,
-        "Зібрати службові матеріали",
-        "Додати обставини та відомості про пошкодження",
-        None,
-    ),
-    (
-        4,
-        "Провести службове розслідування",
-        "Контролювати підготовку матеріалів і рішення",
-        None,
-    ),
-    (
-        5,
-        "Зафіксувати результат розслідування",
-        "Внести результат службового розслідування",
+        "Очікування інформації від групи списання щодо правок",
+        "Безстроково",
         None,
     ),
     (
         6,
-        "Завершити інцидент",
-        "Перевірити виконання обов’язкових дій",
+        "Списання майна і виключення його зі списків обліку підрозділу",
+        "Безстроково",
         None,
     ),
 ];
-const ACCIDENT_DOCUMENTS: &[&str] = &[
-    "Доповідь про ДТП",
-    "Матеріали службового розслідування",
-    "Результат службового розслідування",
+const ASSET_LOSS_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Позатермінове", "Так", "document"),
+    ("Пояснення від усіх учасників", "Уточнити", "document"),
+    ("Рапорт на втрату", "Так", "document"),
+    ("Акт списання", "Уточнити", "document"),
+];
+const VEHICLE_DESTROYED_STEPS: &[WorkflowStepTemplate] = &[
+    (
+        1,
+        "Доповідь командиру та черговому",
+        "Строк: одразу",
+        Some(0),
+    ),
+    (
+        2,
+        "Інформація щодо особового складу та медичний огляд за необхідності",
+        "Строк: одразу",
+        Some(0),
+    ),
+    (
+        3,
+        "Позатермінове повідомлення оперативному черговому",
+        "Строк: у день втрати",
+        None,
+    ),
+    (
+        4,
+        "Внесення даних у підсумкове донесення / ЖБД",
+        "Строк: у день втрати",
+        None,
+    ),
+    (5, "Рапорт-доповідь на втрату", "Строк: у день втрати", None),
+    (6, "Уточнити", "", None),
+    (7, "Уточнити", "", None),
+];
+const VEHICLE_DESTROYED_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Позатермінове", "Так", "document"),
+    ("Рапорт-доповідь на втрату", "Так", "document"),
+];
+const VEHICLE_DAMAGED_STEPS: &[WorkflowStepTemplate] = &[
+    (
+        1,
+        "Доповідь командиру та черговому",
+        "Строк: у день втрати",
+        None,
+    ),
+    (
+        2,
+        "Інформація щодо особового складу та медичний огляд за необхідності",
+        "Строк: одразу",
+        Some(0),
+    ),
+    (
+        3,
+        "Позатермінове повідомлення оперативному черговому",
+        "Строк: у день втрати",
+        None,
+    ),
+    (
+        4,
+        "Внесення даних у підсумкове донесення / ЖБД",
+        "Строк: у день втрати",
+        None,
+    ),
+    (5, "Рапорт-доповідь на втрату", "Строк: у день втрати", None),
+    (6, "Уточнити", "", None),
+    (7, "Уточнити", "", None),
+];
+const VEHICLE_DAMAGED_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Позатермінове", "Так", "document"),
+    ("Рапорт-доповідь на втрату", "Так", "document"),
+    ("Уточнити", "", "document"),
+];
+const ACCIDENT_STEPS: &[WorkflowStepTemplate] = &[
+    (1, "Доповідь командиру", "Строк: одразу", Some(0)),
+    (
+        2,
+        "Інформація щодо особового складу та медичний огляд за необхідності",
+        "Строк: одразу",
+        Some(0),
+    ),
+    (3, "Рапорт-доповідь", "Строк: у день події", None),
+    (
+        4,
+        "Очікування наказу на службове розслідування",
+        "Строк: до 5 діб",
+        Some(120),
+    ),
+    (
+        5,
+        "Пояснення від потерпілого та свідків за наявності",
+        "Строк: з моменту наказу",
+        None,
+    ),
+    (
+        6,
+        "Проведення службового розслідування",
+        "Строк: до 10 діб після наказу",
+        None,
+    ),
+    (
+        7,
+        "Очікування наказу з результатом",
+        "Строк: до 3 діб після завершення розслідування",
+        None,
+    ),
+];
+const ACCIDENT_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Рапорт-доповідь", "Так", "document"),
+    ("Наказ на службове розслідування", "Так", "document"),
+    ("Пояснення", "Так", "document"),
+    ("Акт службового розслідування", "Так", "document"),
+    (
+        "Наказ на завершення службового розслідування",
+        "Так",
+        "document",
+    ),
 ];
 const SHELLING_STEPS: &[WorkflowStepTemplate] = &[
     (
         1,
-        "Доповісти про обстріл",
-        "Зафіксувати первинну доповідь",
-        None,
+        "Доповідь командиру та черговому за необхідності",
+        "Строк: одразу",
+        Some(0),
     ),
     (
         2,
-        "Зафіксувати обставини",
-        "Вказати позицію, час, засіб ураження та орієнтовну кількість",
-        None,
+        "Інформація щодо особового складу та майна",
+        "Строк: одразу",
+        Some(0),
     ),
     (
         3,
-        "Зафіксувати наслідки",
-        "Додати постраждалих, пошкодження позиції та майна",
+        "Внесення даних у підсумкове донесення / ЖБД",
+        "Строк: у день події",
         None,
     ),
-    (
-        4,
-        "Зафіксувати вжиті заходи",
-        "Внести зміну позиції, евакуацію та інші виконані заходи",
-        None,
-    ),
-    (
-        5,
-        "Завершити інцидент",
-        "Перевірити виконання обов’язкових дій",
-        None,
-    ),
+    (4, "Рішення з командиром", "Строк: у день події", None),
 ];
-const SHELLING_DOCUMENTS: &[&str] = &["Доповідь про обстріл", "Матеріали фіксації наслідків"];
+const SHELLING_DOCUMENTS: &[WorkflowDocumentTemplate] = &[("Позатермінове", "Ні", "document")];
 const POSITION_LOSS_STEPS: &[WorkflowStepTemplate] = &[
     (
         1,
-        "Доповісти про знищення позиції",
-        "Зафіксувати первинну доповідь",
-        None,
+        "Доповідь командиру та черговому",
+        "Строк: одразу",
+        Some(0),
     ),
     (
         2,
-        "Зафіксувати руйнування",
-        "Вказати позицію, причину, час і ступінь руйнування",
-        None,
+        "Інформація щодо особового складу та майна",
+        "Строк: одразу",
+        Some(0),
     ),
     (
         3,
-        "Зафіксувати людей і майно",
-        "Зберегти склад людей, екіпажів, майна й техніки на момент події",
+        "Позатермінове повідомлення оперативному черговому",
+        "Строк: у день втрати",
         None,
     ),
     (
         4,
-        "Зафіксувати евакуацію",
-        "Внести припинення роботи, евакуацію та резервну позицію",
+        "Внесення даних у підсумкове донесення / ЖБД",
+        "Строк: у день втрати",
         None,
     ),
     (
         5,
-        "Підтвердити зміну стану позиції",
-        "Змінити стан позиції в реєстрі лише після рішення користувача",
+        "Рапорт-доповідь щодо події",
+        "Строк: у день втрати",
         None,
     ),
     (
         6,
-        "Завершити інцидент",
-        "Перевірити виконання обов’язкових дій",
+        "Рішення з командиром щодо подальших дій",
+        "Строк: у день втрати",
         None,
     ),
 ];
-const POSITION_LOSS_DOCUMENTS: &[&str] = &[
-    "Доповідь про знищення позиції",
-    "Матеріали фіксації руйнування",
-    "Підтвердження зміни стану позиції",
+const POSITION_LOSS_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Позатермінове", "Так", "document"),
+    ("Рапорт-доповідь", "Уточнити", "document"),
 ];
-const PERSONNEL_EVENT_STEPS: &[WorkflowStepTemplate] = &[
+const WOUND_STEPS: &[WorkflowStepTemplate] = &[
     (
         1,
-        "Доповісти про подію",
-        "Зафіксувати кому і коли повідомлено",
-        None,
+        "Доповідь командиру та черговому",
+        "Строк: одразу",
+        Some(0),
     ),
-    (
-        2,
-        "Зафіксувати фактичні дані",
-        "Вказати осіб, час, місце, обставини, засіб і зону ураження",
-        None,
-    ),
+    (2, "Інформація щодо поранення", "Строк: одразу", Some(0)),
     (
         3,
-        "Зафіксувати евакуацію",
-        "Внести час евакуації та медичний заклад",
-        None,
+        "Рішення командира щодо необхідних дій, зокрема евакуації",
+        "Строк: одразу",
+        Some(0),
     ),
     (
         4,
-        "Зібрати медичні й службові документи",
-        "Контролювати отримання офіційних документів без підміни їхнього висновку",
-        None,
+        "Постійний контакт із медичною службою",
+        "Строк: одразу",
+        Some(0),
     ),
     (
         5,
-        "Зафіксувати офіційний результат",
-        "Внести отриманий офіційний документ і поточний результат",
+        "Позатермінове повідомлення оперативному черговому",
+        "Строк: до 3 годин",
+        Some(3),
+    ),
+    (
+        6,
+        "Внесення даних у підсумкове донесення / ЖБД",
+        "Строк: у день події",
+        None,
+    ),
+    (7, "Рапорт-доповідь", "Строк: у день події", None),
+];
+const WOUND_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Позатермінове", "Так", "document"),
+    (
+        "Форма 001 (100) і всі необхідні документи",
+        "Так",
+        "document",
+    ),
+    ("Рапорт-доповідь", "Так", "document"),
+    ("Документи у разі госпіталізації", "", "document"),
+];
+const DEATH_STEPS: &[WorkflowStepTemplate] = &[
+    (
+        1,
+        "Доповідь командиру та черговому",
+        "Строк: одразу",
+        Some(0),
+    ),
+    (
+        2,
+        "Рішення командира щодо необхідних дій",
+        "Строк: одразу",
+        Some(0),
+    ),
+    (
+        3,
+        "Постійний контакт із медичною службою",
+        "Строк: одразу",
+        Some(0),
+    ),
+    (
+        4,
+        "Позатермінове повідомлення оперативному черговому",
+        "Строк: до 3 годин",
+        Some(3),
+    ),
+    (
+        5,
+        "Внесення даних у підсумкове донесення / ЖБД",
+        "Строк: у день події",
+        None,
+    ),
+    (6, "Рапорт-доповідь", "Строк: у день події", None),
+    (
+        7,
+        "Очікування інформації щодо подальших дій для правильного оформлення",
+        "Безстроково",
+        None,
+    ),
+];
+const DEATH_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Позатермінове", "Так", "document"),
+    ("Необхідні документи", "Так", "document"),
+    ("Рапорт-доповідь", "Так", "document"),
+];
+const INJURY_STEPS: &[WorkflowStepTemplate] = &[
+    (1, "Доповідь командиру", "Строк: одразу", Some(0)),
+    (
+        2,
+        "Інформація щодо особового складу та медичний огляд за необхідності",
+        "Строк: одразу",
+        Some(0),
+    ),
+    (3, "Рапорт-доповідь", "Строк: у день події", None),
+    (
+        4,
+        "Очікування наказу на службове розслідування",
+        "Строк: до 5 діб",
+        Some(120),
+    ),
+    (
+        5,
+        "Пояснення від потерпілого та свідків за наявності",
+        "Строк: з моменту наказу",
         None,
     ),
     (
         6,
-        "Завершити інцидент",
-        "Перевірити виконання обов’язкових дій",
+        "Проведення службового розслідування",
+        "Строк: до 10 діб після наказу",
+        None,
+    ),
+    (
+        7,
+        "Очікування наказу з результатом",
+        "Строк: до 3 діб після завершення розслідування",
         None,
     ),
 ];
-const PERSONNEL_EVENT_DOCUMENTS: &[&str] = &[
-    "Первинна доповідь",
-    "Медичні документи",
-    "Службові матеріали",
+const INJURY_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Рапорт-доповідь", "Так", "document"),
+    ("Наказ на службове розслідування", "Так", "document"),
+    ("Пояснення", "Так", "document"),
+    ("Акт службового розслідування", "Так", "document"),
+    (
+        "Наказ на завершення службового розслідування",
+        "Так",
+        "document",
+    ),
 ];
 const ABSENCE_STEPS: &[WorkflowStepTemplate] = &[
     (
         1,
-        "Зафіксувати факт СЗЧ",
-        "Вказати особу, місце, дату й час",
-        None,
+        "Доповідь командиру, черговому та заступнику частини з ППП",
+        "Строк: одразу",
+        Some(0),
     ),
-    (
-        2,
-        "Зафіксувати майно при особі",
-        "Внести зброю, майно, документи та транспорт",
-        None,
-    ),
+    (2, "Уточнення місця події", "Строк: одразу", Some(0)),
     (
         3,
-        "Зафіксувати спроби зв’язку",
-        "Додати виконані спроби встановити зв’язок",
-        None,
+        "Пошукові заходи та контакт із родичами",
+        "Строк: до 1 години",
+        Some(1),
     ),
     (
         4,
-        "Оформити доповіді, повідомлення й накази",
-        "Внести їхні номери та стани",
-        None,
+        "Рапорт-доповідь про СЗЧ та зняття з усіх видів забезпечення",
+        "Строк: до 1 години",
+        Some(1),
     ),
     (
         5,
-        "Зафіксувати поточний результат",
-        "Вказати встановлений результат події",
-        None,
+        "Виключення з усіх інформаційних груп підрозділу",
+        "Строк: до 1 години",
+        Some(1),
     ),
     (
         6,
-        "Завершити інцидент",
-        "Перевірити виконання обов’язкових дій",
+        "Доповідь на корпус щодо СЗЧ",
+        "Строк: протягом 1 доби",
+        Some(24),
+    ),
+    (
+        7,
+        "Очікування наказу на службове розслідування",
+        "Строк: до 2 діб",
+        Some(48),
+    ),
+    (
+        8,
+        "Пояснення, запити до необхідних структур і збір документів",
+        "Після 4 діб із моменту СЗЧ",
+        None,
+    ),
+    (
+        9,
+        "Проведення службового розслідування",
+        "Строк: до 10 діб після наказу",
+        None,
+    ),
+    (
+        10,
+        "Очікування наказу з результатом",
+        "Строк: до 3 діб після завершення розслідування",
+        None,
+    ),
+    (
+        11,
+        "Очікування виведення в розпорядження командира в/ч",
+        "Безстроково",
         None,
     ),
 ];
-const ABSENCE_DOCUMENTS: &[&str] = &[
-    "Доповідь про СЗЧ",
-    "Повідомлення та накази",
-    "Матеріали щодо результату",
+const ABSENCE_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Рапорт-доповідь щодо СЗЧ", "Так", "document"),
+    ("Доповідь на корпус", "Так", "document"),
+    ("Наказ на службове розслідування", "Так", "document"),
+    (
+        "Збір необхідних документів, пояснень та відправка запитів",
+        "Так",
+        "document",
+    ),
+    ("Акт службового розслідування", "Так", "document"),
+    (
+        "Наказ на завершення службового розслідування",
+        "Так",
+        "document",
+    ),
 ];
 const INTOXICATION_STEPS: &[WorkflowStepTemplate] = &[
-    (
-        1,
-        "Зафіксувати виявлення",
-        "Вказати особу, підставу, місце, час і свідків",
-        None,
-    ),
-    (
-        2,
-        "Зафіксувати перевірку",
-        "Внести спосіб, прилад, номер і результат перевірки",
-        None,
-    ),
-    (
-        3,
-        "Зафіксувати повторний вимір або відмову",
-        "Внести повторний результат, згоду або відмову",
-        None,
-    ),
-    (
-        4,
-        "Зафіксувати направлення до медичного закладу",
-        "Додати відомості про направлення та офіційний документ",
-        None,
-    ),
-    (
-        5,
-        "Оформити службові матеріали",
-        "Контролювати доповіді, службовий акт і накази",
-        None,
-    ),
-    (
-        6,
-        "Завершити інцидент",
-        "Перевірити виконання обов’язкових дій",
-        None,
-    ),
+    (1, "Доповідь командиру", "", None),
+    (2, "Фіксація стану сп’яніння", "", None),
+    (3, "Доповідь заступнику частини з ППП", "", None),
+    (4, "Супровід у відповідний пункт ВСП", "", None),
+    (5, "Взяття аналізів за необхідності", "", None),
+    (6, "Формування протоколу про правопорушення", "", None),
+    (7, "Рапорт-доповідь", "", None),
 ];
-const INTOXICATION_DOCUMENTS: &[&str] = &[
-    "Службовий акт",
-    "Медичний документ",
-    "Наказ або службове рішення",
+const INTOXICATION_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Протокол правопорушення", "Так", "document"),
+    ("Рапорт-доповідь", "Так", "document"),
+    ("Результати медичного закладу", "Так", "document"),
 ];
 const DOCUMENT_LOSS_STEPS: &[WorkflowStepTemplate] = &[
-    (
-        1,
-        "Доповісти про втрату документа",
-        "Зафіксувати кому й коли доповіли",
-        None,
-    ),
-    (
-        2,
-        "Зафіксувати пошукові дії",
-        "Внести останнє підтверджене місце та виконані пошукові дії",
-        None,
-    ),
+    (1, "Доповідь командиру", "Строк: у день втрати", None),
+    (2, "Рапорт-доповідь на втрату", "Строк: у день втрати", None),
     (
         3,
-        "Провести службове розслідування",
-        "Внести номер і результат службового розслідування",
-        None,
+        "Очікування наказу на службове розслідування",
+        "Строк: до 5 діб",
+        Some(120),
     ),
     (
         4,
-        "Подати звернення на відновлення",
-        "Зафіксувати подання документів на відновлення",
+        "Пояснення від потерпілого та свідка",
+        "Строк: до 7 діб після наказу",
         None,
     ),
     (
         5,
-        "Зафіксувати отримання нового документа",
-        "Внести дату отримання нового документа",
+        "Проведення службового розслідування",
+        "Строк: до 10 діб після наказу",
         None,
     ),
     (
         6,
-        "Завершити інцидент",
-        "Перевірити виконання обов’язкових дій",
+        "Очікування наказу з результатом",
+        "Строк: до 3 діб після завершення розслідування",
         None,
     ),
+    (7, "Отримання нового документа", "Безстроково", None),
 ];
-const DOCUMENT_LOSS_DOCUMENTS: &[&str] = &[
-    "Матеріали службового розслідування",
-    "Звернення на відновлення",
-    "Підтвердження отримання нового документа",
+const DOCUMENT_LOSS_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Рапорт-доповідь на втрату", "Так", "document"),
+    ("Наказ на службове розслідування", "Так", "document"),
+    (
+        "Пояснення та копії необхідних документів за наявності",
+        "Так",
+        "document",
+    ),
+    ("Акт службового розслідування", "Так", "document"),
+    (
+        "Наказ на завершення службового розслідування",
+        "Так",
+        "document",
+    ),
 ];
 const BASE_STEPS: &[WorkflowStepTemplate] = &[
+    (1, "Доповідь командиру", "Строк: одразу", Some(0)),
+    (
+        2,
+        "Позатермінове повідомлення / рапорт-доповідь",
+        "Строк: у день події",
+        None,
+    ),
+    (3, "Очікування подальшої інформації", "Безстроково", None),
+];
+const BASE_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Позатермінове", "Ні", "document"),
+    ("Рапорт-доповідь", "Ні", "document"),
+];
+const SUICIDE_STEPS: &[WorkflowStepTemplate] = &[
     (
         1,
-        "Зафіксувати факт події",
-        "Перевірити дату, час, пов’язаних осіб або об’єкти та обставини",
-        None,
+        "Доповідь командиру, черговому та заступнику частини з ППП",
+        "Строк: одразу",
+        Some(0),
     ),
     (
         2,
-        "Доповісти про подію",
-        "Зафіксувати первинну доповідь",
-        None,
+        "Рішення командира щодо необхідних дій",
+        "Строк: одразу",
+        Some(0),
     ),
     (
         3,
-        "Зібрати пояснення та матеріали",
-        "Додати наявні фактичні матеріали без зміни зафіксованого факту",
-        None,
+        "Постійний контакт із медичною службою",
+        "Строк: одразу",
+        Some(0),
     ),
-    (
-        4,
-        "Зафіксувати рішення або результат",
-        "Внести отримане рішення та поточний результат",
-        None,
-    ),
+    (4, "Рапорт-доповідь", "Строк: у день події", None),
     (
         5,
-        "Завершити інцидент",
-        "Перевірити виконання обов’язкових дій",
+        "Очікування інформації щодо подальших дій для правильного оформлення",
+        "Безстроково",
         None,
     ),
 ];
-const BASE_DOCUMENTS: &[&str] = &[
-    "Первинна доповідь",
-    "Пояснення та матеріали",
-    "Підсумковий документ",
+const SUICIDE_DOCUMENTS: &[WorkflowDocumentTemplate] = &[
+    ("Рапорт-доповідь", "Так", "document"),
+    ("Доповідь на корпус", "Уточнити", "document"),
+    ("Наказ на службове розслідування", "Уточнити", "document"),
+    (
+        "Збір необхідних документів і пояснень свідків",
+        "Так",
+        "document",
+    ),
+    ("Акт службового розслідування", "Уточнити", "document"),
+    (
+        "Наказ на завершення службового розслідування",
+        "Уточнити",
+        "document",
+    ),
 ];
 
 fn workflow_template(incident_type: &str) -> WorkflowTemplate {
@@ -863,13 +1004,18 @@ fn workflow_template(incident_type: &str) -> WorkflowTemplate {
             steps: ASSET_LOSS_STEPS,
             documents: ASSET_LOSS_DOCUMENTS,
         },
-        "Знищення машини"
-        | "Пошкодження машини"
-        | "Знищення автомобіля"
-        | "Пошкодження автомобіля" => WorkflowTemplate {
-            steps: VEHICLE_STEPS,
-            documents: VEHICLE_DOCUMENTS,
-        },
+        "Знищення машини" | "Знищення автомобіля" => {
+            WorkflowTemplate {
+                steps: VEHICLE_DESTROYED_STEPS,
+                documents: VEHICLE_DESTROYED_DOCUMENTS,
+            }
+        }
+        "Пошкодження машини" | "Пошкодження автомобіля" => {
+            WorkflowTemplate {
+                steps: VEHICLE_DAMAGED_STEPS,
+                documents: VEHICLE_DAMAGED_DOCUMENTS,
+            }
+        }
         "ДТП" => WorkflowTemplate {
             steps: ACCIDENT_STEPS,
             documents: ACCIDENT_DOCUMENTS,
@@ -882,12 +1028,22 @@ fn workflow_template(incident_type: &str) -> WorkflowTemplate {
             steps: POSITION_LOSS_STEPS,
             documents: POSITION_LOSS_DOCUMENTS,
         },
-        "Поранення" | "Травма" | "Загибель" | "Самогубство" => {
-            WorkflowTemplate {
-                steps: PERSONNEL_EVENT_STEPS,
-                documents: PERSONNEL_EVENT_DOCUMENTS,
-            }
-        }
+        "Поранення" => WorkflowTemplate {
+            steps: WOUND_STEPS,
+            documents: WOUND_DOCUMENTS,
+        },
+        "Загибель" => WorkflowTemplate {
+            steps: DEATH_STEPS,
+            documents: DEATH_DOCUMENTS,
+        },
+        "Травма" => WorkflowTemplate {
+            steps: INJURY_STEPS,
+            documents: INJURY_DOCUMENTS,
+        },
+        "Самогубство" => WorkflowTemplate {
+            steps: SUICIDE_STEPS,
+            documents: SUICIDE_DOCUMENTS,
+        },
         "СЗЧ" => WorkflowTemplate {
             steps: ABSENCE_STEPS,
             documents: ABSENCE_DOCUMENTS,
@@ -909,6 +1065,71 @@ fn workflow_template(incident_type: &str) -> WorkflowTemplate {
     }
 }
 
+fn canonical_incident_type(incident_type: &str) -> (&'static str, &'static str) {
+    match incident_type.trim() {
+        "Поранення" => ("Поранення", "Особовий склад"),
+        "Загибель" => ("Загибель", "Особовий склад"),
+        "Травма" => ("Травма", "Особовий склад"),
+        "СЗЧ" => ("СЗЧ", "Особовий склад"),
+        "Алкогольне/наркотичне сп’яніння" | "Алкогольне / наркотичне сп’яніння" => {
+            ("Алкогольне/наркотичне сп’яніння", "Особовий склад")
+        }
+        "Самогубство" => ("Самогубство", "Особовий склад"),
+        "Втрата БпЛА" => ("Втрата БпЛА", "БпЛА"),
+        "Втрата майна" => ("Втрата майна", "Майно"),
+        "Втрата військового квитка/посвідчення УБД"
+        | "Втрата військового квитка / посвідчення УБД" => {
+            ("Втрата військового квитка/посвідчення УБД", "Майно")
+        }
+        "Знищення машини" | "Знищення автомобіля" => {
+            ("Знищення машини", "Транспорт")
+        }
+        "Пошкодження машини" | "Пошкодження автомобіля" => {
+            ("Пошкодження машини", "Транспорт")
+        }
+        "ДТП" => ("ДТП", "Транспорт"),
+        "Обстріл" => ("Обстріл", "Позиція і бойова обстановка"),
+        "Знищення позиції" => ("Знищення позиції", "Позиція і бойова обстановка"),
+        "Інший інцидент" => ("Інший інцидент", "Інше"),
+        _ => ("Інший інцидент", "Інше"),
+    }
+}
+
+fn normalize_incident_types(connection: &Connection) -> Result<(), String> {
+    let incidents = connection
+        .prepare("SELECT id,category,incident_type FROM incidents ORDER BY id")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(|_| "Не вдалося перевірити типи інцидентів.".to_string())?;
+    for (incident_id, category, incident_type) in incidents {
+        let (canonical_type, canonical_category) = canonical_incident_type(&incident_type);
+        if incident_type != canonical_type {
+            connection.execute(
+                "INSERT INTO incident_history(incident_id,action,details) VALUES(?1,'Уточнено тип інциденту',?2)",
+                rusqlite::params![incident_id, format!("Попередній тип: {incident_type}. Новий тип: {canonical_type}.")],
+            ).map_err(|_| "Не вдалося зберегти попередній тип інциденту в історії.".to_string())?;
+        }
+        if incident_type != canonical_type || category != canonical_category {
+            connection
+                .execute(
+                    "UPDATE incidents SET incident_type=?1,category=?2 WHERE id=?3",
+                    rusqlite::params![canonical_type, canonical_category, incident_id],
+                )
+                .map_err(|_| "Не вдалося оновити тип інциденту.".to_string())?;
+        }
+    }
+    Ok(())
+}
+
 fn initialize_incident_workflow(
     connection: &Connection,
     incident_id: i64,
@@ -923,32 +1144,122 @@ fn initialize_incident_workflow(
         .map_err(|_| "Інцидент не знайдено.".to_string())?;
     let occurred_at = chrono::NaiveDateTime::parse_from_str(&occurred_at, "%Y-%m-%dT%H:%M").ok();
     let template = workflow_template(incident_type);
-    for &(order, title, description, deadline_hours) in template.steps {
-        let due_at = occurred_at
-            .zip(deadline_hours)
-            .map(|(value, hours)| {
-                (value + chrono::Duration::hours(hours))
-                    .format("%Y-%m-%dT%H:%M")
-                    .to_string()
-            })
-            .unwrap_or_default();
-        connection.execute(
-            "INSERT OR IGNORE INTO incident_steps(incident_id,step_order,title,description,is_required,due_at) VALUES(?1,?2,?3,?4,1,?5)",
-            rusqlite::params![incident_id, order, title, description, due_at],
-        ).map_err(|_| "Не вдалося створити алгоритм інциденту.".to_string())?;
-    }
-    for document_type in template.documents {
+    let desired_steps = template
+        .steps
+        .iter()
+        .map(|&(order, title, description, deadline_hours)| {
+            let due_at = occurred_at
+                .zip(deadline_hours)
+                .map(|(value, hours)| {
+                    (value + chrono::Duration::hours(hours))
+                        .format("%Y-%m-%dT%H:%M")
+                        .to_string()
+                })
+                .unwrap_or_default();
+            (order, title, description, due_at)
+        })
+        .collect::<Vec<_>>();
+    let existing_steps = connection
+        .prepare("SELECT step_order,title,description,due_at,status,completed_at,comment FROM incident_steps WHERE incident_id=?1 ORDER BY step_order,id")
+        .and_then(|mut statement| {
+            statement.query_map([incident_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                ))
+            })?.collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(|_| "Не вдалося прочитати поточний алгоритм інциденту.".to_string())?;
+    let steps_match = existing_steps.len() == desired_steps.len()
+        && existing_steps
+            .iter()
+            .zip(&desired_steps)
+            .all(|(current, desired)| {
+                current.0 == desired.0
+                    && current.1 == desired.1
+                    && current.2 == desired.2
+                    && current.3 == desired.3
+            });
+    let steps_are_pristine = existing_steps.iter().all(|step| {
+        step.4 == "Не розпочато" && step.5.trim().is_empty() && step.6.trim().is_empty()
+    });
+    let had_steps = !existing_steps.is_empty();
+    let mut workflow_replaced = false;
+    if existing_steps.is_empty() || (!steps_match && steps_are_pristine) {
         connection
             .execute(
-                "INSERT OR IGNORE INTO incident_documents(incident_id,document_type) VALUES(?1,?2)",
-                rusqlite::params![incident_id, document_type],
+                "DELETE FROM incident_steps WHERE incident_id=?1",
+                [incident_id],
             )
-            .map_err(|_| "Не вдалося створити перелік документів інциденту.".to_string())?;
+            .map_err(|_| "Не вдалося оновити алгоритм інциденту.".to_string())?;
+        for (order, title, description, due_at) in &desired_steps {
+            connection.execute(
+                "INSERT INTO incident_steps(incident_id,step_order,title,description,is_required,due_at) VALUES(?1,?2,?3,?4,1,?5)",
+                rusqlite::params![incident_id, order, title, description, due_at],
+            ).map_err(|_| "Не вдалося створити алгоритм інциденту.".to_string())?;
+        }
+        workflow_replaced = had_steps && !steps_match;
+    }
+
+    let existing_documents = connection
+        .prepare("SELECT document_type,requirement,action_kind,status FROM incident_documents WHERE incident_id=?1 ORDER BY id")
+        .and_then(|mut statement| {
+            statement.query_map([incident_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?))
+            })?.collect::<Result<Vec<_>, _>>()
+        })
+        .map_err(|_| "Не вдалося прочитати поточний перелік документів інциденту.".to_string())?;
+    let documents_match = existing_documents.len() == template.documents.len()
+        && existing_documents
+            .iter()
+            .zip(template.documents)
+            .all(|(current, desired)| {
+                current.0 == desired.0 && current.1 == desired.1 && current.2 == desired.2
+            });
+    let documents_are_pristine = existing_documents
+        .iter()
+        .all(|document| document.3 == "Не створено");
+    let had_documents = !existing_documents.is_empty();
+    if existing_documents.is_empty() || (!documents_match && documents_are_pristine) {
+        connection
+            .execute(
+                "DELETE FROM incident_documents WHERE incident_id=?1",
+                [incident_id],
+            )
+            .map_err(|_| "Не вдалося оновити перелік документів інциденту.".to_string())?;
+        for &(document_type, requirement, action_kind) in template.documents {
+            connection.execute(
+                "INSERT INTO incident_documents(incident_id,document_type,requirement,action_kind) VALUES(?1,?2,?3,?4)",
+                rusqlite::params![incident_id, document_type, requirement, action_kind],
+            ).map_err(|_| "Не вдалося створити перелік документів інциденту.".to_string())?;
+        }
+        workflow_replaced |= had_documents && !documents_match;
+    } else if !documents_match {
+        for &(document_type, requirement, action_kind) in template.documents {
+            let updated = connection.execute(
+                "UPDATE incident_documents SET requirement=?1,action_kind=?2 WHERE incident_id=?3 AND document_type=?4",
+                rusqlite::params![requirement, action_kind, incident_id, document_type],
+            ).map_err(|_| "Не вдалося уточнити перелік документів інциденту.".to_string())?;
+            if updated == 0 {
+                connection.execute(
+                    "INSERT INTO incident_documents(incident_id,document_type,requirement,action_kind) VALUES(?1,?2,?3,?4)",
+                    rusqlite::params![incident_id, document_type, requirement, action_kind],
+                ).map_err(|_| "Не вдалося доповнити перелік документів інциденту.".to_string())?;
+            }
+        }
+    }
+    if workflow_replaced {
+        connection.execute(
+            "INSERT INTO incident_history(incident_id,action,details) VALUES(?1,'Оновлено алгоритм і документи','Перелік синхронізовано з погодженою таблицею')",
+            [incident_id],
+        ).map_err(|_| "Не вдалося записати оновлення алгоритму в історію.".to_string())?;
     }
     Ok(())
 }
 
 pub(crate) fn initialize_all_incident_workflows(connection: &Connection) -> Result<(), String> {
+    normalize_incident_types(connection)?;
     let incidents = connection
         .prepare("SELECT id,incident_type FROM incidents ORDER BY id")
         .and_then(|mut statement| {
@@ -1359,7 +1670,7 @@ mod incident_tests {
     }
 
     #[test]
-    fn sets_uav_loss_document_deadlines_from_the_incident_time() {
+    fn sets_uav_loss_step_deadlines_from_the_incident_time() {
         let connection = Connection::open_in_memory().unwrap();
         crate::database::initialise(&connection).unwrap();
         connection
@@ -1384,41 +1695,52 @@ mod incident_tests {
         assert_eq!(
             deadlines,
             vec![
-                (2, "2026-09-28T13:15".into()),
+                (1, "2026-09-28T10:15".into()),
+                (2, "2026-09-28T11:15".into()),
                 (3, "2026-09-29T10:15".into()),
-                (4, "2026-10-01T10:15".into()),
+                (5, "2026-09-30T10:15".into()),
+                (6, "2026-10-01T10:15".into()),
             ]
         );
     }
 
     #[test]
     fn every_agreed_incident_type_has_an_initial_algorithm_and_documents() {
-        for incident_type in [
-            "Втрата БпЛА",
-            "Втрата майна",
-            "Втрата військового квитка/посвідчення УБД",
-            "Знищення машини",
-            "Пошкодження машини",
-            "ДТП",
-            "Обстріл",
-            "Знищення позиції",
-            "Поранення",
-            "Загибель",
-            "Травма",
-            "СЗЧ",
-            "Алкогольне/наркотичне сп’яніння",
-            "Самогубство",
+        for (incident_type, step_count, document_count) in [
+            ("Втрата БпЛА", 8, 4),
+            ("Втрата майна", 6, 4),
+            ("Втрата військового квитка/посвідчення УБД", 7, 5),
+            ("Знищення машини", 7, 2),
+            ("Пошкодження машини", 7, 3),
+            ("ДТП", 7, 5),
+            ("Обстріл", 4, 1),
+            ("Знищення позиції", 6, 2),
+            ("Поранення", 7, 4),
+            ("Загибель", 7, 3),
+            ("Травма", 7, 5),
+            ("СЗЧ", 11, 6),
+            ("Алкогольне/наркотичне сп’яніння", 7, 3),
+            ("Самогубство", 5, 6),
+            ("Інший інцидент", 3, 2),
         ] {
             let template = workflow_template(incident_type);
-            assert!(
-                !template.steps.is_empty(),
-                "empty steps for {incident_type}"
+            assert_eq!(
+                template.steps.len(),
+                step_count,
+                "wrong step count for {incident_type}"
             );
-            assert!(
-                !template.documents.is_empty(),
-                "empty documents for {incident_type}"
+            assert_eq!(
+                template.documents.len(),
+                document_count,
+                "wrong document count for {incident_type}"
             );
         }
+        assert_eq!(
+            UAV_LOSS_DOCUMENTS[0],
+            ("Позачергове повідомлення", "Так", "copy")
+        );
+        assert_eq!(SHELLING_DOCUMENTS[0].1, "Ні");
+        assert_eq!(POSITION_LOSS_DOCUMENTS[1].1, "Уточнити");
     }
 
     #[test]
@@ -1459,8 +1781,73 @@ mod incident_tests {
                 |row| row.get::<_, i64>(0),
             )
             .unwrap();
-        assert_eq!(first_step, "Зафіксувати втрату майна");
-        assert_eq!(documents, 3);
+        assert_eq!(first_step, "Доповідь командиру");
+        assert_eq!(documents, 4);
+    }
+
+    #[test]
+    fn normalizes_legacy_incident_types_and_keeps_the_previous_name_in_history() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE incidents (
+                    id INTEGER PRIMARY KEY,
+                    category TEXT NOT NULL DEFAULT 'Майно і транспорт',
+                    incident_type TEXT NOT NULL,
+                    occurred_at TEXT NOT NULL DEFAULT '',
+                    crew_id INTEGER,
+                    equipment_id INTEGER,
+                    position_name TEXT NOT NULL DEFAULT '',
+                    reconnaissance_area TEXT NOT NULL DEFAULT '',
+                    crew_snapshot TEXT NOT NULL DEFAULT '',
+                    description TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                 );
+                 INSERT INTO incidents(id,incident_type,occurred_at) VALUES
+                   (31,'Пошкодження автомобіля','2026-09-01T10:00'),
+                   (32,'Несправність генератора','2026-09-02T10:00'),
+                   (33,'Алкогольне / наркотичне сп’яніння','2026-09-03T10:00'),
+                   (34,'Поранення','2026-09-04T10:00');",
+            )
+            .unwrap();
+
+        crate::database::initialise(&connection).unwrap();
+
+        let normalized = connection
+            .prepare("SELECT id,category,incident_type FROM incidents ORDER BY id")
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            normalized,
+            vec![
+                (31, "Транспорт".into(), "Пошкодження машини".into()),
+                (32, "Інше".into(), "Інший інцидент".into()),
+                (
+                    33,
+                    "Особовий склад".into(),
+                    "Алкогольне/наркотичне сп’яніння".into()
+                ),
+                (34, "Особовий склад".into(), "Поранення".into()),
+            ]
+        );
+        let history = connection
+            .query_row(
+                "SELECT details FROM incident_history WHERE incident_id=32 AND action='Уточнено тип інциденту'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
+        assert!(history.contains("Несправність генератора"));
+        assert!(history.contains("Інший інцидент"));
     }
 
     #[test]
@@ -1648,7 +2035,7 @@ mod incident_tests {
                     |row| row.get::<_, i64>(0)
                 )
                 .unwrap(),
-            6
+            8
         );
         let deadlines = connection
             .prepare("SELECT step_order,due_at FROM incident_steps WHERE incident_id=9 AND due_at<>'' ORDER BY step_order")
@@ -1662,9 +2049,11 @@ mod incident_tests {
         assert_eq!(
             deadlines,
             vec![
-                (2, "2026-09-12T17:45".into()),
+                (1, "2026-09-12T14:45".into()),
+                (2, "2026-09-12T15:45".into()),
                 (3, "2026-09-13T14:45".into()),
-                (4, "2026-09-15T14:45".into()),
+                (5, "2026-09-14T14:45".into()),
+                (6, "2026-09-15T14:45".into()),
             ]
         );
         assert_eq!(
@@ -1675,7 +2064,7 @@ mod incident_tests {
                     |row| row.get::<_, i64>(0)
                 )
                 .unwrap(),
-            3
+            4
         );
         assert_eq!(
             connection
@@ -1686,6 +2075,77 @@ mod incident_tests {
                 )
                 .unwrap(),
             1
+        );
+    }
+
+    #[test]
+    fn replaces_the_old_pristine_uav_workflow_with_the_agreed_table() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO incidents(id,incident_type,occurred_at) VALUES(21,'Втрата БпЛА','2026-09-28T10:15')",
+                [],
+            )
+            .unwrap();
+        for (order, title) in [
+            (1, "Негайна доповідь черговому/командиру"),
+            (2, "Першочергове донесення"),
+            (3, "Позатермінове донесення"),
+            (4, "Рапорт на втрату"),
+            (5, "Передача матеріалів для списання"),
+            (6, "Закриття інциденту"),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO incident_steps(incident_id,step_order,title) VALUES(21,?1,?2)",
+                    rusqlite::params![order, title],
+                )
+                .unwrap();
+        }
+        for title in [
+            "Першочергове донесення",
+            "Позатермінове донесення",
+            "Рапорт на втрату",
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO incident_documents(incident_id,document_type) VALUES(21,?1)",
+                    [title],
+                )
+                .unwrap();
+        }
+
+        initialize_all_incident_workflows(&connection).unwrap();
+
+        let step_titles = connection
+            .prepare("SELECT title FROM incident_steps WHERE incident_id=21 ORDER BY step_order")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(step_titles.len(), 8);
+        assert_eq!(step_titles[0], "Доповідь командиру та черговому");
+        assert_eq!(
+            step_titles[7],
+            "Списання борта і виключення його зі списків обліку підрозділу"
+        );
+        let documents = connection
+            .prepare("SELECT document_type,requirement,action_kind FROM incident_documents WHERE incident_id=21 ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(documents.len(), 4);
+        assert_eq!(
+            documents[0],
+            (
+                "Позачергове повідомлення".into(),
+                "Так".into(),
+                "copy".into()
+            )
         );
     }
 }

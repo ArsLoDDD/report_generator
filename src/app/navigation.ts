@@ -1,4 +1,4 @@
-import { AlertTriangle, BookOpenText, FileCheck2, FileSearch, FileText, Folder, Home, MapPinned, Network, PackageOpen, PlaneTakeoff, Users, UsersRound, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Banknote, BookOpenText, FileCheck2, FileSearch, FileText, Folder, Home, MapPinned, Network, PackageOpen, PlaneTakeoff, Users, UsersRound, type LucideIcon } from "lucide-react";
 import type { Screen } from "../shared/types/domain";
 
 export type NavigationItem = readonly [Screen, string, LucideIcon];
@@ -9,7 +9,7 @@ const simpleNavigationGroups: NavigationGroup[] = [documentsNavigationGroup, { l
 
 const advancedNavigationGroups: NavigationGroup[] = [
   documentsNavigationGroup,
-  { label: "Облік підрозділу", items: [["people", "Особовий склад", Users], ["staffing-bcs", "Штат та БЧС", Network], ["assets", "Служби", PackageOpen], ["incidents", "Інциденти", AlertTriangle], ["summary-report", "Підсумкове донесення", FileCheck2]] },
+  { label: "Облік підрозділу", items: [["people", "Особовий склад", Users], ["staffing-bcs", "Штат та БЧС", Network], ["payments", "Виплати", Banknote], ["assets", "Служби", PackageOpen], ["incidents", "Інциденти", AlertTriangle], ["summary-report", "Підсумкове донесення", FileCheck2]] },
   { label: "Бойова робота", items: [["flight-planning", "План польотів", PlaneTakeoff], ["flight-journal", "Журнал польотів", BookOpenText], ["crews", "Екіпажі", UsersRound], ["positions", "Позиції", MapPinned]] },
 ];
 

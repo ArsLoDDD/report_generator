@@ -358,8 +358,8 @@ describe("Журнал інцидентів", () => {
         step(4, 4, "Рапорт на втрату", "2026-10-01T10:00"),
       ],
       documents: [
-        { id: 1, documentType: "Першочергове донесення", status: "Не створено", updatedAt: "2026-09-28 10:00:00" },
-        { id: 2, documentType: "Позатермінове донесення", status: "Чернетка", updatedAt: "2026-09-28 11:00:00" },
+        { id: 1, documentType: "Позачергове повідомлення", requirement: "Так", actionKind: "copy" as const, status: "Не створено", updatedAt: "2026-09-28 10:00:00" },
+        { id: 2, documentType: "Позатермінове", requirement: "Ні", actionKind: "document" as const, status: "Чернетка", updatedAt: "2026-09-28 11:00:00" },
       ],
     };
     invoke.mockImplementation((command: string) => command === "list_incidents" ? Promise.resolve([item]) : command === "list_crews" || command === "list_equipment" || command === "list_flight_journal_entries" ? Promise.resolve([]) : Promise.resolve());
@@ -375,7 +375,10 @@ describe("Журнал інцидентів", () => {
     fireEvent.click(screen.getByRole("button", { name: "Документи" }));
     expect(screen.getByRole("heading", { name: "Документи" })).toBeInTheDocument();
     expect(screen.getByText("із 2 сформовано")).toBeInTheDocument();
-    for (const button of screen.getAllByRole("button", { name: "Створити документ" })) expect(button).toBeDisabled();
+    expect(screen.getByText("Обов’язковий")).toBeInTheDocument();
+    expect(screen.getByText("Необов’язковий")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Скопіювати текст" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Створити документ" })).toBeDisabled();
   });
 
   it("не показує статус «у розробці» для порожніх алгоритму та документів", async () => {

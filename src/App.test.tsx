@@ -71,7 +71,7 @@ describe("navigation and report generation", () => {
 
     const releaseDialog = await screen.findByRole("dialog", { name: "Що нового" });
     expect(within(releaseDialog).getByText(`Шаблонізатор оновлено до версії ${currentRelease.version}`)).toBeInTheDocument();
-    expect(within(releaseDialog).getByText(/Сторінку налаштувань перебудовано/u)).toBeInTheDocument();
+    expect(within(releaseDialog).getByText(currentRelease.notes[0])).toBeInTheDocument();
     expect(document.querySelector(".product-logo small")).toHaveTextContent(`Версія ${currentRelease.version}`);
 
     fireEvent.click(within(releaseDialog).getByRole("button", { name: "Зрозуміло" }));
@@ -99,6 +99,9 @@ describe("navigation and report generation", () => {
     fireEvent.click(personnelButton);
     expect(screen.queryByRole("heading", { name: "Особовий склад" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Додати військовослужбовця" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Виплати" }));
+    expect(screen.getByRole("heading", { name: "Виплати" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Військовослужбовці" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Екіпажі" }));
     expect(screen.getByRole("heading", { name: "Екіпажі" })).toBeInTheDocument();
     const assetsButton = screen.getByRole("button", { name: "Служби" });

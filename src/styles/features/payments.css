@@ -1,0 +1,119 @@
+.payments-page .page-frame__content {
+	min-height: 0;
+	overflow: hidden;
+}
+
+.payments-table {
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.payments-table__scroll {
+	position: relative;
+	height: 100%;
+	min-height: 0;
+	overflow: auto;
+	overscroll-behavior: contain;
+}
+
+.payments-table table {
+	width: max-content;
+	min-width: 100%;
+	border-collapse: separate;
+	border-spacing: 0;
+}
+
+.payments-table thead th {
+	position: sticky;
+	top: 0;
+	z-index: 3;
+	height: 48px;
+	min-width: 48px;
+	padding: 0 8px;
+	border-right: 1px solid var(--line);
+	border-bottom: 1px solid var(--line-strong);
+	background: #171a14;
+	text-align: center;
+}
+
+.payments-table thead th:first-child {
+	left: 0;
+	z-index: 5;
+	min-width: 320px;
+	padding-inline: 16px;
+	text-align: left;
+}
+
+.payments-table tbody th {
+	position: sticky;
+	left: 0;
+	z-index: 2;
+	width: 320px;
+	min-width: 320px;
+	max-width: 320px;
+	padding: 11px 16px;
+	border-right: 1px solid var(--line-strong);
+	border-bottom: 1px solid #272b23;
+	background: #141712;
+	text-align: left;
+}
+
+.payments-table tbody th b,
+.payments-table tbody th span {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.payments-table tbody th b {
+	color: var(--text);
+	font-size: 12px;
+}
+
+.payments-table tbody th span {
+	margin-top: 4px;
+	color: var(--muted);
+	font-size: 10px;
+	font-weight: 500;
+}
+
+.payments-table tbody td {
+	width: 48px;
+	min-width: 48px;
+	height: 52px;
+	padding: 0;
+	border-right: 1px solid #272b23;
+	border-bottom: 1px solid #272b23;
+	background: rgba(17, 20, 15, 0.68);
+}
+
+.payments-table tbody tr:hover td,
+.payments-table tbody tr:hover th {
+	background: #1b1f18;
+}
+
+.payments-table thead th.is-column-highlighted {
+	background: #292f20;
+	color: var(--accent-text);
+}
+
+.payments-table tbody td.is-column-highlighted {
+	background: rgba(190, 211, 114, 0.1);
+}
+
+.payments-table tbody tr:hover td.is-column-highlighted {
+	background: rgba(190, 211, 114, 0.19);
+}
+
+.payments-table__state {
+	position: sticky;
+	left: 0;
+	width: min(520px, calc(100vw - 320px));
+	padding: 28px;
+	color: var(--muted);
+	text-align: center;
+}
+
+.payments-table__state.is-error { color: var(--danger); }

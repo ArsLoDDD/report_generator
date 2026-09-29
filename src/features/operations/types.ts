@@ -174,7 +174,7 @@ export type WorkshopIngredient = { equipmentId: number; equipmentName: string; q
 export type WorkshopProduct = { id: number; name: string; quantity: number; measurementUnit: string; ingredients: WorkshopIngredient[]; notes: string; createdAt: string };
 export type WorkshopDraft = Omit<WorkshopProduct, "id" | "createdAt"> & { accountedAt: string };
 export type IncidentStep = { id: number; order: number; title: string; description: string; required: boolean; status: string; dueAt: string; completedAt: string; comment: string; updatedAt: string };
-export type IncidentDocument = { id: number; documentType: string; status: string; updatedAt: string };
+export type IncidentDocument = { id: number; documentType: string; requirement?: string; actionKind?: "document" | "copy"; status: string; updatedAt: string };
 export type IncidentHistoryEvent = { id: number; action: string; details: string; createdAt: string };
 export type Incident = {
   id: number;

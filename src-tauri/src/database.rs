@@ -1174,6 +1174,8 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             incident_id INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
             document_type TEXT NOT NULL,
+            requirement TEXT NOT NULL DEFAULT '',
+            action_kind TEXT NOT NULL DEFAULT 'document',
             status TEXT NOT NULL DEFAULT 'Не створено',
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(incident_id,document_type)
@@ -1190,34 +1192,14 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         SELECT i.id,'Інцидент створено','Імпортований або раніше створений запис',COALESCE(i.created_at,CURRENT_TIMESTAMP)
         FROM incidents i
         WHERE NOT EXISTS(SELECT 1 FROM incident_history h WHERE h.incident_id=i.id);
-        INSERT OR IGNORE INTO incident_steps(incident_id,step_order,title,description,is_required)
-        SELECT id,1,'Негайна доповідь черговому/командиру','Зафіксувати факт і час первинної доповіді',1 FROM incidents WHERE incident_type='Втрата БпЛА';
-        INSERT OR IGNORE INTO incident_steps(incident_id,step_order,title,description,is_required)
-        SELECT id,2,'Першочергове донесення','Підготувати та подати першочергове донесення',1 FROM incidents WHERE incident_type='Втрата БпЛА';
-        INSERT OR IGNORE INTO incident_steps(incident_id,step_order,title,description,is_required)
-        SELECT id,3,'Позатермінове донесення','Підготувати та подати позатермінове донесення',1 FROM incidents WHERE incident_type='Втрата БпЛА';
-        INSERT OR IGNORE INTO incident_steps(incident_id,step_order,title,description,is_required)
-        SELECT id,4,'Рапорт на втрату','Підготувати рапорт на втрату',1 FROM incidents WHERE incident_type='Втрата БпЛА';
-        INSERT OR IGNORE INTO incident_steps(incident_id,step_order,title,description,is_required)
-        SELECT id,5,'Передача матеріалів для списання','Передати майно та матеріали у процес списання',1 FROM incidents WHERE incident_type='Втрата БпЛА';
-        INSERT OR IGNORE INTO incident_steps(incident_id,step_order,title,description,is_required)
-        SELECT id,6,'Закриття інциденту','Перевірити виконання обов’язкових дій',1 FROM incidents WHERE incident_type='Втрата БпЛА';
-        UPDATE incident_steps
-        SET due_at=COALESCE((SELECT strftime('%Y-%m-%dT%H:%M',i.occurred_at,'+3 hours') FROM incidents i WHERE i.id=incident_steps.incident_id),'')
-        WHERE title='Першочергове донесення' AND trim(due_at)='';
-        UPDATE incident_steps
-        SET due_at=COALESCE((SELECT strftime('%Y-%m-%dT%H:%M',i.occurred_at,'+24 hours') FROM incidents i WHERE i.id=incident_steps.incident_id),'')
-        WHERE title='Позатермінове донесення' AND trim(due_at)='';
-        UPDATE incident_steps
-        SET due_at=COALESCE((SELECT strftime('%Y-%m-%dT%H:%M',i.occurred_at,'+3 days') FROM incidents i WHERE i.id=incident_steps.incident_id),'')
-        WHERE title='Рапорт на втрату' AND trim(due_at)='';
-        INSERT OR IGNORE INTO incident_documents(incident_id,document_type)
-        SELECT id,'Першочергове донесення' FROM incidents WHERE incident_type='Втрата БпЛА';
-        INSERT OR IGNORE INTO incident_documents(incident_id,document_type)
-        SELECT id,'Позатермінове донесення' FROM incidents WHERE incident_type='Втрата БпЛА';
-        INSERT OR IGNORE INTO incident_documents(incident_id,document_type)
-        SELECT id,'Рапорт на втрату' FROM incidents WHERE incident_type='Втрата БпЛА';"
+        "
     ).map_err(|_| "Не вдалося підготувати супровід інцидентів.".to_string())?;
+    for sql in [
+        "ALTER TABLE incident_documents ADD COLUMN requirement TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE incident_documents ADD COLUMN action_kind TEXT NOT NULL DEFAULT 'document'",
+    ] {
+        connection.execute(sql, []).ok();
+    }
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS personnel_staff_assignments (
             personnel_id INTEGER PRIMARY KEY REFERENCES personnel(id) ON DELETE CASCADE,

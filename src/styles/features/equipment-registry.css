@@ -237,6 +237,10 @@
 .incident-card__document-list article { display: grid; grid-template-columns: 24px minmax(0, 1fr) 164px 164px; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(4,15,21,.16); }
 .incident-card__document-list article > div { display: grid; gap: 3px; min-width: 0; }
 .incident-card__document-list article > div > small { color: var(--muted); font-size: 10px; }
+.incident-card__document-list .incident-card__document-requirement { width: max-content; margin: 1px 0; padding: 2px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 9px; font-weight: 700; line-height: 1.25; }
+.incident-card__document-requirement.is-required { border-color: rgba(188,217,107,.34); background: rgba(188,217,107,.08); color: var(--accent-text); }
+.incident-card__document-requirement.is-optional { color: var(--muted); }
+.incident-card__document-requirement.is-clarify { border-color: rgba(227,198,108,.32); background: rgba(227,198,108,.08); color: #e3c66c; }
 .incident-card__document-list article .shared-select { width: 164px; }
 .incident-card__document-list article select { height: 36px; padding-inline: 9px 28px; font-size: 11px; }
 .incident-card__create-document { width: 164px; min-height: 36px; padding-inline: 9px; font-size: 10px; }

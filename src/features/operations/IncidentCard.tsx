@@ -1,4 +1,4 @@
-import { AlertTriangle, CalendarDays, Check, Clock3, FilePlus2, FileText, History, ListChecks, PackageOpen, UsersRound } from "lucide-react";
+import { AlertTriangle, CalendarDays, Check, Clock3, Copy, FilePlus2, FileText, History, ListChecks, PackageOpen, UsersRound } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Modal } from "../../shared/ui/Modal";
 import { SectionTabs } from "../../shared/ui/SectionTabs";
@@ -24,6 +24,11 @@ type Props = {
 const incidentStatuses = ["Чернетка", "Зареєстровано", "Першочергові дії", "Опрацьовується", "Очікує", "Завершено", "Скасовано"];
 const stepStatuses = ["Не розпочато", "В роботі", "Очікує", "Виконано", "Пропущено"];
 const documentStatuses = ["Не створено", "Чернетка", "Сформовано", "Погоджено", "Зареєстровано", "Повернуто на доопрацювання"];
+const documentRequirement: Record<string, { label: string; tone: string }> = {
+  "Так": { label: "Обов’язковий", tone: "required" },
+  "Ні": { label: "Необов’язковий", tone: "optional" },
+  "Уточнити": { label: "Потребує уточнення", tone: "clarify" },
+};
 const fieldLabels: Record<string, string> = {
   ...incidentFieldLabels,
   sourceFlight: "Запис журналу польотів", battleOrder: "Бойове розпорядження", workStrip: "Смуга роботи", mission: "Завдання польоту", uavName: "БпЛА", uavType: "Тип БпЛА", uavSerialNumber: "Серійний номер БпЛА", payloadType: "БК / додаткове обладнання", payloadSerialNumber: "Серійний номер БК", damageKind: "Вид наслідку", explanations: "Пояснення осіб",
@@ -190,7 +195,7 @@ export function IncidentCard({ incident, equipment, crews, tab, onTabChange, onC
       </> : <div className="incident-card__empty"><ListChecks /><b>Алгоритм не налаштовано</b><p>Для цього типу ще немає контрольних кроків.</p></div>}</>}
       {tab === "documents" && <>{documents.length ? <>
         <section className="incident-card__workflow-head"><div><h3>Документи</h3><p>Кожен документ створюватиметься з даних інциденту після додавання погодженого шаблону.</p></div><div className="incident-card__document-count"><b>{readyDocuments}</b><span>із {documents.length} сформовано</span></div></section>
-        <div className="incident-card__document-list">{documents.map((document) => <article key={document.id}><FileText /><div><b>{document.documentType}</b><small>{document.updatedAt ? `Оновлено ${compactDateTime(document.updatedAt)}` : "Ще не створено"}</small></div>{onDocumentChange ? <Select ariaLabel={`Стан документа ${document.documentType}`} value={document.status} onChange={(value) => void onDocumentChange(document, value)} options={documentStatuses.map((value) => ({ value, label: value }))} /> : <span className="status-pill">{document.status}</span>}<button type="button" className="button compact incident-card__create-document" disabled title="Шаблон документа ще не додано"><FilePlus2 />Створити документ</button></article>)}</div>
+        <div className="incident-card__document-list">{documents.map((document) => { const requirement = documentRequirement[document.requirement ?? ""] ?? { label: "Обов’язковість не визначена", tone: "unknown" }; const copyAction = document.actionKind === "copy"; return <article key={document.id}><FileText /><div><b>{document.documentType}</b><span className={`incident-card__document-requirement is-${requirement.tone}`}>{requirement.label}</span><small>{document.updatedAt ? `Оновлено ${compactDateTime(document.updatedAt)}` : "Ще не створено"}</small></div>{onDocumentChange ? <Select ariaLabel={`Стан документа ${document.documentType}`} value={document.status} onChange={(value) => void onDocumentChange(document, value)} options={documentStatuses.map((value) => ({ value, label: value }))} /> : <span className="status-pill">{document.status}</span>}<button type="button" className="button compact incident-card__create-document" disabled title={copyAction ? "Текст повідомлення ще не додано" : "Шаблон документа ще не додано"}>{copyAction ? <Copy /> : <FilePlus2 />}{copyAction ? "Скопіювати текст" : "Створити документ"}</button></article>; })}</div>
       </> : <div className="incident-card__empty"><PackageOpen /><b>Документів ще немає</b><p>Для цього типу інциденту ще не додано перелік документів.</p></div>}</>}
       {tab === "history" && <>{history.length ? <div className="incident-card__history">{history.map((event) => <article key={event.id}><span /><div><b>{event.action}</b><p>{event.details}</p><small>{event.createdAt}</small></div></article>)}</div> : <div className="incident-card__empty"><History /><b>Історія порожня</b><p>Старий запис збережено без вигаданих подій.</p></div>}</>}
     </div>
