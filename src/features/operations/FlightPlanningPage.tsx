@@ -38,6 +38,12 @@ const saveFlightPlanSnapshotSerially=(date:string,request:FlightPlanRequest)=>{
   flightPlanSnapshotSaveTail=operation.then(()=>undefined,()=>undefined);
   return operation;
 };
+let flightPlanDraftSaveTail:Promise<void>=Promise.resolve();
+const saveFlightPlanDraftSerially=(date:string,draft:StoredDraft)=>{
+  const operation=flightPlanDraftSaveTail.then(()=>operationsService.saveFlightPlanDraft(date,JSON.stringify(draft)));
+  flightPlanDraftSaveTail=operation.then(()=>undefined,()=>undefined);
+  return operation;
+};
 const isRecord=(value:unknown):value is Record<string,unknown>=>Boolean(value)&&typeof value==="object"&&!Array.isArray(value);
 const hasOwn=(value:object,key:PropertyKey)=>Object.prototype.hasOwnProperty.call(value,key);
 const stringArray=(value:unknown)=>Array.isArray(value)?value.filter((item):item is string=>typeof item==="string"):[];
@@ -84,6 +90,7 @@ const normaliseStoredDraft=(value:unknown):StoredDraft=>{
   const personnelTransitions=Array.isArray(value.personnelTransitions)?value.personnelTransitions.flatMap((item)=>{const transition=normalisePersonnelTransition(item);return transition?[transition]:[];}):undefined;
   return{schemaVersion:typeof value.schemaVersion==="number"?value.schemaVersion:undefined,unitName:typeof value.unitName==="string"?value.unitName:undefined,date:typeof value.date==="string"?value.date:undefined,zoom:typeof value.zoom==="number"?value.zoom:undefined,selected:Array.isArray(value.selected)?numberArray(value.selected):undefined,entries:rawEntries?entries:undefined,rotations:rawRotations?rotations:undefined,personnelTransitions,rolledFromPreviousDate:value.rolledFromPreviousDate===true,pendingSave};
 };
+const storedDraftFromJson=(value:string|null|undefined):StoredDraft|null=>{if(!value)return null;try{const draft=normaliseStoredDraft(JSON.parse(value));return draft.date?draft:null;}catch{return null;}};
 const storedDraft=():StoredDraft=>{try{return normaliseStoredDraft(JSON.parse(localStorage.getItem(FLIGHT_PLAN_STORAGE_KEY)??"{}"));}catch{return {};}};
 const pendingDraftStore=():Record<string,StoredDraft>=>{try{const value=JSON.parse(localStorage.getItem(FLIGHT_PLAN_PENDING_STORAGE_KEY)??"{}");if(!isRecord(value))return{};return Object.fromEntries(Object.entries(value).map(([key,draft])=>[key,normaliseStoredDraft(draft)]));}catch{return{};}};
 const pendingDraftFor=(date:string)=>pendingDraftStore()[isoDate(date)]??null;
@@ -163,6 +170,7 @@ export function FlightPlanningPage(){
   const activeDraftRef=useRef<StoredDraft|null>(null);
   const mountedRef=useRef(true);
   const notifyRef=useRef(notify);
+  const draftSaveFailedRef=useRef(false);
   const [crews,setCrews]=useState<Crew[]>([]);const [positions,setPositions]=useState<Position[]>([]);const [vehicles,setVehicles]=useState<Vehicle[]>([]);const [uavs,setUavs]=useState<Equipment[]>([]);const [ammunition,setAmmunition]=useState<Equipment[]>([]);const [workshopProducts,setWorkshopProducts]=useState<WorkshopProduct[]>([]);
   const [unitName,setUnitName]=useState(initial.unitName??"");const [date,setDate]=useState(initial.date??flightPlanDateForTomorrow);const [zoom,setZoom]=useState(initial.zoom??75);
   const [entries,setEntries]=useState<Record<number,FlightPlanEntry>>(initial.entries??{});const [selected,setSelected]=useState<number[]>(initial.selected??[]);
@@ -185,15 +193,18 @@ export function FlightPlanningPage(){
     setLoaded(false);setLoadedDate(null);setLoadFailed(false);setSaveStatus("loading");
     try{
     const planDate=isoDate(requestedDate);
-    const [allCrews,nextPositions,nextVehicles,nextUavs,nextAmmunition,nextWorkshopProducts,settings,storedSnapshot,previousStoredSnapshot]=await Promise.all([operationsService.listCrews(),Promise.resolve(operationsService.listPositions?.()??[]),vehiclesService.list(),operationsService.listEquipment("uav"),operationsService.listEquipment("weapon_ammo"),operationsService.listWorkshopProducts(),settingsService.get(),operationsService.getFlightPlanSnapshot(planDate),operationsService.getFlightPlanSnapshot(shiftIsoDate(planDate,-1))]);
+    const [allCrews,nextPositions,nextVehicles,nextUavs,nextAmmunition,nextWorkshopProducts,settings,storedSnapshot,previousStoredSnapshot,storedDatabaseDraft]=await Promise.all([operationsService.listCrews(),Promise.resolve(operationsService.listPositions?.()??[]),vehiclesService.list(),operationsService.listEquipment("uav"),operationsService.listEquipment("weapon_ammo"),operationsService.listWorkshopProducts(),settingsService.get(),operationsService.getFlightPlanSnapshot(planDate),operationsService.getFlightPlanSnapshot(shiftIsoDate(planDate,-1)),operationsService.getFlightPlanDraft(planDate)]);
     if(requestId!==loadRequestRef.current)return;
     const snapshot=parseSnapshot(storedSnapshot);
     const recoveredDraft=pendingDraftFor(requestedDate);
+    const databaseDraft=storedDraftFromJson(storedDatabaseDraft);
     const pendingInitial=initialDraftRef.current&&dateNumber(initialDraftRef.current.date??"")===dateNumber(requestedDate)?initialDraftRef.current:null;
-    const newestPending=[recoveredDraft,pendingInitial].filter((draft):draft is StoredDraft=>Boolean(draft?.pendingSave)&&isoDate(draft?.date??"")===planDate&&draft?.pendingSave?.date===planDate).sort((left,right)=>(right.pendingSave?.updatedAt??0)-(left.pendingSave?.updatedAt??0))[0]??null;
+    const newestPending=[recoveredDraft,pendingInitial,databaseDraft].filter((draft):draft is StoredDraft=>Boolean(draft?.pendingSave)&&isoDate(draft?.date??"")===planDate&&draft?.pendingSave?.date===planDate).sort((left,right)=>(right.pendingSave?.updatedAt??0)-(left.pendingSave?.updatedAt??0))[0]??null;
     const initialHasPlan=Boolean(pendingInitial&&(Object.keys(pendingInitial.entries??{}).length||Object.keys(pendingInitial.rotations??{}).length||(pendingInitial.personnelTransitions?.length??0)>0||pendingInitial.selected!==undefined));
     const legacyDraft=pendingInitial&&initialHasPlan&&(!snapshot&&(pendingInitial.schemaVersion!==3||pendingInitial.rolledFromPreviousDate))?pendingInitial:null;
-    const localDraft=newestPending??legacyDraft;
+    const persistentDraft=databaseDraft&&isoDate(databaseDraft.date??"")===planDate?databaseDraft:null;
+    const upgradeDraft=pendingInitial&&initialHasPlan&&!persistentDraft&&isoDate(pendingInitial.date??"")===planDate&&(!pendingInitial.rolledFromPreviousDate||!snapshot)?pendingInitial:null;
+    const localDraft=newestPending??persistentDraft??upgradeDraft??legacyDraft;
     if(pendingInitial)initialDraftRef.current=null;
     const localCrewIds=Object.keys(localDraft?.entries??{}).map(Number).filter(Number.isFinite);
     const savedCrewIds=new Set([...(snapshot?.entries.map((entry)=>entry.crewId)??[]),...localCrewIds]);
@@ -252,7 +263,7 @@ export function FlightPlanningPage(){
     if(dirtyRef.current)latestSavePayloadRef.current={date,dateIso:isoDate(date),revision:editRevisionRef.current,request:{unitName,entries:selectedEntries,personnelTransitions:selectedPersonnelTransitions},draft:activeDraft,valid:saveValid};
     else if(latestSavePayloadRef.current?.date===date)latestSavePayloadRef.current=null;
   }
-  useEffect(()=>{if(!loaded||loadedDate!==date||loadFailed)return;const draft=activeDraftRef.current;if(!draft)return;localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY,JSON.stringify(draft));if(draft.pendingSave)persistPendingDraft(draft);},[date,entries,loaded,loadedDate,loadFailed,personnelTransitions,rolledSeedDate,rotations,saveStatus,selected,unitName,zoom]);
+  useEffect(()=>{if(!loaded||loadedDate!==date||loadFailed)return;const draft=activeDraftRef.current;if(!draft)return;localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY,JSON.stringify(draft));if(draft.pendingSave)persistPendingDraft(draft);void saveFlightPlanDraftSerially(isoDate(date),draft).then(()=>{draftSaveFailedRef.current=false;}).catch(()=>{if(draftSaveFailedRef.current)return;draftSaveFailedRef.current=true;notifyRef.current("Не вдалося зберегти повну чернетку плану польотів у базі даних.","error");});},[date,entries,loaded,loadedDate,loadFailed,personnelTransitions,rolledSeedDate,rotations,saveStatus,selected,unitName,zoom]);
   const drainSaveQueue=useCallback(():Promise<boolean>=>{
     if(saveDrainPromiseRef.current)return saveDrainPromiseRef.current;
     const run=async()=>{

@@ -633,7 +633,7 @@ fn filter_database_snapshot(
             )?;
         }
         if !sections.contains("flight_plans") {
-            execute_archive_sql(&connection, "UPDATE flight_journal_entries SET snapshot_id=NULL; DELETE FROM flight_plan_snapshot_entries; DELETE FROM flight_plan_snapshots; DELETE FROM flight_plan_personnel_locations;", "плани польотів")?;
+            execute_archive_sql(&connection, "UPDATE flight_journal_entries SET snapshot_id=NULL; DELETE FROM flight_plan_snapshot_entries; DELETE FROM flight_plan_snapshots; DELETE FROM flight_plan_drafts; DELETE FROM flight_plan_personnel_locations;", "плани польотів")?;
         }
         if !sections.contains("flight_journal") {
             execute_archive_sql(
@@ -1760,6 +1760,15 @@ fn merge_selected_database_sections(
                     "flight_plan_snapshots",
                 ],
             )?;
+            if import_table_columns(&connection, "imported", "flight_plan_drafts")?.is_empty() {
+                connection
+                    .execute("DELETE FROM flight_plan_drafts", [])
+                    .map_err(|_| {
+                        "Не вдалося очистити застарілі чернетки планів польотів.".to_string()
+                    })?;
+            } else {
+                replace_import_tables(&connection, &["flight_plan_drafts"])?;
+            }
         }
         if sections.contains("flight_journal") {
             replace_import_tables(&connection, &["flight_journal_entries"])?;

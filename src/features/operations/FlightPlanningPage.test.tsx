@@ -7,16 +7,50 @@ import { FlightPlanningPage, flightPlanDateForTomorrow, flightPlanDateRange, fli
 
 const { save } = vi.hoisted(() => ({ save: vi.fn().mockResolvedValue("/tmp/РБПАК_10.09.2026_План_польотів.xlsx") }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save }));
-vi.mock("./services/operationsService", () => ({ operationsService: { listCrews: vi.fn(), listPositions: vi.fn().mockResolvedValue([]), listEquipment: vi.fn(), listWorkshopProducts: vi.fn().mockResolvedValue([]), exportFlightPlan: vi.fn(), syncFlightPlanLocations: vi.fn().mockResolvedValue(undefined), saveFlightPlanSnapshot: vi.fn().mockResolvedValue(undefined), getFlightPlanSnapshot: vi.fn().mockResolvedValue(null) } }));
+vi.mock("./services/operationsService", () => ({ operationsService: { listCrews: vi.fn(), listPositions: vi.fn().mockResolvedValue([]), listEquipment: vi.fn(), listWorkshopProducts: vi.fn().mockResolvedValue([]), exportFlightPlan: vi.fn(), syncFlightPlanLocations: vi.fn().mockResolvedValue(undefined), saveFlightPlanSnapshot: vi.fn().mockResolvedValue(undefined), getFlightPlanSnapshot: vi.fn().mockResolvedValue(null), saveFlightPlanDraft: vi.fn().mockResolvedValue(undefined), getFlightPlanDraft: vi.fn().mockResolvedValue(null) } }));
 vi.mock("../vehicles/services/vehiclesService", () => ({ vehiclesService: { list: vi.fn().mockResolvedValue([]) } }));
 vi.mock("../settings/services/settingsService", () => ({ settingsService: { get: vi.fn().mockResolvedValue({ unit: { shortName:"РБПАК",fullName:"",kind:"Рота",authorizedStrength:72 } }) } }));
 
 const crew = (callsign: string) => ({ id:1,name:"БАРС",platoon:"1 взвод",positionName:"САПСАН",reconnaissanceArea:"Охтирка",unitType:"Екіпаж",companyName:"РБПАК",battleOrder:"БРО-02",sector:"Схід",officialStrength:1,workingStrength:1,positionId:1,status:"Працюючий",uavName:"MAVIC 3",uavType:"Коптер",functionalDuties:"",currentLocation:"",notes:"",memberCount:1,members:[{personnelId:1,fullName:"ТЕСТОВИЙ Тест Тестович",rank:"капітан",position:"командир екіпажу",callsign}],actualMembers:[{personnelId:1,fullName:"ТЕСТОВИЙ Тест Тестович",rank:"капітан",position:"командир екіпажу",callsign}]});
 
-beforeEach(()=>{vi.clearAllMocks();localStorage.clear();vi.mocked(vehiclesService.list).mockResolvedValue([]);vi.mocked(operationsService.listPositions).mockResolvedValue([]);vi.mocked(operationsService.listEquipment).mockResolvedValue([]);vi.mocked(operationsService.getFlightPlanSnapshot).mockResolvedValue(null);vi.mocked(operationsService.saveFlightPlanSnapshot).mockResolvedValue(undefined);vi.mocked(operationsService.exportFlightPlan).mockResolvedValue();});
+beforeEach(()=>{vi.clearAllMocks();localStorage.clear();vi.mocked(vehiclesService.list).mockResolvedValue([]);vi.mocked(operationsService.listPositions).mockResolvedValue([]);vi.mocked(operationsService.listEquipment).mockResolvedValue([]);vi.mocked(operationsService.getFlightPlanSnapshot).mockResolvedValue(null);vi.mocked(operationsService.getFlightPlanDraft).mockResolvedValue(null);vi.mocked(operationsService.saveFlightPlanSnapshot).mockResolvedValue(undefined);vi.mocked(operationsService.saveFlightPlanDraft).mockResolvedValue(undefined);vi.mocked(operationsService.exportFlightPlan).mockResolvedValue();});
 afterEach(cleanup);
 
 describe("Планування польотів",()=>{
+  it("restores the full plan draft from the database when local storage is empty after an update",async()=>{
+    const planDate=tomorrowForTest();
+    const [day,month,year]=planDate.split(".");
+    const storedEntry={...initialStoredEntryForTest(),crewId:1,routePoints:["МАРШРУТ З БД"],areaPoints:["ЗОНА З БД"],altitudeFrom:"1450",altitudeTo:"1750",startTime:"09:20",endTime:"18:40"};
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanDraft).mockResolvedValue(JSON.stringify({schemaVersion:3,unitName:"РБПАК",date:planDate,selected:[1],entries:{1:storedEntry},rotations:{},personnelTransitions:[]}));
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+
+    await screen.findByText("БАРС",{selector:"b"});
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    expect(screen.getByText("МАРШРУТ З БД")).toBeInTheDocument();
+    expect(screen.getAllByText("ЗОНА З БД").length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue("1450")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("1750")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("09:20")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("18:40")).toBeInTheDocument();
+    await waitFor(()=>expect(operationsService.saveFlightPlanDraft).toHaveBeenCalledWith(`${year}-${month}-${day}`,expect.stringContaining("МАРШРУТ З БД")));
+  });
+
+  it("moves the pre-update local full draft into the database on first start",async()=>{
+    const planDate=tomorrowForTest();
+    const [day,month,year]=planDate.split(".");
+    const localEntry={...initialStoredEntryForTest(),crewId:1,routePoints:["СТАРИЙ ЛОКАЛЬНИЙ МАРШРУТ"],areaPoints:["СТАРА ЛОКАЛЬНА ЗОНА"],altitudeFrom:"1300",altitudeTo:"1600",startTime:"08:10",endTime:"19:25"};
+    localStorage.setItem("flight-plan-draft-v2",JSON.stringify({schemaVersion:3,unitName:"РБПАК",date:planDate,selected:[1],entries:{1:localEntry},rotations:{},personnelTransitions:[]}));
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanSnapshot).mockImplementation(async(planDateValue)=>planDateValue===`${year}-${month}-${day}`?JSON.stringify({unitName:"РБПАК",entries:[{...localEntry,routePoints:["НЕПОВНИЙ ЗНІМОК"],areaPoints:[]}]}):null);
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+
+    expect(await screen.findByText(/СТАРИЙ ЛОКАЛЬНИЙ МАРШРУТ/u)).toBeInTheDocument();
+    await waitFor(()=>expect(operationsService.saveFlightPlanDraft).toHaveBeenCalledWith(`${year}-${month}-${day}`,expect.stringContaining("СТАРИЙ ЛОКАЛЬНИЙ МАРШРУТ")));
+  });
+
   it("forms an export request from the working crew and manual route",async()=>{
     vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
     render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);

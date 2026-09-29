@@ -914,6 +914,8 @@ fn main() {
             flight_plan::export_flight_plan_excel,
             flight_plan::save_flight_plan_snapshot,
             flight_plan::get_flight_plan_snapshot,
+            flight_plan::save_flight_plan_draft,
+            flight_plan::get_flight_plan_draft,
             operations::update_bcs_crew_strength,
             temporary_personnel::list_temporary_personnel,
             temporary_personnel::save_temporary_personnel,

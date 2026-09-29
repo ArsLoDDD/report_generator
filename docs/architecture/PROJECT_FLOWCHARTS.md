@@ -52,7 +52,7 @@ flowchart LR
     config[("settings.json")]
     templateFiles[("DOCX-шаблони")]
     reportFiles[("DOCX / XLSX<br/>результати")]
-    browser[("Локальний UI-стан<br/>вкладки · секції · чернетка плану")]
+    browser[("Локальний UI-стан<br/>вкладки · секції · аварійна копія чернетки")]
   end
 
   start --> shell
@@ -701,7 +701,7 @@ flowchart TB
   subgraph planning["План польотів"]
     dateNav["Попередній день · дата · наступний день<br/>«Сьогодні» · «Завтра»"]
     dateRange{"Дата в межах<br/>−3 місяці … +7 днів?"}
-    loadPlan["Завантажити канонічний знімок<br/>або відновити локальну незбережену чернетку"]
+    loadPlan["Завантажити повну чернетку з БД<br/>або канонічний знімок / локальну аварійну копію"]
     crewSelect["Checkbox екіпажу<br/>додати / прибрати з плану"]
     crewExpand["Розгорнути екіпаж"]
     planFields["Фактичний склад і командир · позиція · авто<br/>БпЛА / БК · маршрут · район · висота · погода · завдання · час"]
@@ -710,7 +710,7 @@ flowchart TB
     rotate["«Провести ротацію»<br/>новий склад і командир"]
     rotateEdit["Редагувати / видалити етап ротації"]
     validatePlan{"Розклад не перетинається,<br/>склад доступний, позивні заповнені?"}
-    autoSave["Автозбереження після зміни<br/>серійна черга · локальний pending fallback"]
+    autoSave["Автозбереження після зміни<br/>повна чернетка в БД · локальний pending fallback"]
     retrySave["«Повторити збереження»"]
     planParams["«Параметри плану польотів»<br/>підрозділ · дата · масштаб"]
     exportPlan["«Експорт плану»"]
@@ -744,6 +744,7 @@ flowchart TB
   assets[("Авто · БпЛА · БК · Цукерня")]
   settings[("Налаштування підрозділу")]
   snapshots[("flight_plan_snapshots")]
+  planDrafts[("flight_plan_drafts<br/>усі поля редактора за датою")]
   transitionEvents[("personnelTransitions<br/>хто вийшов / зайшов і коли")]
   locationSync["Розрахунок На позиції / ЗБЗ / ПБЗ / ОХ<br/>і синхронізація Контролю ОС та БЧС"]
   journalDb[("flight_journal_entries<br/>незмінні snapshot-поля")]
@@ -762,6 +763,7 @@ flowchart TB
   dateRange -->|"ні"| dateNav
   dateRange -->|"так"| loadPlan
   snapshots --> loadPlan
+  planDrafts --> loadPlan
   crews --> loadPlan
   positions --> loadPlan
   assets --> loadPlan
@@ -773,6 +775,7 @@ flowchart TB
   presence --> validatePlan
   rotateEdit --> validatePlan
   validatePlan -->|"ні: показати причину"| planFields
+  planFields --> autoSave ==> planDrafts
   validatePlan -->|"так"| autoSave ==> snapshots
   autoSave -->|"помилка"| retrySave --> autoSave
   snapshots -.-> locationSync

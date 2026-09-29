@@ -750,6 +750,12 @@ fn purge_expired_flight_plan_snapshots(
         .to_string();
     connection
         .execute(
+            "DELETE FROM flight_plan_drafts WHERE plan_date < ?1",
+            [&cutoff],
+        )
+        .map_err(|_| "Не вдалося очистити застарілі чернетки планів польотів.".to_string())?;
+    connection
+        .execute(
             "DELETE FROM flight_plan_snapshots WHERE plan_date < ?1",
             [cutoff],
         )
@@ -986,6 +992,86 @@ pub fn get_flight_plan_snapshot(
         .lock()
         .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
     get_flight_plan_snapshot_at(&database.connection, Local::now().date_naive(), &plan_date)
+}
+
+fn save_flight_plan_draft_at(
+    connection: &Connection,
+    today: NaiveDate,
+    plan_date: &str,
+    draft_json: &str,
+) -> Result<(), String> {
+    let parsed_plan_date = parse_plan_date(plan_date)?;
+    validate_plan_date_for_save(parsed_plan_date, today)?;
+    if draft_json.len() > 10 * 1024 * 1024 {
+        return Err("Чернетка плану польотів перевищує допустимий розмір.".to_string());
+    }
+    let parsed: serde_json::Value = serde_json::from_str(draft_json)
+        .map_err(|_| "Чернетка плану польотів пошкоджена.".to_string())?;
+    if !parsed.is_object() {
+        return Err("Чернетка плану польотів має некоректний формат.".to_string());
+    }
+    let canonical = serde_json::to_string(&parsed)
+        .map_err(|_| "Не вдалося підготувати чернетку плану польотів.".to_string())?;
+    connection
+        .execute(
+            "INSERT INTO flight_plan_drafts(plan_date,draft_json,updated_at)
+             VALUES(?1,?2,CURRENT_TIMESTAMP)
+             ON CONFLICT(plan_date) DO UPDATE SET
+               draft_json=excluded.draft_json,
+               updated_at=CURRENT_TIMESTAMP",
+            rusqlite::params![parsed_plan_date.format("%Y-%m-%d").to_string(), canonical],
+        )
+        .map_err(|_| "Не вдалося зберегти чернетку плану польотів.".to_string())?;
+    Ok(())
+}
+
+fn get_flight_plan_draft_at(
+    connection: &Connection,
+    today: NaiveDate,
+    plan_date: &str,
+) -> Result<Option<String>, String> {
+    let parsed_plan_date = parse_plan_date(plan_date)?;
+    if !validate_plan_date_for_read(parsed_plan_date, today)? {
+        return Ok(None);
+    }
+    connection
+        .query_row(
+            "SELECT draft_json FROM flight_plan_drafts WHERE plan_date=?1",
+            [parsed_plan_date.format("%Y-%m-%d").to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| "Не вдалося прочитати чернетку плану польотів.".to_string())
+}
+
+#[tauri::command]
+pub fn save_flight_plan_draft(
+    state: tauri::State<AppState>,
+    plan_date: String,
+    draft_json: String,
+) -> Result<(), String> {
+    let database = state
+        .0
+        .lock()
+        .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
+    save_flight_plan_draft_at(
+        &database.connection,
+        Local::now().date_naive(),
+        &plan_date,
+        &draft_json,
+    )
+}
+
+#[tauri::command]
+pub fn get_flight_plan_draft(
+    state: tauri::State<AppState>,
+    plan_date: String,
+) -> Result<Option<String>, String> {
+    let database = state
+        .0
+        .lock()
+        .map_err(|_| "База даних тимчасово зайнята.".to_string())?;
+    get_flight_plan_draft_at(&database.connection, Local::now().date_naive(), &plan_date)
 }
 
 #[derive(Debug, Clone)]
@@ -2067,6 +2153,39 @@ mod tests {
         )
         .unwrap_err()
         .contains("7 днів"));
+    }
+
+    #[test]
+    fn persists_the_full_editor_draft_outside_webview_storage() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 29).unwrap();
+        let draft = serde_json::json!({
+            "schemaVersion": 3,
+            "date": "30.09.2026",
+            "selected": [1],
+            "entries": {
+                "1": {
+                    "routePoints": ["МАРШРУТ"],
+                    "areaPoints": ["ЗОНА"],
+                    "altitudeFrom": "900",
+                    "altitudeTo": "1200",
+                    "startTime": "09:20",
+                    "endTime": "18:40"
+                }
+            }
+        });
+
+        save_flight_plan_draft_at(&connection, today, "2026-09-30", &draft.to_string()).unwrap();
+        let restored = get_flight_plan_draft_at(&connection, today, "2026-09-30")
+            .unwrap()
+            .unwrap();
+        let restored: serde_json::Value = serde_json::from_str(&restored).unwrap();
+
+        assert_eq!(restored["entries"]["1"]["routePoints"][0], "МАРШРУТ");
+        assert_eq!(restored["entries"]["1"]["areaPoints"][0], "ЗОНА");
+        assert_eq!(restored["entries"]["1"]["altitudeFrom"], "900");
+        assert_eq!(restored["entries"]["1"]["startTime"], "09:20");
     }
 
     #[test]

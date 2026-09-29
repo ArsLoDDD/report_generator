@@ -1376,6 +1376,11 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             UNIQUE(plan_date,revision)
         );
         CREATE INDEX IF NOT EXISTS flight_plan_snapshots_date_idx ON flight_plan_snapshots(plan_date,revision DESC);
+        CREATE TABLE IF NOT EXISTS flight_plan_drafts (
+            plan_date TEXT PRIMARY KEY,
+            draft_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         CREATE TABLE IF NOT EXISTS flight_plan_snapshot_entries (
             id INTEGER PRIMARY KEY,
             snapshot_id INTEGER NOT NULL REFERENCES flight_plan_snapshots(id) ON DELETE CASCADE,
