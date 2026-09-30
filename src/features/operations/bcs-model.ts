@@ -8,7 +8,7 @@ export type BcsExportRow = { isTemporary: boolean; isExternal: boolean; actualCr
 const normalize = (value: string) => value.toLocaleLowerCase("uk").replace(/[’']/g, "'").replace(/\s+/g, " ").trim();
 export const bcsCaps = (value: string | null | undefined) => (value ?? "").toLocaleUpperCase("uk");
 export const CREW_WORKING_LOCATIONS = ["На позиції", "ЗБЗ", "ПБЗ", "Реко та облаштування", "Реко", "Облаштування", "Логістика на позиції", "ГШР", "ОХ", "ЗАБ"] as const;
-export const BCS_ABSENCE_LOCATIONS = ["ВІДП", "ЛІК", "НАВЧ", "ВІДР", "Відкомандировані", "СЗЧ"] as const;
+export const BCS_ABSENCE_LOCATIONS = ["ВІДП", "ЛІК", "ВЛК", "НАВЧ", "ВІДР", "Відкомандировані", "СЗЧ"] as const;
 export const OPERATIONAL_ABSENCE_LOCATIONS = [...BCS_ABSENCE_LOCATIONS, "ПТЗ Новостав"] as const;
 export const POSITION_WORK_LOCATIONS = ["Реко", "Облаштування", "Реко та облаштування"] as const;
 export const POSITION_OCCUPANCY_LOCATIONS = ["На позиції", "ЗБЗ", "ПБЗ", "ГШР", "Логістика на позиції"] as const;
@@ -145,7 +145,7 @@ export function bcsSummary(records: StaffingRecord[], authorized: number) {
   const count = (location: string) => own.filter((person) => person.currentLocation === location).length;
   return [
     ["По штату", authorized], ["По списку", own.length + temporaryActing], ["В наявності", own.filter((person) => isAvailableInUnit(person.currentLocation)).length],
-    ["Відпустка", count("ВІДП")], ["Шпиталь", count("ЛІК")], ["Відрядження", count("НАВЧ") + count("ВІДР")],
+    ["Відпустка", count("ВІДП")], ["Шпиталь", count("ЛІК") + count("ВЛК")], ["Відрядження", count("НАВЧ") + count("ВІДР")],
     ["Відкомандировані", count("Відкомандировані")], ["Прикомандировані", people.filter((person) => person.isExternal && person.bcsGroupName === "Прикомандировані").length], ["ПТЗ Новостав", count("ПТЗ Новостав")], ["СЗЧ", count("СЗЧ")], ["Тимчасово прибулі", people.filter((person) => person.isTemporary).length], ["Тимчасово прибулі з ТВО", temporaryActing],
   ] as const;
 }

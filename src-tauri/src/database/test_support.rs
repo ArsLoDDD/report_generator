@@ -768,6 +768,29 @@ mod tests {
     }
 
     #[test]
+    fn adds_bro_flag_to_an_existing_positions_table_without_losing_rows() {
+        let connection = Connection::open_in_memory().unwrap();
+        initialise(&connection).unwrap();
+        connection
+            .execute("ALTER TABLE positions DROP COLUMN in_bro", [])
+            .unwrap();
+        connection
+            .execute("INSERT INTO positions(name) VALUES('СТАРА ПОЗИЦІЯ')", [])
+            .unwrap();
+
+        initialise(&connection).unwrap();
+
+        let value: bool = connection
+            .query_row(
+                "SELECT in_bro FROM positions WHERE name='СТАРА ПОЗИЦІЯ'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!value);
+    }
+
+    #[test]
     fn bcs_location_is_limited_to_the_shared_reference() {
         assert!(is_valid_bcs_location(""));
         assert!(is_valid_bcs_location("На позиції"));

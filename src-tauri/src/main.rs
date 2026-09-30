@@ -5,6 +5,7 @@ mod deadline_reminders;
 mod document_commands;
 mod flight_plan;
 mod operations;
+mod payments;
 mod personnel;
 mod personnel_commands;
 mod report_generation;
@@ -990,6 +991,9 @@ fn main() {
             operations::list_flight_journal_entries,
             operations::create_flight_journal_entry,
             operations::update_flight_journal_progress,
+            payments::list_payment_statuses,
+            payments::save_payment_status,
+            payments::export_payments_report,
             summary_report::load_summary_report_draft,
             summary_report::save_summary_report_draft,
             summary_report::render_summary_report_preview,

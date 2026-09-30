@@ -47,11 +47,11 @@ export type CrewDraft = {
   memberIds: number[];
   actualMemberIds: number[];
 };
-export type Position = { id: number; name: string; positionType: "Основна" | "Запасна" | "Облаштовується" | "Виявлена ворогом" | "Зайнята суміжниками"; stripName: string; locality: string; battleOrder: string; sector: string; condition: string; conditionLevel: number; fieldType: string; size: string; mgrs: string; suitableUavText: string; isActive: boolean; crewId: number | null; crewName: string | null; notes: string; uavIds: number[]; uavNames: string[] };
+export type Position = { id: number; name: string; positionType: "Основна" | "Запасна" | "Облаштовується" | "Виявлена ворогом" | "Зайнята суміжниками"; stripName: string; locality: string; battleOrder: string; sector: string; condition: string; conditionLevel: number; fieldType: string; size: string; mgrs: string; suitableUavText: string; isActive: boolean; inBro: boolean; crewId: number | null; crewName: string | null; notes: string; uavIds: number[]; uavNames: string[] };
 export type PositionDraft = Omit<Position, "id" | "crewName" | "uavNames">;
 export type PositionWorkDuty = "Охорона та оборона" | "Рекогностування" | "Облаштування";
 export type PositionWorkMember = { assignmentId: number | null; personnelId: number; fullName: string; rank: string; dutyType: PositionWorkDuty; startDate: string; startTime: string; endDate: string; endTime: string };
-export type PositionWork = { id: number; positionId: number | null; positionName: string; stripName: string; locality: string; mgrs: string; workType: "Рекогностування" | "Облаштування"; status: "Приступили" | "Продовжують" | "Завершили"; startDate: string; startTime: string; endDate: string; endTime: string; battleOrder: string; notes: string; members: PositionWorkMember[] };
+export type PositionWork = { id: number; positionId: number | null; positionName: string; stripName: string; locality: string; mgrs: string; workType: "Рекогностування" | "Облаштування"; status: "Приступили" | "Продовжують" | "Завершили"; startDate: string; startTime: string; endDate: string; endTime: string; battleOrder: string; notes: string; inBro: boolean; members: PositionWorkMember[] };
 export type PositionWorkMemberDraft = Pick<PositionWorkMember, "personnelId" | "dutyType" | "startDate" | "startTime" | "endDate" | "endTime"> & { assignmentId?: number | null };
 export type PositionWorkDraft = Omit<PositionWork, "id" | "members"> & { personnelIds: number[]; memberAssignments: PositionWorkMemberDraft[] };
 export type PositionWorkStatusEvent = Omit<PositionWork, "id" | "locality" | "mgrs"> & { id: number; workId: number; positionMgrs: string; positionLocality: string; createdAt: string };

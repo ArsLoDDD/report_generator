@@ -46,7 +46,7 @@ fn position_uavs(
 #[tauri::command]
 pub fn list_positions(state: tauri::State<AppState>) -> Result<Vec<Position>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
-    let mut statement = db.connection.prepare("SELECT p.id,p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.size,p.mgrs,p.suitable_uav_text,p.is_active,NULL,GROUP_CONCAT(c.name, ', '),p.notes,p.condition_level,p.field_type FROM positions p LEFT JOIN crews c ON c.position_id=p.id GROUP BY p.id ORDER BY p.id").map_err(|_| "Не вдалося прочитати позиції.".to_string())?;
+    let mut statement = db.connection.prepare("SELECT p.id,p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.size,p.mgrs,p.suitable_uav_text,p.is_active,p.in_bro,NULL,GROUP_CONCAT(c.name, ', '),p.notes,p.condition_level,p.field_type FROM positions p LEFT JOIN crews c ON c.position_id=p.id GROUP BY p.id ORDER BY p.id").map_err(|_| "Не вдалося прочитати позиції.".to_string())?;
     let rows = statement
         .query_map([], |r| {
             Ok((
@@ -62,11 +62,12 @@ pub fn list_positions(state: tauri::State<AppState>) -> Result<Vec<Position>, St
                 r.get::<_, String>(9)?,
                 r.get::<_, String>(10)?,
                 r.get::<_, bool>(11)?,
-                r.get::<_, Option<i64>>(12)?,
-                r.get::<_, Option<String>>(13)?,
-                r.get::<_, String>(14)?,
-                r.get::<_, i64>(15)?,
-                r.get::<_, String>(16)?,
+                r.get::<_, bool>(12)?,
+                r.get::<_, Option<i64>>(13)?,
+                r.get::<_, Option<String>>(14)?,
+                r.get::<_, String>(15)?,
+                r.get::<_, i64>(16)?,
+                r.get::<_, String>(17)?,
             ))
         })
         .map_err(|_| "Не вдалося прочитати позиції.".to_string())?
@@ -87,6 +88,7 @@ pub fn list_positions(state: tauri::State<AppState>) -> Result<Vec<Position>, St
                 mgrs,
                 suitable_uav_text,
                 is_active,
+                in_bro,
                 crew_id,
                 crew_name,
                 notes,
@@ -109,6 +111,7 @@ pub fn list_positions(state: tauri::State<AppState>) -> Result<Vec<Position>, St
                     mgrs,
                     suitable_uav_text,
                     is_active,
+                    in_bro,
                     crew_id,
                     crew_name,
                     notes,
@@ -184,7 +187,7 @@ pub(super) fn create_position_record(
     draft: &PositionDraft,
 ) -> Result<i64, String> {
     let mgrs = validate_position(draft)?;
-    connection.execute("INSERT INTO positions(name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,crew_id,notes,condition_level,field_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",rusqlite::params![draft.name.trim(),draft.position_type,draft.strip_name.trim(),draft.locality.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.condition.trim(),draft.size.trim(),mgrs,draft.suitable_uav_text.trim(),draft.is_active,draft.crew_id,draft.notes.trim(),draft.condition_level.clamp(0,100),draft.field_type.trim()]).map_err(|_|"Не вдалося створити позицію. Перевірте унікальність назви.".to_string())?;
+    connection.execute("INSERT INTO positions(name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,in_bro,crew_id,notes,condition_level,field_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",rusqlite::params![draft.name.trim(),draft.position_type,draft.strip_name.trim(),draft.locality.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.condition.trim(),draft.size.trim(),mgrs,draft.suitable_uav_text.trim(),draft.is_active,draft.in_bro,draft.crew_id,draft.notes.trim(),draft.condition_level.clamp(0,100),draft.field_type.trim()]).map_err(|_|"Не вдалося створити позицію. Перевірте унікальність назви.".to_string())?;
     let position_id = connection.last_insert_rowid();
     save_position_uavs(connection, position_id, &draft.uav_ids)?;
     sync_active_position(
@@ -267,7 +270,7 @@ pub fn update_position(
             |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
         )
         .ok();
-    db.connection.execute("UPDATE positions SET name=?1,position_type=?2,strip_name=?3,locality=?4,battle_order=?5,sector=?6,condition=?7,size=?8,mgrs=?9,suitable_uav_text=?10,is_active=?11,crew_id=?12,notes=?13,condition_level=?14,field_type=?15 WHERE id=?16",rusqlite::params![draft.name.trim(),draft.position_type,draft.strip_name.trim(),draft.locality.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.condition.trim(),draft.size.trim(),mgrs,draft.suitable_uav_text.trim(),draft.is_active,draft.crew_id,draft.notes.trim(),draft.condition_level.clamp(0,100),draft.field_type.trim(),position_id]).map_err(|_|"Не вдалося оновити позицію.".to_string())?;
+    db.connection.execute("UPDATE positions SET name=?1,position_type=?2,strip_name=?3,locality=?4,battle_order=?5,sector=?6,condition=?7,size=?8,mgrs=?9,suitable_uav_text=?10,is_active=?11,in_bro=?12,crew_id=?13,notes=?14,condition_level=?15,field_type=?16 WHERE id=?17",rusqlite::params![draft.name.trim(),draft.position_type,draft.strip_name.trim(),draft.locality.trim(),draft.battle_order.trim(),draft.sector.trim(),draft.condition.trim(),draft.size.trim(),mgrs,draft.suitable_uav_text.trim(),draft.is_active,draft.in_bro,draft.crew_id,draft.notes.trim(),draft.condition_level.clamp(0,100),draft.field_type.trim(),position_id]).map_err(|_|"Не вдалося оновити позицію.".to_string())?;
     save_position_uavs(&db.connection, position_id, &draft.uav_ids)?;
     sync_active_position(
         &db.connection,
@@ -321,6 +324,7 @@ mod position_tests {
             mgrs: mgrs.into(),
             suitable_uav_text: "Mavic".into(),
             is_active,
+            in_bro: false,
             crew_id,
             notes: String::new(),
             uav_ids: Vec::new(),
@@ -348,6 +352,23 @@ mod position_tests {
     #[test]
     fn position_can_be_used_by_multiple_crews() {
         assert!(validate_position(&position("Основна", true, None, "36U UV 12000 67000")).is_ok());
+    }
+
+    #[test]
+    fn position_persists_bro_membership() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        let mut draft = position("Основна", false, None, "36U UV 12000 67000");
+        draft.in_bro = true;
+
+        let id = create_position_record(&connection, &draft).unwrap();
+        let stored: bool = connection
+            .query_row("SELECT in_bro FROM positions WHERE id=?1", [id], |row| {
+                row.get(0)
+            })
+            .unwrap();
+
+        assert!(stored);
     }
 
     #[test]

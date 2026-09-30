@@ -175,7 +175,7 @@ describe("Планування польотів",()=>{
 
   it("does not allow a crew to use a position while it is under setup",async()=>{
     vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
-    vi.mocked(operationsService.listPositions).mockResolvedValue([{id:1,name:"САПСАН",positionType:"Облаштовується",stripName:"Схід",locality:"Охтирка",battleOrder:"БРО-02",sector:"",condition:"",conditionLevel:0,fieldType:"",size:"",mgrs:"",suitableUavText:"",isActive:false,crewId:null,crewName:"БАРС",notes:"",uavIds:[],uavNames:[]}]);
+    vi.mocked(operationsService.listPositions).mockResolvedValue([{id:1,name:"САПСАН",positionType:"Облаштовується",stripName:"Схід",locality:"Охтирка",battleOrder:"БРО-02",sector:"",condition:"",conditionLevel:0,fieldType:"",size:"",mgrs:"",suitableUavText:"",isActive:false,inBro:false,crewId:null,crewName:"БАРС",notes:"",uavIds:[],uavNames:[]}]);
     render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
 
     await screen.findByText("Позиція облаштовується");

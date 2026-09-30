@@ -44,7 +44,7 @@ pub fn list_position_work(state: tauri::State<AppState>) -> Result<Vec<PositionW
     let mut statement = db.connection.prepare(
         "SELECT w.id,w.position_id,COALESCE(NULLIF(w.position_name,''),p.name,''),
                 COALESCE(NULLIF(w.strip_name,''),p.strip_name,''),COALESCE(NULLIF(w.position_locality,''),p.locality,''),
-                COALESCE(NULLIF(w.position_mgrs,''),p.mgrs,''),w.work_type,w.status,w.start_date,w.start_time,w.end_date,w.end_time,w.battle_order,w.notes
+                COALESCE(NULLIF(w.position_mgrs,''),p.mgrs,''),w.work_type,w.status,w.start_date,w.start_time,w.end_date,w.end_time,w.battle_order,w.notes,w.in_bro
          FROM position_work w LEFT JOIN positions p ON p.id=w.position_id ORDER BY w.start_date DESC,w.start_time DESC,w.id DESC"
     ).map_err(|_| "Не вдалося прочитати роботи на позиціях.".to_string())?;
     let rows = statement
@@ -64,6 +64,7 @@ pub fn list_position_work(state: tauri::State<AppState>) -> Result<Vec<PositionW
                 row.get::<_, String>(11)?,
                 row.get::<_, String>(12)?,
                 row.get::<_, String>(13)?,
+                row.get::<_, bool>(14)?,
             ))
         })
         .map_err(|_| "Не вдалося прочитати роботи на позиціях.".to_string())?
@@ -86,6 +87,7 @@ pub fn list_position_work(state: tauri::State<AppState>) -> Result<Vec<PositionW
                 end_time: row.11,
                 battle_order: row.12,
                 notes: row.13,
+                in_bro: row.14,
                 members: members(&db.connection, row.0)?,
             })
         })
@@ -101,7 +103,7 @@ pub fn list_position_work_status_history(
         .connection
         .prepare(
             "SELECT id,work_id,position_id,position_name,position_mgrs,position_locality,position_strip_name,work_type,status,
-                start_date,start_time,end_date,end_time,battle_order,notes,members_json,created_at
+                start_date,start_time,end_date,end_time,battle_order,notes,in_bro,members_json,created_at
          FROM position_work_events
          ORDER BY start_date DESC,start_time DESC,id DESC",
         )
@@ -124,8 +126,9 @@ pub fn list_position_work_status_history(
                 end_time: row.get(12)?,
                 battle_order: row.get(13)?,
                 notes: row.get(14)?,
-                members: serde_json::from_str(&row.get::<_, String>(15)?).unwrap_or_default(),
-                created_at: row.get(16)?,
+                in_bro: row.get(15)?,
+                members: serde_json::from_str(&row.get::<_, String>(16)?).unwrap_or_default(),
+                created_at: row.get(17)?,
             })
         })
         .map_err(|_| "Не вдалося прочитати історію робіт на позиціях.".to_string())?
@@ -469,15 +472,15 @@ fn save_event_snapshot(
         connection.execute(
             "UPDATE position_work_events
              SET position_id=?1,position_name=?2,position_mgrs=?3,position_locality=?4,
-                 position_strip_name=?5,work_type=?6,battle_order=?7,notes=?8,members_json=?9
-             WHERE id=(SELECT id FROM position_work_events WHERE work_id=?10 ORDER BY id DESC LIMIT 1)",
-            params![position_id,position_name,position_mgrs,position_locality,position_strip_name,draft.work_type.trim(),draft.battle_order.trim(),draft.notes.trim(),members_json,work_id],
+                 position_strip_name=?5,work_type=?6,battle_order=?7,notes=?8,in_bro=?9,members_json=?10
+             WHERE id=(SELECT id FROM position_work_events WHERE work_id=?11 ORDER BY id DESC LIMIT 1)",
+            params![position_id,position_name,position_mgrs,position_locality,position_strip_name,draft.work_type.trim(),draft.battle_order.trim(),draft.notes.trim(),draft.in_bro,members_json,work_id],
         ).map_err(|_| "Не вдалося оновити знімок події робіт.".to_string())?
     };
     if create_transition || updated == 0 {
         connection.execute(
-            "INSERT INTO position_work_events(work_id,position_id,position_name,position_mgrs,position_locality,position_strip_name,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,members_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
-            params![work_id,position_id,position_name,position_mgrs,position_locality,position_strip_name,draft.work_type.trim(),draft.status.trim(),draft.start_date.trim(),draft.start_time.trim(),draft.end_date.trim(),draft.end_time.trim(),draft.battle_order.trim(),draft.notes.trim(),members_json],
+            "INSERT INTO position_work_events(work_id,position_id,position_name,position_mgrs,position_locality,position_strip_name,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,in_bro,members_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+            params![work_id,position_id,position_name,position_mgrs,position_locality,position_strip_name,draft.work_type.trim(),draft.status.trim(),draft.start_date.trim(),draft.start_time.trim(),draft.end_date.trim(),draft.end_time.trim(),draft.battle_order.trim(),draft.notes.trim(),draft.in_bro,members_json],
         ).map_err(|_| "Не вдалося зберегти незмінний знімок події робіт.".to_string())?;
     }
     Ok(())
@@ -510,6 +513,7 @@ fn complete_work_record(
     position_strip_name: &str,
     battle_order: &str,
     notes: &str,
+    in_bro: bool,
 ) -> Result<(), String> {
     let completion = parse_date_time(end_date, end_time, "Завершення робіт")?;
     let start = parse_date_time(start_date, start_time, "Початок робіт")?;
@@ -563,6 +567,7 @@ fn complete_work_record(
         end_time: end_time.to_string(),
         battle_order: battle_order.to_string(),
         notes: notes.to_string(),
+        in_bro,
         personnel_ids: completed_members
             .iter()
             .map(|member| member.personnel_id)
@@ -647,7 +652,7 @@ pub fn transition_reconnaissance_to_setup(
     let source = transaction
         .query_row(
             "SELECT position_id,position_name,position_mgrs,position_locality,strip_name,
-                    work_type,status,start_date,start_time,battle_order,notes
+                    work_type,status,start_date,start_time,battle_order,notes,in_bro
              FROM position_work WHERE id=?1",
             [reconnaissance_work_id],
             |row| {
@@ -663,6 +668,7 @@ pub fn transition_reconnaissance_to_setup(
                     row.get::<_, String>(8)?,
                     row.get::<_, String>(9)?,
                     row.get::<_, String>(10)?,
+                    row.get::<_, bool>(11)?,
                 ))
             },
         )
@@ -740,6 +746,7 @@ pub fn transition_reconnaissance_to_setup(
         &source.4,
         &source.9,
         &source.10,
+        source.11,
     )?;
 
     setup_draft.position_id = Some(position_id);
@@ -748,8 +755,9 @@ pub fn transition_reconnaissance_to_setup(
     setup_draft.locality = position_draft.locality.trim().to_string();
     setup_draft.strip_name = position_draft.strip_name.trim().to_string();
     setup_draft.battle_order = position_draft.battle_order.trim().to_string();
-    transaction.execute("INSERT INTO position_work(position_id,position_name,strip_name,position_locality,position_mgrs,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,previous_position_type) VALUES(?1,?2,?3,?4,?5,'Облаштування',?6,?7,?8,?9,?10,?11,?12,?13)",
-        params![position_id,setup_draft.position_name,setup_draft.strip_name,setup_draft.locality,setup_draft.mgrs,setup_draft.status.trim(),setup_draft.start_date.trim(),setup_draft.start_time.trim(),setup_draft.end_date.trim(),setup_draft.end_time.trim(),setup_draft.battle_order.trim(),setup_draft.notes.trim(),previous_position_type])
+    setup_draft.in_bro = position_draft.in_bro;
+    transaction.execute("INSERT INTO position_work(position_id,position_name,strip_name,position_locality,position_mgrs,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,in_bro,previous_position_type) VALUES(?1,?2,?3,?4,?5,'Облаштування',?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+        params![position_id,setup_draft.position_name,setup_draft.strip_name,setup_draft.locality,setup_draft.mgrs,setup_draft.status.trim(),setup_draft.start_date.trim(),setup_draft.start_time.trim(),setup_draft.end_date.trim(),setup_draft.end_time.trim(),setup_draft.battle_order.trim(),setup_draft.notes.trim(),setup_draft.in_bro,previous_position_type])
         .map_err(|_| "Не вдалося створити облаштування позиції.".to_string())?;
     let setup_work_id = transaction.last_insert_rowid();
     for personnel_id in &selected_ids {
@@ -827,7 +835,7 @@ pub fn transition_reconnaissance_to_setup(
 pub fn save_position_work(
     state: tauri::State<AppState>,
     work_id: Option<i64>,
-    draft: PositionWorkDraft,
+    mut draft: PositionWorkDraft,
 ) -> Result<(), String> {
     let assignments = validate_and_assignments(&draft)?;
     if draft.work_type.trim() == "Облаштування" && draft.position_id.is_none() {
@@ -859,11 +867,17 @@ pub fn save_position_work(
         .connection
         .unchecked_transaction()
         .map_err(|_| "Не вдалося розпочати збереження робіт на позиції.".to_string())?;
-    let (position_type, position_name, position_mgrs, position_locality, position_strip_name) =
-        if let Some(position_id) = draft.position_id {
-            let row = transaction
+    let (
+        position_type,
+        position_name,
+        position_mgrs,
+        position_locality,
+        position_strip_name,
+        position_in_bro,
+    ) = if let Some(position_id) = draft.position_id {
+        let row = transaction
                 .query_row(
-                    "SELECT position_type,name,mgrs,locality,strip_name FROM positions WHERE id=?1",
+                    "SELECT position_type,name,mgrs,locality,strip_name,in_bro FROM positions WHERE id=?1",
                     [position_id],
                     |row| {
                         Ok((
@@ -872,20 +886,30 @@ pub fn save_position_work(
                             row.get::<_, String>(2)?,
                             row.get::<_, String>(3)?,
                             row.get::<_, String>(4)?,
+                            row.get::<_, bool>(5)?,
                         ))
                     },
                 )
                 .map_err(|_| "Позицію не знайдено.".to_string())?;
-            (Some(row.0), row.1, row.2, row.3, row.4)
-        } else {
-            (
-                None,
-                draft.position_name.trim().to_string(),
-                draft.mgrs.trim().to_string(),
-                draft.locality.trim().to_string(),
-                draft.strip_name.trim().to_string(),
-            )
-        };
+        (Some(row.0), row.1, row.2, row.3, row.4, Some(row.5))
+    } else {
+        (
+            None,
+            draft.position_name.trim().to_string(),
+            draft.mgrs.trim().to_string(),
+            draft.locality.trim().to_string(),
+            draft.strip_name.trim().to_string(),
+            None,
+        )
+    };
+    // A linked position is the authoritative source when the work starts.
+    // Later edits keep the original snapshot so changing the position card
+    // cannot silently rewrite an already recorded period.
+    if work_id.is_none() {
+        if let Some(value) = position_in_bro {
+            draft.in_bro = value;
+        }
+    }
     let old_work = if let Some(id) = work_id {
         Some(
             transaction
@@ -1001,8 +1025,8 @@ pub fn save_position_work(
     };
     let id = if let Some(id) = work_id {
         restore_removed(&transaction, id, &selected_ids)?;
-        transaction.execute("UPDATE position_work SET position_id=?1,position_name=?2,strip_name=?3,position_locality=?4,position_mgrs=?5,work_type=?6,status=?7,start_date=?8,start_time=?9,end_date=?10,end_time=?11,battle_order=?12,notes=?13,previous_position_type=?14,updated_at=CURRENT_TIMESTAMP WHERE id=?15",
-            params![draft.position_id,position_name,position_strip_name,position_locality,position_mgrs,draft.work_type.trim(),draft.status.trim(),draft.start_date.trim(),draft.start_time.trim(),draft.end_date.trim(),draft.end_time.trim(),draft.battle_order.trim(),draft.notes.trim(),previous_position_type,id])
+        transaction.execute("UPDATE position_work SET position_id=?1,position_name=?2,strip_name=?3,position_locality=?4,position_mgrs=?5,work_type=?6,status=?7,start_date=?8,start_time=?9,end_date=?10,end_time=?11,battle_order=?12,notes=?13,in_bro=?14,previous_position_type=?15,updated_at=CURRENT_TIMESTAMP WHERE id=?16",
+            params![draft.position_id,position_name,position_strip_name,position_locality,position_mgrs,draft.work_type.trim(),draft.status.trim(),draft.start_date.trim(),draft.start_time.trim(),draft.end_date.trim(),draft.end_time.trim(),draft.battle_order.trim(),draft.notes.trim(),draft.in_bro,previous_position_type,id])
             .map_err(|_| "Не вдалося оновити роботи на позиції.".to_string())?;
         transaction
             .execute("DELETE FROM position_work_members WHERE work_id=?1", [id])
@@ -1012,8 +1036,8 @@ pub fn save_position_work(
             .map_err(|_| "Не вдалося оновити періоди групи.".to_string())?;
         id
     } else {
-        transaction.execute("INSERT INTO position_work(position_id,position_name,strip_name,position_locality,position_mgrs,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,previous_position_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
-            params![draft.position_id,position_name,position_strip_name,position_locality,position_mgrs,draft.work_type.trim(),draft.status.trim(),draft.start_date.trim(),draft.start_time.trim(),draft.end_date.trim(),draft.end_time.trim(),draft.battle_order.trim(),draft.notes.trim(),previous_position_type])
+        transaction.execute("INSERT INTO position_work(position_id,position_name,strip_name,position_locality,position_mgrs,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,in_bro,previous_position_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+            params![draft.position_id,position_name,position_strip_name,position_locality,position_mgrs,draft.work_type.trim(),draft.status.trim(),draft.start_date.trim(),draft.start_time.trim(),draft.end_date.trim(),draft.end_time.trim(),draft.battle_order.trim(),draft.notes.trim(),draft.in_bro,previous_position_type])
             .map_err(|_| "Не вдалося додати роботи на позиції.".to_string())?;
         transaction.last_insert_rowid()
     };
@@ -1172,6 +1196,7 @@ mod tests {
             end_time: String::new(),
             battle_order: String::new(),
             notes: String::new(),
+            in_bro: false,
             personnel_ids: vec![],
             member_assignments: vec![assignment],
         }
@@ -1330,8 +1355,8 @@ mod tests {
         crate::database::initialise(&connection).unwrap();
         connection.execute("INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id,current_location) VALUES(1,'солдат','ТЕСТОВИЙ','Тест','Тестович','оператор','1','','','','','','','','Реко та облаштування')", []).unwrap();
         connection.execute(
-            "INSERT INTO position_work(id,position_id,position_name,strip_name,position_locality,work_type,status,start_date,start_time,battle_order)
-             VALUES(10,NULL,'','СМУГА СХІД','СТЕПОВЕ','Рекогностування','Продовжують','2026-09-15','08:00','БРО-1')",
+            "INSERT INTO position_work(id,position_id,position_name,strip_name,position_locality,work_type,status,start_date,start_time,battle_order,in_bro)
+             VALUES(10,NULL,'','СМУГА СХІД','СТЕПОВЕ','Рекогностування','Продовжують','2026-09-15','08:00','БРО-1',1)",
             [],
         ).unwrap();
         connection.execute(
@@ -1360,6 +1385,7 @@ mod tests {
             "СМУГА СХІД",
             "БРО-1",
             "",
+            true,
         )
         .unwrap();
 
@@ -1377,10 +1403,10 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .unwrap();
-        let event: (Option<i64>, String, String, String) = connection.query_row(
-            "SELECT position_id,status,position_strip_name,members_json FROM position_work_events WHERE work_id=10 ORDER BY id DESC LIMIT 1",
+        let event: (Option<i64>, String, String, bool, String) = connection.query_row(
+            "SELECT position_id,status,position_strip_name,in_bro,members_json FROM position_work_events WHERE work_id=10 ORDER BY id DESC LIMIT 1",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         ).unwrap();
         assert_eq!(
             work,
@@ -1390,7 +1416,8 @@ mod tests {
         assert_eq!(event.0, None);
         assert_eq!(event.1, "Завершили");
         assert_eq!(event.2, "СМУГА СХІД");
-        assert!(event.3.contains("2026-09-16"));
+        assert!(event.3);
+        assert!(event.4.contains("2026-09-16"));
     }
 
     #[test]
@@ -1406,6 +1433,7 @@ mod tests {
             "НАВЧ",
             "ВІДР",
             "ЛІК",
+            "ВЛК",
         ] {
             assert!(
                 validate_person_availability(location, false, false, true, false).is_err(),

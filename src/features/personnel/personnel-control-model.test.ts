@@ -18,6 +18,7 @@ const record = (tab: string, locationType = tab): PersonnelControlRecord => ({
   endDate: "",
   untilSeparateOrder: false,
   notes: "",
+  trainingInUnit: false,
   crewId: null,
   crewName: "",
   positionId: null,
@@ -33,11 +34,14 @@ describe("personnel control model", () => {
   });
 
   it("applies the field requirements for each manual location", () => {
-    expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "НАВЧ", institution: "Центр", startDate: "2026-09-17", endDate: "", notes: "" })).toMatchObject({ endDate: expect.any(String) });
-    expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "ВІДП", institution: "", startDate: "2026-09-17", endDate: "", notes: "" })).toMatchObject({ endDate: expect.any(String) });
-    expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "Відкомандировані", institution: "", startDate: "2026-09-17", endDate: "", notes: "" })).toMatchObject({ institution: expect.any(String) });
-    expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "ВІДР", institution: "Київ", startDate: "2026-09-17", endDate: "", notes: "" })).toEqual({});
-    expect(validatePersonnelControlDraft({ personnelId: 1, locationType: "ЛІК", institution: "Шпиталь", startDate: "2026-09-17", endDate: "2026-09-16", notes: "" })).toMatchObject({ endDate: expect.any(String) });
+    const base = { personnelId: 1, institution: "", startDate: "2026-09-17", endDate: "", notes: "", trainingInUnit: false } as const;
+    expect(validatePersonnelControlDraft({ ...base, locationType: "НАВЧ", institution: "Центр" })).toMatchObject({ endDate: expect.any(String) });
+    expect(validatePersonnelControlDraft({ ...base, locationType: "ВІДП" })).toMatchObject({ endDate: expect.any(String) });
+    expect(validatePersonnelControlDraft({ ...base, locationType: "Відкомандировані" })).toMatchObject({ institution: expect.any(String) });
+    expect(validatePersonnelControlDraft({ ...base, locationType: "ВІДР", institution: "Київ" })).toEqual({});
+    expect(validatePersonnelControlDraft({ ...base, locationType: "ЛІК", institution: "Шпиталь", endDate: "2026-09-16" })).toMatchObject({ endDate: expect.any(String) });
+    expect(personnelLocationRequiresInstitution("ВЛК")).toBe(true);
+    expect(personnelLocationShowsEndDate("ВЛК")).toBe(true);
     expect(personnelLocationShowsEndDate("ПУ")).toBe(false);
     expect(personnelLocationShowsEndDate("ОХ")).toBe(false);
     expect(personnelLocationShowsEndDate("ЗХВ")).toBe(true);

@@ -1,5 +1,5 @@
 export type PersonnelControlSource = "automatic" | "manual" | "bcs";
-export type ManualPersonnelLocation = "ОХ" | "ПУ" | "ШТАБ" | "УПР" | "КСП Роти" | "ЗАБ" | "ЗХВ" | "ВІДП" | "НАВЧ" | "ВІДР" | "ЛІК" | "Відкомандировані" | "СЗЧ" | "ПТЗ Новостав";
+export type ManualPersonnelLocation = "ОХ" | "ПУ" | "ШТАБ" | "УПР" | "КСП Роти" | "ЗАБ" | "ЗХВ" | "ВІДП" | "НАВЧ" | "ВІДР" | "ЛІК" | "ВЛК" | "Відкомандировані" | "СЗЧ" | "ПТЗ Новостав";
 
 export type PersonnelControlRecord = {
   personnelId: number;
@@ -17,6 +17,7 @@ export type PersonnelControlRecord = {
   endDate: string;
   untilSeparateOrder: boolean;
   notes: string;
+  trainingInUnit: boolean;
   crewId: number | null;
   crewName: string;
   positionId: number | null;
@@ -33,6 +34,7 @@ export type PersonnelControlDraft = {
   startDate: string;
   endDate: string;
   notes: string;
+  trainingInUnit: boolean;
 };
 
 export type PersonnelControlHistoryEvent = {
@@ -46,6 +48,7 @@ export type PersonnelControlHistoryEvent = {
   startDate: string;
   endDate: string;
   notes: string;
+  trainingInUnit: boolean;
   reason: string;
   occurredAt: string;
 };

@@ -6,7 +6,7 @@ import { PositionsPage } from "./PositionsPage";
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
-const position = { id: 3, name: "БУРЕВІЙ", positionType: "Запасна", stripName: "СМУГА ПІВНІЧ", locality: "НОВОСЕЛІВКА", battleOrder: "БРО-01", sector: "", condition: "", conditionLevel: 0, fieldType: "", size: "", mgrs: "36U UV 12000 67000", suitableUavText: "", isActive: false, crewId: null, crewName: null, notes: "Тестова позиція", uavIds: [8], uavNames: ["SHARK"] };
+const position = { id: 3, name: "БУРЕВІЙ", positionType: "Запасна", stripName: "СМУГА ПІВНІЧ", locality: "НОВОСЕЛІВКА", battleOrder: "БРО-01", sector: "", condition: "", conditionLevel: 0, fieldType: "", size: "", mgrs: "36U UV 12000 67000", suitableUavText: "", isActive: false, inBro: false, crewId: null, crewName: null, notes: "Тестова позиція", uavIds: [8], uavNames: ["SHARK"] };
 const crew = { id: 9, name: "СОКІЛ", positionId: 3, status: "Працюючий", workingStrength: 3, officialStrength: 4, primaryUavId: 8, uavName: "SHARK", sector: "СМУГА ПІВНІЧ", members: [], actualMembers: [{ personnelId: 99, currentLocation: "На позиції" }] };
 const linkedEquipment = { id: 8, category: "uav", name: "SHARK", inventoryNumber: "UAV-008", status: "Справний", crewId: 9, crewName: "СОКІЛ", personnelId: null, holderName: null, totalQuantity: 1, dayQuantity: 1, nightQuantity: 0, assetKind: "aircraft", componentsJson: "[]", assignedQuantity: 1, notes: "" };
 const availableEquipment = { ...linkedEquipment, id: 18, category: "generator", name: "EcoFlow Delta", inventoryNumber: "GEN-018" };
@@ -30,6 +30,7 @@ const standaloneReconnaissance = {
   endTime: "",
   battleOrder: "БРО-РЕКО-1",
   notes: "Пошук нового району",
+  inBro: true,
   members: [{ assignmentId: 201, personnelId: freePerson.personnelId, fullName: freePerson.fullName, rank: freePerson.rank, dutyType: "Рекогностування", startDate: "2026-09-20", startTime: "08:00", endDate: "", endTime: "" }],
 };
 const currentIsoDate = () => new Date().toLocaleDateString("sv-SE");
@@ -100,6 +101,17 @@ describe("Картка позиції", () => {
     fireEvent.click(screen.getByRole("button", { name: "Зберегти позицію" }));
 
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_position", expect.objectContaining({ positionId: 3, draft: expect.objectContaining({ uavIds: [] }) })));
+  });
+
+  it("дозволяє змінити ознаку входження позиції у БРО в її картці", async () => {
+    invoke.mockImplementation((command: string) => command === "list_positions" ? Promise.resolve([position]) : ["list_crews", "list_incidents", "list_equipment", "list_vehicles", "list_staffing_records", "list_position_work"].includes(command) ? Promise.resolve([]) : Promise.resolve());
+    render(<NotificationProvider><PositionsPage /></NotificationProvider>);
+
+    fireEvent.click((await screen.findByText("БУРЕВІЙ")).closest("article")!);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Входить в БРО" }));
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти позицію" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_position", expect.objectContaining({ positionId: 3, draft: expect.objectContaining({ inBro: true }) })));
   });
 
   it("автоматично створює неперетинні періоди робіт та охорони і перераховує їхню тривалість", async () => {
@@ -200,6 +212,7 @@ describe("Картка позиції", () => {
     fireEvent.change(screen.getByLabelText("БРО рекогностування"), { target: { value: "БРО-РЕКО-1" } });
     fireEvent.change(screen.getByLabelText("Смуга рекогностування"), { target: { value: "СМУГА СХІД" } });
     fireEvent.change(screen.getByLabelText("Населений пункт рекогностування"), { target: { value: "СТЕПОВЕ" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Рекогностування входить в БРО" }));
     fireEvent.change(screen.getByLabelText("Час події"), { target: { value: "11:00" } });
     fireEvent.click(screen.getByRole("checkbox", { name: /Без запланованого завершення/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ }));
@@ -211,6 +224,7 @@ describe("Картка позиції", () => {
       stripName: "СМУГА СХІД",
       locality: "СТЕПОВЕ",
       workType: "Рекогностування",
+      inBro: true,
       endDate: "",
       endTime: "",
       memberAssignments: expect.arrayContaining([expect.objectContaining({ dutyType: "Рекогностування", endDate: "", endTime: "" })]),
@@ -303,6 +317,7 @@ describe("Картка позиції", () => {
     fireEvent.change(screen.getByLabelText("Тип місцевості"), { target: { value: "Ліс" } });
     fireEvent.change(screen.getByLabelText("Розмір позиції"), { target: { value: "20 × 30 м" } });
     fireEvent.change(screen.getByLabelText("Придатні БпЛА / БпАК"), { target: { value: "SHARK" } });
+    fireEvent.click(screen.getAllByRole("checkbox", { name: "Входить в БРО" })[0]);
     fireEvent.change(screen.getByLabelText("Опис позиції"), { target: { value: "Під’їзд із півночі" } });
     fireEvent.change(screen.getByLabelText("Час події"), { target: { value: "11:00" } });
     fireEvent.change(screen.getByLabelText("Дата завершення групи"), { target: { value: currentIsoDate() } });
@@ -310,8 +325,8 @@ describe("Картка позиції", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /ПЕТРЕНКО Петро Петрович/ }));
     fireEvent.click(screen.getByRole("button", { name: "Розпочати: Облаштування" }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_position", { draft: expect.objectContaining({ name: "ОРЕЛ", positionType: "Запасна", crewId: null, isActive: false, battleOrder: "БРО-77", stripName: "СМУГА ЗАХІД", sector: "", locality: "ЛІСОВЕ", mgrs: "36U UV 12000 67000", condition: "Готується", conditionLevel: 35, fieldType: "Ліс", size: "20 × 30 м", suitableUavText: "SHARK", notes: "Під’їзд із півночі" }) }));
-    expect(invoke).toHaveBeenCalledWith("save_position_work", expect.objectContaining({ draft: expect.objectContaining({ positionId: 77, battleOrder: "БРО-77" }) }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_position", { draft: expect.objectContaining({ name: "ОРЕЛ", positionType: "Запасна", crewId: null, isActive: false, inBro: true, battleOrder: "БРО-77", stripName: "СМУГА ЗАХІД", sector: "", locality: "ЛІСОВЕ", mgrs: "36U UV 12000 67000", condition: "Готується", conditionLevel: 35, fieldType: "Ліс", size: "20 × 30 м", suitableUavText: "SHARK", notes: "Під’їзд із півночі" }) }));
+    expect(invoke).toHaveBeenCalledWith("save_position_work", expect.objectContaining({ draft: expect.objectContaining({ positionId: 77, battleOrder: "БРО-77", inBro: true }) }));
   });
 
   it("не створює нову позицію без реквізитів, потрібних підсумковому донесенню", async () => {

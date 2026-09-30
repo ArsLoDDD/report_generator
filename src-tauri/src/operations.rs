@@ -33,9 +33,10 @@ fn busy() -> String {
     "База даних тимчасово зайнята.".into()
 }
 
-const OPERATIONAL_ABSENCE_LOCATIONS: [&str; 7] = [
+const OPERATIONAL_ABSENCE_LOCATIONS: [&str; 8] = [
     "ВІДП",
     "ЛІК",
+    "ВЛК",
     "НАВЧ",
     "ВІДР",
     "Відкомандировані",
@@ -76,6 +77,7 @@ mod operational_availability_tests {
             "НАВЧ",
             "ВІДР",
             "ЛІК",
+            "ВЛК",
         ] {
             assert!(!is_operationally_available(location), "{location}");
             assert!(is_protected_manual_control_origin(location), "{location}");

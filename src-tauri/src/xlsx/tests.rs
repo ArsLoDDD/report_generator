@@ -87,6 +87,7 @@ fn round_trips_personnel_control_assignments_and_events() {
                 institution: "Навчальний центр & резерв".into(),
                 start_date: "2026-09-10".into(),
                 until_separate_order: "Так".into(),
+                training_in_unit: "Так".into(),
                 notes: "До <окремого> розпорядження".into(),
                 previous_location: "ОХ".into(),
                 created_at: "2026-09-10 08:00:00".into(),
@@ -102,6 +103,7 @@ fn round_trips_personnel_control_assignments_and_events() {
                 start_date: "2026-08-01".into(),
                 end_date: "2026-08-05".into(),
                 until_separate_order: "Ні".into(),
+                training_in_unit: "Ні".into(),
                 notes: "Завершено".into(),
                 previous_location: "ОХ".into(),
                 closed_on: "2026-08-05".into(),
@@ -124,6 +126,7 @@ fn round_trips_personnel_control_assignments_and_events() {
                 location_type: "ВІДР".into(),
                 institution: "Навчальний центр & резерв".into(),
                 start_date: "2026-09-10".into(),
+                training_in_unit: "Так".into(),
                 notes: "До <окремого> розпорядження".into(),
                 occurred_at: "2026-09-10 08:00:00".into(),
                 ..PersonnelControlEventRow::default()
@@ -141,6 +144,7 @@ fn round_trips_personnel_control_assignments_and_events() {
                 institution: "Медичний заклад".into(),
                 start_date: "2026-08-01".into(),
                 end_date: "2026-08-05".into(),
+                training_in_unit: "Ні".into(),
                 notes: "Завершено".into(),
                 reason: "Повернувся".into(),
                 occurred_at: "2026-08-05 16:30:00".into(),
@@ -329,6 +333,7 @@ fn round_trips_crews_equipment_incidents_and_custom_values() {
             mgrs: "36U UV 12000 67000".into(),
             suitable_uav_text: "Mavic".into(),
             is_active: "Так".into(),
+            in_bro: "Так".into(),
             crew_name: "Екіпаж Сокіл".into(),
             notes: String::new(),
         }],
@@ -339,6 +344,7 @@ fn round_trips_crews_equipment_incidents_and_custom_values() {
     assert_eq!(imported.crew_members.len(), 1);
     assert_eq!(imported.equipment.len(), 4);
     assert_eq!(imported.positions.len(), 1);
+    assert_eq!(imported.positions[0].in_bro, "Так");
     assert_eq!(imported.incidents[0].equipment_inventory_number, "UAV-01");
     assert_eq!(
         imported.personnel_custom_field_maps[0].field_key,

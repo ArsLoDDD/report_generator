@@ -125,6 +125,7 @@ pub struct Position {
     pub mgrs: String,
     pub suitable_uav_text: String,
     pub is_active: bool,
+    pub in_bro: bool,
     pub crew_id: Option<i64>,
     pub crew_name: Option<String>,
     pub notes: String,
@@ -148,6 +149,8 @@ pub struct PositionDraft {
     pub mgrs: String,
     pub suitable_uav_text: String,
     pub is_active: bool,
+    #[serde(default)]
+    pub in_bro: bool,
     pub crew_id: Option<i64>,
     pub notes: String,
     #[serde(default)]
@@ -196,6 +199,7 @@ pub struct PositionWork {
     pub end_time: String,
     pub battle_order: String,
     pub notes: String,
+    pub in_bro: bool,
     pub members: Vec<PositionWorkMember>,
 }
 
@@ -217,6 +221,7 @@ pub struct PositionWorkStatusEvent {
     pub end_time: String,
     pub battle_order: String,
     pub notes: String,
+    pub in_bro: bool,
     pub members: Vec<PositionWorkMember>,
     pub created_at: String,
 }
@@ -241,6 +246,8 @@ pub struct PositionWorkDraft {
     pub end_time: String,
     pub battle_order: String,
     pub notes: String,
+    #[serde(default)]
+    pub in_bro: bool,
     #[serde(default)]
     pub personnel_ids: Vec<i64>,
     #[serde(default)]
@@ -301,6 +308,7 @@ pub struct PersonnelControlRecord {
     pub end_date: String,
     pub until_separate_order: bool,
     pub notes: String,
+    pub training_in_unit: bool,
     pub crew_id: Option<i64>,
     pub crew_name: String,
     pub position_id: Option<i64>,
@@ -321,6 +329,8 @@ pub struct PersonnelControlAssignmentDraft {
     pub end_date: String,
     #[serde(default)]
     pub notes: String,
+    #[serde(default)]
+    pub training_in_unit: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -336,6 +346,7 @@ pub struct PersonnelControlHistoryEntry {
     pub start_date: String,
     pub end_date: String,
     pub notes: String,
+    pub training_in_unit: bool,
     pub reason: String,
     pub occurred_at: String,
 }

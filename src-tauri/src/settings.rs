@@ -82,6 +82,8 @@ pub struct UnitSettings {
     #[serde(default)]
     pub ksp_mgrs: String,
     #[serde(default)]
+    pub ksp_in_bro: bool,
+    #[serde(default)]
     pub army_corps_number: String,
     #[serde(default)]
     pub arm_number: String,
@@ -131,6 +133,7 @@ fn default_unit() -> UnitSettings {
         ksp_name: String::new(),
         ksp_locality: String::new(),
         ksp_mgrs: String::new(),
+        ksp_in_bro: false,
         army_corps_number: String::new(),
         arm_number: String::new(),
     }
@@ -289,6 +292,7 @@ pub fn update_unit_settings(root: &Path, unit: UnitSettings) -> Result<AppSettin
         ksp_name: unit.ksp_name.trim().into(),
         ksp_locality: unit.ksp_locality.trim().into(),
         ksp_mgrs: unit.ksp_mgrs.trim().into(),
+        ksp_in_bro: unit.ksp_in_bro,
         army_corps_number: unit.army_corps_number.trim().into(),
         arm_number: unit.arm_number.trim().into(),
     };
@@ -669,8 +673,16 @@ mod tests {
         let mut unit = default_unit();
         unit.short_name = "РБАК".into();
         unit.unit_code = "A0000".into();
+        unit.ksp_name = "ОРІОН".into();
+        unit.ksp_locality = "КАЛИНІВКА".into();
+        unit.ksp_mgrs = "36U UV 40000 47000".into();
+        unit.ksp_in_bro = true;
         let saved = update_unit_settings(&root, unit).unwrap();
         assert_eq!(saved.unit.unit_code, "А0000");
+        assert_eq!(saved.unit.ksp_name, "ОРІОН");
+        assert_eq!(saved.unit.ksp_locality, "КАЛИНІВКА");
+        assert_eq!(saved.unit.ksp_mgrs, "36U UV 40000 47000");
+        assert!(saved.unit.ksp_in_bro);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -718,6 +730,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         let mut json = serde_json::to_value(defaults()).unwrap();
         json.as_object_mut().unwrap().remove("commissionTemplates");
+        json["unit"].as_object_mut().unwrap().remove("kspInBro");
         json["unit"]["shortName"] = serde_json::Value::String("РБАК".into());
         json["unit"]["structure"] = serde_json::json!([{
             "id": "position-old",
@@ -733,6 +746,7 @@ mod tests {
         assert!(loaded.unit.structure[0].rank_requirement.is_empty());
         assert!(loaded.unit.structure[0].vos.is_empty());
         assert!(loaded.unit.structure[0].tariff_grade.is_empty());
+        assert!(!loaded.unit.ksp_in_bro);
         let _ = fs::remove_dir_all(root);
     }
 

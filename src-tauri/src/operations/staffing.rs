@@ -421,8 +421,8 @@ pub(crate) fn reconcile_flight_plan_for_moment(
                 rusqlite::params![local_date, assignment_id],
             ).map_err(|_| "Не вдалося завершити попереднє ручне місце перебування.".to_string())?;
             transaction.execute(
-                "INSERT INTO personnel_control_events(assignment_id,personnel_id,full_name_snapshot,rank_snapshot,position_snapshot,action,location_type,institution,start_date,end_date,notes,reason)
-                 SELECT assignment.id,person.id,trim(person.surname||' '||person.given_name||' '||person.patronymic),person.rank,person.position,'closed',assignment.location_type,assignment.institution,assignment.start_date,?1,assignment.notes,'Замінено фактичним складом плану польотів'
+                "INSERT INTO personnel_control_events(assignment_id,personnel_id,full_name_snapshot,rank_snapshot,position_snapshot,action,location_type,institution,start_date,end_date,training_in_unit,notes,reason)
+                 SELECT assignment.id,person.id,trim(person.surname||' '||person.given_name||' '||person.patronymic),person.rank,person.position,'closed',assignment.location_type,assignment.institution,assignment.start_date,?1,assignment.training_in_unit,assignment.notes,'Замінено фактичним складом плану польотів'
                  FROM personnel_control_assignments assignment JOIN personnel person ON person.id=assignment.personnel_id WHERE assignment.id=?2",
                 rusqlite::params![local_date, assignment_id],
             ).map_err(|_| "Не вдалося зафіксувати автоматичний перехід у журналі.".to_string())?;
@@ -967,6 +967,7 @@ mod flight_plan_location_tests {
             "НАВЧ",
             "ВІДР",
             "ЛІК",
+            "ВЛК",
         ]
         .into_iter()
         .enumerate()

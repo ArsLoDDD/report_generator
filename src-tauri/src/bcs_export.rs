@@ -194,7 +194,15 @@ pub fn export(
         .iter()
         .filter(|row| row.is_temporary && row.notes.contains("ТВО:"))
         .count() as i64;
-    let absent = ["ВІДП", "ЛІК", "НАВЧ", "ВІДР", "Відкомандировані", "СЗЧ"];
+    let absent = [
+        "ВІДП",
+        "ЛІК",
+        "ВЛК",
+        "НАВЧ",
+        "ВІДР",
+        "Відкомандировані",
+        "СЗЧ",
+    ];
     let present = personnel_rows
         .iter()
         .filter(|row| {
@@ -222,7 +230,7 @@ pub fn export(
         own + temporary_acting,
         present,
         count("ВІДП"),
-        count("ЛІК"),
+        count("ЛІК") + count("ВЛК"),
         count("НАВЧ") + count("ВІДР"),
         count("Відкомандировані"),
         rows.iter()

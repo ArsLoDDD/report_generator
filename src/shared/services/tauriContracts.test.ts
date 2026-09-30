@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
@@ -9,9 +9,23 @@ import { reportGenerationService } from "../../features/report-generation/servic
 import { settingsService } from "../../features/settings/services/settingsService";
 import { deadlineReminderService } from "../../features/settings/services/deadlineReminderService";
 import { templateService } from "../../features/templates/services/templateService";
+import { paymentsService } from "../../features/payments/paymentsService";
 import { personnelService } from "./personnelService";
 
 describe("Tauri command contracts", () => {
+  beforeEach(() => invoke.mockClear());
+
+  it("sends payment commands with exact month, date and export path", () => {
+    paymentsService.list("2026-10");
+    paymentsService.save(7, "2026-10-05", "БР");
+    paymentsService.exportReport("2026-10", "/tmp/payments.xlsx", "duty");
+    expect(invoke.mock.calls).toEqual([
+      ["list_payment_statuses", { month: "2026-10" }],
+      ["save_payment_status", { personnelId: 7, statusDate: "2026-10-05", status: "БР" }],
+      ["export_payments_report", { month: "2026-10", path: "/tmp/payments.xlsx", reportKind: "duty" }],
+    ]);
+  });
+
   it("sends personnel commands with exact command names and payloads", () => {
     const draft = { rank: "солдат" } as never;
     personnelService.list(20, 20); personnelService.create(draft); personnelService.update(4, draft); personnelService.delete(4);

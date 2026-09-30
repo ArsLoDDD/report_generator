@@ -22,6 +22,7 @@ const emptyDraft = (): PersonnelControlDraft => ({
   startDate: todayLocal(),
   endDate: "",
   notes: "",
+  trainingInUnit: false,
 });
 
 const sourceNames = {
@@ -66,6 +67,7 @@ function ManualAssignmentModal({ people, unavailablePersonnelIds, record, onClos
     startDate: record.startDate,
     endDate: record.endDate,
     notes: record.notes,
+    trainingInUnit: record.trainingInUnit,
   } : emptyDraft());
   const [errors, setErrors] = useState<ReturnType<typeof validatePersonnelControlDraft>>({});
   const [saving, setSaving] = useState(false);
@@ -96,12 +98,13 @@ function ManualAssignmentModal({ people, unavailablePersonnelIds, record, onClos
   const showsInstitution = personnelLocationShowsInstitution(draft.locationType);
   const requiresEndDate = personnelLocationRequiresEndDate(draft.locationType);
   const showsEndDate = personnelLocationShowsEndDate(draft.locationType);
-  const institutionLabel = draft.locationType === "НАВЧ" ? "Навчальний заклад" : draft.locationType === "ЛІК" ? "Заклад лікування" : draft.locationType === "ВІДР" ? "Місце / установа відрядження" : "Місце / уточнення";
+  const institutionLabel = draft.locationType === "НАВЧ" ? "Навчальний заклад" : draft.locationType === "ЛІК" ? "Заклад лікування" : draft.locationType === "ВЛК" ? "Заклад проходження ВЛК" : draft.locationType === "ВІДР" ? "Місце / установа відрядження" : "Місце / уточнення";
   return <Modal title={record ? "Редагування місця перебування" : "Розподілити особовий склад"} subtitle="Оберіть неавтоматичну вкладку й одразу всіх потрібних людей. БЧС оновиться автоматично." onClose={onClose} className="personnel-control-editor">
     <div className="personnel-control-editor__body">
       {record ? <label className="form-field form-field--wide"><span>Військовослужбовець</span><input value={record.fullName} readOnly /></label> : <fieldset className="personnel-control-editor__people form-field--wide"><legend>Військовослужбовці * · обрано {selectedPersonnelIds.length}</legend>{sortedPeople.length ? <><div className="personnel-control-editor__people-list">{sortedPeople.map((person) => <label key={person.id}><input type="checkbox" checked={selectedPersonnelIds.includes(person.id)} onChange={(event) => { setSelectedPersonnelIds((current) => event.target.checked ? [...current, person.id] : current.filter((id) => id !== person.id)); setErrors((current) => ({ ...current, personnelId: undefined })); }} /><span><strong>{person.fullName}</strong><small>{person.rank} · {person.position}</small></span></label>)}</div><small className="personnel-control-editor__scroll-hint">Прокрутіть список, щоб переглянути всіх доступних людей.</small></> : <small className="form-hint">Немає доступних військовослужбовців.</small>}{errors.personnelId && <small className="form-error">{errors.personnelId}</small>}</fieldset>}
-      <label className="form-field"><span>Тип перебування *</span><Select ariaLabel="Тип перебування" value={draft.locationType} onChange={(value) => { const locationType = value as ManualPersonnelLocation; setDraft((current) => ({ ...current, locationType, institution: personnelLocationShowsInstitution(locationType) ? current.institution : "", endDate: personnelLocationShowsEndDate(locationType) ? current.endDate : "" })); setErrors({}); }} options={MANUAL_PERSONNEL_LOCATIONS.map((value) => ({ value, label: value }))} />{errors.locationType && <small className="form-error">{errors.locationType}</small>}</label>
+      <label className="form-field"><span>Тип перебування *</span><Select ariaLabel="Тип перебування" value={draft.locationType} onChange={(value) => { const locationType = value as ManualPersonnelLocation; setDraft((current) => ({ ...current, locationType, institution: personnelLocationShowsInstitution(locationType) ? current.institution : "", endDate: personnelLocationShowsEndDate(locationType) ? current.endDate : "", trainingInUnit: locationType === "НАВЧ" ? current.trainingInUnit : false })); setErrors({}); }} options={MANUAL_PERSONNEL_LOCATIONS.map((value) => ({ value, label: value }))} />{errors.locationType && <small className="form-error">{errors.locationType}</small>}</label>
       {showsInstitution && <label className="form-field"><span>{institutionLabel}{requiresInstitution ? " *" : ""}</span><input aria-label={institutionLabel} value={draft.institution} onChange={(event) => set("institution", event.target.value)} placeholder={requiresInstitution ? "Вкажіть назву та населений пункт" : "Необов’язково"} />{errors.institution && <small className="form-error">{errors.institution}</small>}</label>}
+      {draft.locationType === "НАВЧ" && <label className="check-row form-field--wide"><input aria-label="Навчання у В/Ч" type="checkbox" checked={draft.trainingInUnit} onChange={(event) => set("trainingInUnit", event.target.checked)} />Навчання у В/Ч</label>}
       <label className="form-field"><span>З якого числа *</span><input aria-label="З якого числа" type="date" value={draft.startDate} onChange={(event) => set("startDate", event.target.value)} />{errors.startDate && <small className="form-error">{errors.startDate}</small>}</label>
       {showsEndDate && <label className="form-field"><span>По яке число{requiresEndDate ? " *" : ""}</span><input aria-label="По яке число" type="date" value={draft.endDate} onChange={(event) => set("endDate", event.target.value)} />{errors.endDate && <small className="form-error">{errors.endDate}</small>}{draft.locationType === "ВІДР" && !draft.endDate && <small className="form-hint">Без дати — до окремого розпорядження.</small>}</label>}
       <label className="form-field form-field--wide"><span>Примітка</span><textarea aria-label="Примітка" value={draft.notes} onChange={(event) => set("notes", event.target.value)} placeholder="Необов’язкове уточнення" /></label>

@@ -97,7 +97,7 @@ export type UnitStructureNode = {
   vos?: string;
   tariffGrade?: string;
 };
-export type UnitSettings = { kind: "Рота" | "Окремий взвод" | "Інше"; shortName: string; fullName?: string; unitCode?: string; authorizedStrength: number; structure?: UnitStructureNode[]; battalionFullName?: string; battalionShortName?: string; militaryUnitShortName?: string; reportRecipient?: string; kspName?: string; kspLocality?: string; kspMgrs?: string; armyCorpsNumber?: string; armNumber?: string };
+export type UnitSettings = { kind: "Рота" | "Окремий взвод" | "Інше"; shortName: string; fullName?: string; unitCode?: string; authorizedStrength: number; structure?: UnitStructureNode[]; battalionFullName?: string; battalionShortName?: string; militaryUnitShortName?: string; reportRecipient?: string; kspName?: string; kspLocality?: string; kspMgrs?: string; kspInBro?: boolean; armyCorpsNumber?: string; armNumber?: string };
 
 export type AppSettings = {
   mainSigner: SignerSettings;

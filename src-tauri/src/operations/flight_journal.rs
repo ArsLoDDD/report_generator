@@ -1,5 +1,6 @@
 use super::{busy, FlightJournalDraft, FlightJournalEntry};
 use crate::AppState;
+use chrono::NaiveTime;
 use rusqlite::{params, Connection};
 
 fn valid_iso_date(value: &str) -> bool {
@@ -94,6 +95,105 @@ fn validate_completion_detail(
     Ok(())
 }
 
+fn personnel_ids_at_sky_time(
+    connection: &Connection,
+    flight_date: &str,
+    crew_id: i64,
+    sky_time: &str,
+) -> Option<Vec<i64>> {
+    let sky = NaiveTime::parse_from_str(sky_time, "%H:%M").ok()?;
+    let schedules = crate::flight_plan::flight_plan_location_schedule(connection, flight_date)
+        .ok()
+        .flatten()?;
+    let schedule = schedules
+        .into_iter()
+        .find(|schedule| schedule.crew_id == crew_id)?;
+    let first = schedule.stages.first()?;
+    let first_time = NaiveTime::parse_from_str(&first.start_time, "%H:%M").ok();
+    if schedule.arrives_on_plan_date && first_time.is_some_and(|arrival| sky < arrival) {
+        return Some(Vec::new());
+    }
+    if schedule.departs_on_plan_date {
+        if let Ok(departure) = NaiveTime::parse_from_str(&schedule.departure_time, "%H:%M") {
+            if sky >= departure {
+                return Some(Vec::new());
+            }
+        }
+    }
+
+    // For a crew that was already on the position, the first stage is the
+    // composition at the start of the day even though its displayed time is
+    // the first planned flight. Subsequent stages are ordered point changes.
+    let mut members = first.member_ids.clone();
+    for stage in schedule.stages.iter().skip(1) {
+        let Ok(change_time) = NaiveTime::parse_from_str(&stage.start_time, "%H:%M") else {
+            continue;
+        };
+        if change_time <= sky {
+            members = stage.member_ids.clone();
+        }
+    }
+    Some(members)
+}
+
+fn crew_entry_at_sky_time<'a>(
+    snapshot: &'a serde_json::Value,
+    crew_id: i64,
+    sky_time: &str,
+) -> Option<&'a serde_json::Value> {
+    let sky = NaiveTime::parse_from_str(sky_time, "%H:%M").ok();
+    let entries = snapshot.get("entries")?.as_array()?;
+    let crew_entries = entries
+        .iter()
+        .filter(|entry| entry.get("crewId").and_then(|value| value.as_i64()) == Some(crew_id));
+    if let Some(sky) = sky {
+        crew_entries
+            .clone()
+            .filter_map(|entry| {
+                let time = entry
+                    .get("startTime")
+                    .and_then(|value| value.as_str())
+                    .and_then(|value| NaiveTime::parse_from_str(value, "%H:%M").ok())?;
+                (time <= sky).then_some((time, entry))
+            })
+            .max_by_key(|(time, _)| *time)
+            .map(|(_, entry)| entry)
+            .or_else(|| crew_entries.into_iter().next())
+    } else {
+        crew_entries.into_iter().next()
+    }
+}
+
+fn member_snapshot(snapshot: &serde_json::Value, personnel_id: i64) -> Option<&serde_json::Value> {
+    let entry_members = snapshot
+        .get("entries")
+        .and_then(|value| value.as_array())
+        .into_iter()
+        .flatten()
+        .flat_map(|entry| {
+            entry
+                .get("memberSnapshots")
+                .and_then(|value| value.as_array())
+                .into_iter()
+                .flatten()
+        });
+    let transition_members = snapshot
+        .get("personnelTransitions")
+        .and_then(|value| value.as_array())
+        .into_iter()
+        .flatten()
+        .flat_map(|transition| {
+            transition
+                .get("memberSnapshots")
+                .and_then(|value| value.as_array())
+                .into_iter()
+                .flatten()
+        });
+    entry_members.chain(transition_members).find(|member| {
+        member.get("personnelId").and_then(|value| value.as_i64()) == Some(personnel_id)
+    })
+}
+
 fn frozen_personnel_snapshot(
     connection: &Connection,
     flight_date: &str,
@@ -116,66 +216,43 @@ fn frozen_personnel_snapshot(
     let Some(snapshot) = serde_json::from_str::<serde_json::Value>(&snapshot_json).ok() else {
         return (Some(snapshot_id), "[]".into());
     };
-    let entry = snapshot
-        .get("entries")
-        .and_then(|value| value.as_array())
-        .and_then(|entries| {
-            entries
-                .iter()
-                .find(|entry| {
-                    entry.get("crewId").and_then(|value| value.as_i64()) == Some(crew_id)
-                        && entry.get("startTime").and_then(|value| value.as_str()) == Some(sky_time)
-                })
-                .or_else(|| {
-                    entries.iter().find(|entry| {
-                        entry.get("crewId").and_then(|value| value.as_i64()) == Some(crew_id)
-                    })
-                })
-        });
+    let entry = crew_entry_at_sky_time(&snapshot, crew_id, sky_time);
     let Some(entry) = entry else {
         return (Some(snapshot_id), "[]".into());
     };
     let commander_id = entry
         .get("actualCommanderId")
         .and_then(|value| value.as_i64());
-    let mut ids = entry
-        .get("actualMemberIds")
-        .and_then(|value| value.as_array())
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|value| value.as_i64())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let mut ids = personnel_ids_at_sky_time(connection, flight_date, crew_id, sky_time)
+        .unwrap_or_else(|| {
+            entry
+                .get("actualMemberIds")
+                .and_then(|value| value.as_array())
+                .map(|values| values.iter().filter_map(|value| value.as_i64()).collect())
+                .unwrap_or_default()
+        });
     if let Some(commander_id) = commander_id {
-        ids.retain(|id| *id != commander_id);
-        ids.insert(0, commander_id);
+        if ids.contains(&commander_id) {
+            ids.retain(|id| *id != commander_id);
+            ids.insert(0, commander_id);
+        }
     }
-    let members = entry
-        .get("memberSnapshots")
-        .and_then(|value| value.as_array())
-        .cloned()
-        .unwrap_or_default();
     let frozen = ids
         .into_iter()
         .filter_map(|personnel_id| {
-            let member = members.iter().find(|member| {
-                member.get("personnelId").and_then(|value| value.as_i64())
-                    == Some(personnel_id)
-            })?;
-            let position = connection
+            let member = member_snapshot(&snapshot, personnel_id);
+            let current = connection
                 .query_row(
-                    "SELECT position FROM personnel WHERE id=?1",
+                    "SELECT trim(surname||' '||given_name||' '||patronymic),rank,position FROM personnel WHERE id=?1",
                     [personnel_id],
-                    |row| row.get::<_, String>(0),
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
                 )
-                .unwrap_or_default();
+                .ok()?;
             Some(serde_json::json!({
                 "personnelId": personnel_id,
-                "fullName": member.get("fullName").and_then(|value| value.as_str()).unwrap_or_default(),
-                "rank": member.get("rank").and_then(|value| value.as_str()).unwrap_or_default(),
-                "position": position,
+                "fullName": member.and_then(|value| value.get("fullName")).and_then(|value| value.as_str()).unwrap_or(&current.0),
+                "rank": member.and_then(|value| value.get("rank")).and_then(|value| value.as_str()).unwrap_or(&current.1),
+                "position": current.2,
                 "isCommander": commander_id == Some(personnel_id),
             }))
         })
@@ -454,5 +531,42 @@ mod tests {
         assert_eq!(personnel[0]["personnelId"], 42);
         assert_eq!(personnel[0]["position"], "командир");
         assert_eq!(personnel[1]["personnelId"], 41);
+    }
+
+    #[test]
+    fn freezes_composition_at_actual_sky_time_after_a_person_left() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::database::initialise(&connection).unwrap();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(4,'ГРІМ')", [])
+            .unwrap();
+        connection.execute(
+            "INSERT INTO personnel(id,surname,given_name,patronymic,rank,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id) VALUES(41,'ІВАНЕНКО','Іван','Іванович','солдат','оператор','1','','','','','','',''),(42,'ПЕТРЕНКО','Петро','Петрович','сержант','командир','2','','','','','','','')",
+            [],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO flight_plan_snapshots(id,plan_date,revision,snapshot_json) VALUES(1,'2026-09-12',1,?1)",
+            [r#"{
+                "entries":[
+                    {"crewId":4,"startTime":"08:00","actualMemberIds":[41,42],"actualCommanderId":42,"memberSnapshots":[{"personnelId":41,"fullName":"ІВАНЕНКО Іван Іванович","rank":"солдат"},{"personnelId":42,"fullName":"ПЕТРЕНКО Петро Петрович","rank":"сержант"}]},
+                    {"crewId":4,"startTime":"14:45","actualMemberIds":[42],"actualCommanderId":42,"memberSnapshots":[{"personnelId":41,"fullName":"ІВАНЕНКО Іван Іванович","rank":"солдат"},{"personnelId":42,"fullName":"ПЕТРЕНКО Петро Петрович","rank":"сержант"}]}
+                ],
+                "personnelTransitions":[{
+                    "crewId":4,"outgoingMemberIds":[41],"outgoingTime":"14:47",
+                    "incomingMemberIds":[],"incomingTime":"",
+                    "memberSnapshots":[{"personnelId":41,"fullName":"ІВАНЕНКО Іван Іванович","rank":"солдат"}]
+                }]
+            }"#],
+        ).unwrap();
+
+        let (_, before_transition) =
+            frozen_personnel_snapshot(&connection, "2026-09-12", Some(4), "14:46");
+        let before_transition = personnel_ids_from_snapshot(&before_transition);
+        assert!(before_transition.contains(&41));
+        assert!(before_transition.contains(&42));
+
+        let (_, after_transition) =
+            frozen_personnel_snapshot(&connection, "2026-09-12", Some(4), "14:50");
+        assert_eq!(personnel_ids_from_snapshot(&after_transition), vec![42]);
     }
 }

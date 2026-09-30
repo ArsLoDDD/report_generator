@@ -1,36 +1,21 @@
 .payments-page .page-frame__content {
+	display: grid;
+	grid-template-rows: minmax(0, 1fr);
 	min-height: 0;
 	overflow: hidden;
 }
 
-.payments-table {
-	height: 100%;
-	min-height: 0;
-	overflow: hidden;
-}
-
-.payments-table__scroll {
-	position: relative;
-	height: 100%;
-	min-height: 0;
-	overflow: auto;
-	overscroll-behavior: contain;
-}
-
-.payments-table table {
-	width: max-content;
-	min-width: 100%;
-	border-collapse: separate;
-	border-spacing: 0;
-}
+.payments-table { height: 100%; min-height: 0; overflow: hidden; }
+.payments-table__scroll { position: relative; height: 100%; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.payments-table table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; }
 
 .payments-table thead th {
 	position: sticky;
 	top: 0;
 	z-index: 3;
-	height: 48px;
-	min-width: 48px;
-	padding: 0 8px;
+	height: 44px;
+	min-width: 46px;
+	padding: 0 7px;
 	border-right: 1px solid var(--line);
 	border-bottom: 1px solid var(--line-strong);
 	background: #171a14;
@@ -40,7 +25,7 @@
 .payments-table thead th:first-child {
 	left: 0;
 	z-index: 5;
-	min-width: 320px;
+	min-width: 300px;
 	padding-inline: 16px;
 	text-align: left;
 }
@@ -49,10 +34,10 @@
 	position: sticky;
 	left: 0;
 	z-index: 2;
-	width: 320px;
-	min-width: 320px;
-	max-width: 320px;
-	padding: 11px 16px;
+	width: 300px;
+	min-width: 300px;
+	max-width: 300px;
+	padding: 9px 16px;
 	border-right: 1px solid var(--line-strong);
 	border-bottom: 1px solid #272b23;
 	background: #141712;
@@ -60,60 +45,127 @@
 }
 
 .payments-table tbody th b,
-.payments-table tbody th span {
-	display: block;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.payments-table tbody th b {
-	color: var(--text);
-	font-size: 12px;
-}
-
-.payments-table tbody th span {
-	margin-top: 4px;
-	color: var(--muted);
-	font-size: 10px;
-	font-weight: 500;
-}
+.payments-table tbody th span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.payments-table tbody th b { color: var(--text); font-size: 12px; }
+.payments-table tbody th span { margin-top: 3px; color: var(--muted); font-size: 10px; font-weight: 500; }
 
 .payments-table tbody td {
-	width: 48px;
-	min-width: 48px;
-	height: 52px;
+	width: 46px;
+	min-width: 46px;
+	height: 48px;
 	padding: 0;
 	border-right: 1px solid #272b23;
 	border-bottom: 1px solid #272b23;
-	background: rgba(17, 20, 15, 0.68);
+	background: rgba(17, 20, 15, .68);
+	box-shadow: inset 0 0 0 1px transparent;
 }
 
-.payments-table tbody tr:hover td,
-.payments-table tbody tr:hover th {
-	background: #1b1f18;
+.payments-table tbody td.tone-green { box-shadow: inset 0 0 0 2px rgba(105, 169, 93, .82); }
+.payments-table tbody td.tone-yellow { box-shadow: inset 0 0 0 2px rgba(212, 171, 73, .84); }
+.payments-table tbody td.tone-blue { box-shadow: inset 0 0 0 2px rgba(93, 155, 212, .84); }
+.payments-table tbody td.tone-white { box-shadow: inset 0 0 0 1px rgba(217, 221, 211, .48); }
+.payments-table tbody td.tone-danger { box-shadow: inset 0 0 0 2px rgba(208, 111, 101, .9); }
+.payments-table tbody td.tone-empty { box-shadow: none; }
+
+.payments-table tbody td > button {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	padding: 0 2px;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--text);
+	font: inherit;
+	font-size: 10px;
+	font-weight: 850;
+	cursor: pointer;
 }
 
-.payments-table thead th.is-column-highlighted {
-	background: #292f20;
-	color: var(--accent-text);
-}
+.payments-table tbody td > button i { position: absolute; top: 2px; right: 4px; color: var(--accent-text); font-size: 10px; font-style: normal; }
+.payments-table tbody td > button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.payments-table tbody td > button:disabled { cursor: wait; opacity: .55; }
+.payments-table tbody tr:hover > * { background-color: #1b1f18; }
 
-.payments-table tbody td.is-column-highlighted {
-	background: rgba(190, 211, 114, 0.1);
-}
+/* The active column is changed directly on one <col> element. This keeps the
+   vertical guide without re-rendering or restyling every N×31 cell. */
+.payments-table col.payment-day-column.is-hovered { background: rgba(190, 211, 114, .18); }
+.payments-table thead th.is-column-highlighted { background: #252c1c; color: var(--accent-text); }
 
-.payments-table tbody tr:hover td.is-column-highlighted {
-	background: rgba(190, 211, 114, 0.19);
-}
-
-.payments-table__state {
-	position: sticky;
-	left: 0;
-	width: min(520px, calc(100vw - 320px));
-	padding: 28px;
-	color: var(--muted);
-	text-align: center;
-}
-
+.payments-table tbody tr:hover td:hover { background-color: rgba(190, 211, 114, .22); }
+.payments-table__state { position: sticky; left: 0; width: min(520px, calc(100vw - 320px)); padding: 28px; color: var(--muted); text-align: center; }
 .payments-table__state.is-error { color: var(--danger); }
+
+.payment-cell-popover {
+	position: fixed;
+	z-index: 9000;
+	width: min(460px, calc(100vw - 24px));
+	max-height: calc(100vh - 24px);
+	max-height: calc(100dvh - 24px);
+	padding: 14px;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	border: 1px solid var(--line-strong);
+	border-radius: 12px;
+	background: #11140f;
+	box-shadow: 0 18px 48px rgba(0, 0, 0, .55);
+}
+
+.payment-cell-popover > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 11px; border-bottom: 1px solid var(--line); }
+.payment-cell-popover > header div { min-width: 0; }
+.payment-cell-popover > header b,
+.payment-cell-popover > header span { display: block; }
+.payment-cell-popover > header div > b { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.payment-cell-popover > header div > span { margin-top: 3px; color: var(--muted); font-size: 11px; }
+
+.payment-status-badge { flex: 0 0 auto; min-width: 48px; padding: 7px 9px; border: 1px solid; border-radius: 8px; text-align: center; font-size: 12px; font-weight: 850; }
+.payment-status-badge.tone-green { border-color: #69a95d; color: #a9d79f; }
+.payment-status-badge.tone-yellow { border-color: #d4ab49; color: #efd385; }
+.payment-status-badge.tone-blue { border-color: #5d9bd4; color: #9cc5eb; }
+.payment-status-badge.tone-white { border-color: #9ca197; color: var(--text); }
+.payment-status-badge.tone-danger { border-color: #d06f65; color: #f1a099; }
+.payment-status-badge.tone-empty { border-color: var(--line-strong); color: var(--muted); }
+
+.payment-cell-popover__fact { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 9px; padding: 12px 0; }
+.payment-cell-popover__fact > svg { width: 18px; color: var(--muted); }
+.payment-cell-popover__fact span,
+.payment-cell-popover__fact b,
+.payment-cell-popover__fact small { display: block; }
+.payment-cell-popover__fact span { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.payment-cell-popover__fact b { margin-top: 3px; color: var(--text); font-size: 12px; }
+.payment-cell-popover__fact small { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.payment-cell-popover__override { margin: 0 0 11px; padding: 8px 9px; border-radius: 7px; background: rgba(190, 211, 114, .08); color: var(--muted); font-size: 10px; line-height: 1.4; }
+
+.payment-cell-popover__actions { display: grid; grid-template-columns: repeat(5, minmax(62px, 1fr)); gap: 6px; }
+.payment-cell-popover__actions button { position: relative; min-height: 48px; padding: 6px; border: 1px solid var(--line); border-radius: 8px; background: #171a14; color: var(--text); cursor: pointer; }
+.payment-cell-popover__actions button:hover,
+.payment-cell-popover__actions button:focus-visible,
+.payment-cell-popover__actions button.active { border-color: var(--accent); background: rgba(190, 211, 114, .1); }
+.payment-cell-popover__actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.payment-cell-popover__actions button span,
+.payment-cell-popover__actions button small { display: block; }
+.payment-cell-popover__actions button span { font-weight: 850; }
+.payment-cell-popover__actions button small { margin-top: 2px; color: var(--muted); font-size: 8px; }
+.payment-cell-popover__actions button svg { width: 17px; color: var(--muted); }
+.payment-cell-popover__actions button .payment-action-check { position: absolute; top: 5px; right: 5px; width: 13px; color: var(--accent-text); }
+.payment-cell-popover__actions button.is-empty > svg:not(.payment-action-check) { display: block; margin: 0 auto 2px; }
+.payment-cell-popover__auto { display: flex; width: 100%; align-items: center; justify-content: center; gap: 7px; margin-top: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-size: 10px; }
+.payment-cell-popover__auto:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 1px; }
+.payment-cell-popover__auto svg { width: 14px; }
+.payment-cell-popover button:disabled { cursor: wait; opacity: .45; }
+
+.payments-export-modal { width: min(540px, calc(100vw - 32px)); }
+.payments-export-options { display: grid; gap: 10px; padding: 20px; }
+.payments-export-options > button { display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 12px; align-items: center; width: 100%; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #151912; color: var(--text); text-align: left; cursor: pointer; }
+.payments-export-options > button:hover,
+.payments-export-options > button:focus-visible { border-color: var(--accent); background: rgba(190, 211, 114, .08); outline: none; }
+.payments-export-options > button > svg { width: 24px; color: var(--accent-text); }
+.payments-export-options span,
+.payments-export-options b,
+.payments-export-options small { display: block; }
+.payments-export-options b { font-size: 14px; }
+.payments-export-options small { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+
+@media (max-width: 520px) {
+	.payment-cell-popover__actions { grid-template-columns: repeat(3, minmax(62px, 1fr)); }
+}

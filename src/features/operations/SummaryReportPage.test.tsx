@@ -14,7 +14,7 @@ const settings = {
   commander: {}, chief: {}, deputyPpp: {}, deputyArmament: {}, deputyRear: {}, fuelChief: {}, signerRoles: [],
   unit: {
     kind: "Рота", shortName: "РБАК", battalionShortName: "1 ББпС", militaryUnitShortName: "477 ОББпС",
-    reportRecipient: "Командиру 477 ОББпС", kspName: "ОРІОН", kspLocality: "КАЛИНІВКА", kspMgrs: "36U UV 40000 47000",
+    reportRecipient: "Командиру 477 ОББпС", kspName: "ОРІОН", kspLocality: "КАЛИНІВКА", kspMgrs: "36U UV 40000 47000", kspInBro: true,
     armyCorpsNumber: "1", authorizedStrength: 4,
   },
 };
@@ -84,6 +84,9 @@ describe("Підсумкове донесення", () => {
     const dialog = screen.getByRole("dialog", { name: "Параметри ПД" });
     expect(within(dialog).queryByLabelText("Адресат донесення")).not.toBeInTheDocument();
     expect(within(dialog).queryByLabelText("Коротка назва військової частини")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Назва КСП")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Населений пункт КСП")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Координати КСП")).not.toBeInTheDocument();
     fireEvent.change(within(dialog).getByLabelText(/^Повна назва батальйону у родовому відмінку/u), { target: { value: "першого батальйону безпілотних систем" } });
     fireEvent.change(within(dialog).getByLabelText(/^Коротка назва батальйону \/ військової частини/u), { target: { value: "1 ББпС" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Зберегти параметри" }));
@@ -93,6 +96,10 @@ describe("Підсумкове донесення", () => {
       reportRecipient: "першого батальйону безпілотних систем",
       battalionShortName: "1 ББпС",
       militaryUnitShortName: "1 ББпС",
+      kspName: "ОРІОН",
+      kspLocality: "КАЛИНІВКА",
+      kspMgrs: "36U UV 40000 47000",
+      kspInBro: true,
     }) }));
   });
 

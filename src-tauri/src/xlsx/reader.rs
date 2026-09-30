@@ -437,6 +437,7 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
                 .cloned()
                 .unwrap_or_default(),
             is_active: row.values.get("is_active").cloned().unwrap_or_default(),
+            in_bro: row.values.get("in_bro").cloned().unwrap_or_default(),
             crew_name: row.values.get("crew_name").cloned().unwrap_or_default(),
             notes: row.values.get("notes").cloned().unwrap_or_default(),
         })
@@ -619,6 +620,11 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
                         .get("until_separate_order")
                         .cloned()
                         .unwrap_or_default(),
+                    training_in_unit: row
+                        .values
+                        .get("training_in_unit")
+                        .cloned()
+                        .unwrap_or_default(),
                     notes: row.values.get("notes").cloned().unwrap_or_default(),
                     previous_location: row
                         .values
@@ -671,6 +677,11 @@ pub fn import(path: &Path) -> Result<ImportData, String> {
                 institution: row.values.get("institution").cloned().unwrap_or_default(),
                 start_date: row.values.get("start_date").cloned().unwrap_or_default(),
                 end_date: row.values.get("end_date").cloned().unwrap_or_default(),
+                training_in_unit: row
+                    .values
+                    .get("training_in_unit")
+                    .cloned()
+                    .unwrap_or_default(),
                 notes: row.values.get("notes").cloned().unwrap_or_default(),
                 reason: row.values.get("reason").cloned().unwrap_or_default(),
                 occurred_at: row.values.get("occurred_at").cloned().unwrap_or_default(),

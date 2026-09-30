@@ -44,6 +44,7 @@ const automatic: PersonnelControlRecord = {
   endDate: "",
   untilSeparateOrder: false,
   notes: "",
+  trainingInUnit: false,
   crewId: 3,
   crewName: "СОКІЛ",
   positionId: 2,
@@ -154,7 +155,21 @@ describe("PersonnelControl", () => {
     fireEvent.click(screen.getByRole("button", { name: "Зберегти" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("save_personnel_control_assignment", {
       assignmentId: null,
-      draft: { personnelId: 1, locationType: "ВІДР", institution: "Центр підготовки", startDate: "2026-09-17", endDate: "", notes: "" },
+      draft: { personnelId: 1, locationType: "ВІДР", institution: "Центр підготовки", startDate: "2026-09-17", endDate: "", notes: "", trainingInUnit: false },
+    }));
+  });
+
+  it("saves the in-unit training marker only for НАВЧ", async () => {
+    renderControl([]);
+    fireEvent.click(await screen.findByRole("button", { name: "Розподілити особовий склад" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: new RegExp(person.fullName, "u") }));
+    fireEvent.change(screen.getByLabelText("Навчальний заклад"), { target: { value: "Центр підготовки" } });
+    fireEvent.change(screen.getByLabelText("По яке число"), { target: { value: "2026-10-01" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Навчання у В/Ч" }));
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("save_personnel_control_assignment", {
+      assignmentId: null,
+      draft: expect.objectContaining({ locationType: "НАВЧ", trainingInUnit: true }),
     }));
   });
 
@@ -219,7 +234,7 @@ describe("PersonnelControl", () => {
   });
 
   it("shows the persistent history of manual assignment changes", async () => {
-    renderControl([], [{ id: 4, assignmentId: 8, personnelId: 1, fullName: person.fullName, action: "migrated", locationType: "ВІДР", institution: "Центр підготовки", startDate: "2026-09-17", endDate: "2026-09-19", notes: "Планове відрядження", reason: "Повернувся", occurredAt: "2026-09-19T10:30:00" }]);
+    renderControl([], [{ id: 4, assignmentId: 8, personnelId: 1, fullName: person.fullName, action: "migrated", locationType: "ВІДР", institution: "Центр підготовки", startDate: "2026-09-17", endDate: "2026-09-19", notes: "Планове відрядження", trainingInUnit: false, reason: "Повернувся", occurredAt: "2026-09-19T10:30:00" }]);
     fireEvent.click(await screen.findByRole("button", { name: "Історія" }));
     expect(await screen.findByText("Перенесено зі старої бази")).toBeInTheDocument();
     expect(screen.getByText("Центр підготовки")).toBeInTheDocument();
@@ -229,7 +244,7 @@ describe("PersonnelControl", () => {
   });
 
   it("loads long personnel history in bounded pages", async () => {
-    const event = (id: number): PersonnelControlHistoryEvent => ({ id, assignmentId: 8, personnelId: 1, fullName: `${person.fullName} ${id}`, action: "updated", locationType: "ВІДР", institution: "Центр", startDate: "2026-09-17", endDate: "", notes: "", reason: "", occurredAt: "2026-09-19T10:30:00" });
+    const event = (id: number): PersonnelControlHistoryEvent => ({ id, assignmentId: 8, personnelId: 1, fullName: `${person.fullName} ${id}`, action: "updated", locationType: "ВІДР", institution: "Центр", startDate: "2026-09-17", endDate: "", notes: "", trainingInUnit: false, reason: "", occurredAt: "2026-09-19T10:30:00" });
     const firstPage = Array.from({ length: 100 }, (_, index) => event(index + 1));
     invoke.mockImplementation((command: string, args?: { offset?: number }) => {
       if (command === "list_personnel_control_records") return Promise.resolve([]);

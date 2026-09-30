@@ -157,6 +157,10 @@ fn migrate_position_work_event_columns(connection: &Connection) -> Result<(), St
         ("position_locality", "TEXT NOT NULL DEFAULT ''"),
         ("position_strip_name", "TEXT NOT NULL DEFAULT ''"),
         ("members_json", "TEXT NOT NULL DEFAULT '[]'"),
+        (
+            "in_bro",
+            "INTEGER NOT NULL DEFAULT 0 CHECK(in_bro IN (0,1))",
+        ),
     ] {
         if existing_columns.iter().any(|existing| existing == column) {
             continue;
@@ -200,11 +204,12 @@ fn migrate_position_work_event_columns(connection: &Connection) -> Result<(), St
                 end_time TEXT NOT NULL DEFAULT '',
                 battle_order TEXT NOT NULL DEFAULT '',
                 notes TEXT NOT NULL DEFAULT '',
+                in_bro INTEGER NOT NULL DEFAULT 0 CHECK(in_bro IN (0,1)),
                 members_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
              );
-             INSERT INTO position_work_events_new(id,work_id,position_id,position_name,position_mgrs,position_locality,position_strip_name,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,members_json,created_at)
-             SELECT id,work_id,position_id,position_name,position_mgrs,position_locality,position_strip_name,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,members_json,created_at FROM position_work_events;
+             INSERT INTO position_work_events_new(id,work_id,position_id,position_name,position_mgrs,position_locality,position_strip_name,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,in_bro,members_json,created_at)
+             SELECT id,work_id,position_id,position_name,position_mgrs,position_locality,position_strip_name,work_type,status,start_date,start_time,end_date,end_time,battle_order,notes,in_bro,members_json,created_at FROM position_work_events;
              DROP TABLE position_work_events;
              ALTER TABLE position_work_events_new RENAME TO position_work_events;
              CREATE INDEX IF NOT EXISTS position_work_events_work_idx ON position_work_events(work_id,id);
@@ -259,6 +264,7 @@ fn migrate_position_work_location_columns(connection: &Connection) -> Result<(),
                 end_time TEXT NOT NULL DEFAULT '',
                 battle_order TEXT NOT NULL DEFAULT '',
                 notes TEXT NOT NULL DEFAULT '',
+                in_bro INTEGER NOT NULL DEFAULT 0 CHECK(in_bro IN (0,1)),
                 previous_position_type TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -285,6 +291,10 @@ fn migrate_position_work_location_columns(connection: &Connection) -> Result<(),
         ("strip_name", "TEXT NOT NULL DEFAULT ''"),
         ("position_locality", "TEXT NOT NULL DEFAULT ''"),
         ("position_mgrs", "TEXT NOT NULL DEFAULT ''"),
+        (
+            "in_bro",
+            "INTEGER NOT NULL DEFAULT 0 CHECK(in_bro IN (0,1))",
+        ),
     ] {
         if !columns.iter().any(|existing| existing == column) {
             connection
@@ -315,7 +325,7 @@ pub(crate) fn migrate_legacy_personnel_control_locations(
                    'Перенесено з попередньої версії БЧС','ОХ'
             FROM personnel
             WHERE current_location IN (
-                'ПУ','ШТАБ','УПР','КСП Роти','ЗАБ','ГШР','ЗХВ','ВІДП','НАВЧ','ВІДР','ЛІК',
+                'ПУ','ШТАБ','УПР','КСП Роти','ЗАБ','ГШР','ЗХВ','ВІДП','НАВЧ','ВІДР','ЛІК','ВЛК',
                 'Відкомандировані','ОХП','Прикомандирований','СЗЧ','ПТЗ Новостав','Логістика на позиції'
             )
               AND NOT EXISTS(
@@ -436,6 +446,33 @@ fn migrate_personnel_control_location_constraint(connection: &Connection) -> Res
             let _ = connection.execute_batch("ROLLBACK; PRAGMA foreign_keys=ON;");
             format!("Не вдалося розширити довідник контролю особового складу: {error}")
         })
+}
+
+fn migrate_personnel_control_payment_columns(connection: &Connection) -> Result<(), String> {
+    for (table, column) in [
+        ("personnel_control_assignments", "training_in_unit"),
+        ("personnel_control_events", "training_in_unit"),
+    ] {
+        let columns = connection
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| row.get::<_, String>(1))
+                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
+            })
+            .map_err(|error| format!("Не вдалося прочитати структуру {table}: {error}"))?;
+        if !columns.iter().any(|existing| existing == column) {
+            connection
+                .execute(
+                    &format!(
+                        "ALTER TABLE {table} ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0 CHECK({column} IN (0,1))"
+                    ),
+                    [],
+                )
+                .map_err(|error| format!("Не вдалося додати поле {column}: {error}"))?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1480,6 +1517,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             mgrs TEXT NOT NULL DEFAULT '',
             suitable_uav_text TEXT NOT NULL DEFAULT '',
             is_active INTEGER NOT NULL DEFAULT 0 CHECK(is_active IN (0,1)),
+            in_bro INTEGER NOT NULL DEFAULT 0 CHECK(in_bro IN (0,1)),
             crew_id INTEGER REFERENCES crews(id) ON DELETE SET NULL,
             notes TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1512,6 +1550,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
                strip_name TEXT NOT NULL DEFAULT '', locality TEXT NOT NULL DEFAULT '', battle_order TEXT NOT NULL DEFAULT '',
                sector TEXT NOT NULL DEFAULT '', condition TEXT NOT NULL DEFAULT '0', size TEXT NOT NULL DEFAULT '', mgrs TEXT NOT NULL DEFAULT '',
                suitable_uav_text TEXT NOT NULL DEFAULT '', is_active INTEGER NOT NULL DEFAULT 0 CHECK(is_active IN (0,1)),
+               in_bro INTEGER NOT NULL DEFAULT 0 CHECK(in_bro IN (0,1)),
                crew_id INTEGER REFERENCES crews(id) ON DELETE SET NULL, notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                condition_level INTEGER NOT NULL DEFAULT 0, field_type TEXT NOT NULL DEFAULT ''
              );
@@ -1528,6 +1567,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     for statement in [
         "ALTER TABLE positions ADD COLUMN condition_level INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE positions ADD COLUMN field_type TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE positions ADD COLUMN in_bro INTEGER NOT NULL DEFAULT 0 CHECK(in_bro IN (0,1))",
         "ALTER TABLE crews ADD COLUMN position_id INTEGER REFERENCES positions(id) ON DELETE SET NULL",
     ] {
         connection.execute(statement, []).ok();
@@ -1549,6 +1589,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
             end_time TEXT NOT NULL DEFAULT '',
             battle_order TEXT NOT NULL DEFAULT '',
             notes TEXT NOT NULL DEFAULT '',
+            in_bro INTEGER NOT NULL DEFAULT 0 CHECK(in_bro IN (0,1)),
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
@@ -1617,6 +1658,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
                 end_time TEXT NOT NULL DEFAULT '',
                 battle_order TEXT NOT NULL DEFAULT '',
                 notes TEXT NOT NULL DEFAULT '',
+                in_bro INTEGER NOT NULL DEFAULT 0 CHECK(in_bro IN (0,1)),
                 members_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
@@ -1832,6 +1874,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
                 start_date TEXT NOT NULL,
                 end_date TEXT NOT NULL DEFAULT '',
                 until_separate_order INTEGER NOT NULL DEFAULT 0 CHECK(until_separate_order IN (0,1)),
+                training_in_unit INTEGER NOT NULL DEFAULT 0 CHECK(training_in_unit IN (0,1)),
                 notes TEXT NOT NULL DEFAULT '',
                 previous_location TEXT NOT NULL DEFAULT 'ОХ',
                 closed_on TEXT NOT NULL DEFAULT '',
@@ -1858,6 +1901,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
                 institution TEXT NOT NULL DEFAULT '',
                 start_date TEXT NOT NULL DEFAULT '',
                 end_date TEXT NOT NULL DEFAULT '',
+                training_in_unit INTEGER NOT NULL DEFAULT 0 CHECK(training_in_unit IN (0,1)),
                 notes TEXT NOT NULL DEFAULT '',
                 reason TEXT NOT NULL DEFAULT '',
                 occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1868,6 +1912,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         .map_err(|_| "Не вдалося підготувати контроль особового складу.".to_string())?;
     migrate_personnel_control_event_columns(connection)?;
     migrate_personnel_control_location_constraint(connection)?;
+    migrate_personnel_control_payment_columns(connection)?;
     migrate_legacy_personnel_control_locations(connection)?;
     normalize_bcs_locations(connection)?;
     normalize_staff_positions(connection)?;
@@ -1890,6 +1935,20 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
                 ON deadline_reminders(status,due_at);",
         )
         .map_err(|_| "Не вдалося підготувати контроль строків.".to_string())?;
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS payment_daily_statuses (
+                personnel_id INTEGER NOT NULL REFERENCES personnel(id) ON DELETE CASCADE,
+                status_date TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(personnel_id,status_date)
+            );
+            CREATE INDEX IF NOT EXISTS payment_daily_statuses_month_idx
+                ON payment_daily_statuses(status_date,personnel_id);",
+        )
+        .map_err(|_| "Не вдалося підготувати дані виплат.".to_string())?;
     crate::operations::initialize_all_incident_workflows(connection)?;
     connection
         .pragma_update(None, "user_version", 8)

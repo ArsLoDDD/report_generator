@@ -408,9 +408,6 @@ export function SummaryReportPage() {
       <section className="summary-modal-group"><header><div><b>Реквізити підсумкового донесення</b><small>Підказка під кожним полем показує, де саме значення буде використано.</small></div></header><div className="summary-parameters-grid">{([
         ["battalionFullName", "Повна назва батальйону у родовому відмінку", "Використовується також як адресат донесення та в посаді основного підписанта."],
         ["battalionShortName", "Коротка назва батальйону / військової частини", "Використовується як коротка назва батальйону та військової частини в усьому документі."],
-        ["kspName", "Назва КСП", "У формі «КСП «НАЗВА»»."],
-        ["kspLocality", "Населений пункт КСП", "Без «н.п.»; потрібний префікс додається у документі."],
-        ["kspMgrs", "Координати КСП", "У дужках після району КСП."],
         ["armyCorpsNumber", "Номер АК", "Вводьте лише номер; «АК» додається у документі."],
         ["armNumber", "Номер АРМ", "У службовій позначці «АРМ № …»."],
       ] as const).map(([key, label, help]) => <label className={`form-field ${key === "battalionFullName" ? "wide" : ""}`} key={key}><span>{label}</span><input value={parameterDraft.unit[key] ?? ""} onChange={(event) => setParameterDraft((current) => ({ ...current, unit: { ...current.unit, [key]: event.target.value } }))} /><small>{help}</small></label>)}</div></section>

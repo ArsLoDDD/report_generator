@@ -8,8 +8,9 @@ const DATA_ARCHIVE_FORMAT: &str = "raportgen-data-archive";
 const DATA_ARCHIVE_VERSION: u32 = 2;
 const DATA_ARCHIVE_MANIFEST: &str = "raportgen-manifest.json";
 const DATA_ARCHIVE_EXCEL_PATH: &str = "data/Excel-база.xlsx";
-const DATABASE_ARCHIVE_SECTIONS: [&str; 22] = [
+const DATABASE_ARCHIVE_SECTIONS: [&str; 23] = [
     "personnel",
+    "payments",
     "staffing",
     "crews",
     "positions",
@@ -544,7 +545,11 @@ fn selected_database_sections(options: &DataArchiveOptions) -> Result<HashSet<St
     {
         return Err(format!("Непідтримуваний розділ архіву: {unknown}."));
     }
-    Ok(requested.into_iter().collect())
+    let selected = requested.into_iter().collect::<HashSet<_>>();
+    if selected.contains("payments") && !selected.contains("personnel") {
+        return Err("Для перенесення виплат також оберіть «Особовий склад».".to_string());
+    }
+    Ok(selected)
 }
 
 fn execute_archive_sql(connection: &Connection, sql: &str, label: &str) -> Result<(), String> {
@@ -580,6 +585,7 @@ fn filter_database_snapshot(
                 DELETE FROM crew_actual_members;
                 DELETE FROM personnel_control_assignments;
                 DELETE FROM personnel_control_events;
+                DELETE FROM payment_daily_statuses;
                 DELETE FROM position_work_members;
                 DELETE FROM position_work_periods;
                 DELETE FROM incident_personnel;
@@ -589,6 +595,13 @@ fn filter_database_snapshot(
                 DELETE FROM personnel;
                 DELETE FROM temporary_personnel;",
                 "особовий склад",
+            )?;
+        }
+        if !sections.contains("payments") {
+            execute_archive_sql(
+                &connection,
+                "DELETE FROM payment_daily_statuses;",
+                "виплати",
             )?;
         }
         if !sections.contains("staffing") {
@@ -719,6 +732,7 @@ fn filter_database_snapshot(
         }
 
         execute_archive_sql(&connection, "
+            DELETE FROM payment_daily_statuses WHERE personnel_id NOT IN (SELECT id FROM personnel);
             DELETE FROM crew_members WHERE crew_id NOT IN (SELECT id FROM crews) OR personnel_id NOT IN (SELECT id FROM personnel);
             DELETE FROM crew_actual_members WHERE crew_id NOT IN (SELECT id FROM crews) OR personnel_id NOT IN (SELECT id FROM personnel);
             DELETE FROM position_uavs WHERE position_id NOT IN (SELECT id FROM positions) OR equipment_id NOT IN (SELECT id FROM equipment);
@@ -1666,6 +1680,9 @@ fn selected_import_sections(
     {
         return Err(format!("В обраному архіві немає розділу «{unavailable}»."));
     }
+    if requested.contains("payments") && !requested.contains("personnel") {
+        return Err("Для перенесення виплат також оберіть «Особовий склад».".to_string());
+    }
     Ok(requested)
 }
 
@@ -1714,6 +1731,9 @@ fn merge_selected_database_sections(
                     "personnel",
                 ],
             )?;
+        }
+        if sections.contains("payments") {
+            replace_import_tables(&connection, &["payment_daily_statuses"])?;
         }
         if sections.contains("staffing") {
             replace_import_tables(
@@ -1859,6 +1879,7 @@ fn merge_selected_database_sections(
 
         connection.execute_batch(
             "DELETE FROM personnel_custom_fields WHERE personnel_id NOT IN (SELECT id FROM personnel);
+             DELETE FROM payment_daily_statuses WHERE personnel_id NOT IN (SELECT id FROM personnel);
              DELETE FROM personnel_staff_assignments WHERE personnel_id NOT IN (SELECT id FROM personnel);
              DELETE FROM staff_recommendations WHERE personnel_id NOT IN (SELECT id FROM personnel);
              DELETE FROM crew_members WHERE crew_id NOT IN (SELECT id FROM crews) OR personnel_id NOT IN (SELECT id FROM personnel);
@@ -2811,5 +2832,18 @@ mod archive_tests {
         assert_eq!(manifest.generated_at, "2026-09-17T10:00:00+03:00");
 
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn payments_export_requires_the_linked_personnel_section() {
+        let options = DataArchiveOptions {
+            database: true,
+            database_sections: vec!["payments".to_string()],
+            ..DataArchiveOptions::default()
+        };
+        assert_eq!(
+            selected_database_sections(&options).unwrap_err(),
+            "Для перенесення виплат також оберіть «Особовий склад»."
+        );
     }
 }

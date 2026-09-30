@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isAvailableForFlightPlan, isAvailableForPositionWork, isOperationallyAvailable } from "./bcs-model";
 
 describe("shared BCS availability policy", () => {
-  it.each(["ВІДП", "Відкомандировані", "СЗЧ", "ПТЗ Новостав", "НАВЧ", "ВІДР", "ЛІК"])(
+  it.each(["ВІДП", "Відкомандировані", "СЗЧ", "ПТЗ Новостав", "НАВЧ", "ВІДР", "ЛІК", "ВЛК"])(
     "blocks %s from operational assignments",
     (location) => {
       expect(isOperationallyAvailable(location)).toBe(false);

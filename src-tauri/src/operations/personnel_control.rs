@@ -5,7 +5,7 @@ use crate::AppState;
 use chrono::{Local, NaiveDate};
 use rusqlite::{params, Connection, OptionalExtension};
 
-const MANUAL_LOCATIONS: [&str; 14] = [
+const MANUAL_LOCATIONS: [&str; 15] = [
     "ОХ",
     "ПУ",
     "ШТАБ",
@@ -17,6 +17,7 @@ const MANUAL_LOCATIONS: [&str; 14] = [
     "НАВЧ",
     "ВІДР",
     "ЛІК",
+    "ВЛК",
     "Відкомандировані",
     "СЗЧ",
     "ПТЗ Новостав",
@@ -61,7 +62,7 @@ fn validate_draft(
     if !is_manual_control_location(location) {
         return Err("Цей стан змінюється автоматично у відповідному робочому розділі.".into());
     }
-    if ["НАВЧ", "ВІДР", "ЛІК", "Відкомандировані"].contains(&location)
+    if ["НАВЧ", "ВІДР", "ЛІК", "ВЛК", "Відкомандировані"].contains(&location)
         && draft.institution.trim().is_empty()
     {
         return Err("Вкажіть заклад або установу, де перебуває військовослужбовець.".into());
@@ -149,6 +150,7 @@ struct ControlEvent<'a> {
     institution: &'a str,
     start_date: &'a str,
     end_date: &'a str,
+    training_in_unit: bool,
     notes: &'a str,
     reason: &'a str,
 }
@@ -159,11 +161,11 @@ fn save_event(connection: &Connection, event: ControlEvent<'_>) -> Result<(), St
             "INSERT INTO personnel_control_events(
                 assignment_id,personnel_id,full_name_snapshot,rank_snapshot,position_snapshot,
                 action,location_type,institution,
-                start_date,end_date,notes,reason
+                start_date,end_date,training_in_unit,notes,reason
              )
              SELECT ?1,person.id,
                     trim(person.surname||' '||person.given_name||' '||person.patronymic),
-                    person.rank,person.position,?3,?4,?5,?6,?7,?8,?9
+                    person.rank,person.position,?3,?4,?5,?6,?7,?8,?9,?10
              FROM personnel person WHERE person.id=?2",
             params![
                 event.assignment_id,
@@ -173,6 +175,7 @@ fn save_event(connection: &Connection, event: ControlEvent<'_>) -> Result<(), St
                 event.institution,
                 event.start_date,
                 event.end_date,
+                event.training_in_unit,
                 event.notes,
                 event.reason
             ],
@@ -192,7 +195,7 @@ pub(crate) fn sync_manual_assignments_for_date(
         let mut statement = connection
             .prepare(
                 "SELECT id,personnel_id,location_type,institution,start_date,end_date,
-                        notes,previous_location
+                        notes,previous_location,training_in_unit
                  FROM personnel_control_assignments
                  WHERE closed_at IS NULL AND trim(end_date)<>'' AND date(end_date)<date(?1)
                  ORDER BY end_date,id",
@@ -209,6 +212,7 @@ pub(crate) fn sync_manual_assignments_for_date(
                     row.get::<_, String>(5)?,
                     row.get::<_, String>(6)?,
                     row.get::<_, String>(7)?,
+                    row.get::<_, bool>(8)?,
                 ))
             })
             .map_err(|_| "Не вдалося прочитати завершені переміщення.".to_string())?
@@ -219,7 +223,18 @@ pub(crate) fn sync_manual_assignments_for_date(
     let transaction = connection
         .unchecked_transaction()
         .map_err(|_| "Не вдалося почати оновлення контролю особового складу.".to_string())?;
-    for (id, personnel_id, location, institution, start_date, end_date, notes, previous) in due {
+    for (
+        id,
+        personnel_id,
+        location,
+        institution,
+        start_date,
+        end_date,
+        notes,
+        previous,
+        training_in_unit,
+    ) in due
+    {
         transaction
             .execute(
                 "UPDATE personnel_control_assignments
@@ -246,6 +261,7 @@ pub(crate) fn sync_manual_assignments_for_date(
                 institution: &institution,
                 start_date: &start_date,
                 end_date: &end_date,
+                training_in_unit,
                 notes: &notes,
                 reason: "Завершено автоматично за вказаною датою",
             },
@@ -300,7 +316,7 @@ fn tab_for(location: &str) -> String {
     }
 }
 
-type ManualAssignment = (i64, String, String, String, String, bool, String);
+type ManualAssignment = (i64, String, String, String, String, bool, String, bool);
 type AutomaticContext = (
     Option<i64>,
     String,
@@ -319,7 +335,7 @@ fn active_manual_assignment(
 ) -> Result<Option<ManualAssignment>, String> {
     connection
         .query_row(
-            "SELECT id,location_type,institution,start_date,end_date,until_separate_order,notes
+            "SELECT id,location_type,institution,start_date,end_date,until_separate_order,notes,training_in_unit
              FROM personnel_control_assignments
              WHERE personnel_id=?1 AND closed_at IS NULL
                AND date(start_date)<=date(?2)
@@ -335,6 +351,7 @@ fn active_manual_assignment(
                     row.get(4)?,
                     row.get::<_, i64>(5)? != 0,
                     row.get(6)?,
+                    row.get::<_, bool>(7)?,
                 ))
             },
         )
@@ -528,6 +545,7 @@ fn personnel_control_records(
                     end_date,
                     until_separate_order,
                     notes,
+                    training_in_unit,
                 ) = manual
                     .as_ref()
                     .map(|item| {
@@ -539,6 +557,7 @@ fn personnel_control_records(
                             item.4.clone(),
                             item.5,
                             item.6.clone(),
+                            item.7,
                         )
                     })
                     .unwrap_or_else(|| {
@@ -550,6 +569,7 @@ fn personnel_control_records(
                             String::new(),
                             false,
                             String::new(),
+                            false,
                         )
                     });
                 let automatic = manual.is_none()
@@ -619,6 +639,7 @@ fn personnel_control_records(
                     end_date,
                     until_separate_order,
                     notes,
+                    training_in_unit,
                     crew_id,
                     crew_name,
                     position_id,
@@ -711,6 +732,7 @@ fn save_assignment(
         );
     }
     let until_separate_order = location == "ВІДР" && end.is_none();
+    let training_in_unit = location == "НАВЧ" && draft.training_in_unit;
     let previous_location = existing
         .as_ref()
         .map(|item| item.2.clone())
@@ -720,14 +742,15 @@ fn save_assignment(
             .execute(
                 "UPDATE personnel_control_assignments
                  SET location_type=?1,institution=?2,start_date=?3,end_date=?4,
-                     until_separate_order=?5,notes=?6,updated_at=CURRENT_TIMESTAMP
-                 WHERE id=?7 AND closed_at IS NULL",
+                     until_separate_order=?5,training_in_unit=?6,notes=?7,updated_at=CURRENT_TIMESTAMP
+                 WHERE id=?8 AND closed_at IS NULL",
                 params![
                     location,
                     institution,
                     draft.start_date.trim(),
                     end_date,
                     until_separate_order,
+                    training_in_unit,
                     draft.notes.trim(),
                     id
                 ],
@@ -739,8 +762,8 @@ fn save_assignment(
             .execute(
                 "INSERT INTO personnel_control_assignments(
                     personnel_id,location_type,institution,start_date,end_date,
-                    until_separate_order,notes,previous_location
-                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+                    until_separate_order,training_in_unit,notes,previous_location
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
                 params![
                     draft.personnel_id,
                     location,
@@ -748,6 +771,7 @@ fn save_assignment(
                     draft.start_date.trim(),
                     end_date,
                     until_separate_order,
+                    training_in_unit,
                     draft.notes.trim(),
                     previous_location
                 ],
@@ -775,6 +799,7 @@ fn save_assignment(
             institution,
             start_date: draft.start_date.trim(),
             end_date: &end_date,
+            training_in_unit,
             notes: draft.notes.trim(),
             reason: "",
         },
@@ -820,9 +845,9 @@ fn close_assignment(
     let transaction = connection
         .unchecked_transaction()
         .map_err(|_| "Не вдалося почати завершення переміщення.".to_string())?;
-    let (personnel_id, location, institution, start_date, notes, _previous) = transaction
+    let (personnel_id, location, institution, start_date, notes, _previous, training_in_unit) = transaction
         .query_row(
-            "SELECT personnel_id,location_type,institution,start_date,notes,previous_location
+            "SELECT personnel_id,location_type,institution,start_date,notes,previous_location,training_in_unit
              FROM personnel_control_assignments WHERE id=?1 AND closed_at IS NULL",
             [assignment_id],
             |row| {
@@ -833,6 +858,7 @@ fn close_assignment(
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
+                    row.get::<_, bool>(6)?,
                 ))
             },
         )
@@ -870,6 +896,7 @@ fn close_assignment(
             institution: &institution,
             start_date: &start_date,
             end_date: end_date.trim(),
+            training_in_unit,
             notes: &notes,
             reason: &close_reason,
         },
@@ -913,7 +940,7 @@ pub fn list_personnel_control_history(
         .prepare(
             "SELECT event.id,event.assignment_id,event.personnel_id,event.full_name_snapshot,
                     event.action,event.location_type,event.institution,event.start_date,
-                    event.end_date,event.notes,event.reason,event.occurred_at
+                    event.end_date,event.training_in_unit,event.notes,event.reason,event.occurred_at
              FROM personnel_control_events event
              WHERE (?1 IS NULL OR event.personnel_id=?1)
              ORDER BY event.occurred_at DESC,event.id DESC
@@ -932,9 +959,10 @@ pub fn list_personnel_control_history(
                 institution: row.get(6)?,
                 start_date: row.get(7)?,
                 end_date: row.get(8)?,
-                notes: row.get(9)?,
-                reason: row.get(10)?,
-                occurred_at: row.get(11)?,
+                training_in_unit: row.get(9)?,
+                notes: row.get(10)?,
+                reason: row.get(11)?,
+                occurred_at: row.get(12)?,
             })
         })
         .map_err(|_| "Не вдалося прочитати історію контролю особового складу.".to_string())?
@@ -970,6 +998,7 @@ mod tests {
             start_date: "2026-09-10".into(),
             end_date: end_date.into(),
             notes: "Тест".into(),
+            training_in_unit: false,
         }
     }
 
@@ -984,7 +1013,41 @@ mod tests {
         assert!(validate_draft(&draft("ОХ", ""), today).is_ok());
         assert!(validate_draft(&draft("ВІДР", ""), today).is_ok());
         assert!(validate_draft(&draft("ЛІК", ""), today).is_ok());
+        assert!(validate_draft(&draft("ВЛК", ""), today).is_ok());
         assert!(validate_draft(&draft("ГШР", ""), today).is_err());
+    }
+
+    #[test]
+    fn in_unit_training_is_normalized_and_snapshotted() {
+        let connection = connection();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 17).unwrap();
+        let mut training = draft("НАВЧ", "2026-09-30");
+        training.training_in_unit = true;
+        let id = save_assignment(&connection, None, &training, today).unwrap();
+        let stored: (bool, bool) = connection
+            .query_row(
+                "SELECT assignment.training_in_unit,event.training_in_unit
+                 FROM personnel_control_assignments assignment
+                 JOIN personnel_control_events event ON event.assignment_id=assignment.id
+                 WHERE assignment.id=?1 ORDER BY event.id DESC LIMIT 1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(stored, (true, true));
+        assert!(personnel_control_records(&connection, "2026-09-17").unwrap()[0].training_in_unit);
+
+        let mut medical = draft("ЛІК", "");
+        medical.training_in_unit = true;
+        save_assignment(&connection, Some(id), &medical, today).unwrap();
+        let normalized: bool = connection
+            .query_row(
+                "SELECT training_in_unit FROM personnel_control_assignments WHERE id=?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!normalized);
     }
 
     #[test]

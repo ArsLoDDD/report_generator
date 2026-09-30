@@ -64,12 +64,12 @@ fn validate_control_timestamp(
     }
 }
 
-fn parse_control_bool(value: &str, row_number: usize) -> Result<i64, String> {
+fn parse_control_bool(value: &str, label: &str, row_number: usize) -> Result<i64, String> {
     match value.trim().to_lowercase().as_str() {
         "" | "0" | "ні" | "false" => Ok(0),
         "1" | "так" | "true" => Ok(1),
         _ => Err(format!(
-            "На аркуші «{}», рядок {row_number}, поле «До окремого розпорядження» має містити Так або Ні.",
+            "На аркуші «{}», рядок {row_number}, поле «{label}» має містити Так або Ні.",
             xlsx::PERSONNEL_CONTROL_ASSIGNMENTS_SHEET
         )),
     }
@@ -119,7 +119,7 @@ fn load_personnel_control_sheets(
             "SELECT CAST(assignment.id AS TEXT),person.tax_id,
                     trim(person.surname||' '||person.given_name||' '||person.patronymic),
                     assignment.location_type,assignment.institution,assignment.start_date,
-                    assignment.end_date,assignment.until_separate_order,assignment.notes,
+                    assignment.end_date,assignment.until_separate_order,assignment.training_in_unit,assignment.notes,
                     assignment.previous_location,assignment.closed_on,
                     COALESCE(assignment.closed_at,''),assignment.close_reason,
                     assignment.created_at,assignment.updated_at
@@ -144,13 +144,14 @@ fn load_personnel_control_sheets(
                 } else {
                     "Так".into()
                 },
-                notes: row.get(8)?,
-                previous_location: row.get(9)?,
-                closed_on: row.get(10)?,
-                closed_at: row.get(11)?,
-                close_reason: row.get(12)?,
-                created_at: row.get(13)?,
-                updated_at: row.get(14)?,
+                training_in_unit: if row.get::<_, i64>(8)? == 0 { "Ні".into() } else { "Так".into() },
+                notes: row.get(9)?,
+                previous_location: row.get(10)?,
+                closed_on: row.get(11)?,
+                closed_at: row.get(12)?,
+                close_reason: row.get(13)?,
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
             })
         })
         .map_err(|_| {
@@ -166,7 +167,7 @@ fn load_personnel_control_sheets(
                     COALESCE(trim(person.surname||' '||person.given_name||' '||person.patronymic),''),
                     CAST(event.personnel_id AS TEXT),event.full_name_snapshot,
                     event.rank_snapshot,event.position_snapshot,event.action,event.location_type,
-                    event.institution,event.start_date,event.end_date,event.notes,event.reason,
+                    event.institution,event.start_date,event.end_date,event.training_in_unit,event.notes,event.reason,
                     event.occurred_at
              FROM personnel_control_events event
              LEFT JOIN personnel person ON person.id=event.personnel_id
@@ -187,9 +188,10 @@ fn load_personnel_control_sheets(
                 institution: row.get(9)?,
                 start_date: row.get(10)?,
                 end_date: row.get(11)?,
-                notes: row.get(12)?,
-                reason: row.get(13)?,
-                occurred_at: row.get(14)?,
+                training_in_unit: if row.get::<_, i64>(12)? == 0 { "Ні".into() } else { "Так".into() },
+                notes: row.get(13)?,
+                reason: row.get(14)?,
+                occurred_at: row.get(15)?,
             })
         })
         .map_err(|_| "Не вдалося прочитати історію контролю особового складу для Excel.".to_string())?
@@ -209,11 +211,13 @@ fn import_personnel_control_sheets(
         row: &'a xlsx::PersonnelControlAssignmentRow,
         personnel_id: i64,
         until_separate_order: i64,
+        training_in_unit: i64,
     }
     struct ValidatedEvent<'a> {
         row: &'a xlsx::PersonnelControlEventRow,
         personnel_id: Option<i64>,
         orphan_personnel_id: i64,
+        training_in_unit: i64,
     }
 
     let assignment_sheet = xlsx::PERSONNEL_CONTROL_ASSIGNMENTS_SHEET;
@@ -242,7 +246,7 @@ fn import_personnel_control_sheets(
                 "На аркуші «{assignment_sheet}» повторюється службове посилання «{reference}»."
             ));
         }
-        if ["НАВЧ", "ВІДР", "ЛІК", "Відкомандировані"].contains(&row.location_type.trim())
+        if ["НАВЧ", "ВІДР", "ЛІК", "ВЛК", "Відкомандировані"].contains(&row.location_type.trim())
             && row.institution.trim().is_empty()
         {
             return Err(format!(
@@ -326,7 +330,16 @@ fn import_personnel_control_sheets(
         assignments.push(ValidatedAssignment {
             row,
             personnel_id,
-            until_separate_order: parse_control_bool(&row.until_separate_order, row_number)?,
+            until_separate_order: parse_control_bool(
+                &row.until_separate_order,
+                "До окремого розпорядження",
+                row_number,
+            )?,
+            training_in_unit: if row.location_type.trim() == "НАВЧ" {
+                parse_control_bool(&row.training_in_unit, "Навчання у В/Ч", row_number)?
+            } else {
+                0
+            },
         });
     }
 
@@ -381,6 +394,11 @@ fn import_personnel_control_sheets(
             row,
             personnel_id,
             orphan_personnel_id,
+            training_in_unit: if row.location_type.trim() == "НАВЧ" {
+                parse_control_bool(&row.training_in_unit, "Навчання у В/Ч", row_number)?
+            } else {
+                0
+            },
         });
     }
 
@@ -392,11 +410,11 @@ fn import_personnel_control_sheets(
             .execute(
                 "INSERT INTO personnel_control_assignments(
                     personnel_id,location_type,institution,start_date,end_date,
-                    until_separate_order,notes,previous_location,closed_on,closed_at,
+                    until_separate_order,training_in_unit,notes,previous_location,closed_on,closed_at,
                     close_reason,created_at,updated_at
-                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,NULLIF(?10,''),?11,
-                          COALESCE(NULLIF(?12,''),CURRENT_TIMESTAMP),
-                          COALESCE(NULLIF(?13,''),CURRENT_TIMESTAMP))",
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,NULLIF(?11,''),?12,
+                          COALESCE(NULLIF(?13,''),CURRENT_TIMESTAMP),
+                          COALESCE(NULLIF(?14,''),CURRENT_TIMESTAMP))",
                 rusqlite::params![
                     assignment.personnel_id,
                     row.location_type.trim(),
@@ -404,6 +422,7 @@ fn import_personnel_control_sheets(
                     row.start_date.trim(),
                     row.end_date.trim(),
                     assignment.until_separate_order,
+                    assignment.training_in_unit,
                     row.notes,
                     row.previous_location.trim(),
                     row.closed_on.trim(),
@@ -456,8 +475,8 @@ fn import_personnel_control_sheets(
                 "INSERT INTO personnel_control_events(
                     assignment_id,personnel_id,full_name_snapshot,rank_snapshot,
                     position_snapshot,action,location_type,institution,start_date,end_date,
-                    notes,reason,occurred_at
-                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+                    training_in_unit,notes,reason,occurred_at
+                 ) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
                 rusqlite::params![
                     assignment.map(|(id, _)| id),
                     personnel_id,
@@ -469,6 +488,7 @@ fn import_personnel_control_sheets(
                     row.institution,
                     row.start_date.trim(),
                     row.end_date.trim(),
+                    event.training_in_unit,
                     row.notes,
                     row.reason,
                     row.occurred_at.trim(),
@@ -712,6 +732,10 @@ pub(crate) fn import_personnel_xlsx(
         }
         for position in data.positions {
             let is_active = false;
+            let in_bro = matches!(
+                position.in_bro.trim().to_lowercase().as_str(),
+                "так" | "1" | "true" | "yes"
+            );
             let position_type = match position.position_type.trim() {
                 "" => "Основна",
                 "В облаштуванні" => "Облаштовується",
@@ -732,7 +756,7 @@ pub(crate) fn import_personnel_xlsx(
                 ));
             }
             let mgrs = operations::normalise_mgrs(&position.mgrs)?;
-            db.connection.execute("INSERT INTO positions(name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,crew_id,notes,condition_level,field_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,NULL,?12,?13,?14) ON CONFLICT(name) DO UPDATE SET position_type=excluded.position_type,strip_name=excluded.strip_name,locality=excluded.locality,battle_order=excluded.battle_order,condition=excluded.condition,mgrs=excluded.mgrs,notes=excluded.notes,condition_level=excluded.condition_level,field_type=excluded.field_type",rusqlite::params![position.name.trim(),position_type,position.strip_name.trim(),position.locality.trim(),position.battle_order.trim(),position.sector.trim(),position.condition.trim(),position.size.trim(),mgrs,position.suitable_uav_text.trim(),is_active,position.notes.trim(),position.condition_level.parse::<i64>().unwrap_or(0).clamp(0,100),position.field_type.trim()]).map_err(|_|"Не вдалося імпортувати позицію.".to_string())?;
+            db.connection.execute("INSERT INTO positions(name,position_type,strip_name,locality,battle_order,sector,condition,size,mgrs,suitable_uav_text,is_active,in_bro,crew_id,notes,condition_level,field_type) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,NULL,?13,?14,?15) ON CONFLICT(name) DO UPDATE SET position_type=excluded.position_type,strip_name=excluded.strip_name,locality=excluded.locality,battle_order=excluded.battle_order,condition=excluded.condition,mgrs=excluded.mgrs,notes=excluded.notes,condition_level=excluded.condition_level,field_type=excluded.field_type,in_bro=excluded.in_bro",rusqlite::params![position.name.trim(),position_type,position.strip_name.trim(),position.locality.trim(),position.battle_order.trim(),position.sector.trim(),position.condition.trim(),position.size.trim(),mgrs,position.suitable_uav_text.trim(),is_active,in_bro,position.notes.trim(),position.condition_level.parse::<i64>().unwrap_or(0).clamp(0,100),position.field_type.trim()]).map_err(|_|"Не вдалося імпортувати позицію.".to_string())?;
             count += 1;
             db.connection.execute("UPDATE crews SET position_id=(SELECT id FROM positions WHERE name=?1) WHERE position_name=?1",[position.name.trim()]).map_err(|_|"Не вдалося відновити зв’язок екіпажів із позицією.".to_string())?;
         }
@@ -1370,7 +1394,7 @@ pub(crate) fn export_personnel_xlsx_from_connection(
         service_code:row.get(15)?,catalog_name:row.get(16)?,full_name:row.get(17)?,nomenclature_number:row.get(18)?,serial_number:row.get(19)?,manufacture_year:row.get(20)?,accounting_unit:row.get(21)?,quantity:row.get::<_,f64>(22)?.to_string(),asset_value:row.get::<_,f64>(23)?.to_string(),parent_inventory_number:row.get(24)?,asset_type:row.get(25)?,service_data_json:row.get(26)?,catalog_fields_json:row.get(27)?,custom_values_json:row.get(28)?
     })).map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати майно для експорту.".to_string())?;
     let incidents = connection.prepare("SELECT COALESCE(NULLIF(i.custom_type_name,''),i.incident_type),i.occurred_at,COALESCE(c.name,''),COALESCE((SELECT group_concat(e2.category, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.category,''),COALESCE((SELECT group_concat(e2.inventory_number, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.inventory_number,''),COALESCE((SELECT group_concat(e2.name, ', ') FROM incident_equipment ie JOIN equipment e2 ON e2.id=ie.equipment_id WHERE ie.incident_id=i.id),e.name,''),i.position_name,i.reconnaissance_area,i.description FROM incidents i LEFT JOIN crews c ON c.id=i.crew_id LEFT JOIN equipment e ON e.id=i.equipment_id ORDER BY i.id").map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.query_map([], |row| Ok(xlsx::IncidentRow { incident_type:row.get(0)?,occurred_at:row.get(1)?,crew_name:row.get(2)?,equipment_category:row.get(3)?,equipment_inventory_number:row.get(4)?,equipment_name:row.get(5)?,position_name:row.get(6)?,reconnaissance_area:row.get(7)?,description:row.get(8)? })).map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_| "Не вдалося прочитати інциденти для експорту.".to_string())?;
-    let positions=connection.prepare("SELECT p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.condition_level,p.field_type,p.size,p.mgrs,p.suitable_uav_text,p.is_active,COALESCE(GROUP_CONCAT(c.name, ', '),''),p.notes FROM positions p LEFT JOIN crews c ON c.position_id=p.id GROUP BY p.id ORDER BY p.id").map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.query_map([],|row|Ok(xlsx::PositionRow{name:row.get(0)?,position_type:row.get(1)?,strip_name:row.get(2)?,locality:row.get(3)?,battle_order:row.get(4)?,sector:row.get(5)?,condition:row.get(6)?,condition_level:row.get::<_,i64>(7)?.to_string(),field_type:row.get(8)?,size:row.get(9)?,mgrs:row.get(10)?,suitable_uav_text:row.get(11)?,is_active:if row.get::<_,bool>(12)?{"Так".into()}else{"Ні".into()},crew_name:row.get(13)?,notes:row.get(14)?})).map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?;
+    let positions=connection.prepare("SELECT p.name,p.position_type,p.strip_name,p.locality,p.battle_order,p.sector,p.condition,p.condition_level,p.field_type,p.size,p.mgrs,p.suitable_uav_text,p.is_active,p.in_bro,COALESCE(GROUP_CONCAT(c.name, ', '),''),p.notes FROM positions p LEFT JOIN crews c ON c.position_id=p.id GROUP BY p.id ORDER BY p.id").map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.query_map([],|row|Ok(xlsx::PositionRow{name:row.get(0)?,position_type:row.get(1)?,strip_name:row.get(2)?,locality:row.get(3)?,battle_order:row.get(4)?,sector:row.get(5)?,condition:row.get(6)?,condition_level:row.get::<_,i64>(7)?.to_string(),field_type:row.get(8)?,size:row.get(9)?,mgrs:row.get(10)?,suitable_uav_text:row.get(11)?,is_active:if row.get::<_,bool>(12)?{"Так".into()}else{"Ні".into()},in_bro:if row.get::<_,bool>(13)?{"Так".into()}else{"Ні".into()},crew_name:row.get(14)?,notes:row.get(15)?})).map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?.collect::<Result<Vec<_>,_>>().map_err(|_|"Не вдалося прочитати позиції для експорту.".to_string())?;
     let personnel_control = load_personnel_control_sheets(connection)?;
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         xlsx::export_with_staffing(
@@ -1664,10 +1688,10 @@ mod personnel_control_excel_tests {
             .execute(
                 "INSERT INTO personnel_control_assignments(
                     id,personnel_id,location_type,institution,start_date,end_date,
-                    until_separate_order,notes,previous_location,closed_on,closed_at,
+                    until_separate_order,training_in_unit,notes,previous_location,closed_on,closed_at,
                     close_reason,created_at,updated_at
-                 ) VALUES(41,10,'ВІДР','Навчальний центр','2026-09-10','',1,
-                          'До окремого розпорядження','ОХ','','','',
+                 ) VALUES(41,10,'НАВЧ','Навчальний центр','2026-09-10','2026-09-30',0,1,
+                          'Навчання у В/Ч','ОХ','','','',
                           '2026-09-10 08:00:00','2026-09-10 09:00:00')",
                 [],
             )
@@ -1677,10 +1701,10 @@ mod personnel_control_excel_tests {
                 "INSERT INTO personnel_control_events(
                     id,assignment_id,personnel_id,full_name_snapshot,rank_snapshot,
                     position_snapshot,action,location_type,institution,start_date,end_date,
-                    notes,reason,occurred_at
+                    training_in_unit,notes,reason,occurred_at
                  ) VALUES(51,41,10,'ТЕСТОВИЙ Іван Іванович','солдат','оператор',
-                          'created','ВІДР','Навчальний центр','2026-09-10','',
-                          'До окремого розпорядження','','2026-09-10 08:00:00')",
+                          'created','НАВЧ','Навчальний центр','2026-09-10','2026-09-30',1,
+                          'Навчання у В/Ч','','2026-09-10 08:00:00')",
                 [],
             )
             .unwrap();
@@ -1746,43 +1770,48 @@ mod personnel_control_excel_tests {
             .unwrap();
         target.execute_batch("COMMIT").unwrap();
 
-        let (assignment_id, personnel_id, institution, created_at, updated_at) = target
-            .query_row(
-                "SELECT id,personnel_id,institution,created_at,updated_at
+        let (assignment_id, personnel_id, institution, training_in_unit, created_at, updated_at) =
+            target
+                .query_row(
+                    "SELECT id,personnel_id,institution,training_in_unit,created_at,updated_at
                  FROM personnel_control_assignments",
-                [],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                    ))
-                },
-            )
-            .unwrap();
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, i64>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, bool>(3)?,
+                            row.get::<_, String>(4)?,
+                            row.get::<_, String>(5)?,
+                        ))
+                    },
+                )
+                .unwrap();
         assert_ne!(assignment_id, 41);
         assert_eq!(personnel_id, new_personnel_id);
         assert_eq!(institution, "Навчальний центр");
+        assert!(training_in_unit);
         assert_eq!(created_at, "2026-09-10 08:00:00");
         assert_eq!(updated_at, "2026-09-10 09:00:00");
-        let (event_assignment_id, event_personnel_id, occurred_at) = target
+        let (event_assignment_id, event_personnel_id, training_in_unit, occurred_at) = target
             .query_row(
-                "SELECT assignment_id,personnel_id,occurred_at
+                "SELECT assignment_id,personnel_id,training_in_unit,occurred_at
                  FROM personnel_control_events WHERE full_name_snapshot='ТЕСТОВИЙ Іван Іванович'",
                 [],
                 |row| {
                     Ok((
                         row.get::<_, i64>(0)?,
                         row.get::<_, i64>(1)?,
-                        row.get::<_, String>(2)?,
+                        row.get::<_, bool>(2)?,
+                        row.get::<_, String>(3)?,
                     ))
                 },
             )
             .unwrap();
         assert_eq!(event_assignment_id, assignment_id);
         assert_eq!(event_personnel_id, new_personnel_id);
+        assert!(training_in_unit);
         assert_eq!(occurred_at, "2026-09-10 08:00:00");
         let orphan_ids = target
             .prepare(
