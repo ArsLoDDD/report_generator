@@ -1090,9 +1090,33 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
         "ALTER TABLE incidents ADD COLUMN reported_at TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE incidents ADD COLUMN source_flight_id INTEGER REFERENCES flight_journal_entries(id) ON DELETE SET NULL",
         "ALTER TABLE incidents ADD COLUMN event_data_json TEXT NOT NULL DEFAULT '{}'",
+        "ALTER TABLE incidents ADD COLUMN vehicle_id INTEGER REFERENCES vehicles(id) ON DELETE SET NULL",
+        "ALTER TABLE incidents ADD COLUMN vehicle_snapshot TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE incidents ADD COLUMN archived_at TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE incidents ADD COLUMN archive_reason TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE incidents ADD COLUMN custom_type_name TEXT NOT NULL DEFAULT ''",
     ] {
         connection.execute(sql, []).ok();
     }
+    connection
+        .execute_batch(
+            "CREATE INDEX IF NOT EXISTS incidents_archive_idx
+               ON incidents(archived_at,occurred_at DESC,id DESC);
+             UPDATE incidents
+             SET vehicle_id=(
+               SELECT v.id FROM vehicles v WHERE v.crew_id=incidents.crew_id ORDER BY v.id LIMIT 1
+             )
+             WHERE vehicle_id IS NULL
+               AND incident_type IN ('Знищення машини','Знищення автомобіля','Пошкодження машини','Пошкодження автомобіля','ДТП')
+               AND crew_id IS NOT NULL
+               AND (SELECT COUNT(*) FROM vehicles v WHERE v.crew_id=incidents.crew_id)=1;
+             UPDATE incidents
+             SET vehicle_snapshot=COALESCE((
+               SELECT trim(v.name || ' ' || v.registration_number) FROM vehicles v WHERE v.id=incidents.vehicle_id
+             ),'')
+             WHERE vehicle_id IS NOT NULL AND trim(vehicle_snapshot)='';",
+        )
+        .map_err(|_| "Не вдалося підготувати архів інцидентів.".to_string())?;
     connection
         .execute(
             "UPDATE incidents SET status='Чернетка' WHERE trim(status)='' OR status='Новий'",

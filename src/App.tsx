@@ -108,15 +108,6 @@ export default function App() {
     setReleaseNotesOpen(false);
   };
 
-  useEffect(() => {
-    const closeOnBackdrop = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (target.classList.contains("modal-backdrop")) target.querySelector<HTMLButtonElement>(".modal-actions .button")?.click();
-    };
-    document.addEventListener("click", closeOnBackdrop);
-    return () => document.removeEventListener("click", closeOnBackdrop);
-  }, []);
-
   return <NotificationProvider><GlobalTooltip /><DeadlineReminderNotifications /><div className={`product-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
     <AppSidebar screen={screen} collapsed={sidebarCollapsed} warnings={startupWarnings} appVersion={appVersion} onToggleCollapsed={toggleSidebar} onNavigate={(next) => { if (next === "report-analyser") setAnalyserVisited(true); setScreen(next); }} />
     <main className="workspace">

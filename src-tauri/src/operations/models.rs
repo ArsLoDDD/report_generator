@@ -773,6 +773,7 @@ pub struct Incident {
     pub id: i64,
     pub category: String,
     pub incident_type: String,
+    pub custom_type_name: String,
     pub status: String,
     pub occurred_at: String,
     pub crew_id: Option<i64>,
@@ -783,6 +784,7 @@ pub struct Incident {
     pub equipment_names: Vec<String>,
     pub personnel_ids: Vec<i64>,
     pub personnel_names: Vec<String>,
+    pub vehicle_id: Option<i64>,
     pub position_name: String,
     pub reconnaissance_area: String,
     pub crew_snapshot: String,
@@ -797,6 +799,8 @@ pub struct Incident {
     pub reported_at: String,
     pub source_flight_id: Option<i64>,
     pub event_data: serde_json::Value,
+    pub archived_at: String,
+    pub archive_reason: String,
     pub steps: Vec<IncidentStep>,
     pub documents: Vec<IncidentDocument>,
     pub history: Vec<IncidentHistoryEvent>,
@@ -844,6 +848,8 @@ pub struct IncidentDraft {
     pub category: String,
     pub incident_type: String,
     #[serde(default)]
+    pub custom_type_name: String,
+    #[serde(default)]
     pub status: String,
     pub occurred_at: String,
     pub crew_id: Option<i64>,
@@ -852,6 +858,8 @@ pub struct IncidentDraft {
     pub equipment_ids: Vec<i64>,
     #[serde(default)]
     pub personnel_ids: Vec<i64>,
+    #[serde(default)]
+    pub vehicle_id: Option<i64>,
     pub position_name: String,
     pub reconnaissance_area: String,
     pub description: String,
@@ -914,6 +922,7 @@ pub struct FlightJournalEntry {
     pub payload_type: String,
     pub payload_serial_number: String,
     pub notes: String,
+    pub personnel_ids: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

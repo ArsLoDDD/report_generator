@@ -21,6 +21,55 @@ fn is_fpv_uav_type(value: &str) -> bool {
     value.trim().to_lowercase().contains("фпв")
 }
 
+fn personnel_ids_from_snapshot(value: &str) -> Vec<i64> {
+    serde_json::from_str::<Vec<serde_json::Value>>(value)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|member| member.get("personnelId").and_then(|id| id.as_i64()))
+        .collect()
+}
+
+fn personnel_ids_from_plan_snapshot(value: &str, crew_id: Option<i64>, sky_time: &str) -> Vec<i64> {
+    let Some(crew_id) = crew_id else {
+        return Vec::new();
+    };
+    let Some(snapshot) = serde_json::from_str::<serde_json::Value>(value).ok() else {
+        return Vec::new();
+    };
+    let Some(entry) = snapshot
+        .get("entries")
+        .and_then(|entries| entries.as_array())
+        .and_then(|entries| {
+            entries
+                .iter()
+                .find(|entry| {
+                    entry.get("crewId").and_then(|value| value.as_i64()) == Some(crew_id)
+                        && entry.get("startTime").and_then(|value| value.as_str()) == Some(sky_time)
+                })
+                .or_else(|| {
+                    entries.iter().find(|entry| {
+                        entry.get("crewId").and_then(|value| value.as_i64()) == Some(crew_id)
+                    })
+                })
+        })
+    else {
+        return Vec::new();
+    };
+    let commander_id = entry
+        .get("actualCommanderId")
+        .and_then(|value| value.as_i64());
+    let mut ids: Vec<i64> = entry
+        .get("actualMemberIds")
+        .and_then(|value| value.as_array())
+        .map(|values| values.iter().filter_map(|value| value.as_i64()).collect())
+        .unwrap_or_default();
+    if let Some(commander_id) = commander_id {
+        ids.retain(|id| *id != commander_id);
+        ids.insert(0, commander_id);
+    }
+    ids
+}
+
 fn validate_completion_detail(
     event_type: &str,
     uav_type: &str,
@@ -143,19 +192,30 @@ pub fn list_flight_journal_entries(
 ) -> Result<Vec<FlightJournalEntry>, String> {
     let db = state.0.lock().map_err(|_| busy())?;
     let mut statement = db.connection.prepare(
-        "SELECT id,flight_date,sky_time,ground_time,completion_type,completion_time,completion_detail,crew_id,crew_name_snapshot,position_id,position_name_snapshot,battle_order_snapshot,work_strip_snapshot,uav_id,uav_name_snapshot,uav_type_snapshot,uav_serial_snapshot,mission,payload_source,payload_id,payload_type_snapshot,payload_serial_snapshot,notes FROM flight_journal_entries ORDER BY flight_date DESC,sky_time DESC,id DESC",
+        "SELECT id,flight_date,sky_time,ground_time,completion_type,completion_time,completion_detail,crew_id,crew_name_snapshot,position_id,position_name_snapshot,battle_order_snapshot,work_strip_snapshot,uav_id,uav_name_snapshot,uav_type_snapshot,uav_serial_snapshot,mission,payload_source,payload_id,payload_type_snapshot,payload_serial_snapshot,notes,personnel_snapshot_json,COALESCE((SELECT snapshot_json FROM flight_plan_snapshots WHERE id=flight_journal_entries.snapshot_id),'') FROM flight_journal_entries ORDER BY flight_date DESC,sky_time DESC,id DESC",
     ).map_err(|_| "Не вдалося прочитати журнал польотів.".to_string())?;
     let entries = statement
         .query_map([], |row| {
+            let sky_time = row.get::<_, String>(2)?;
+            let crew_id = row.get::<_, Option<i64>>(7)?;
+            let frozen_personnel = row.get::<_, String>(23)?;
+            let mut personnel_ids = personnel_ids_from_snapshot(&frozen_personnel);
+            if personnel_ids.is_empty() {
+                personnel_ids = personnel_ids_from_plan_snapshot(
+                    &row.get::<_, String>(24)?,
+                    crew_id,
+                    &sky_time,
+                );
+            }
             Ok(FlightJournalEntry {
                 id: row.get(0)?,
                 flight_date: row.get(1)?,
-                sky_time: row.get(2)?,
+                sky_time,
                 ground_time: row.get(3)?,
                 completion_type: row.get(4)?,
                 completion_time: row.get(5)?,
                 completion_detail: row.get(6)?,
-                crew_id: row.get(7)?,
+                crew_id,
                 crew_name: row.get(8)?,
                 position_id: row.get(9)?,
                 position_name: row.get(10)?,
@@ -171,6 +231,7 @@ pub fn list_flight_journal_entries(
                 payload_type: row.get(20)?,
                 payload_serial_number: row.get(21)?,
                 notes: row.get(22)?,
+                personnel_ids,
             })
         })
         .map_err(|_| "Не вдалося прочитати журнал польотів.".to_string())?
@@ -332,6 +393,27 @@ mod tests {
         }
         assert!(!is_strike_uav_type("Літаковий розвідувальний"));
         assert!(!is_strike_uav_type("НРК"));
+    }
+
+    #[test]
+    fn reads_personnel_ids_from_a_frozen_flight_snapshot() {
+        let value =
+            r#"[{"personnelId":7,"fullName":"Перший"},{"personnelId":9,"fullName":"Другий"}]"#;
+        assert_eq!(personnel_ids_from_snapshot(value), vec![7, 9]);
+        assert!(personnel_ids_from_snapshot("invalid").is_empty());
+    }
+
+    #[test]
+    fn falls_back_to_the_exact_saved_plan_snapshot_for_legacy_flights() {
+        let value = r#"{"entries":[{"crewId":4,"startTime":"08:20","actualMemberIds":[7,9],"actualCommanderId":9},{"crewId":4,"startTime":"10:40","actualMemberIds":[11]}]}"#;
+        assert_eq!(
+            personnel_ids_from_plan_snapshot(value, Some(4), "08:20"),
+            vec![9, 7]
+        );
+        assert_eq!(
+            personnel_ids_from_plan_snapshot(value, Some(4), "10:40"),
+            vec![11]
+        );
     }
 
     #[test]

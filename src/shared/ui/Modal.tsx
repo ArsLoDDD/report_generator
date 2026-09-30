@@ -72,6 +72,7 @@ export function Modal({ title, subtitle, children, onClose, className = "" }: Mo
   const modalDepth = useContext(ModalDepthContext) + 1;
   const panelRef = useRef<HTMLElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+  const backdropPressRef = useRef<number | null>(null);
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
   useEffect(() => {
@@ -121,7 +122,30 @@ export function Modal({ title, subtitle, children, onClose, className = "" }: Mo
     };
   }, []);
   const content = <ModalDepthContext.Provider value={modalDepth}>
-    <div ref={backdropRef} className="modal-backdrop" data-modal-root data-modal-depth={modalDepth} style={{ zIndex: 10_000 + modalDepth }} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div
+      ref={backdropRef}
+      className="modal-backdrop"
+      data-modal-root
+      data-modal-depth={modalDepth}
+      style={{ zIndex: 10_000 + modalDepth }}
+      role="presentation"
+      onPointerDown={(event) => {
+        // jsdom omits `button` for PointerEvent; real pointer events provide it.
+        const primaryPointer = typeof event.button !== "number" || event.button === 0;
+        const pressedBackdrop = primaryPointer
+          && event.target === event.currentTarget
+          && isTopModal(event.currentTarget);
+        backdropPressRef.current = pressedBackdrop ? event.pointerId : null;
+      }}
+      onPointerUp={(event) => {
+        const shouldClose = backdropPressRef.current === event.pointerId
+          && event.target === event.currentTarget
+          && isTopModal(event.currentTarget);
+        backdropPressRef.current = null;
+        if (shouldClose) onCloseRef.current();
+      }}
+      onPointerCancel={() => { backdropPressRef.current = null; }}
+    >
       <section ref={panelRef} tabIndex={-1} className={`modal-panel ${className}`} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="modal-header"><div><h2 id={titleId}>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button className="icon-button" aria-label="Закрити" onClick={onClose}><X /></button></header>
         {children}

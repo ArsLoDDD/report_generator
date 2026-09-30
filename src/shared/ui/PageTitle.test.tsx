@@ -21,7 +21,9 @@ describe("Редактор кастомних полів", () => {
     fireEvent.click(screen.getByRole("button", { name: "Редактор кастомних полів" }));
     expect(await screen.findByRole("dialog", { name: "Редактор кастомних полів" })).toBeInTheDocument();
     expect(screen.getByText("Підрозділ")).toBeInTheDocument();
-    fireEvent.mouseDown(document.querySelector(".modal-backdrop")!);
+    const backdrop = document.querySelector(".modal-backdrop")!;
+    fireEvent.pointerDown(backdrop, { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(backdrop, { button: 0, pointerId: 1 });
     expect(screen.queryByRole("dialog", { name: "Редактор кастомних полів" })).not.toBeInTheDocument();
   });
 

@@ -147,7 +147,7 @@
 	width: min(980px, calc(100vw - 40px));
 	height: min(760px, calc(100vh - 40px));
 	max-height: none;
-	grid-template-rows: auto auto minmax(0, 1fr);
+	grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 .incident-card .modal-header { min-height: 82px; padding: 16px 20px; }
 .incident-card .modal-header h2 { max-width: 820px; font-size: 18px; }
@@ -193,6 +193,7 @@
 .incident-card__next span { color: var(--muted); font-size: 11px; }
 .incident-card__status-editor { display: grid; grid-template-columns: repeat(2, minmax(210px, 1fr)); align-items: end; gap: 9px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .incident-card__status-editor label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; }
+.incident-card__status-editor > small { align-self: center; color: var(--muted); line-height: 1.4; }
 .incident-card__status-editor input { width: 100%; height: 41px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: #08141c; color: var(--text); }
 .incident-card__data-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
 .incident-card__data-editor { margin-top: 10px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; }
@@ -262,6 +263,7 @@
 .incident-editor__grid textarea { min-height: 64px; resize: vertical; }
 .incident-editor__picker-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; padding: 9px 10px; border-top: 1px solid var(--line); }
 .incident-editor__picker-row > div { display: flex; align-items: center; gap: 9px; }
+.incident-editor__picker-row > .searchable-select { flex: 0 1 430px; }
 .incident-editor__picker-row svg { width: 18px; color: var(--accent); }
 .incident-editor__picker-row span { display: grid; gap: 2px; }
 .incident-editor__picker-row small,.incident-editor__section-title small { color: var(--muted); }
@@ -277,7 +279,26 @@
 .incident-editor__explanations { display: grid; gap: 8px; }
 .incident-editor__explanations > div { display: grid; grid-template-columns: minmax(210px, .7fr) minmax(0, 1.5fr) auto; align-items: start; gap: 8px; }
 .incident-editor__explanations textarea { min-height: 64px; resize: vertical; }
+.incident-editor__subject-field { max-width: 360px; margin-top: 8px; }
+.incident-editor__context-grid { margin-top: 10px; }
+.incident-editor__locked { display: flex; align-items: center; gap: 12px; color: var(--muted); }
+.incident-editor__locked > svg { flex: 0 0 auto; color: var(--accent); }
+.incident-editor__locked p { margin: 4px 0 0; line-height: 1.45; }
+.incident-editor__picker-row b i { color: var(--danger); font-style: normal; }
+.incident-editor__witness-button { width: 100%; min-height: 43px; justify-content: flex-start; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.incident-card__actions { justify-content: flex-end; }
+.incident-card__actions .button:first-child { margin-right: auto; }
+.incident-transition-dialog textarea,.incident-archive-dialog textarea { width: 100%; min-height: 82px; resize: vertical; }
+.incident-transition-dialog .confirm-dialog__message > div,.incident-archive-dialog .confirm-dialog__message > div { display: grid; flex: 1; gap: 12px; }
+.incident-archive-dialog .confirm-dialog__message { align-items: flex-start; }
+.incidents-page .page-title { flex-wrap: wrap; }
+.incidents-page .page-title .header-actions { flex-wrap: nowrap; max-width: 100%; min-width: max-content; margin-left: auto; }
+.incidents-page .page-title .incident-list-tabs { flex: 0 0 auto; max-width: none; margin-inline: 0; overflow: visible; }
+.incident-list-tabs button { min-width: 112px; justify-content: center; }
 @media (max-width: 760px) {
+	.incidents-page .page-title .header-actions { width: 100%; min-width: 0; flex-wrap: wrap; }
+	.incidents-page .page-title .incident-list-tabs { width: 100%; }
+	.incident-list-tabs button { flex: 1 1 0; min-width: 0; }
 	.incident-editor__grid { grid-template-columns: 1fr; }
 	.incident-editor__grid .form-field--wide { grid-column: 1; }
 	.incident-card__workflow-head { align-items: flex-start; }

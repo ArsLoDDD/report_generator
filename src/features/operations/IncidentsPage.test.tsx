@@ -2,399 +2,618 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
 import { IncidentsPage } from "./IncidentsPage";
-import { FLIGHT_PLAN_STORAGE_KEY } from "./flight-plan-storage";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
-const incident = (id: number) => ({ id, category: "Майно", incidentType: `Подія ${id}`, status: "Чернетка", occurredAt: "2026-08-18T09:30", crewId: 4, crewName: "ГРІМ", equipmentId: 8, equipmentName: "VAMPIRE", equipmentIds: [8], equipmentNames: ["VAMPIRE"], personnelIds: [12], personnelNames: ["ЖУК Дмитро Петрович"], positionName: "ХИЖАК", reconnaissanceArea: "СТЕПОВЕ", crewSnapshot: "Іваненко Іван Іванович", vehicleName: "Toyota Hilux АА 2103 КТ", description: `Опис ${id}`, immediateActions: "", consequences: "", flightStage: "", preliminaryCause: "", snapshotSource: "current", reportedTo: "", reportedAt: "", sourceFlightId: null, eventData: {}, steps: [], documents: [], history: [] });
-const pendingPlan = (overrides: Record<string, unknown> = {}) => ({
-  schemaVersion: 3,
-  date: "12.09.2026",
-  unitName: "РБПАК",
-  selected: [4],
-  entries: {
-    4: {
-      crewId: 4,
-      actualMemberIds: [],
-      startTime: "07:00",
-      endTime: "12:00",
-      areaPoints: [],
-      uavSelections: [],
-      positionName: "ВИПРАВЛЕНА",
-      ...overrides,
-    },
-  },
-  rotations: {},
-  pendingSave: { date: "2026-09-12", revision: 2, updatedAt: 200 },
+const people = [
+  { id: 1, fullName: "ІВАНЕНКО Іван Іванович", rank: "солдат", position: "Оператор" },
+  { id: 2, fullName: "ПЕТРЕНКО Петро Петрович", rank: "сержант", position: "Командир" },
+  { id: 3, fullName: "КОВАЛЕНКО Марія Олегівна", rank: "старший солдат", position: "Медик" },
+].map((item) => ({
+  ...item,
+  surname: item.fullName.split(" ")[0],
+  givenName: item.fullName.split(" ")[1],
+  patronymic: item.fullName.split(" ")[2],
+  taxId: "",
+  birthDate: "",
+  educationLevel: "",
+  educationDetails: "",
+  armedForcesServiceStartDate: "",
+  positionAssignedDate: "",
+  positionAssignmentOrder: "",
+  militaryId: "",
+  assignedVehicleName: "",
+  assignedVehicleRegistration: "",
+}));
+
+const crew = {
+  id: 4,
+  name: "ГРІМ",
+  positionId: 2,
+  positionName: "ХИЖАК",
+  reconnaissanceArea: "СТЕПОВЕ",
+  members: people.map((item) => ({ personnelId: item.id, fullName: item.fullName, rank: item.rank, position: item.position, callsign: "" })),
+  actualMembers: people.map((item) => ({ personnelId: item.id, fullName: item.fullName, rank: item.rank, position: item.position, callsign: "" })),
+};
+
+const position = { id: 2, name: "ХИЖАК", locality: "СЕЛО", mgrs: "36U AA 12345 67890" };
+
+const asset = (id: number, name: string, category = "uav", crewId: number | null = 4) => ({
+  id,
+  category,
+  name,
+  inventoryNumber: `INV-${id}`,
+  status: "Справний",
+  crewId,
+  crewName: crewId ? "ГРІМ" : null,
+  personnelId: null,
+  holderName: null,
+  totalQuantity: 1,
+  dayQuantity: 1,
+  nightQuantity: 0,
+  assetKind: "aircraft",
+  componentsJson: "[]",
+  assignedQuantity: 1,
+  weaponKind: "component",
+  measurementUnit: "шт.",
+  stockQuantity: 1,
+  notes: "",
 });
 
-afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers(); localStorage.clear(); });
+const vehicle = {
+  id: 15,
+  name: "Ford Ranger",
+  registrationNumber: "АА 1234 КТ",
+  status: "Справний",
+  personnelId: 2,
+  driverName: "ПЕТРЕНКО Петро Петрович",
+  crewId: 4,
+  crewName: "ГРІМ",
+};
+
+const incident = (id: number, overrides: Record<string, unknown> = {}) => ({
+  id,
+  category: "Інше",
+  incidentType: `Подія ${id}`,
+  customTypeName: "",
+  status: "Чернетка",
+  occurredAt: "2026-08-18T09:30",
+  crewId: null,
+  crewName: null,
+  equipmentId: null,
+  equipmentName: null,
+  equipmentIds: [] as number[],
+  equipmentNames: [] as string[],
+  personnelIds: [1],
+  personnelNames: ["ІВАНЕНКО Іван Іванович"],
+  positionName: "",
+  reconnaissanceArea: "",
+  crewSnapshot: "",
+  vehicleName: "",
+  description: `Опис ${id}`,
+  immediateActions: "",
+  consequences: "",
+  flightStage: "",
+  preliminaryCause: "",
+  snapshotSource: "current",
+  reportedTo: "",
+  reportedAt: "",
+  sourceFlightId: null,
+  vehicleId: null,
+  eventData: {},
+  archivedAt: "",
+  archiveReason: "",
+  steps: [],
+  documents: [],
+  history: [],
+  ...overrides,
+});
+
+type MockData = {
+  incidents?: ReturnType<typeof incident>[];
+  archived?: ReturnType<typeof incident>[];
+  crews?: unknown[];
+  positions?: unknown[];
+  flights?: unknown[];
+  equipment?: unknown[];
+  people?: unknown[];
+  vehicles?: unknown[];
+  plan?: string | null;
+};
+
+function mockData(data: MockData = {}) {
+  invoke.mockImplementation((command: string, args?: Record<string, unknown>) => {
+    if (command === "list_incidents") return Promise.resolve(data.incidents ?? []);
+    if (command === "list_archived_incidents") return Promise.resolve(data.archived ?? []);
+    if (command === "list_crews") return Promise.resolve(data.crews ?? []);
+    if (command === "list_positions") return Promise.resolve(data.positions ?? []);
+    if (command === "list_flight_journal_entries") return Promise.resolve(data.flights ?? []);
+    if (command === "list_equipment") return Promise.resolve((data.equipment ?? []).filter((item) => (item as { category?: unknown }).category === args?.category));
+    if (command === "list_personnel") return Promise.resolve({ items: data.people ?? [], totalCount: data.people?.length ?? 0 });
+    if (command === "list_vehicles") return Promise.resolve(data.vehicles ?? []);
+    if (command === "get_flight_plan_snapshot") return Promise.resolve(data.plan ?? null);
+    return Promise.resolve();
+  });
+}
+
+function renderPage() {
+  return render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
+}
+
+async function openNewIncident() {
+  fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
+  return screen.getByRole("dialog", { name: "Новий інцидент" });
+}
+
+function topDialog() {
+  const dialogs = screen.getAllByRole("dialog");
+  return dialogs[dialogs.length - 1];
+}
+
+async function chooseSearchable(label: string, search: string, option: RegExp | string) {
+  fireEvent.click(screen.getByRole("button", { name: label }));
+  fireEvent.change(screen.getByRole("textbox", { name: `Пошук: ${label}` }), { target: { value: search } });
+  fireEvent.click(await screen.findByRole("option", { name: option }));
+}
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  vi.useRealTimers();
+  localStorage.clear();
+});
 
 describe("Журнал інцидентів", () => {
-  it("показує по 20 записів, підвантажує решту та відкриває деталі з нормальною датою і часом", async () => {
-    const incidents = Array.from({ length: 25 }, (_, index) => incident(index + 1));
-    invoke.mockImplementation((command: string) => command === "list_incidents" ? Promise.resolve(incidents) : command === "list_crews" || command === "list_equipment" ? Promise.resolve([]) : Promise.resolve());
-    const { container } = render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
-
-    expect(await screen.findByText("Показано 20 із 25")).toBeInTheDocument();
-    expect(screen.getByText("Подія 25")).toBeInTheDocument();
-    expect(screen.queryByText("Подія 1")).not.toBeInTheDocument();
-    const scroll = container.querySelector<HTMLElement>(".data-table__scroll")!;
-    Object.defineProperties(scroll, { scrollHeight: { value: 1000 }, clientHeight: { value: 500 }, scrollTop: { value: 450, configurable: true } });
-    fireEvent.scroll(scroll);
-    await waitFor(() => expect(screen.getByText("Показано 25 із 25")).toBeInTheDocument());
-    expect(screen.getByText("Подія 1")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText("Подія 25"));
-    expect(screen.getByRole("heading", { name: "Подія 25 - ЖУК Д.П. - 18.08.2026" })).toBeInTheDocument();
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("Інцидент №25")).toBeInTheDocument();
-    expect(within(dialog).getByText("18.08.2026 · 09:30")).toBeInTheDocument();
+  it("використовує окремий компактний перемикач активних та архівних записів", () => {
+    mockData();
+    renderPage();
+    expect(screen.getByRole("navigation", { name: "Стан списку інцидентів" })).toHaveClass("incident-list-tabs");
   });
 
-  it("додає +N до першої основної особи у назві відкритої картки", async () => {
-    const item = { ...incident(1), personnelNames: ["Жук Дмитро Петрович", "Іваненко Іван Іванович", "Петренко Олег Сергійович"] };
-    invoke.mockImplementation((command: string) => command === "list_incidents" ? Promise.resolve([item]) : command === "list_crews" || command === "list_equipment" ? Promise.resolve([]) : Promise.resolve());
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
+  it("створює інший інцидент з окремо введених назви, дати й часу", async () => {
+    mockData();
+    renderPage();
+    await openNewIncident();
 
-    fireEvent.click(await screen.findByText("Подія 1"));
-    expect(screen.getByRole("heading", { name: "Подія 1 - ЖУК Д.П. +2 - 18.08.2026" })).toBeInTheDocument();
-  });
-
-  it("використовує закріплену за майном особу, якщо окремих осіб інциденту немає", async () => {
-    const item = { ...incident(2), personnelIds: [], personnelNames: [] };
-    const asset = { id: 8, category: "uav", name: "VAMPIRE", inventoryNumber: "UAV-008", status: "Справний", crewId: 4, crewName: "ГРІМ", personnelId: 17, holderName: "Коваленко Марія Олегівна", totalQuantity: 1, dayQuantity: 1, nightQuantity: 0, assetKind: "aircraft", componentsJson: "[]", assignedQuantity: 1, weaponKind: "component", measurementUnit: "шт.", stockQuantity: 1, notes: "" };
-    invoke.mockImplementation((command: string, args?: { category?: string }) => {
-      if (command === "list_incidents") return Promise.resolve([item]);
-      if (command === "list_equipment") return Promise.resolve(args?.category === "uav" ? [asset] : []);
-      if (command === "list_crews") return Promise.resolve([]);
-      return Promise.resolve();
-    });
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
-
-    fireEvent.click(await screen.findByText("Подія 2"));
-    expect(await screen.findByRole("heading", { name: "Подія 2 - КОВАЛЕНКО М.О. - 18.08.2026" })).toBeInTheDocument();
-  });
-
-  it("використовує історичний знімок перед поточним екіпажем або нейтральний текст", async () => {
-    const withCrew = { ...incident(3), equipmentId: null, equipmentIds: [], equipmentName: null, equipmentNames: [], personnelIds: [], personnelNames: [] };
-    const withoutResponsible = { ...withCrew, id: 4, incidentType: "Подія 4", crewId: null, crewName: null, crewSnapshot: "" };
-    const commander = { personnelId: 31, fullName: "Романенко Назар Володимирович", rank: "старший сержант", position: "Командир екіпажу", callsign: "" };
-    const crew = { id: 4, name: "ГРІМ", members: [commander], actualMembers: [commander] };
-    invoke.mockImplementation((command: string) => command === "list_incidents" ? Promise.resolve([withCrew, withoutResponsible]) : command === "list_crews" ? Promise.resolve([crew]) : command === "list_equipment" ? Promise.resolve([]) : Promise.resolve());
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
-
-    fireEvent.click(await screen.findByText("Подія 3"));
-    expect(await screen.findByRole("heading", { name: "Подія 3 - ІВАНЕНКО І.І. - 18.08.2026" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Закрити" }));
-    fireEvent.click(screen.getByText("Подія 4"));
-    expect(screen.getByRole("heading", { name: "Подія 4 - особу не вказано - 18.08.2026" })).toBeInTheDocument();
-  });
-
-  it("для іншого інциденту просить назву події та зберігає дату і час з окремих полів", async () => {
-    invoke.mockImplementation((command: string) => command === "list_incidents" || command === "list_crews" || command === "list_equipment" ? Promise.resolve([]) : Promise.resolve());
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
     fireEvent.change(screen.getByLabelText("Категорія інциденту"), { target: { value: "Інше" } });
     fireEvent.change(screen.getByPlaceholderText("Наприклад, вимушена посадка"), { target: { value: "Вимушена посадка" } });
     fireEvent.change(screen.getByLabelText("Дата"), { target: { value: "2026-09-12" } });
     fireEvent.change(screen.getByLabelText("Час"), { target: { value: "14:45" } });
     fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", { draft: expect.objectContaining({ incidentType: "Вимушена посадка", occurredAt: "2026-09-12T14:45" }) }));
-  });
-
-  it("не надсилає інцидент без обов’язкових дати та часу", async () => {
-    invoke.mockImplementation((command: string) => command === "list_incidents" || command === "list_crews" || command === "list_equipment" ? Promise.resolve([]) : Promise.resolve());
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
-    fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
-    const date=screen.getByLabelText("Дата");
-    const time=screen.getByLabelText("Час");
-    expect(date).toBeRequired();
-    expect(time).toBeRequired();
-
-    fireEvent.change(time, { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
-    expect(await screen.findByText("Вкажіть обов’язкові дату та час інциденту.")).toBeInTheDocument();
-    expect(invoke).not.toHaveBeenCalledWith("create_incident", expect.anything());
-
-    fireEvent.change(time, { target: { value: "14:45" } });
-    fireEvent.change(date, { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
-    expect(invoke).not.toHaveBeenCalledWith("create_incident", expect.anything());
-
-    fireEvent.change(date, { target: { value: "2026-09-12" } });
-    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", { draft: expect.objectContaining({ occurredAt: "2026-09-12T14:45" }) }));
-  });
-
-  it("не показує у створенні поступові службові поля, яких немає у факті нової події", async () => {
-    invoke.mockImplementation((command: string) => command === "list_incidents" || command === "list_crews" || command === "list_equipment" || command === "list_flight_journal_entries" ? Promise.resolve([]) : Promise.resolve());
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
-    expect(screen.getByRole("heading", { name: "Фактичні дані події" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Обставини події")).toBeInTheDocument();
-    for (const label of ["Ланцюжок доповіді", "Спосіб доповіді", "Відповідальний за супровід", "Першочергові дії", "Кому доповіли", "Дата доповіді", "Час доповіді", "Наслідки / поточний результат", "Пояснення", "Списання"]) {
-      expect(screen.queryByText(label)).not.toBeInTheDocument();
-    }
-  });
-
-  it("показує фактичний склад і дозволяє вибрати кілька одиниць лише з майна обраного екіпажу", async () => {
-    const member = { personnelId: 41, fullName: "ІВАНЕНКО Іван Іванович", rank: "солдат", position: "Оператор", callsign: "СОКІЛ" };
-    const crew = { id: 4, name: "ГРІМ", positionName: "ХИЖАК", reconnaissanceArea: "СТЕПОВЕ", actualMembers: [member] };
-    const asset = (id: number, category: string, name: string, crewId: number | null) => ({ id, category, name, inventoryNumber: `INV-${id}`, status: "Справний", crewId, crewName: crewId ? "ГРІМ" : null, personnelId: null, holderName: null, totalQuantity: 1, dayQuantity: 1, nightQuantity: 0, assetKind: "aircraft", componentsJson: "[]", assignedQuantity: 1, notes: "" });
-    const mavic = asset(8, "uav", "MAVIC 3T", 4);
-    const generator = asset(9, "generator", "EcoFlow", 4);
-    const foreign = asset(10, "communications", "Hytera", null);
-    invoke.mockImplementation((command: string, args?: { category?: string }) => {
-      if (command === "list_incidents") return Promise.resolve([]);
-      if (command === "list_crews") return Promise.resolve([crew]);
-      if (command === "list_equipment") return Promise.resolve(args?.category === "uav" ? [mavic] : args?.category === "generator" ? [generator] : args?.category === "communications" ? [foreign] : []);
-      return Promise.resolve();
-    });
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
-    expect(screen.getByRole("button", { name: "Додати майно" })).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Екіпаж інциденту"), { target: { value: "4" } });
-    expect(screen.getByDisplayValue("ХИЖАК")).toBeInTheDocument();
-    expect(screen.getByText("ІВАНЕНКО Іван Іванович")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Додати майно" }));
-    expect(screen.queryByText("Hytera")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("MAVIC 3T"));
-    fireEvent.click(screen.getByText("EcoFlow"));
-    fireEvent.click(screen.getByRole("button", { name: "Готово" }));
-    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
-
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", { draft: expect.objectContaining({ crewId: 4, positionName: "ХИЖАК", equipmentIds: [8, 9] }) }));
-  });
-
-  it("підтягує позицію зі знімка БД саме за датою інциденту", async () => {
-    const crew = { id: 4, name: "ГРІМ", positionName: "ПОТОЧНА", reconnaissanceArea: "СТЕПОВЕ", actualMembers: [] };
-    invoke.mockImplementation((command: string, args?: { planDate?: string }) => {
-      if (command === "list_incidents" || command === "list_equipment") return Promise.resolve([]);
-      if (command === "list_crews") return Promise.resolve([crew]);
-      if (command === "get_flight_plan_snapshot") {
-        return Promise.resolve(args?.planDate === "2026-09-12"
-          ? JSON.stringify({ unitName: "РБПАК", entries: [{ crewId: 4, positionName: "АРХІВНА" }] })
-          : null);
-      }
-      return Promise.resolve();
-    });
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
-    fireEvent.change(screen.getByLabelText("Екіпаж інциденту"), { target: { value: "4" } });
-    expect(screen.getByDisplayValue("ПОТОЧНА")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Дата"), { target: { value: "2026-09-12" } });
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("get_flight_plan_snapshot", { planDate: "2026-09-12" }));
-    await waitFor(() => expect(screen.getByDisplayValue("АРХІВНА")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", {
-      draft: expect.objectContaining({ occurredAt: expect.stringMatching(/^2026-09-12T/u), positionName: "АРХІВНА", snapshotSource: "flight-plan-snapshot" }),
+      draft: expect.objectContaining({ category: "Інше", incidentType: "Інший інцидент", customTypeName: "Вимушена посадка", occurredAt: "2026-09-12T14:45" }),
     }));
   });
 
-  it("надає валідному pending-виправленню пріоритет над старим знімком БД", async () => {
-    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify(pendingPlan()));
-    const crew = { id: 4, name: "ГРІМ", positionName: "ПОТОЧНА", reconnaissanceArea: "СТЕПОВЕ", actualMembers: [] };
-    invoke.mockImplementation((command: string) => {
-      if (command === "list_incidents" || command === "list_equipment") return Promise.resolve([]);
-      if (command === "list_crews") return Promise.resolve([crew]);
-      if (command === "get_flight_plan_snapshot") return Promise.resolve(JSON.stringify({ unitName: "РБПАК", entries: [{ crewId: 4, positionName: "СТАРА З БД" }] }));
-      return Promise.resolve();
-    });
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
+  it("повторно показує і дозволяє змінити власну назву іншого інциденту", async () => {
+    mockData({ incidents: [incident(9, { incidentType: "Інший інцидент", customTypeName: "Несправність генератора" })] });
+    renderPage();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
-    fireEvent.change(screen.getByLabelText("Екіпаж інциденту"), { target: { value: "4" } });
-    fireEvent.change(screen.getByLabelText("Дата"), { target: { value: "2026-09-12" } });
+    fireEvent.click(await screen.findByText("Несправність генератора"));
+    expect(screen.getByRole("heading", { name: /Несправність генератора/u })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Редагувати чернетку" }));
+    const name = screen.getByPlaceholderText("Наприклад, вимушена посадка");
+    expect(name).toHaveValue("Несправність генератора");
+    fireEvent.change(name, { target: { value: "Аварійне відключення генератора" } });
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти зміни" }));
 
-    await waitFor(() => expect(screen.getByDisplayValue("ВИПРАВЛЕНА")).toBeInTheDocument());
-    expect(screen.queryByDisplayValue("СТАРА З БД")).not.toBeInTheDocument();
-  });
-
-  it("ігнорує невалідний pending і використовує знімок БД", async () => {
-    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify(pendingPlan({ areaPoints: "не масив" })));
-    const crew = { id: 4, name: "ГРІМ", positionName: "ПОТОЧНА", reconnaissanceArea: "СТЕПОВЕ", actualMembers: [] };
-    invoke.mockImplementation((command: string) => {
-      if (command === "list_incidents" || command === "list_equipment") return Promise.resolve([]);
-      if (command === "list_crews") return Promise.resolve([crew]);
-      if (command === "get_flight_plan_snapshot") return Promise.resolve(JSON.stringify({ unitName: "РБПАК", entries: [{ crewId: 4, positionName: "АКТУАЛЬНА З БД" }] }));
-      return Promise.resolve();
-    });
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
-    fireEvent.change(screen.getByLabelText("Екіпаж інциденту"), { target: { value: "4" } });
-    fireEvent.change(screen.getByLabelText("Дата"), { target: { value: "2026-09-12" } });
-
-    await waitFor(() => expect(screen.getByDisplayValue("АКТУАЛЬНА З БД")).toBeInTheDocument());
-    expect(screen.queryByDisplayValue("ВИПРАВЛЕНА")).not.toBeInTheDocument();
-  });
-
-  it("не підмішує завтрашню локальну чернетку до інциденту за іншу дату", async () => {
-    localStorage.setItem(FLIGHT_PLAN_STORAGE_KEY, JSON.stringify({
-      date: "18.09.2026",
-      unitName: "РБПАК",
-      selected: [4],
-      entries: { 4: { crewId: 4, actualMemberIds: [], startTime: "07:00", endTime: "12:00", positionName: "ЗАВТРА" } },
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_incident_draft", {
+      incidentId: 9,
+      draft: expect.objectContaining({ incidentType: "Інший інцидент", customTypeName: "Аварійне відключення генератора" }),
     }));
-    const crew = { id: 4, name: "ГРІМ", positionName: "ПОТОЧНА", reconnaissanceArea: "СТЕПОВЕ", actualMembers: [] };
-    invoke.mockImplementation((command: string) => {
-      if (command === "list_incidents" || command === "list_equipment") return Promise.resolve([]);
-      if (command === "list_crews") return Promise.resolve([crew]);
-      if (command === "get_flight_plan_snapshot") return Promise.resolve(null);
-      return Promise.resolve();
-    });
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
+  });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
-    fireEvent.change(screen.getByLabelText("Дата"), { target: { value: "2026-09-17" } });
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("get_flight_plan_snapshot", { planDate: "2026-09-17" }));
-    fireEvent.change(screen.getByLabelText("Екіпаж інциденту"), { target: { value: "4" } });
+  it("для особового складу дає один пошуковий вибір людини, без «Особи події», а у пораненні немає зони ураження", async () => {
+    mockData({ people });
+    renderPage();
+    await openNewIncident();
 
-    expect(screen.getByDisplayValue("ПОТОЧНА")).toBeInTheDocument();
-    expect(screen.queryByDisplayValue("ЗАВТРА")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Категорія інциденту"), { target: { value: "Особовий склад" } });
+    expect(screen.getByLabelText("Тип інциденту")).toHaveValue("Поранення");
+    expect(screen.queryByText("Зона ураження")).not.toBeInTheDocument();
+    expect(screen.queryByText("Особи події")).not.toBeInTheDocument();
+
+    await chooseSearchable("Військовослужбовець інциденту", "Марія", /КОВАЛЕНКО Марія Олегівна/u);
+    expect(screen.getByRole("button", { name: "Військовослужбовець інциденту" })).toHaveTextContent("КОВАЛЕНКО Марія Олегівна");
     fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
+
     await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", {
-      draft: expect.objectContaining({ positionName: "ПОТОЧНА", snapshotSource: "current" }),
+      draft: expect.objectContaining({ incidentType: "Поранення", personnelIds: [3] }),
     }));
   });
 
-  it("створює втрату БпЛА від запису журналу та вимагає два пояснення", async () => {
+  it("для травми вимагає двох різних свідків з поясненнями", async () => {
+    mockData({ people });
+    renderPage();
+    await openNewIncident();
+    fireEvent.change(screen.getByLabelText("Категорія інциденту"), { target: { value: "Особовий склад" } });
+    fireEvent.change(screen.getByLabelText("Тип інциденту"), { target: { value: "Травма" } });
+    expect(screen.getByText("Зона травми")).toBeInTheDocument();
+    await chooseSearchable("Військовослужбовець інциденту", "Іваненко", /ІВАНЕНКО Іван Іванович/u);
+
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
+    expect(await screen.findByText("Додайте щонайменше два пояснення свідків.")).toBeInTheDocument();
+
+    await chooseSearchable("Свідок 1", "Петренко", /ПЕТРЕНКО Петро Петрович/u);
+    fireEvent.change(screen.getByLabelText("Пояснення 1"), { target: { value: "Бачив подію" } });
+    fireEvent.click(screen.getByRole("button", { name: "Свідок 2" }));
+    expect(screen.queryByRole("option", { name: /ПЕТРЕНКО Петро Петрович/u })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Пошук: Свідок 2" }), { target: { value: "Коваленко" } });
+    fireEvent.click(screen.getByRole("option", { name: /КОВАЛЕНКО Марія Олегівна/u }));
+    fireEvent.change(screen.getByLabelText("Пояснення 2"), { target: { value: "Підтверджую" } });
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", {
+      draft: expect.objectContaining({
+        incidentType: "Травма",
+        personnelIds: [1],
+        eventData: expect.objectContaining({ explanations: [
+          expect.objectContaining({ personId: 2, text: "Бачив подію" }),
+          expect.objectContaining({ personId: 3, text: "Підтверджую" }),
+        ] }),
+      }),
+    }));
+  });
+
+  it("для втрати майна показує достовірний контекст лише для читання і дозволяє обрати тільки закріплене майно", async () => {
+    const ownUav = asset(8, "MAVIC 3T");
+    const ownGenerator = asset(9, "EcoFlow", "generator");
+    const foreign = asset(10, "Hytera", "communications", null);
+    mockData({ crews: [crew], positions: [position], equipment: [ownUav, ownGenerator, foreign] });
+    renderPage();
+    await openNewIncident();
+
+    expect(screen.getByRole("button", { name: /Обрати майно/u })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Екіпаж інциденту"), { target: { value: "4" } });
+    await waitFor(() => expect(screen.getByText("ХИЖАК")).toBeInTheDocument());
+    expect(screen.queryByDisplayValue("ХИЖАК")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Обрати майно/u }));
+    const picker = topDialog();
+    expect(within(picker).getByText("MAVIC 3T")).toBeInTheDocument();
+    expect(within(picker).getByText("EcoFlow")).toBeInTheDocument();
+    expect(within(picker).queryByText("Hytera")).not.toBeInTheDocument();
+    fireEvent.click(within(picker).getByRole("checkbox", { name: /MAVIC 3T/u }));
+    fireEvent.click(within(picker).getByRole("checkbox", { name: /EcoFlow/u }));
+    fireEvent.click(within(picker).getByRole("button", { name: "Готово" }));
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", {
+      draft: expect.objectContaining({ crewId: 4, positionName: "ХИЖАК", equipmentIds: [8, 9] }),
+    }));
+  });
+
+  it("блокує дані втрати БпЛА до вибору польоту, а потім показує похідні поля тільки для читання", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-09-13T10:00:00"));
-    const members = [
-      { personnelId: 41, fullName: "ІВАНЕНКО Іван Іванович", rank: "солдат", position: "Оператор", callsign: "" },
-      { personnelId: 42, fullName: "ПЕТРЕНКО Петро Петрович", rank: "сержант", position: "Командир", callsign: "" },
-    ];
-    const crew = { id: 4, name: "ГРІМ", positionName: "ПОТОЧНА", reconnaissanceArea: "СТЕПОВЕ", actualMembers: members };
-    const flight = { id: 77, flightDate: "2026-09-12", skyTime: "14:45", groundTime: "15:10", crewId: 4, crewName: "ГРІМ", positionId: 2, positionName: "АРХІВНА", battleOrder: "БРО-2", workStrip: "СМУГА", uavId: 8, uavName: "MAVIC 3T", uavType: "Коптер", uavSerialNumber: "UAV-8", mission: "Розвідка", payloadSource: "equipment", payloadId: 9, payloadType: "БК", payloadSerialNumber: "БК-9", notes: "" };
-    const asset = { id: 8, category: "uav", name: "MAVIC 3T", inventoryNumber: "UAV-8", status: "Справний", crewId: 4, crewName: "ГРІМ", personnelId: null, holderName: null, totalQuantity: 1, dayQuantity: 1, nightQuantity: 0, assetKind: "aircraft", componentsJson: "[]", assignedQuantity: 1, weaponKind: "component", measurementUnit: "шт.", stockQuantity: 1, notes: "" };
-    invoke.mockImplementation((command: string, args?: { category?: string }) => {
-      if (command === "list_incidents") return Promise.resolve([]);
-      if (command === "list_crews") return Promise.resolve([crew]);
-      if (command === "list_flight_journal_entries") return Promise.resolve([flight]);
-      if (command === "list_equipment") return Promise.resolve(args?.category === "uav" ? [asset] : []);
-      if (command === "get_flight_plan_snapshot") return Promise.resolve(null);
-      return Promise.resolve();
-    });
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
+    const flight = {
+      id: 77,
+      flightDate: "2026-09-12",
+      skyTime: "14:45",
+      groundTime: "15:10",
+      crewId: 4,
+      crewName: "ГРІМ",
+      positionId: 2,
+      positionName: "АРХІВНА",
+      battleOrder: "БРО-2",
+      workStrip: "СМУГА",
+      uavId: 8,
+      uavName: "MAVIC 3T",
+      uavType: "Коптер",
+      uavSerialNumber: "UAV-8",
+      personnelIds: [1, 2, 3],
+      mission: "Розвідка",
+      payloadType: "БК",
+      payloadSerialNumber: "БК-9",
+      notes: "",
+    };
+    mockData({ crews: [crew], positions: [position], flights: [flight], equipment: [asset(8, "MAVIC 3T")], people });
+    renderPage();
+    await openNewIncident();
     fireEvent.change(screen.getByLabelText("Категорія інциденту"), { target: { value: "БпЛА" } });
-    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
-    expect(await screen.findByText("Для втрати БпЛА оберіть запис із журналу польотів.")).toBeInTheDocument();
+
+    expect(screen.getByText("Спочатку оберіть запис журналу польотів")).toBeInTheDocument();
+    expect(screen.getByLabelText("Дата")).toBeDisabled();
+    expect(screen.getByLabelText("Час")).toBeDisabled();
+    expect(screen.queryByRole("heading", { name: "Фактичні дані події" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Екіпаж інциденту")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Запис журналу польотів"), { target: { value: "77" } });
     expect(screen.getByLabelText("Дата")).toHaveValue("2026-09-12");
     expect(screen.getByLabelText("Час")).toHaveValue("14:45");
-    fireEvent.change(screen.getByLabelText("Особа пояснення 1"), { target: { value: "41" } });
-    fireEvent.change(screen.getByLabelText("Пояснення 1"), { target: { value: "Перше пояснення" } });
-    fireEvent.change(screen.getByLabelText("Особа пояснення 2"), { target: { value: "42" } });
-    fireEvent.change(screen.getByLabelText("Пояснення 2"), { target: { value: "Друге пояснення" } });
-    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
-
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", { draft: expect.objectContaining({ sourceFlightId: 77, crewId: 4, positionName: "АРХІВНА", equipmentIds: [8], snapshotSource: "flight-journal", eventData: expect.objectContaining({ sourceFlight: expect.stringContaining("Політ №77"), explanations: expect.arrayContaining([expect.objectContaining({ text: "Перше пояснення" }), expect.objectContaining({ text: "Друге пояснення" })]) }) }) }));
+    expect(screen.getByText("UAV-8 · БК: БК")).toBeInTheDocument();
+    expect(screen.getByText("АРХІВНА")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("АРХІВНА")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Фактичні дані події" })).toBeInTheDocument();
   });
 
-  it("для втрати БпЛА показує тільки польоти за останні 24 години", async () => {
+  it("для втрати БпЛА залишає тільки польоти останніх 24 годин і вимагає два пояснення", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date("2026-09-28T12:00:00"));
     const flights = [
-      { id: 1, flightDate: "2026-09-27", skyTime: "11:59", crewName: "СТАРИЙ", uavName: "UAV-1", notes: "" },
-      { id: 2, flightDate: "2026-09-27", skyTime: "12:01", crewName: "АКТУАЛЬНИЙ", uavName: "UAV-2", notes: "" },
+      { id: 1, flightDate: "2026-09-27", skyTime: "11:59", crewId: 4, crewName: "СТАРИЙ", uavId: 8, uavName: "UAV-1", notes: "" },
+      { id: 2, flightDate: "2026-09-27", skyTime: "12:01", crewId: 4, crewName: "АКТУАЛЬНИЙ", positionName: "ХИЖАК", uavId: 8, uavName: "UAV-2", uavSerialNumber: "UAV-2-SN", personnelIds: [1, 2, 3], notes: "" },
     ];
-    invoke.mockImplementation((command: string) => command === "list_flight_journal_entries" ? Promise.resolve(flights) : command === "list_incidents" || command === "list_crews" || command === "list_equipment" ? Promise.resolve([]) : Promise.resolve());
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Додати інцидент" }));
+    mockData({
+      crews: [crew],
+      flights,
+      equipment: [asset(8, "UAV-2")],
+      people,
+      plan: JSON.stringify({ unitName: "РБПАК", entries: [{ crewId: 4, actualMemberIds: [3], positionName: "СТАРИЙ СКЛАД" }] }),
+    });
+    renderPage();
+    await openNewIncident();
     fireEvent.change(screen.getByLabelText("Категорія інциденту"), { target: { value: "БпЛА" } });
-    const select = screen.getByLabelText("Запис журналу польотів");
-    expect(within(select).queryByRole("option", { name: /СТАРИЙ/u })).not.toBeInTheDocument();
-    expect(within(select).getByRole("option", { name: /АКТУАЛЬНИЙ/u })).toBeInTheDocument();
+
+    const source = screen.getByLabelText("Запис журналу польотів");
+    expect(within(source).queryByRole("option", { name: /СТАРИЙ/u })).not.toBeInTheDocument();
+    expect(within(source).getByRole("option", { name: /АКТУАЛЬНИЙ/u })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
+    expect(await screen.findByText("Для втрати БпЛА оберіть запис із журналу польотів.")).toBeInTheDocument();
+
+    fireEvent.change(source, { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
+    expect(await screen.findByText("Додайте щонайменше два пояснення свідків.")).toBeInTheDocument();
+    await chooseSearchable("Свідок 1", "Іваненко", /ІВАНЕНКО Іван Іванович/u);
+    fireEvent.change(screen.getByLabelText("Пояснення 1"), { target: { value: "Перше пояснення" } });
+    await chooseSearchable("Свідок 2", "Петренко", /ПЕТРЕНКО Петро Петрович/u);
+    fireEvent.change(screen.getByLabelText("Пояснення 2"), { target: { value: "Друге пояснення" } });
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", {
+      draft: expect.objectContaining({
+        sourceFlightId: 2,
+        crewId: 4,
+        equipmentIds: [8],
+        snapshotSource: "flight-journal",
+        eventData: expect.objectContaining({ explanations: expect.arrayContaining([
+          expect.objectContaining({ personId: 1, text: "Перше пояснення" }),
+          expect.objectContaining({ personId: 2, text: "Друге пояснення" }),
+        ]) }),
+      }),
+    }));
   });
 
-  it("зберігає стан одразу без кнопки «Застосувати»", async () => {
-    const item = { ...incident(50), incidentType: "Втрата майна" };
-    invoke.mockImplementation((command: string) => command === "list_incidents" ? Promise.resolve([item]) : command === "list_crews" || command === "list_equipment" || command === "list_flight_journal_entries" ? Promise.resolve([]) : Promise.resolve());
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
+  it("для транспортної події завантажує автомобілі, шукає і зберігає вибраний автомобіль", async () => {
+    mockData({ crews: [crew], positions: [position], people, vehicles: [vehicle] });
+    renderPage();
+    await openNewIncident();
+    fireEvent.change(screen.getByLabelText("Категорія інциденту"), { target: { value: "Транспорт" } });
 
-    fireEvent.click(await screen.findByText("Втрата майна"));
-    expect(screen.queryByRole("button", { name: "Застосувати" })).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Стан інциденту"), { target: { value: "Зареєстровано" } });
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_incident_status", { incidentId: 50, status: "Зареєстровано", reason: "" }));
+    expect(invoke).toHaveBeenCalledWith("list_vehicles");
+    await chooseSearchable("Автомобіль інциденту", "1234", /Ford Ranger/u);
+    expect(screen.getByRole("button", { name: "Автомобіль інциденту" })).toHaveTextContent("Ford Ranger");
+    expect(screen.getByText("АА 1234 КТ · ПЕТРЕНКО Петро Петрович")).toBeInTheDocument();
+    expect(screen.getByText("ХИЖАК")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти інцидент" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", {
+      draft: expect.objectContaining({
+        incidentType: "Знищення машини",
+        vehicleId: 15,
+        crewId: 4,
+        personnelIds: [2],
+        eventData: expect.objectContaining({ vehicleName: "Ford Ranger", vehicleRegistrationNumber: "АА 1234 КТ" }),
+      }),
+    }));
   });
 
-  it("автоматично зберігає доповнення у картці інциденту", async () => {
-    const item = { ...incident(51), incidentType: "Втрата майна" };
-    invoke.mockImplementation((command: string) => command === "list_incidents" ? Promise.resolve([item]) : command === "list_crews" || command === "list_equipment" || command === "list_flight_journal_entries" ? Promise.resolve([]) : Promise.resolve());
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
+  it("підтверджує зміну стану інциденту і не пропонує повернення назад", async () => {
+    mockData({ incidents: [incident(20, { status: "Опрацьовується" })] });
+    renderPage();
+    fireEvent.click(await screen.findByText("Подія 20"));
 
-    fireEvent.click(await screen.findByText("Втрата майна"));
+    const status = screen.getByLabelText("Стан інциденту");
+    expect(within(status).queryByRole("option", { name: "Чернетка" })).not.toBeInTheDocument();
+    expect(within(status).queryByRole("option", { name: "Зареєстровано" })).not.toBeInTheDocument();
+    expect(within(status).queryByRole("option", { name: "Першочергові дії" })).not.toBeInTheDocument();
+    expect(within(status).getByRole("option", { name: "Очікує" })).toBeInTheDocument();
+    fireEvent.change(status, { target: { value: "Очікує" } });
+
+    expect(screen.getByRole("heading", { name: "Підтвердити зміну стану інциденту" })).toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalledWith("update_incident_status", expect.anything());
+    fireEvent.click(within(topDialog()).getByRole("button", { name: "Підтвердити" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_incident_status", { incidentId: 20, status: "Очікує", reason: "" }));
+  });
+
+  it("перед реєстрацією встигає зберегти останню зміну даних чернетки", async () => {
+    mockData({ incidents: [incident(22, { description: "Початковий опис" })] });
+    renderPage();
+    fireEvent.click(await screen.findByText("Подія 22"));
     fireEvent.click(screen.getByRole("button", { name: "Дані події" }));
-    fireEvent.change(screen.getByLabelText("Обставини події"), { target: { value: "Доповнені фактичні обставини" } });
+    fireEvent.change(screen.getByDisplayValue("Початковий опис"), { target: { value: "Остання правка перед реєстрацією" } });
+    fireEvent.click(screen.getByRole("button", { name: "Огляд" }));
+    fireEvent.change(screen.getByLabelText("Стан інциденту"), { target: { value: "Зареєстровано" } });
+    fireEvent.click(within(topDialog()).getByRole("button", { name: "Підтвердити" }));
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_incident_data", { incidentId: 51, draft: expect.objectContaining({ description: "Доповнені фактичні обставини" }) }), { timeout: 1500 });
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_incident_status", { incidentId: 22, status: "Зареєстровано", reason: "" }));
+    const dataCall = invoke.mock.calls.findIndex(([command]) => command === "update_incident_data");
+    const statusCall = invoke.mock.calls.findIndex(([command]) => command === "update_incident_status");
+    expect(dataCall).toBeGreaterThanOrEqual(0);
+    expect(statusCall).toBeGreaterThan(dataCall);
   });
 
-  it("показує компактний алгоритм зі строками та окрему вкладку документів", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    vi.setSystemTime(new Date(2026, 8, 28, 12, 0));
-    const step = (id: number, order: number, title: string, dueAt: string, status = "Не розпочато") => ({ id, order, title, description: `Опис кроку ${order}`, required: true, status, dueAt, completedAt: status === "Виконано" ? "2026-09-28T11:30" : "", comment: "", updatedAt: "2026-09-28 11:30:00" });
-    const item = {
-      ...incident(52),
-      category: "БпЛА",
-      incidentType: "Втрата БпЛА",
-      occurredAt: "2026-09-28T10:00",
-      steps: [
-        step(1, 1, "Негайна доповідь", "", "Виконано"),
-        step(2, 2, "Першочергове донесення", "2026-09-28T13:00"),
-        step(3, 3, "Позатермінове донесення", "2026-09-29T10:00"),
-        step(4, 4, "Рапорт на втрату", "2026-10-01T10:00"),
-      ],
-      documents: [
-        { id: 1, documentType: "Позачергове повідомлення", requirement: "Так", actionKind: "copy" as const, status: "Не створено", updatedAt: "2026-09-28 10:00:00" },
-        { id: 2, documentType: "Позатермінове", requirement: "Ні", actionKind: "document" as const, status: "Чернетка", updatedAt: "2026-09-28 11:00:00" },
-      ],
-    };
-    invoke.mockImplementation((command: string) => command === "list_incidents" ? Promise.resolve([item]) : command === "list_crews" || command === "list_equipment" || command === "list_flight_journal_entries" ? Promise.resolve([]) : Promise.resolve());
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
-
-    fireEvent.click(await screen.findByText("Втрата БпЛА"));
+  it("підтверджує forward-only стан кроку, вимагає причину пропуску і має короткий плейсхолдер", async () => {
+    const step = { id: 7, order: 1, title: "Першочергове донесення", description: "Подати донесення", required: true, status: "В роботі", dueAt: "2026-09-30T13:00", completedAt: "", comment: "", updatedAt: "" };
+    mockData({ incidents: [incident(21, { status: "Зареєстровано", steps: [step] })] });
+    renderPage();
+    fireEvent.click(await screen.findByText("Подія 21"));
     fireEvent.click(screen.getByRole("button", { name: "Алгоритм" }));
-    expect(screen.getByRole("heading", { name: "Контрольні кроки" })).toBeInTheDocument();
-    expect(screen.getByText((_, element) => element?.tagName === "SPAN" && element.textContent === "1 із 4")).toBeInTheDocument();
-    expect(screen.getAllByText("Сьогодні о 13:00").length).toBeGreaterThan(0);
-    expect(screen.getByLabelText("Стан кроку Першочергове донесення")).toHaveValue("Не розпочато");
 
-    fireEvent.click(screen.getByRole("button", { name: "Документи" }));
-    expect(screen.getByRole("heading", { name: "Документи" })).toBeInTheDocument();
-    expect(screen.getByText("із 2 сформовано")).toBeInTheDocument();
-    expect(screen.getByText("Обов’язковий")).toBeInTheDocument();
-    expect(screen.getByText("Необов’язковий")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Скопіювати текст" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Створити документ" })).toBeDisabled();
+    expect(screen.getByPlaceholderText("Додати коментар…")).toBeInTheDocument();
+    const state = screen.getByLabelText("Стан кроку Першочергове донесення");
+    expect(within(state).queryByRole("option", { name: "Не розпочато" })).not.toBeInTheDocument();
+    fireEvent.change(state, { target: { value: "Пропущено" } });
+    const confirmation = topDialog();
+    const confirm = within(confirmation).getByRole("button", { name: "Підтвердити" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(confirmation).getByPlaceholderText("Вкажіть причину пропуску"), { target: { value: "Не застосовується" } });
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_incident_step", {
+      incidentId: 21,
+      stepId: 7,
+      status: "Пропущено",
+      comment: "Не застосовується",
+    }));
   });
 
-  it("не показує статус «у розробці» для порожніх алгоритму та документів", async () => {
-    const item = { ...incident(53), incidentType: "Втрата майна" };
-    invoke.mockImplementation((command: string) => command === "list_incidents" ? Promise.resolve([item]) : command === "list_crews" || command === "list_equipment" || command === "list_flight_journal_entries" ? Promise.resolve([]) : Promise.resolve());
-    render(<NotificationProvider><IncidentsPage /></NotificationProvider>);
+  it("дозволяє видалити лише чернетку після підтвердження", async () => {
+    mockData({ incidents: [incident(30, { incidentType: "Чернетка для видалення" })] });
+    renderPage();
+    fireEvent.click(await screen.findByText("Чернетка для видалення"));
 
-    expect(await screen.findByText("Алгоритм не налаштовано")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("Втрата майна"));
-    const dialog = screen.getByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Алгоритм" }));
-    expect(within(dialog).getByText("Алгоритм не налаштовано")).toBeInTheDocument();
-    expect(within(dialog).queryByText(/у розробці|в розробці/iu)).not.toBeInTheDocument();
+    const card = screen.getByRole("dialog");
+    expect(within(card).getByRole("button", { name: "Редагувати чернетку" })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Видалити" })).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Архівувати" })).not.toBeInTheDocument();
+    fireEvent.click(within(card).getByRole("button", { name: "Видалити" }));
+    expect(screen.getByRole("heading", { name: "Видалити чернетку?" })).toBeInTheDocument();
+    fireEvent.click(within(topDialog()).getByRole("button", { name: "Видалити" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("delete_incident", { incidentId: 30 }));
+  });
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Документи" }));
-    expect(within(dialog).getByText("Документів ще немає")).toBeInTheDocument();
-    expect(within(dialog).queryByText(/у розробці|в розробці/iu)).not.toBeInTheDocument();
+  it("не видаляє зареєстрований інцидент, а архівує його з обов’язковою причиною", async () => {
+    mockData({ incidents: [incident(31, { incidentType: "Зареєстрована подія", status: "Зареєстровано" })] });
+    renderPage();
+    fireEvent.click(await screen.findByText("Зареєстрована подія"));
+
+    const card = screen.getByRole("dialog");
+    expect(within(card).queryByRole("button", { name: "Видалити" })).not.toBeInTheDocument();
+    fireEvent.click(within(card).getByRole("button", { name: "Архівувати" }));
+    const archiveDialog = topDialog();
+    fireEvent.change(within(archiveDialog).getByLabelText("Причина архівації"), { target: { value: "Інше" } });
+    const confirm = within(archiveDialog).getByRole("button", { name: "Архівувати" });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(within(archiveDialog).getByPlaceholderText("Вкажіть причину"), { target: { value: "Передано до іншого підрозділу" } });
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("archive_incident", { incidentId: 31, reason: "Передано до іншого підрозділу" }));
+  });
+
+  it("показує архів окремо лише для читання з причиною", async () => {
+    const archived = incident(32, { status: "Завершено", archivedAt: "2026-09-30T10:00", archiveReason: "Опрацювання завершено" });
+    mockData({ archived: [archived] });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Архів" }));
+
+    expect(await screen.findByText("Опрацювання завершено")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Додати інцидент" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Подія 32"));
+    const card = screen.getByRole("dialog");
+    expect(within(card).getByText("Архів · Опрацювання завершено")).toBeInTheDocument();
+    expect(within(card).queryByLabelText("Стан інциденту")).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Редагувати чернетку" })).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Архівувати" })).not.toBeInTheDocument();
+  });
+
+  it("відкриває повну форму редагування чернетки й зберігає змінені поля", async () => {
+    const item = incident(40, {
+      category: "Особовий склад",
+      incidentType: "Поранення",
+      personnelIds: [1],
+      personnelNames: [people[0].fullName],
+      eventData: { severity: "Легка" },
+    });
+    mockData({ incidents: [item], people });
+    renderPage();
+    fireEvent.click(await screen.findByText("Поранення"));
+    fireEvent.click(screen.getByRole("button", { name: "Редагувати чернетку" }));
+
+    expect(screen.getByRole("heading", { name: "Редагування чернетки" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Категорія інциденту")).toHaveValue("Особовий склад");
+    expect(screen.getByLabelText("Тип інциденту")).toHaveValue("Поранення");
+    expect(screen.getByRole("button", { name: "Військовослужбовець інциденту" })).toHaveTextContent(people[0].fullName);
+    fireEvent.change(screen.getByLabelText("Дата"), { target: { value: "2026-09-29" } });
+    fireEvent.change(screen.getByLabelText("Час"), { target: { value: "18:15" } });
+    fireEvent.change(screen.getByDisplayValue("Легка"), { target: { value: "Середня" } });
+    fireEvent.change(screen.getByLabelText("Обставини події"), { target: { value: "Уточнені обставини" } });
+    await chooseSearchable("Військовослужбовець інциденту", "Петренко", /ПЕТРЕНКО Петро Петрович/u);
+    fireEvent.click(screen.getByRole("button", { name: "Зберегти зміни" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("update_incident_draft", {
+      incidentId: 40,
+      draft: expect.objectContaining({
+        category: "Особовий склад",
+        incidentType: "Поранення",
+        occurredAt: "2026-09-29T18:15",
+        personnelIds: [2],
+        description: "Уточнені обставини",
+        eventData: expect.objectContaining({ severity: "Середня" }),
+      }),
+    }));
+  });
+
+  it("не показує майно та зайві поля в картці загибелі", async () => {
+    const item = incident(41, {
+      category: "Особовий склад",
+      incidentType: "Загибель",
+      status: "Зареєстровано",
+      crewId: 4,
+      crewName: "ГРІМ",
+      equipmentId: 8,
+      equipmentName: "VAMPIRE",
+      equipmentIds: [8],
+      equipmentNames: ["VAMPIRE"],
+      personnelIds: [1],
+      personnelNames: [people[0].fullName],
+    });
+    mockData({ incidents: [item], equipment: [asset(8, "VAMPIRE")], crews: [crew] });
+    renderPage();
+    fireEvent.click(await screen.findByText("Загибель"));
+    const card = screen.getByRole("dialog");
+
+    expect(within(card).queryByText("Майно")).not.toBeInTheDocument();
+    expect(within(card).queryByText("VAMPIRE")).not.toBeInTheDocument();
+    fireEvent.click(within(card).getByRole("button", { name: "Дані події" }));
+    expect(within(card).queryByText("Майно")).not.toBeInTheDocument();
+    expect(within(card).queryByText("Зона ураження")).not.toBeInTheDocument();
+  });
+
+  it("питає підтвердження перед закриттям навіть незміненої нової форми з незаповненими обов’язковими даними", async () => {
+    mockData();
+    renderPage();
+    const editor = await openNewIncident();
+    fireEvent.click(within(editor).getByRole("button", { name: "Закрити" }));
+
+    expect(screen.getByRole("heading", { name: "Закрити без створення?" })).toBeInTheDocument();
+    fireEvent.click(within(topDialog()).getByRole("button", { name: "Скасувати" }));
+    expect(screen.getByRole("heading", { name: "Новий інцидент" })).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Новий інцидент" })).getByRole("button", { name: "Закрити" }));
+    fireEvent.click(within(topDialog()).getByRole("button", { name: "Закрити без збереження" }));
+    expect(screen.queryByRole("heading", { name: "Новий інцидент" })).not.toBeInTheDocument();
+  });
+
+  it("автоматично зберігає повну форму при закритті", async () => {
+    mockData();
+    renderPage();
+    const editor = await openNewIncident();
+    fireEvent.change(within(editor).getByLabelText("Категорія інциденту"), { target: { value: "Інше" } });
+    fireEvent.change(within(editor).getByPlaceholderText("Наприклад, вимушена посадка"), { target: { value: "Інша подія" } });
+    fireEvent.change(within(editor).getByLabelText("Обставини події"), { target: { value: "Повністю заповнено" } });
+    fireEvent.click(within(editor).getByRole("button", { name: "Закрити" }));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("create_incident", {
+      draft: expect.objectContaining({ incidentType: "Інший інцидент", customTypeName: "Інша подія", description: "Повністю заповнено" }),
+    }));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Новий інцидент" })).not.toBeInTheDocument());
+  });
+
+  it("не закриває форму, якщо виділення тексту почалося всередині й завершилося на фоні", async () => {
+    mockData();
+    renderPage();
+    const editor = await openNewIncident();
+    fireEvent.change(within(editor).getByLabelText("Обставини події"), { target: { value: "Текст для виділення" } });
+    const textarea = within(editor).getByLabelText("Обставини події");
+    const backdrop = editor.closest(".modal-backdrop")!;
+
+    fireEvent.pointerDown(textarea, { pointerId: 17 });
+    fireEvent.pointerUp(backdrop, { pointerId: 17 });
+
+    expect(screen.getByRole("heading", { name: "Новий інцидент" })).toBeInTheDocument();
+    expect(textarea).toHaveValue("Текст для виділення");
+    expect(invoke).not.toHaveBeenCalledWith("create_incident", expect.anything());
   });
 });

@@ -155,3 +155,85 @@ describe("Modal keyboard contract", () => {
     expect(parentSave).not.toHaveBeenCalled();
   });
 });
+
+describe("Modal backdrop contract", () => {
+  it("closes once only when the same primary pointer starts and ends on the backdrop", () => {
+    const close = vi.fn();
+    const footerAction = vi.fn();
+    render(<Modal title="Редактор" onClose={close}>
+      <footer className="modal-actions"><button onClick={footerAction}>Скасувати</button></footer>
+    </Modal>);
+    const backdrop = document.querySelector<HTMLElement>(".modal-backdrop")!;
+
+    fireEvent.pointerDown(backdrop, { button: 0, pointerId: 1 });
+    fireEvent.pointerUp(backdrop, { button: 0, pointerId: 1 });
+
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(footerAction).not.toHaveBeenCalled();
+  });
+
+  it("does not close when text selection starts inside and ends on the backdrop", () => {
+    const close = vi.fn();
+    render(<Modal title="Редактор" onClose={close}><input aria-label="Опис" defaultValue="Текст події" /></Modal>);
+    const input = screen.getByLabelText("Опис");
+    const backdrop = document.querySelector<HTMLElement>(".modal-backdrop")!;
+
+    fireEvent.pointerDown(input, { button: 0, pointerId: 2 });
+    fireEvent.pointerUp(backdrop, { button: 0, pointerId: 2 });
+
+    expect(close).not.toHaveBeenCalled();
+    expect(input).toHaveValue("Текст події");
+  });
+
+  it("does not close when a press starts on the backdrop and ends inside the panel", () => {
+    const close = vi.fn();
+    render(<Modal title="Редактор" onClose={close}><input aria-label="Опис" /></Modal>);
+    const input = screen.getByLabelText("Опис");
+    const backdrop = document.querySelector<HTMLElement>(".modal-backdrop")!;
+
+    fireEvent.pointerDown(backdrop, { button: 0, pointerId: 3 });
+    fireEvent.pointerUp(input, { button: 0, pointerId: 3 });
+
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it("clears a pending backdrop press when the pointer is cancelled", () => {
+    const close = vi.fn();
+    render(<Modal title="Редактор" onClose={close}><p>Вміст</p></Modal>);
+    const backdrop = document.querySelector<HTMLElement>(".modal-backdrop")!;
+
+    fireEvent.pointerDown(backdrop, { button: 0, pointerId: 4 });
+    fireEvent.pointerCancel(backdrop, { pointerId: 4 });
+    fireEvent.pointerUp(backdrop, { button: 0, pointerId: 4 });
+
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  it("lets only the uppermost nested modal respond to a backdrop press", () => {
+    const parentClose = vi.fn();
+    const childClose = vi.fn();
+    function NestedDialogs() {
+      const [childOpen, setChildOpen] = useState(true);
+      return <Modal title="Батьківська" onClose={parentClose}>
+        {childOpen && <Modal title="Вкладена" onClose={() => { childClose(); setChildOpen(false); }}><p>Вміст</p></Modal>}
+      </Modal>;
+    }
+    render(<NestedDialogs />);
+    const parentBackdrop = document.querySelector<HTMLElement>('.modal-backdrop[data-modal-depth="1"]')!;
+    const childBackdrop = document.querySelector<HTMLElement>('.modal-backdrop[data-modal-depth="2"]')!;
+
+    fireEvent.pointerDown(parentBackdrop, { button: 0, pointerId: 5 });
+    fireEvent.pointerUp(parentBackdrop, { button: 0, pointerId: 5 });
+    expect(parentClose).not.toHaveBeenCalled();
+    expect(childClose).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(childBackdrop, { button: 0, pointerId: 6 });
+    fireEvent.pointerUp(childBackdrop, { button: 0, pointerId: 6 });
+    expect(childClose).toHaveBeenCalledTimes(1);
+
+    const remainingBackdrop = document.querySelector<HTMLElement>(".modal-backdrop")!;
+    fireEvent.pointerDown(remainingBackdrop, { button: 0, pointerId: 7 });
+    fireEvent.pointerUp(remainingBackdrop, { button: 0, pointerId: 7 });
+    expect(parentClose).toHaveBeenCalledTimes(1);
+  });
+});

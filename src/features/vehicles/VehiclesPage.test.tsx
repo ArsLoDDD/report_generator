@@ -28,7 +28,7 @@ describe("VehiclesPage", () => {
   it("shows read-only details and edits the vehicle and its assignment only after confirmation", async () => {
     renderPage();
     expect(await screen.findByRole("columnheader", { name: "№" })).toBeInTheDocument();
-    expect(screen.getByText("1", { selector: ".personnel-id" })).toBeInTheDocument();
+    expect(await screen.findByText("1", { selector: ".personnel-id" })).toBeInTheDocument();
     expect(await screen.findByText(driver.fullName)).toBeInTheDocument();
     fireEvent.click(screen.getByText("Toyota Hilux"));
     expect(screen.getAllByText(driver.fullName)).toHaveLength(2);

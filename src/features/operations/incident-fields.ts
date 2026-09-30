@@ -51,7 +51,6 @@ export const incidentFieldsByType: Record<string, IncidentField[]> = {
   "Поранення": [
     { key: "severity", label: "Попередня тяжкість" },
     { key: "injuryMeans", label: "Засіб ураження" },
-    { key: "injuryZone", label: "Зона ураження" },
     { key: "evacuationTime", label: "Час евакуації", inputType: "time" },
     { key: "evacuationFacility", label: "Заклад евакуації" },
   ],
@@ -63,7 +62,7 @@ export const incidentFieldsByType: Record<string, IncidentField[]> = {
     { key: "evacuationFacility", label: "Заклад евакуації" },
   ],
   "Загибель": [{ key: "injuryMeans", label: "Засіб / фактичні обставини", wide: true, inputType: "textarea" }],
-  "Самогубство": [{ key: "witnesses", label: "Свідки", wide: true, inputType: "textarea" }],
+  "Самогубство": [],
   "СЗЧ": [
     { key: "departedFrom", label: "Звідки здійснено" },
     { key: "contactAttempts", label: "Спроби зв’язку", wide: true, inputType: "textarea" },
@@ -72,7 +71,6 @@ export const incidentFieldsByType: Record<string, IncidentField[]> = {
   ],
   "Алкогольне/наркотичне сп’яніння": [
     { key: "grounds", label: "Підстава" },
-    { key: "witnesses", label: "Свідки", wide: true, inputType: "textarea" },
     { key: "testMethod", label: "Спосіб перевірки" },
     { key: "deviceNumber", label: "Прилад / номер" },
     { key: "testResult", label: "Результат" },

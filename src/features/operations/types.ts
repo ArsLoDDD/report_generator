@@ -180,6 +180,7 @@ export type Incident = {
   id: number;
   category: string;
   incidentType: string;
+  customTypeName: string;
   status: string;
   occurredAt: string;
   crewId: number | null;
@@ -203,12 +204,15 @@ export type Incident = {
   reportedTo: string;
   reportedAt: string;
   sourceFlightId: number | null;
+  vehicleId: number | null;
   eventData: Record<string, unknown>;
+  archivedAt: string;
+  archiveReason: string;
   steps: IncidentStep[];
   documents: IncidentDocument[];
   history: IncidentHistoryEvent[];
 };
-export type IncidentDraft = Omit<Incident, "id" | "crewName" | "equipmentName" | "equipmentNames" | "personnelNames" | "crewSnapshot" | "vehicleName" | "steps" | "documents" | "history">;
+export type IncidentDraft = Omit<Incident, "id" | "crewName" | "equipmentName" | "equipmentNames" | "personnelNames" | "crewSnapshot" | "vehicleName" | "archivedAt" | "archiveReason" | "steps" | "documents" | "history">;
 export type IncidentDataDraft = Pick<Incident, "description" | "flightStage" | "preliminaryCause" | "eventData">;
 export type FlightPlanWeather = { temperature: string; windFrom: string; windTo: string; gustFrom: string; gustTo: string; cloudiness: string; cloudHeight: string; precipitation: string };
 export type FlightPlanUavSelection = { equipmentId: number; dayQuantity: number; nightQuantity: number };
@@ -252,5 +256,6 @@ export type FlightJournalEntry = {
   payloadType: string;
   payloadSerialNumber: string;
   notes: string;
+  personnelIds?: number[];
 };
 export type FlightJournalDraft = Omit<FlightJournalEntry, "id">;
