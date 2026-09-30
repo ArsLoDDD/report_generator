@@ -86,6 +86,20 @@ describe("Оновлення БЧС за добовим планом", () => {
     expect(await screen.findByText("Прогноз на завтра")).toBeInTheDocument();
   });
 
+  it("підставляє завтрашню дату в параметри БЧС, коли відкрито прогноз на завтра", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(2026, 8, 23, 12, 0, 0));
+
+    render(<NotificationProvider><StaffingBcsPage /></NotificationProvider>);
+    await waitFor(() => expect(operationsService.listStaffingRecords).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "БЧС" }));
+    fireEvent.click(screen.getByRole("button", { name: /Завтра/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Параметри БЧС" }));
+
+    expect(screen.getByRole("textbox", { name: "Дата БЧС · станом на 08:00" })).toHaveValue("24.09.2026");
+    expect(localStorage.getItem("bcs-date")).toBe("24.09.2026");
+  });
+
   it("дозволяє зберегти примітку з прогнозу, не переносячи завтрашнє місце у сьогоднішнє БЧС", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.setSystemTime(new Date(2026, 8, 23, 12, 0, 0));

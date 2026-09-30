@@ -125,6 +125,19 @@ const preserveEntryMembers=(entry:FlightPlanEntry):FlightPlanEntry=>{
   const actualCommanderId=entry.actualCommanderId!=null&&actualMemberIds.includes(entry.actualCommanderId)?entry.actualCommanderId:actualMemberIds[0]??null;
   return {...entry,actualMemberIds,actualCommanderId};
 };
+const carryDraftToDate=(stored:StoredDraft,targetDate:string):StoredDraft=>{
+  const departedCrewIds=new Set<number>();
+  const entries=Object.fromEntries(Object.entries(stored.entries??{}).map(([crewId,entry])=>{
+    const crewRotations=stored.rotations?.[Number(crewId)]??[];
+    const validation=validateFlightPlanSchedule(entry,crewRotations);
+    const safeRotations=validation.rotationError?[]:crewRotations;
+    if(entry.departsToday&&validation.isValid)departedCrewIds.add(entry.crewId);
+    const last=safeRotations[safeRotations.length-1];
+    const next=last?entryFromRotation(last):cloneEntry(entry);
+    return[crewId,{...next,arrivesToday:false,departsToday:false,departureTime:""}];
+  }));
+  return{...stored,schemaVersion:3,date:targetDate,selected:stored.selected?.filter((crewId)=>!departedCrewIds.has(crewId)),entries,rotations:{},personnelTransitions:[],rolledFromPreviousDate:true,pendingSave:undefined};
+};
 const currentDraft=():StoredDraft=>{
   const bounds=flightPlanDateRange();
   const inEditableRange=(draft:StoredDraft)=>{
@@ -144,17 +157,7 @@ const currentDraft=():StoredDraft=>{
   if(stored.pendingSave)return inEditableRange(stored)?stored:{schemaVersion:3,unitName:stored.unitName,date:targetDate,zoom:stored.zoom};
   const previousDate=shiftIsoDate(isoDate(targetDate),-1);
   if(isoDate(stored.date)!==previousDate)return{unitName:stored.unitName,date:targetDate,zoom:stored.zoom};
-  const departedCrewIds=new Set<number>();
-  const entries=Object.fromEntries(Object.entries(stored.entries??{}).map(([crewId,entry])=>{
-    const crewRotations=stored.rotations?.[Number(crewId)]??[];
-    const validation=validateFlightPlanSchedule(entry,crewRotations);
-    const safeRotations=validation.rotationError?[]:crewRotations;
-    if(entry.departsToday&&validation.isValid)departedCrewIds.add(entry.crewId);
-    const last=safeRotations[safeRotations.length-1];
-    const next=last?entryFromRotation(last):cloneEntry(entry);
-    return[crewId,{...next,arrivesToday:false,departsToday:false,departureTime:""}];
-  }));
-  return{...stored,date:targetDate,selected:stored.selected?.filter((crewId)=>!departedCrewIds.has(crewId)),entries,rotations:{},personnelTransitions:[],rolledFromPreviousDate:true};
+  return carryDraftToDate(stored,targetDate);
 };
 
 export function FlightPlanningPage(){
@@ -193,7 +196,8 @@ export function FlightPlanningPage(){
     setLoaded(false);setLoadedDate(null);setLoadFailed(false);setSaveStatus("loading");
     try{
     const planDate=isoDate(requestedDate);
-    const [allCrews,nextPositions,nextVehicles,nextUavs,nextAmmunition,nextWorkshopProducts,settings,storedSnapshot,previousStoredSnapshot,storedDatabaseDraft]=await Promise.all([operationsService.listCrews(),Promise.resolve(operationsService.listPositions?.()??[]),vehiclesService.list(),operationsService.listEquipment("uav"),operationsService.listEquipment("weapon_ammo"),operationsService.listWorkshopProducts(),settingsService.get(),operationsService.getFlightPlanSnapshot(planDate),operationsService.getFlightPlanSnapshot(shiftIsoDate(planDate,-1)),operationsService.getFlightPlanDraft(planDate)]);
+    const previousPlanDate=shiftIsoDate(planDate,-1);
+    const [allCrews,nextPositions,nextVehicles,nextUavs,nextAmmunition,nextWorkshopProducts,settings,storedSnapshot,previousStoredSnapshot,storedDatabaseDraft,previousStoredDatabaseDraft]=await Promise.all([operationsService.listCrews(),Promise.resolve(operationsService.listPositions?.()??[]),vehiclesService.list(),operationsService.listEquipment("uav"),operationsService.listEquipment("weapon_ammo"),operationsService.listWorkshopProducts(),settingsService.get(),operationsService.getFlightPlanSnapshot(planDate),operationsService.getFlightPlanSnapshot(previousPlanDate),operationsService.getFlightPlanDraft(planDate),operationsService.getFlightPlanDraft(previousPlanDate)]);
     if(requestId!==loadRequestRef.current)return;
     const snapshot=parseSnapshot(storedSnapshot);
     const recoveredDraft=pendingDraftFor(requestedDate);
@@ -204,7 +208,10 @@ export function FlightPlanningPage(){
     const legacyDraft=pendingInitial&&initialHasPlan&&(!snapshot&&(pendingInitial.schemaVersion!==3||pendingInitial.rolledFromPreviousDate))?pendingInitial:null;
     const persistentDraft=databaseDraft&&isoDate(databaseDraft.date??"")===planDate?databaseDraft:null;
     const upgradeDraft=pendingInitial&&initialHasPlan&&!persistentDraft&&isoDate(pendingInitial.date??"")===planDate&&(!pendingInitial.rolledFromPreviousDate||!snapshot)?pendingInitial:null;
-    const localDraft=newestPending??persistentDraft??upgradeDraft??legacyDraft;
+    const previousDatabaseDraft=storedDraftFromJson(previousStoredDatabaseDraft);
+    const canCarryPreviousDatabaseDraft=Boolean(pendingInitial&&!initialHasPlan&&!snapshot&&!persistentDraft&&previousDatabaseDraft&&isoDate(previousDatabaseDraft.date??"")===previousPlanDate&&dateNumber(requestedDate)>=dateNumber(todayAtLoad));
+    const carriedDatabaseDraft=canCarryPreviousDatabaseDraft&&previousDatabaseDraft?carryDraftToDate(previousDatabaseDraft,requestedDate):null;
+    const localDraft=newestPending??persistentDraft??upgradeDraft??legacyDraft??carriedDatabaseDraft;
     if(pendingInitial)initialDraftRef.current=null;
     const localCrewIds=Object.keys(localDraft?.entries??{}).map(Number).filter(Number.isFinite);
     const savedCrewIds=new Set([...(snapshot?.entries.map((entry)=>entry.crewId)??[]),...localCrewIds]);

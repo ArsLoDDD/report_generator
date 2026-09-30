@@ -14,7 +14,7 @@ vi.mock("../settings/services/settingsService", () => ({ settingsService: { get:
 const crew = (callsign: string) => ({ id:1,name:"БАРС",platoon:"1 взвод",positionName:"САПСАН",reconnaissanceArea:"Охтирка",unitType:"Екіпаж",companyName:"РБПАК",battleOrder:"БРО-02",sector:"Схід",officialStrength:1,workingStrength:1,positionId:1,status:"Працюючий",uavName:"MAVIC 3",uavType:"Коптер",functionalDuties:"",currentLocation:"",notes:"",memberCount:1,members:[{personnelId:1,fullName:"ТЕСТОВИЙ Тест Тестович",rank:"капітан",position:"командир екіпажу",callsign}],actualMembers:[{personnelId:1,fullName:"ТЕСТОВИЙ Тест Тестович",rank:"капітан",position:"командир екіпажу",callsign}]});
 
 beforeEach(()=>{vi.clearAllMocks();localStorage.clear();vi.mocked(vehiclesService.list).mockResolvedValue([]);vi.mocked(operationsService.listPositions).mockResolvedValue([]);vi.mocked(operationsService.listEquipment).mockResolvedValue([]);vi.mocked(operationsService.getFlightPlanSnapshot).mockResolvedValue(null);vi.mocked(operationsService.getFlightPlanDraft).mockResolvedValue(null);vi.mocked(operationsService.saveFlightPlanSnapshot).mockResolvedValue(undefined);vi.mocked(operationsService.saveFlightPlanDraft).mockResolvedValue(undefined);vi.mocked(operationsService.exportFlightPlan).mockResolvedValue();});
-afterEach(cleanup);
+afterEach(()=>{cleanup();vi.useRealTimers();});
 
 describe("Планування польотів",()=>{
   it("restores the full plan draft from the database when local storage is empty after an update",async()=>{
@@ -35,6 +35,26 @@ describe("Планування польотів",()=>{
     expect(screen.getByDisplayValue("09:20")).toBeInTheDocument();
     expect(screen.getByDisplayValue("18:40")).toBeInTheDocument();
     await waitFor(()=>expect(operationsService.saveFlightPlanDraft).toHaveBeenCalledWith(`${year}-${month}-${day}`,expect.stringContaining("МАРШРУТ З БД")));
+  });
+
+  it("carries the previous database draft into a new plan day when an update cleared webview storage",async()=>{
+    vi.useFakeTimers({shouldAdvanceTime:true});
+    vi.setSystemTime(new Date(2026,8,30,12,0,0));
+    const previousEntry={...initialStoredEntryForTest(),crewId:1,routePoints:["МАРШРУТ З ПОПЕРЕДНЬОЇ БД"],areaPoints:["КАЛИНІВКА"],altitudeFrom:"900",altitudeTo:"1250",startTime:"06:10",endTime:"20:45"};
+    vi.mocked(operationsService.listCrews).mockResolvedValue([crew("СОКІЛ")]);
+    vi.mocked(operationsService.getFlightPlanDraft).mockImplementation(async(planDate)=>planDate==="2026-09-30"?JSON.stringify({schemaVersion:3,unitName:"РБПАК",date:"30.09.2026",selected:[1],entries:{1:previousEntry},rotations:{},personnelTransitions:[]}):null);
+
+    render(<NotificationProvider><FlightPlanningPage/></NotificationProvider>);
+
+    await screen.findByText("БАРС",{selector:"b"});
+    fireEvent.click(screen.getByRole("button",{name:"Розгорнути БАРС"}));
+    expect(screen.getByText("МАРШРУТ З ПОПЕРЕДНЬОЇ БД")).toBeInTheDocument();
+    expect(screen.getAllByText("КАЛИНІВКА").length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue("900")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("1250")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("06:10")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("20:45")).toBeInTheDocument();
+    await waitFor(()=>expect(operationsService.saveFlightPlanDraft).toHaveBeenCalledWith("2026-10-01",expect.stringContaining("МАРШРУТ З ПОПЕРЕДНЬОЇ БД")));
   });
 
   it("moves the pre-update local full draft into the database on first start",async()=>{
