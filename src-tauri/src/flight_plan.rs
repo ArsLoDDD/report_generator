@@ -815,6 +815,36 @@ fn validate_plan_positions_are_ready(
     Ok(())
 }
 
+fn validate_plan_personnel_are_not_planned(
+    connection: &Connection,
+    plan_date: &str,
+    request: &FlightPlanRequest,
+) -> Result<(), String> {
+    let mut personnel_ids = request
+        .entries
+        .iter()
+        .flat_map(|entry| entry.actual_member_ids.iter().copied())
+        .chain(request.personnel_transitions.iter().flat_map(|transition| {
+            transition
+                .outgoing_member_ids
+                .iter()
+                .chain(&transition.incoming_member_ids)
+                .copied()
+        }))
+        .collect::<Vec<_>>();
+    personnel_ids.sort_unstable();
+    personnel_ids.dedup();
+    for personnel_id in personnel_ids {
+        crate::operations::ensure_no_planned_personnel_conflict(
+            connection,
+            personnel_id,
+            plan_date,
+            Some(plan_date),
+        )?;
+    }
+    Ok(())
+}
+
 fn save_flight_plan_snapshot_at(
     connection: &Connection,
     today: NaiveDate,
@@ -826,6 +856,7 @@ fn save_flight_plan_snapshot_at(
     validate_personnel_transitions(connection, request)?;
     if parsed_plan_date >= today {
         validate_plan_positions_are_ready(connection, request)?;
+        validate_plan_personnel_are_not_planned(connection, plan_date, request)?;
     }
     let snapshot_json = serde_json::to_string(request)
         .map_err(|_| "Не вдалося підготувати знімок плану польотів.".to_string())?;
@@ -1700,6 +1731,29 @@ mod tests {
             )
             .unwrap();
         assert!(validate_plan_positions_are_ready(&connection, &request).is_ok());
+    }
+
+    #[test]
+    fn rejects_plan_member_with_overlapping_personnel_control_plan() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        seed_transition_roster(&connection);
+        let today = Local::now().date_naive();
+        let tomorrow = today.succ_opt().unwrap().format("%Y-%m-%d").to_string();
+        connection
+            .execute(
+                "INSERT INTO personnel_control_assignments(
+                personnel_id,location_type,institution,start_date,end_date,previous_location
+             ) VALUES(1,'ВІДП','',?1,?1,'')",
+                [&tomorrow],
+            )
+            .unwrap();
+        let request = transition_request(vec![transition_entry(1, &[1], "08:00")], vec![]);
+
+        let error =
+            save_flight_plan_snapshot_at(&connection, today, &tomorrow, &request).unwrap_err();
+        assert!(error.contains("недоступний"));
+        assert!(error.contains("ВІДП"));
     }
 
     #[test]

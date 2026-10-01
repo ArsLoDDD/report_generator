@@ -12,7 +12,7 @@ vi.mock("../../shared/services/personnelService", () => ({ personnelService: { l
 vi.mock("../settings/services/settingsService", () => ({ settingsService: { get: vi.fn() } }));
 vi.mock("./paymentsService", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./paymentsService")>();
-  return { ...actual, paymentsService: { list: vi.fn(), save: vi.fn(), exportReport: vi.fn() } };
+  return { ...actual, paymentsService: { list: vi.fn(), save: vi.fn(), saveRange: vi.fn(), exportReport: vi.fn() } };
 });
 
 beforeEach(() => {
@@ -40,6 +40,24 @@ const calculated = (personnelId: number, statusDate: string, manualOverride: "Б
 });
 
 describe("Виплати", () => {
+  it("selects a horizontal day range and applies one status to every selected cell", async () => {
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    vi.mocked(personnelService.list).mockResolvedValue({ items: [{ id: 1, fullName: "ІВАНЕНКО Іван", rank: "солдат", position: "оператор" }], totalCount: 1 } as Awaited<ReturnType<typeof personnelService.list>>);
+    vi.mocked(paymentsService.list).mockResolvedValue([1, 2, 3].map((day) => calculated(1, `${month}-${String(day).padStart(2, "0")}`)));
+    vi.mocked(paymentsService.saveRange).mockResolvedValue();
+    renderPage();
+    const first = await screen.findByRole("button", { name: "ІВАНЕНКО Іван, 1 число: БР" });
+    const third = screen.getByRole("button", { name: "ІВАНЕНКО Іван, 3 число: БР" });
+    fireEvent.mouseDown(first, { button: 0, buttons: 1 });
+    fireEvent.mouseEnter(third, { buttons: 1 });
+    fireEvent.mouseUp(document, { button: 0 });
+    const popover = await screen.findByRole("dialog", { name: `Облік за ${month}-01 — ${month}-03` });
+    expect(popover).toHaveTextContent("Обрано 3 днів");
+    fireEvent.click(within(popover).getByRole("button", { name: /^30Б база 10 тис\.$/u }));
+    await waitFor(() => expect(paymentsService.saveRange).toHaveBeenCalledWith(1, [`${month}-01`, `${month}-02`, `${month}-03`], "30Б"));
+  });
+
   it("shows calculated cells and edits only the selected cell in a compact popover", async () => {
     const now = new Date();
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;

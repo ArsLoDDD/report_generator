@@ -14,12 +14,13 @@ const isAlreadyOnPosition = (location: string) => {
   return POSITION_OCCUPANCY_LOCATIONS.some((candidate) => candidate.toLocaleLowerCase("uk") === value);
 };
 
-export function FlightPersonnelTransitionModal({ crew, currentMemberIds, notBeforeTime, notAfterTime, transition, onClose, onSave }: {
+export function FlightPersonnelTransitionModal({ crew, currentMemberIds, notBeforeTime, notAfterTime, transition, plannedConflictReasons = {}, onClose, onSave }: {
   crew: Crew;
   currentMemberIds: number[];
   notBeforeTime?: string;
   notAfterTime?: string;
   transition?: FlightPlanPersonnelTransition;
+  plannedConflictReasons?: Record<number,string>;
   onClose: () => void;
   onSave: (transition: FlightPlanPersonnelTransition) => void;
 }) {
@@ -76,10 +77,10 @@ export function FlightPersonnelTransitionModal({ crew, currentMemberIds, notBefo
           <header><UserPlus/><span><b>Завести ОС</b><small>Фактичний склад поза позицією · вибрано {incomingMemberIds.length}</small></span></header>
           <label className="form-field flight-personnel-transition-time"><span>Час заведення</span><input aria-label="Час заведення ОС" type="time" min={notBeforeTime} max={notAfterTime} value={incomingTime} onChange={(event) => setIncomingTime(event.target.value)}/></label>
           <div className="flight-personnel-transition-members">
-            {incomingMembers.map((member) => { const selected = incomingMemberIds.includes(member.personnelId); const unavailable = !isFlightPlanMemberAvailable(member); return <label className={selected ? "is-selected" : ""} key={member.personnelId}>
+            {incomingMembers.map((member) => { const selected = incomingMemberIds.includes(member.personnelId); const planReason=plannedConflictReasons[member.personnelId]; const unavailable = !isFlightPlanMemberAvailable(member)||Boolean(planReason); return <label className={selected ? "is-selected" : ""} key={member.personnelId}>
               <input type="checkbox" checked={selected} disabled={unavailable && !selected} onChange={() => toggle(incomingMemberIds, member.personnelId, setIncomingMemberIds)}/>
               <span><b>{member.fullName}</b><small>{member.rank} · {member.position}{member.callsign ? ` · ${member.callsign}` : ""}</small></span>
-              {unavailable && <em>{member.currentLocation || "Недоступний"}</em>}
+              {unavailable && <em>{planReason || member.currentLocation || "Недоступний"}</em>}
             </label>; })}
             {!incomingMembers.length && <p className="flight-personnel-transition-empty">У фактичному складі немає ОС поза позицією.</p>}
           </div>

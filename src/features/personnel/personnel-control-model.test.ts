@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blocksManualPersonnelAssignment, controlPeriod, controlTabs, formatControlDateTime, MANUAL_PERSONNEL_LOCATIONS, personnelLocationRequiresEndDate, personnelLocationRequiresInstitution, personnelLocationShowsEndDate, personnelLocationShowsInstitution, validatePersonnelControlDraft } from "./personnel-control-model";
+import { blocksManualPersonnelAssignment, controlPeriod, controlTabs, formatControlDateTime, MANUAL_PERSONNEL_LOCATIONS, personnelLocationRequiresEndDate, personnelLocationRequiresInstitution, personnelLocationShowsEndDate, personnelLocationShowsInstitution, plannedPersonnelConflictReason, validatePersonnelControlDraft } from "./personnel-control-model";
 import type { PersonnelControlRecord } from "./types";
 
 const record = (tab: string, locationType = tab): PersonnelControlRecord => ({
@@ -66,5 +66,11 @@ describe("personnel control model", () => {
   it("explains an open-ended business trip in the period", () => {
     expect(controlPeriod({ ...record("ВІДР"), startDate: "2026-09-17", untilSeparateOrder: true })).toBe("з 17.09.2026 · до окремого розпорядження");
     expect(formatControlDateTime("2026-09-17 14:25:41")).toBe("17.09.2026 17:25");
+  });
+
+  it("explains why a person is unavailable during a planned period", () => {
+    const plan = { ...record("ВІДП"), source: "manual" as const, startDate: "2026-10-05", endDate: "2026-10-10", institution: "За місцем проживання" };
+    expect(plannedPersonnelConflictReason([plan], 1, "2026-10-04", "2026-10-04")).toBe("");
+    expect(plannedPersonnelConflictReason([plan], 1, "2026-10-10", "2026-10-12")).toBe("Заплановано «ВІДП» · За місцем проживання · 05.10.2026–10.10.2026");
   });
 });

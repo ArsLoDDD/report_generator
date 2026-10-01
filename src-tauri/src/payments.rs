@@ -1043,6 +1043,7 @@ fn add_personnel_control_facts(
                 {training_in_unit}
          FROM personnel_control_assignments
          WHERE date(start_date)<=date(?2)
+           AND close_reason NOT LIKE 'Скасовано запланований запис%'
            AND date(CASE WHEN trim(closed_on)<>'' THEN closed_on
                          WHEN trim(end_date)<>'' THEN end_date ELSE ?2 END)>=date(?1)
          ORDER BY start_date,id"
@@ -2188,6 +2189,58 @@ pub(crate) fn save_payment_status(
 }
 
 #[tauri::command]
+pub(crate) fn save_payment_statuses(
+    state: tauri::State<AppState>,
+    personnel_id: i64,
+    status_dates: Vec<String>,
+    status: String,
+) -> Result<(), String> {
+    let mut database = state
+        .0
+        .lock()
+        .map_err(|_| "База даних тимчасово зайнята. Спробуйте ще раз.".to_string())?;
+    save_statuses(
+        &mut database.connection,
+        personnel_id,
+        status_dates,
+        &status,
+    )
+}
+
+fn save_statuses(
+    connection: &mut Connection,
+    personnel_id: i64,
+    status_dates: Vec<String>,
+    status: &str,
+) -> Result<(), String> {
+    if status_dates.is_empty() || status_dates.len() > 31 {
+        return Err("Оберіть від одного до 31 дня в одному рядку.".to_string());
+    }
+    let mut unique = std::collections::BTreeSet::new();
+    for date in status_dates {
+        validate_status_date(&date)?;
+        unique.insert(date);
+    }
+    let month = unique
+        .iter()
+        .next()
+        .map(|date| &date[..7])
+        .unwrap_or_default();
+    if unique.iter().any(|date| &date[..7] != month) {
+        return Err("Групова зміна дозволена лише в межах одного місяця.".to_string());
+    }
+    let transaction = connection
+        .transaction()
+        .map_err(|_| "Не вдалося почати групове оновлення виплат.".to_string())?;
+    for date in unique {
+        save_status(&transaction, personnel_id, &date, status)?;
+    }
+    transaction
+        .commit()
+        .map_err(|_| "Не вдалося завершити групове оновлення виплат.".to_string())
+}
+
+#[tauri::command]
 pub(crate) fn export_payments_report(
     state: tauri::State<AppState>,
     app: tauri::AppHandle,
@@ -2248,6 +2301,49 @@ mod tests {
         assert_eq!(day.status, "30");
         assert!(day.manual_override.is_none());
         assert!(save_status(&connection, 1, "2026-10-05", "АЛКО").is_err());
+    }
+
+    #[test]
+    fn saves_a_selected_day_range_in_one_transaction() {
+        let mut connection = database();
+        save_statuses(
+            &mut connection,
+            1,
+            vec![
+                "2026-10-01".into(),
+                "2026-10-02".into(),
+                "2026-10-03".into(),
+            ],
+            "30Б",
+        )
+        .unwrap();
+        let saved: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM payment_daily_statuses WHERE personnel_id=1 AND status='30Б'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(saved, 3);
+
+        assert!(save_statuses(
+            &mut connection,
+            1,
+            vec!["2026-10-04".into(), "2026-11-01".into()],
+            "БР",
+        )
+        .unwrap_err()
+        .contains("одного місяця"));
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM payment_daily_statuses WHERE status_date IN ('2026-10-04','2026-11-01')",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            0
+        );
     }
 
     #[test]

@@ -223,7 +223,8 @@ fn import_personnel_control_sheets(
     let assignment_sheet = xlsx::PERSONNEL_CONTROL_ASSIGNMENTS_SHEET;
     let event_sheet = xlsx::PERSONNEL_CONTROL_EVENTS_SHEET;
     let mut references = std::collections::HashSet::new();
-    let mut open_personnel = std::collections::HashSet::new();
+    let mut open_periods =
+        std::collections::HashMap::<i64, Vec<(chrono::NaiveDate, chrono::NaiveDate)>>::new();
     let mut assignments = Vec::with_capacity(control.assignments.len());
     let mut warnings = Vec::new();
     for (index, row) in control.assignments.iter().enumerate() {
@@ -281,7 +282,12 @@ fn import_personnel_control_sheets(
                 "На аркуші «{assignment_sheet}», рядок {row_number}, дата завершення раніше за дату початку."
             ));
         }
-        if closed_on.is_some_and(|value| value < start) {
+        if closed_on.is_some_and(|value| value < start)
+            && !row
+                .close_reason
+                .trim()
+                .starts_with("Скасовано запланований")
+        {
             return Err(format!(
                 "На аркуші «{assignment_sheet}», рядок {row_number}, дата фактичного завершення раніше за дату початку."
             ));
@@ -322,10 +328,41 @@ fn import_personnel_control_sheets(
                 "На аркуші «{assignment_sheet}», рядок {row_number}, не знайдено військовослужбовця за ІПН або ПІБ."
             )
         })?;
-        if row.closed_at.trim().is_empty() && !open_personnel.insert(personnel_id) {
-            return Err(format!(
-                "На аркуші «{assignment_sheet}» для одного військовослужбовця вказано кілька незавершених записів."
-            ));
+        if row.closed_at.trim().is_empty() {
+            let period_end = end.unwrap_or_else(|| {
+                chrono::NaiveDate::from_ymd_opt(9999, 12, 31).expect("valid maximum import date")
+            });
+            let periods = open_periods.entry(personnel_id).or_default();
+            if periods
+                .iter()
+                .any(|(saved_start, saved_end)| start <= *saved_end && *saved_start <= period_end)
+            {
+                return Err(format!(
+                    "На аркуші «{assignment_sheet}» для одного військовослужбовця перетинаються незавершені періоди."
+                ));
+            }
+            let overlaps_database = connection
+                .query_row(
+                    "SELECT EXISTS(
+                        SELECT 1 FROM personnel_control_assignments
+                        WHERE personnel_id=?1 AND closed_at IS NULL
+                          AND date(start_date)<=date(?3)
+                          AND date(COALESCE(NULLIF(end_date,''),'9999-12-31'))>=date(?2)
+                     )",
+                    rusqlite::params![
+                        personnel_id,
+                        start.format("%Y-%m-%d").to_string(),
+                        period_end.format("%Y-%m-%d").to_string()
+                    ],
+                    |database_row| database_row.get::<_, bool>(0),
+                )
+                .unwrap_or(false);
+            if overlaps_database {
+                return Err(format!(
+                    "На аркуші «{assignment_sheet}», рядок {row_number}: період перетинається з наявним планом цього військовослужбовця. Для повного відновлення оберіть режим «Замінити»."
+                ));
+            }
+            periods.push((start, period_end));
         }
         assignments.push(ValidatedAssignment {
             row,
@@ -433,10 +470,8 @@ fn import_personnel_control_sheets(
                 ],
             )
             .map_err(|error| {
-                if error.to_string().contains("personnel_control_one_open_idx")
-                    || error.to_string().contains("UNIQUE constraint failed")
-                {
-                    "Неможливо імпортувати контроль ОС: для військовослужбовця вже існує незавершений запис. Для повного відновлення оберіть режим «Замінити».".to_string()
+                if error.to_string().contains("UNIQUE constraint failed") {
+                    "Неможливо імпортувати контроль ОС через дублювання службових даних. Для повного відновлення оберіть режим «Замінити».".to_string()
                 } else {
                     "Не вдалося імпортувати запис контролю особового складу.".to_string()
                 }
@@ -1945,6 +1980,76 @@ mod personnel_control_excel_tests {
                 )
                 .unwrap(),
             "ОХ"
+        );
+    }
+
+    #[test]
+    fn control_import_allows_separate_future_plans_and_rejects_overlapping_periods() {
+        let make_row =
+            |reference: &str, location: &str, institution: &str, start: &str, end: &str| {
+                xlsx::PersonnelControlAssignmentRow {
+                    assignment_reference: reference.into(),
+                    personnel_tax_id: "1111111111".into(),
+                    personnel_full_name: "ПЕРШИЙ Іван Іванович".into(),
+                    location_type: location.into(),
+                    institution: institution.into(),
+                    start_date: start.into(),
+                    end_date: end.into(),
+                    until_separate_order: "Ні".into(),
+                    ..xlsx::PersonnelControlAssignmentRow::default()
+                }
+            };
+
+        let separate_connection = connection();
+        insert_person(&separate_connection, 1, "1111111111", "ПЕРШИЙ");
+        let mut cancelled = make_row("cancelled", "ВІДП", "", "2026-11-05", "2026-11-10");
+        cancelled.closed_on = "2026-10-01".into();
+        cancelled.closed_at = "2026-10-01 09:00:00".into();
+        cancelled.close_reason = "Скасовано запланований запис користувачем".into();
+        let separate = xlsx::PersonnelControlSheets {
+            assignments: vec![
+                make_row("leave", "ВІДП", "", "2026-10-05", "2026-10-10"),
+                make_row(
+                    "training",
+                    "НАВЧ",
+                    "Навчальний центр",
+                    "2026-10-12",
+                    "2026-10-20",
+                ),
+                cancelled,
+            ],
+            events: Vec::new(),
+        };
+        assert_eq!(
+            import_personnel_control_sheets(&separate_connection, &separate)
+                .unwrap()
+                .0,
+            3
+        );
+
+        let overlapping_connection = connection();
+        insert_person(&overlapping_connection, 1, "1111111111", "ПЕРШИЙ");
+        let overlapping = xlsx::PersonnelControlSheets {
+            assignments: vec![
+                make_row("leave", "ВІДП", "", "2026-10-05", "2026-10-10"),
+                make_row("medical", "ЛІК", "Шпиталь", "2026-10-10", "2026-10-14"),
+            ],
+            events: Vec::new(),
+        };
+        assert!(
+            import_personnel_control_sheets(&overlapping_connection, &overlapping)
+                .unwrap_err()
+                .contains("перетинаються")
+        );
+        assert_eq!(
+            overlapping_connection
+                .query_row(
+                    "SELECT COUNT(*) FROM personnel_control_assignments",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
         );
     }
 }

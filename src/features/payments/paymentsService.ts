@@ -18,5 +18,6 @@ export type PaymentDailyStatus = {
 export const paymentsService = {
   list: (month: string) => invoke<PaymentDailyStatus[]>("list_payment_statuses", { month }),
   save: (personnelId: number, statusDate: string, status: PaymentManualStatus | "") => invoke<void>("save_payment_status", { personnelId, statusDate, status }),
+  saveRange: (personnelId: number, statusDates: string[], status: PaymentManualStatus | "") => invoke<void>("save_payment_statuses", { personnelId, statusDates, status }),
   exportReport: (month: string, path: string, reportKind: PaymentReportKind) => invoke<void>("export_payments_report", { month, path, reportKind }),
 };

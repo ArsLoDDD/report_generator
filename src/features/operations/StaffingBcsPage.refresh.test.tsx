@@ -97,7 +97,9 @@ describe("Оновлення БЧС за добовим планом", () => {
     fireEvent.click(screen.getByRole("button", { name: "Параметри БЧС" }));
 
     expect(screen.getByRole("textbox", { name: "Дата БЧС · станом на 08:00" })).toHaveValue("24.09.2026");
+    expect(screen.getByRole("textbox", { name: /Назва файлу БЧС/u })).toHaveValue("РБАК 24.09.2026");
     expect(localStorage.getItem("bcs-date")).toBe("24.09.2026");
+    expect(localStorage.getItem("bcs-file-name")).toBe("РБАК 24.09.2026");
   });
 
   it("дозволяє зберегти примітку з прогнозу, не переносячи завтрашнє місце у сьогоднішнє БЧС", async () => {

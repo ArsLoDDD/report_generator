@@ -7,13 +7,14 @@ import type { Crew, Equipment, FlightPlanEntry, FlightPlanWeather, WorkshopProdu
 
 const weatherFields: Array<[keyof FlightPlanWeather,string]> = [["temperature","Температура, °С"],["windFrom","Вітер від, м/с"],["windTo","Вітер до, м/с"],["gustFrom","Пориви від, м/с"],["gustTo","Пориви до, м/с"],["cloudiness","Хмарність, %"],["cloudHeight","Висота хмар, м"],["precipitation","Вірогідність опадів, %"]];
 
-export function FlightPlanEntryFields({ crew, entry, vehicles, uavs, ammunition, workshopProducts, showPresenceControls = false, showVehicleModeControl = true, departureError, onPatch }: {
+export function FlightPlanEntryFields({ crew, entry, vehicles, uavs, ammunition, workshopProducts, plannedConflictReasons = {}, showPresenceControls = false, showVehicleModeControl = true, departureError, onPatch }: {
   crew: Crew;
   entry: FlightPlanEntry;
   vehicles: Vehicle[];
   uavs: Equipment[];
   ammunition: Equipment[];
   workshopProducts: WorkshopProduct[];
+  plannedConflictReasons?: Record<number,string>;
   showPresenceControls?: boolean;
   showVehicleModeControl?: boolean;
   departureError?: string;
@@ -24,8 +25,8 @@ export function FlightPlanEntryFields({ crew, entry, vehicles, uavs, ammunition,
   const crewMembers=[...crew.members,...crew.actualMembers].filter((member,index,members)=>members.findIndex((candidate)=>candidate.personnelId===member.personnelId)===index);
   const ids=new Set(entry.actualMemberIds?.length?entry.actualMemberIds:crew.actualMembers.map((member)=>member.personnelId));
   const actualMembers=crewMembers.filter((member)=>ids.has(member.personnelId));
-  const conflictingIds=entry.actualMemberIds.filter((personnelId)=>{const member=crewMembers.find((item)=>item.personnelId===personnelId);return !member||!isFlightPlanMemberAvailable(member);});
-  const availableMembers=crew.actualMembers.filter(isFlightPlanMemberAvailable);
+  const conflictingIds=entry.actualMemberIds.filter((personnelId)=>{const member=crewMembers.find((item)=>item.personnelId===personnelId);return !member||!isFlightPlanMemberAvailable(member)||Boolean(plannedConflictReasons[personnelId]);});
+  const availableMembers=crew.actualMembers.filter((member)=>isFlightPlanMemberAvailable(member)&&!plannedConflictReasons[member.personnelId]);
   const restoreAvailableComposition=()=>onPatch({actualMemberIds:availableMembers.map((member)=>member.personnelId),actualCommanderId:availableMembers.find((member)=>member.position.toLocaleLowerCase("uk").includes("командир"))?.personnelId??availableMembers[0]?.personnelId??null});
   return <div className="flight-plan-editor__fields">
     {(conflictingIds.length>0||entry.actualMemberIds.length===0)&&<div className="flight-plan-modal-warning" role="alert"><span>{conflictingIds.length>0?`У збереженому етапі ${conflictingIds.length===1?"є недоступний учасник":`є недоступні учасники (${conflictingIds.length})`}. Дані не змінено автоматично.`:"В етапі немає доступного складу."}</span>{availableMembers.length>0?<button type="button" className="button" onClick={restoreAvailableComposition}>Оновити склад етапу</button>:<small>Змініть місце перебування людини у відповідному джерелі або приберіть екіпаж із плану.</small>}</div>}

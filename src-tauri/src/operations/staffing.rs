@@ -409,13 +409,30 @@ pub(crate) fn reconcile_flight_plan_for_moment(
             .unwrap_or(false);
         let active_manual_assignment = transaction
             .query_row(
-                "SELECT id FROM personnel_control_assignments WHERE personnel_id=?1 AND closed_at IS NULL ORDER BY id DESC LIMIT 1",
-                [personnel_id],
-                |row| row.get::<_, i64>(0),
+                "SELECT id,location_type FROM personnel_control_assignments
+                 WHERE personnel_id=?1 AND closed_at IS NULL
+                   AND trim(previous_location)<>''
+                   AND date(start_date)<=date(?2)
+                   AND (trim(end_date)='' OR date(end_date)>=date(?2))
+                 ORDER BY id DESC LIMIT 1",
+                rusqlite::params![personnel_id, local_date],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
             )
             .optional()
             .map_err(|_| "Не вдалося перевірити ручне місце перебування.".to_string())?;
-        if let Some(assignment_id) = active_manual_assignment {
+        if let Some((assignment_id, manual_location)) = active_manual_assignment {
+            if super::is_protected_manual_control_origin(&manual_location) {
+                transaction
+                    .execute(
+                        "DELETE FROM flight_plan_personnel_locations
+                     WHERE personnel_id=?1 AND date(plan_date)=date(?2)",
+                        rusqlite::params![personnel_id, local_date],
+                    )
+                    .map_err(|_| {
+                        "Не вдалося узгодити план польотів із запланованою відсутністю.".to_string()
+                    })?;
+                continue;
+            }
             transaction.execute(
                 "UPDATE personnel_control_assignments SET closed_on=?1,closed_at=CURRENT_TIMESTAMP,close_reason='Замінено фактичним складом плану польотів',updated_at=CURRENT_TIMESTAMP WHERE id=?2",
                 rusqlite::params![local_date, assignment_id],
@@ -1623,7 +1640,17 @@ mod flight_plan_location_tests {
                     .unwrap()
             })
             .collect::<Vec<_>>();
-        assert_eq!(locations, vec!["ЗБЗ", "Реко", "ЗБЗ"]);
+        assert_eq!(locations, vec!["НАВЧ", "Реко", "ЗБЗ"]);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM personnel_control_assignments WHERE personnel_id=1 AND closed_at IS NULL",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
         assert_eq!(
             connection
                 .query_row(
@@ -1632,7 +1659,7 @@ mod flight_plan_location_tests {
                     |row| row.get::<_, i64>(0)
                 )
                 .unwrap(),
-            2
+            1
         );
     }
 

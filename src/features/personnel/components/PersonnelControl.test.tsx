@@ -89,9 +89,10 @@ const bcsPosition: PersonnelControlRecord = {
   locationType: "ГШР",
 };
 
-function renderControl(records = [automatic, manual], history: PersonnelControlHistoryEvent[] = []) {
+function renderControl(records = [automatic, manual], history: PersonnelControlHistoryEvent[] = [], plans: PersonnelControlRecord[] = []) {
   invoke.mockImplementation((command: string) => {
     if (command === "list_personnel_control_records") return Promise.resolve(records);
+    if (command === "list_personnel_control_plans") return Promise.resolve(plans);
     if (command === "list_personnel_control_history") return Promise.resolve(history);
     return Promise.resolve(undefined);
   });
@@ -105,6 +106,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("PersonnelControl", () => {
+  it("shows future assignments separately without mixing them into current BCS", async () => {
+    const plan: PersonnelControlRecord = { ...manual, assignmentId: 91, locationType: "ВІДП", institution: "", startDate: "2099-10-02", endDate: "2099-10-12", untilSeparateOrder: false, sourceLabel: "Заплановано" };
+    renderControl([bcs], [], [plan]);
+    await screen.findByRole("row", { name: /ТЕСТОВИЙ.*ОХ/u });
+    expect(screen.queryByText("02.10.2099 — 12.10.2099")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Заплановані/u }));
+    expect(await screen.findByText("02.10.2099 — 12.10.2099")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `Редагувати план ${person.fullName}` })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `Скасувати план ${person.fullName}` })).toBeInTheDocument();
+  });
+
   it("оновлюється автоматично без окремої кнопки", async () => {
     renderControl();
     await screen.findByText("ЗБЗ");

@@ -728,6 +728,14 @@ pub fn transition_reconnaissance_to_setup(
             has_other_active,
         )?;
     }
+    for assignment in &assignments {
+        super::ensure_no_planned_personnel_conflict(
+            &transaction,
+            assignment.personnel_id,
+            assignment.start_date.trim(),
+            (!assignment.end_date.trim().is_empty()).then_some(assignment.end_date.trim()),
+        )?;
+    }
 
     let previous_position_type = position_draft.position_type.clone();
     let position_id = super::positions::create_position_record(&transaction, &position_draft)?;
@@ -990,6 +998,14 @@ pub fn save_position_work(
             old_is_active,
             draft_is_active,
             has_other_active,
+        )?;
+    }
+    for assignment in &assignments {
+        super::ensure_no_planned_personnel_conflict(
+            &transaction,
+            assignment.personnel_id,
+            assignment.start_date.trim(),
+            (!assignment.end_date.trim().is_empty()).then_some(assignment.end_date.trim()),
         )?;
     }
     let previous_position_type = if draft.position_id.is_none() {

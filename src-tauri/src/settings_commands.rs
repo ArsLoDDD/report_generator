@@ -1,4 +1,5 @@
 use super::*;
+use chrono::NaiveDate;
 
 fn overdue_position_work_warnings(
     connection: &Connection,
@@ -50,6 +51,206 @@ fn overdue_position_work_warnings(
             },
         )
         .collect()
+}
+
+fn personnel_planning_warnings(connection: &Connection, current_date: &str) -> Vec<StartupWarning> {
+    type Plan = (i64, i64, String, String, String, String);
+    let plans = connection
+        .prepare(
+            "SELECT assignment.id,assignment.personnel_id,
+                    trim(person.surname||' '||person.given_name||' '||person.patronymic),
+                    assignment.location_type,assignment.start_date,assignment.end_date
+             FROM personnel_control_assignments assignment
+             JOIN personnel person ON person.id=assignment.personnel_id
+             WHERE assignment.closed_at IS NULL
+               AND trim(assignment.previous_location)=''
+               AND date(assignment.start_date)>date(?1)
+             ORDER BY assignment.start_date,assignment.id",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_map([current_date], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                    ))
+                })?
+                .collect::<Result<Vec<Plan>, _>>()
+        })
+        .unwrap_or_default();
+    if plans.is_empty() {
+        return Vec::new();
+    }
+
+    let mut warnings = Vec::new();
+    let mut emitted = std::collections::HashSet::<String>::new();
+    let work_conflicts = connection
+        .prepare(
+            "SELECT assignment.id,assignment.personnel_id,
+                    trim(person.surname||' '||person.given_name||' '||person.patronymic),
+                    assignment.location_type,assignment.start_date,assignment.end_date,
+                    work.id,work.work_type,
+                    COALESCE(NULLIF(trim(work.position_name),''),NULLIF(trim(position.name),''),
+                             NULLIF(trim(work.position_locality),''),'Без назви')
+             FROM personnel_control_assignments assignment
+             JOIN personnel person ON person.id=assignment.personnel_id
+             JOIN position_work_periods period ON period.personnel_id=assignment.personnel_id
+             JOIN position_work work ON work.id=period.work_id
+             LEFT JOIN positions position ON position.id=work.position_id
+             WHERE assignment.closed_at IS NULL
+               AND trim(assignment.previous_location)=''
+               AND date(assignment.start_date)>date(?1)
+               AND work.status<>'Завершили'
+               AND date(period.start_date)<=date(CASE WHEN trim(assignment.end_date)<>''
+                                                      THEN assignment.end_date ELSE '9999-12-31' END)
+               AND date(CASE WHEN trim(period.end_date)<>''
+                             THEN period.end_date ELSE '9999-12-31' END)>=date(assignment.start_date)
+             ORDER BY assignment.start_date,assignment.id,work.id",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_map([current_date], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, String>(7)?,
+                        row.get::<_, String>(8)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .unwrap_or_default();
+    for (assignment_id, _, full_name, state, start, end, work_id, work_type, place) in
+        work_conflicts
+    {
+        let code = format!("personnel-plan-work-{assignment_id}-{work_id}");
+        if emitted.insert(code.clone()) {
+            let period = if end.trim().is_empty() {
+                format!("з {start}")
+            } else {
+                format!("{start}–{end}")
+            };
+            warnings.push(StartupWarning {
+                code,
+                title: format!("Конфлікт плану ОС: {full_name}"),
+                message: format!(
+                    "На {period} заплановано «{state}», але цей час перетинається із завданням «{work_type}» — {place}. Змініть один із періодів."
+                ),
+            });
+        }
+    }
+
+    let saved_plan_dates = connection
+        .prepare(
+            "SELECT DISTINCT plan_date FROM flight_plan_snapshots
+             WHERE date(plan_date)>date(?1) ORDER BY plan_date",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_map([current_date], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .unwrap_or_default();
+    for plan_date in saved_plan_dates {
+        let Ok(Some(schedules)) =
+            crate::flight_plan::flight_plan_location_schedule(connection, &plan_date)
+        else {
+            continue;
+        };
+        let scheduled_people = schedules
+            .iter()
+            .flat_map(|schedule| schedule.stages.iter())
+            .flat_map(|stage| stage.member_ids.iter().copied())
+            .collect::<std::collections::HashSet<_>>();
+        for (assignment_id, personnel_id, full_name, state, start, end) in &plans {
+            let in_period = plan_date.as_str() >= start.as_str()
+                && (end.trim().is_empty() || plan_date.as_str() <= end.as_str());
+            if !in_period || !scheduled_people.contains(personnel_id) {
+                continue;
+            }
+            let code = format!("personnel-plan-flight-{assignment_id}-{plan_date}");
+            if emitted.insert(code.clone()) {
+                warnings.push(StartupWarning {
+                    code,
+                    title: format!("Конфлікт плану польотів: {full_name}"),
+                    message: format!(
+                        "На {plan_date} у контролі ОС заплановано «{state}», але військовослужбовець залишається у збереженому плані польотів. Виведіть його зі складу на цю дату або змініть план ОС."
+                    ),
+                });
+            }
+        }
+    }
+
+    let tomorrow = NaiveDate::parse_from_str(current_date, "%Y-%m-%d")
+        .ok()
+        .and_then(|date| date.succ_opt())
+        .map(|date| date.format("%Y-%m-%d").to_string());
+    if let Some(tomorrow) = tomorrow {
+        let today_schedules = connection
+            .query_row(
+                "SELECT snapshot_json FROM flight_plan_snapshots
+                 WHERE plan_date=?1 ORDER BY revision DESC,id DESC LIMIT 1",
+                [current_date],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .ok()
+            .flatten()
+            .and_then(|snapshot| {
+                crate::flight_plan::flight_plan_location_schedule_from_saved_snapshot(&snapshot)
+                    .ok()
+            })
+            .unwrap_or_default();
+        for (assignment_id, personnel_id, full_name, state, start, _) in &plans {
+            if start != &tomorrow {
+                continue;
+            }
+            let current_location = connection
+                .query_row(
+                    "SELECT current_location FROM personnel WHERE id=?1",
+                    [personnel_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap_or_default();
+            if !["На позиції", "ЗБЗ", "ПБЗ"].contains(&current_location.trim()) {
+                continue;
+            }
+            let has_exit = today_schedules.iter().any(|schedule| {
+                let initially_present = schedule
+                    .stages
+                    .first()
+                    .is_some_and(|stage| stage.member_ids.contains(personnel_id));
+                let finally_present = schedule
+                    .stages
+                    .last()
+                    .is_some_and(|stage| stage.member_ids.contains(personnel_id));
+                initially_present && (!finally_present || schedule.departs_on_plan_date)
+            });
+            if has_exit {
+                continue;
+            }
+            let code = format!("personnel-plan-position-exit-{assignment_id}");
+            if emitted.insert(code.clone()) {
+                warnings.push(StartupWarning {
+                    code,
+                    title: format!("Не заплановано вихід із позиції: {full_name}"),
+                    message: format!(
+                        "На завтра заплановано «{state}», але військовослужбовець зараз має стан «{current_location}» і в сьогоднішньому плані польотів немає його виведення. Заплануйте вихід із позиції до початку нового стану."
+                    ),
+                });
+            }
+        }
+    }
+    warnings
 }
 
 #[tauri::command]
@@ -118,6 +319,10 @@ pub(crate) fn get_startup_warnings(state: tauri::State<AppState>) -> Vec<Startup
     warnings.extend(overdue_position_work_warnings(
         &database.connection,
         &current_local_date_time,
+    ));
+    warnings.extend(personnel_planning_warnings(
+        &database.connection,
+        &Local::now().format("%Y-%m-%d").to_string(),
     ));
     warnings.extend(deadline_reminders::warning_rows(
         &database.connection,
@@ -216,6 +421,7 @@ pub(crate) fn update_unit_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database;
 
     #[test]
     fn overdue_position_work_stays_warned_until_manually_completed() {
@@ -258,5 +464,51 @@ mod tests {
         let warnings = overdue_position_work_warnings(&connection, "2026-09-26T10:00");
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0].code, "position-work-overdue-11");
+    }
+
+    #[test]
+    fn future_personnel_plan_warns_about_work_and_missing_position_exit() {
+        let connection = Connection::open_in_memory().unwrap();
+        database::initialise(&connection).unwrap();
+        connection.execute(
+            "INSERT INTO personnel(
+                id,rank,surname,given_name,patronymic,position,tax_id,birth_date,
+                education_level,education_details,armed_forces_service_start_date,
+                position_assigned_date,position_assignment_order,military_id,current_location
+             ) VALUES(1,'солдат','ПЛАНОВИЙ','Петро','Іванович','оператор','','','','','','','','','На позиції')",
+            [],
+        ).unwrap();
+        connection
+            .execute(
+                "INSERT INTO personnel_control_assignments(
+                id,personnel_id,location_type,institution,start_date,end_date,previous_location
+             ) VALUES(7,1,'ВІДП','','2026-10-02','2026-10-05','')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO position_work(
+                id,position_name,work_type,status,start_date,start_time,end_date,end_time
+             ) VALUES(9,'СОКІЛ','Облаштування','Приступили','2026-10-01','08:00','','')",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO position_work_periods(
+                work_id,personnel_id,duty_type,start_date,start_time,end_date,end_time
+             ) VALUES(9,1,'Облаштування','2026-10-01','08:00','','')",
+                [],
+            )
+            .unwrap();
+
+        let warnings = personnel_planning_warnings(&connection, "2026-10-01");
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.code == "personnel-plan-work-7-9"));
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.code == "personnel-plan-position-exit-7"));
     }
 }

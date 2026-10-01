@@ -45,7 +45,8 @@ async function loadAllPersonnel() {
 
 const statusMap = (items: PaymentDailyStatus[]) => Object.fromEntries(items.map((item) => [statusKey(item.personnelId, item.statusDate), item]));
 
-type ActiveCell = { key: string; personName: string; status: PaymentDailyStatus; anchor: HTMLButtonElement };
+type ActiveCell = { key: string; keys: string[]; personId: number; personName: string; statuses: PaymentDailyStatus[]; status: PaymentDailyStatus; anchor: HTMLButtonElement };
+type DragSelection = { person: Person; startDay: number; currentDay: number; anchor: HTMLButtonElement };
 type PopoverPosition = { top: number; left: number };
 
 const POPOVER_MARGIN = 12;
@@ -104,14 +105,18 @@ function CellPopover({ active, pending, onClose, onChange }: { active: ActiveCel
     window.addEventListener("resize", reposition);
     return () => window.removeEventListener("resize", reposition);
   }, [active.anchor, active.key, active.status]);
-  const content = <div ref={ref} className="payment-cell-popover" role="dialog" aria-label={`Облік за ${active.status.statusDate}`} style={position}>
-    <header><div><b>{active.personName}</b><span>{active.status.statusDate.split("-").reverse().join(".")}</span></div><span className={`payment-status-badge tone-${active.status.tone}`}>{active.status.status || "Порожньо"}</span></header>
-    <section className="payment-cell-popover__fact"><MapPin /><div><span>Фактичний стан</span><b>{active.status.actualLocation || "Даних немає"}</b><small>{active.status.sourceDetails || "За цей день джерело не зафіксовано."}</small></div></section>
-    {active.status.manualOverride && <p className="payment-cell-popover__override">Вручну встановлено: <b>{manualStatusLabel(active.status.manualOverride)}</b>. Фактичний стан вище збережено без змін.</p>}
+  const firstDate = active.statuses[0]?.statusDate ?? active.status.statusDate;
+  const lastDate = active.statuses[active.statuses.length - 1]?.statusDate ?? firstDate;
+  const dateLabel = active.statuses.length === 1 ? firstDate.split("-").reverse().join(".") : `${firstDate.split("-").reverse().join(".")} — ${lastDate.split("-").reverse().join(".")} · ${active.statuses.length} днів`;
+  const commonOverride = active.statuses.every((item) => item.manualOverride === active.statuses[0]?.manualOverride) ? active.statuses[0]?.manualOverride : null;
+  const content = <div ref={ref} className="payment-cell-popover" role="dialog" aria-label={active.statuses.length === 1 ? `Облік за ${firstDate}` : `Облік за ${firstDate} — ${lastDate}`} style={position}>
+    <header><div><b>{active.personName}</b><span>{dateLabel}</span></div>{active.statuses.length === 1 && <span className={`payment-status-badge tone-${active.status.tone}`}>{active.status.status || "Порожньо"}</span>}</header>
+    {active.statuses.length === 1 ? <section className="payment-cell-popover__fact"><MapPin /><div><span>Фактичний стан</span><b>{active.status.actualLocation || "Даних немає"}</b><small>{active.status.sourceDetails || "За цей день джерело не зафіксовано."}</small></div></section> : <section className="payment-cell-popover__fact"><MapPin /><div><span>Групова зміна</span><b>Обрано {active.statuses.length} днів в одному рядку</b><small>Встановлений статус застосовується до всіх обраних днів. Фактичні дані кожного дня залишаться без змін.</small></div></section>}
+    {active.statuses.length === 1 && active.status.manualOverride && <p className="payment-cell-popover__override">Вручну встановлено: <b>{manualStatusLabel(active.status.manualOverride)}</b>. Фактичний стан вище збережено без змін.</p>}
     <div className="payment-cell-popover__actions" role="group" aria-label="Встановити статус вручну">
-      {manualStatuses.map((option) => <button type="button" key={option.value} className={`${option.icon ? "is-empty" : ""} ${active.status.manualOverride === option.value ? "active" : ""}`.trim()} aria-label={option.icon ? "Залишити клітинку порожньою" : undefined} aria-pressed={active.status.manualOverride === option.value} disabled={pending} onClick={() => void onChange(option.value)}>{option.icon ? <CircleOff /> : <span>{option.label}</span>}<small>{option.hint}</small>{active.status.manualOverride === option.value && <Check className="payment-action-check" />}</button>)}
+      {manualStatuses.map((option) => <button type="button" key={option.value} className={`${option.icon ? "is-empty" : ""} ${commonOverride === option.value ? "active" : ""}`.trim()} aria-label={option.icon ? "Залишити клітинку порожньою" : undefined} aria-pressed={commonOverride === option.value} disabled={pending} onClick={() => void onChange(option.value)}>{option.icon ? <CircleOff /> : <span>{option.label}</span>}<small>{option.hint}</small>{commonOverride === option.value && <Check className="payment-action-check" />}</button>)}
     </div>
-    <button type="button" className="payment-cell-popover__auto" disabled={pending || !active.status.manualOverride} onClick={() => void onChange("")}><RotateCcw />Автоматичний розрахунок</button>
+    <button type="button" className="payment-cell-popover__auto" disabled={pending || (active.statuses.length === 1 && !active.status.manualOverride)} onClick={() => void onChange("")}><RotateCcw />Автоматичний розрахунок</button>
   </div>;
   return typeof document === "undefined" ? content : createPortal(content, document.body);
 }
@@ -131,6 +136,9 @@ export function PaymentsPage() {
   const [statusError, setStatusError] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(currentIsoMonth);
   const [activeCell, setActiveCell] = useState<ActiveCell | null>(null);
+  const [rangePreview, setRangePreview] = useState<{ personnelId: number; startDay: number; endDay: number } | null>(null);
+  const dragSelection = useRef<DragSelection | null>(null);
+  const suppressPointerClick = useRef(false);
   const requestId = useRef(0);
   const selectedMonthRef = useRef(selectedMonth);
   const highlightedColumn = useRef<{ column: HTMLTableColElement; header: HTMLTableCellElement | null } | null>(null);
@@ -169,16 +177,22 @@ export function PaymentsPage() {
     }).finally(() => { if (requestId.current === currentRequest) setLoadingStatuses(false); });
   }, [loadStatuses, selectedMonth]);
 
-  const openCell = useCallback((event: React.MouseEvent<HTMLButtonElement>, person: Person, status: PaymentDailyStatus) => {
-    setActiveCell({ key: statusKey(person.id, status.statusDate), personName: person.fullName, status, anchor: event.currentTarget });
+  const openCell = useCallback((anchor: HTMLButtonElement, person: Person, selectedStatuses: PaymentDailyStatus[]) => {
+    const ordered = [...selectedStatuses].sort((left, right) => left.statusDate.localeCompare(right.statusDate));
+    const status = ordered[0];
+    if (!status) return;
+    const keys = ordered.map((item) => statusKey(person.id, item.statusDate));
+    setActiveCell({ key: keys[0], keys, personId: person.id, personName: person.fullName, statuses: ordered, status, anchor });
   }, []);
 
-  const updateStatus = useCallback(async (personnelId: number, date: string, status: PaymentManualStatus | "") => {
-    const key = statusKey(personnelId, date);
-    const mutationMonth = date.slice(0, 7);
-    setPending((current) => new Set(current).add(key));
+  const updateStatus = useCallback(async (personnelId: number, dates: string[], status: PaymentManualStatus | "") => {
+    const keys = dates.map((date) => statusKey(personnelId, date));
+    const mutationMonth = dates[0]?.slice(0, 7) ?? "";
+    if (!mutationMonth) return;
+    setPending((current) => new Set([...current, ...keys]));
     try {
-      await paymentsService.save(personnelId, date, status);
+      if (dates.length === 1) await paymentsService.save(personnelId, dates[0], status);
+      else await paymentsService.saveRange(personnelId, dates, status);
       if (selectedMonthRef.current !== mutationMonth) return;
       const currentRequest = ++requestId.current;
       setLoadingStatuses(true);
@@ -186,8 +200,13 @@ export function PaymentsPage() {
       setStatuses({});
       try {
         const items = await loadStatuses(mutationMonth, currentRequest);
-        const updated = items.find((item) => item.personnelId === personnelId && item.statusDate === date);
-        if (requestId.current === currentRequest && updated) setActiveCell((current) => current?.key === key ? { ...current, status: updated } : current);
+        if (requestId.current === currentRequest) {
+          if (dates.length > 1) setActiveCell(null);
+          else {
+            const updated = items.find((item) => item.personnelId === personnelId && item.statusDate === dates[0]);
+            if (updated) setActiveCell((current) => current?.keys.includes(keys[0]) ? { ...current, status: updated, statuses: [updated] } : current);
+          }
+        }
       } catch {
         if (requestId.current === currentRequest) {
           setStatuses({});
@@ -200,9 +219,51 @@ export function PaymentsPage() {
     } catch (saveError) {
       notify(saveError instanceof Error ? saveError.message : "Не вдалося зберегти ручне уточнення.", "error");
     } finally {
-      setPending((current) => { const next = new Set(current); next.delete(key); return next; });
+      setPending((current) => { const next = new Set(current); keys.forEach((key) => next.delete(key)); return next; });
     }
   }, [loadStatuses, notify]);
+
+  useEffect(() => {
+    const finishSelection = () => {
+      const drag = dragSelection.current;
+      if (!drag) return;
+      const start = Math.min(drag.startDay, drag.currentDay);
+      const end = Math.max(drag.startDay, drag.currentDay);
+      const selected = Array.from({ length: end - start + 1 }, (_, index) => statuses[statusKey(drag.person.id, isoDate(selectedMonthRef.current, start + index))]).filter((item): item is PaymentDailyStatus => Boolean(item));
+      dragSelection.current = null;
+      setRangePreview(null);
+      suppressPointerClick.current = true;
+      window.setTimeout(() => { suppressPointerClick.current = false; }, 0);
+      if (selected.length) openCell(drag.anchor, drag.person, selected);
+    };
+    const cancelSelection = () => {
+      if (!dragSelection.current) return;
+      dragSelection.current = null;
+      setRangePreview(null);
+    };
+    document.addEventListener("mouseup", finishSelection);
+    window.addEventListener("blur", cancelSelection);
+    return () => {
+      document.removeEventListener("mouseup", finishSelection);
+      window.removeEventListener("blur", cancelSelection);
+    };
+  }, [openCell, statuses]);
+
+  const beginRange = useCallback((event: React.MouseEvent<HTMLButtonElement>, person: Person, day: number) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    setActiveCell(null);
+    dragSelection.current = { person, startDay: day, currentDay: day, anchor: event.currentTarget };
+    setRangePreview({ personnelId: person.id, startDay: day, endDay: day });
+  }, []);
+
+  const extendRange = useCallback((event: React.MouseEvent<HTMLButtonElement>, person: Person, day: number) => {
+    const drag = dragSelection.current;
+    if (!drag || drag.person.id !== person.id || event.buttons !== 1) return;
+    drag.currentDay = day;
+    drag.anchor = event.currentTarget;
+    setRangePreview({ personnelId: person.id, startDay: Math.min(drag.startDay, day), endDay: Math.max(drag.startDay, day) });
+  }, []);
 
   const exportReport = useCallback(async (reportKind: PaymentReportKind) => {
     const option = reportOptions.find((item) => item.kind === reportKind);
@@ -252,10 +313,12 @@ export function PaymentsPage() {
         const visibleStatus = item?.status || "";
         const accessibleStatus = item ? visibleStatus || "порожньо" : "дані недоступні";
         const unavailable = !item || Boolean(statusError);
-        return <td key={day} className={`tone-${item?.tone ?? "empty"} ${item?.manualOverride ? "is-manual" : ""}`}><button type="button" data-payment-key={key} aria-label={`${person.fullName}, ${day} число: ${accessibleStatus}`} aria-haspopup="dialog" aria-expanded={activeCell?.key === key} disabled={loadingStatuses || unavailable || pending.has(key)} onClick={item ? (event) => openCell(event, person, item) : undefined}>{visibleStatus}{item?.manualOverride && visibleStatus && <i>•</i>}</button></td>;
+        const rangeSelected = rangePreview?.personnelId === person.id && day >= rangePreview.startDay && day <= rangePreview.endDay;
+        const activeSelected = activeCell?.keys.includes(key) ?? false;
+        return <td key={day} className={`tone-${item?.tone ?? "empty"} ${item?.manualOverride ? "is-manual" : ""} ${rangeSelected || activeSelected ? "is-range-selected" : ""}`.trim()}><button type="button" data-payment-key={key} aria-label={`${person.fullName}, ${day} число: ${accessibleStatus}`} aria-haspopup="dialog" aria-expanded={activeSelected} disabled={loadingStatuses || unavailable || pending.has(key)} onMouseDown={item ? (event) => beginRange(event, person, day) : undefined} onMouseEnter={item ? (event) => extendRange(event, person, day) : undefined} onClick={item ? (event) => { if (suppressPointerClick.current) { event.preventDefault(); return; } openCell(event.currentTarget, person, [item]); } : undefined}>{visibleStatus}{item?.manualOverride && visibleStatus && <i>•</i>}</button></td>;
       })}</tr>)}</tbody></table>{loadingPeople && <div className="payments-table__state">Завантаження особового складу…</div>}{!loadingPeople && loadingStatuses && people.length > 0 && <div className="payments-table__state">Розрахунок виплат…</div>}{!loadingPeople && peopleError && <div className="payments-table__state is-error">{peopleError}</div>}{!loadingStatuses && statusError && <div className="payments-table__state is-error">{statusError}</div>}{!loading && !peopleError && !statusError && people.length === 0 && <div className="payments-table__state">В особовому складі ще немає записів.</div>}</div>
     </section>
-    {activeCell && <CellPopover active={activeCell} pending={pending.has(activeCell.key)} onClose={() => setActiveCell(null)} onChange={(status) => updateStatus(activeCell.status.personnelId, activeCell.status.statusDate, status)} />}
+    {activeCell && <CellPopover active={activeCell} pending={activeCell.keys.some((key) => pending.has(key))} onClose={() => setActiveCell(null)} onChange={(status) => updateStatus(activeCell.personId, activeCell.statuses.map((item) => item.statusDate), status)} />}
     {exportMenuOpen && <Modal title="Сформувати рапорт" subtitle={monthLabel} onClose={() => setExportMenuOpen(false)} className="payments-export-modal"><div className="payments-export-options">{reportOptions.map((option) => <button type="button" key={option.kind} onClick={() => void exportReport(option.kind)}><FileText /><span><b>{option.title}</b><small>{option.description}</small></span></button>)}</div></Modal>}
   </PageFrame>;
 }

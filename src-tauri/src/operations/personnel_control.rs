@@ -5,6 +5,104 @@ use crate::AppState;
 use chrono::{Local, NaiveDate};
 use rusqlite::{params, Connection, OptionalExtension};
 
+#[derive(Debug, Clone)]
+pub(crate) struct PlannedPersonnelConflict {
+    pub full_name: String,
+    pub location_type: String,
+    pub institution: String,
+    pub start_date: String,
+    pub end_date: String,
+}
+
+impl PlannedPersonnelConflict {
+    pub(crate) fn period_text(&self) -> String {
+        if self.end_date.trim().is_empty() {
+            format!("з {}", self.start_date)
+        } else if self.start_date == self.end_date {
+            self.start_date.clone()
+        } else {
+            format!("{}–{}", self.start_date, self.end_date)
+        }
+    }
+
+    pub(crate) fn reason(&self) -> String {
+        let place = if self.institution.trim().is_empty() {
+            String::new()
+        } else {
+            format!(" · {}", self.institution.trim())
+        };
+        format!(
+            "заплановано «{}»{} ({})",
+            self.location_type.trim(),
+            place,
+            self.period_text()
+        )
+    }
+}
+
+pub(crate) fn planned_personnel_conflict(
+    connection: &Connection,
+    personnel_id: i64,
+    start_date: &str,
+    end_date: Option<&str>,
+) -> Result<Option<PlannedPersonnelConflict>, String> {
+    let start = parse_date(start_date, "Дата залучення")?;
+    let end = end_date
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| parse_date(value, "Дата завершення залучення"))
+        .transpose()?;
+    connection
+        .query_row(
+            "SELECT trim(person.surname||' '||person.given_name||' '||person.patronymic),
+                    assignment.location_type,assignment.institution,
+                    assignment.start_date,assignment.end_date
+             FROM personnel_control_assignments assignment
+             JOIN personnel person ON person.id=assignment.personnel_id
+             WHERE assignment.personnel_id=?1
+               AND assignment.closed_at IS NULL
+               AND trim(assignment.previous_location)=''
+               AND date(assignment.start_date)<=date(?3)
+               AND date(CASE WHEN trim(assignment.end_date)<>''
+                             THEN assignment.end_date ELSE '9999-12-31' END)>=date(?2)
+             ORDER BY assignment.start_date,assignment.id LIMIT 1",
+            params![
+                personnel_id,
+                start.format("%Y-%m-%d").to_string(),
+                end.map(|value| value.format("%Y-%m-%d").to_string())
+                    .unwrap_or_else(|| "9999-12-31".into())
+            ],
+            |row| {
+                Ok(PlannedPersonnelConflict {
+                    full_name: row.get(0)?,
+                    location_type: row.get(1)?,
+                    institution: row.get(2)?,
+                    start_date: row.get(3)?,
+                    end_date: row.get(4)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|_| "Не вдалося перевірити заплановані стани особового складу.".to_string())
+}
+
+pub(crate) fn ensure_no_planned_personnel_conflict(
+    connection: &Connection,
+    personnel_id: i64,
+    start_date: &str,
+    end_date: Option<&str>,
+) -> Result<(), String> {
+    if let Some(conflict) =
+        planned_personnel_conflict(connection, personnel_id, start_date, end_date)?
+    {
+        return Err(format!(
+            "{} недоступний: {}. Змініть план у контролі особового складу або період залучення.",
+            conflict.full_name,
+            conflict.reason()
+        ));
+    }
+    Ok(())
+}
+
 const MANUAL_LOCATIONS: [&str; 15] = [
     "ОХ",
     "ПУ",
@@ -68,9 +166,6 @@ fn validate_draft(
         return Err("Вкажіть заклад або установу, де перебуває військовослужбовець.".into());
     }
     let start = parse_date(&draft.start_date, "Дата початку")?;
-    if start > local_today {
-        return Err("Дата початку не може бути пізніше за сьогодні. Заплановані переміщення слід фіксувати після їх фактичного початку.".into());
-    }
     let end = if !location_shows_end_date(location) || draft.end_date.trim().is_empty() {
         None
     } else {
@@ -83,7 +178,7 @@ fn validate_draft(
         if end < start {
             return Err("Дата завершення не може бути раніше за дату початку.".into());
         }
-        if end < local_today {
+        if start <= local_today && end < local_today {
             return Err("Активне переміщення не може завершуватися раніше за сьогодні.".into());
         }
     }
@@ -129,6 +224,8 @@ fn overlaps_existing_assignment(
                 SELECT 1 FROM personnel_control_assignments assignment
                 WHERE assignment.personnel_id=?1
                   AND (?2 IS NULL OR assignment.id<>?2)
+                  AND NOT (assignment.closed_at IS NOT NULL
+                           AND assignment.close_reason LIKE 'Скасовано запланований запис%')
                   AND date(assignment.start_date)<=date(?4)
                   AND date(CASE
                         WHEN trim(assignment.closed_on)<>'' THEN assignment.closed_on
@@ -235,22 +332,30 @@ pub(crate) fn sync_manual_assignments_for_date(
         training_in_unit,
     ) in due
     {
+        let was_activated = !previous.trim().is_empty();
+        let close_reason = if was_activated {
+            "Завершено автоматично за вказаною датою"
+        } else {
+            "Плановий період минув до запуску програми"
+        };
         transaction
             .execute(
                 "UPDATE personnel_control_assignments
                  SET closed_on=end_date,closed_at=CURRENT_TIMESTAMP,
-                     close_reason='Завершено автоматично за вказаною датою',updated_at=CURRENT_TIMESTAMP
-                 WHERE id=?1 AND closed_at IS NULL",
-                [id],
+                     close_reason=?1,updated_at=CURRENT_TIMESTAMP
+                 WHERE id=?2 AND closed_at IS NULL",
+                params![close_reason, id],
             )
             .map_err(|_| "Не вдалося завершити переміщення.".to_string())?;
-        transaction
-            .execute(
-                "UPDATE personnel SET current_location=?1,updated_at=CURRENT_TIMESTAMP
-                 WHERE id=?2 AND current_location=?3",
-                params![safe_previous_location(&previous), personnel_id, location],
-            )
-            .map_err(|_| "Не вдалося синхронізувати стан у БЧС.".to_string())?;
+        if was_activated {
+            transaction
+                .execute(
+                    "UPDATE personnel SET current_location=?1,updated_at=CURRENT_TIMESTAMP
+                     WHERE id=?2 AND current_location=?3",
+                    params![safe_previous_location(&previous), personnel_id, location],
+                )
+                .map_err(|_| "Не вдалося синхронізувати стан у БЧС.".to_string())?;
+        }
         save_event(
             &transaction,
             ControlEvent {
@@ -263,7 +368,78 @@ pub(crate) fn sync_manual_assignments_for_date(
                 end_date: &end_date,
                 training_in_unit,
                 notes: &notes,
-                reason: "Завершено автоматично за вказаною датою",
+                reason: close_reason,
+            },
+        )?;
+    }
+    let activations = {
+        let mut statement = transaction
+            .prepare(
+                "SELECT assignment.id,assignment.personnel_id,assignment.location_type,
+                        assignment.institution,assignment.start_date,assignment.end_date,
+                        assignment.notes,assignment.training_in_unit,
+                        COALESCE(person.current_location,'')
+                 FROM personnel_control_assignments assignment
+                 JOIN personnel person ON person.id=assignment.personnel_id
+                 WHERE assignment.closed_at IS NULL
+                   AND trim(assignment.previous_location)=''
+                   AND date(assignment.start_date)<=date(?1)
+                   AND (trim(assignment.end_date)='' OR date(assignment.end_date)>=date(?1))
+                 ORDER BY assignment.start_date,assignment.id",
+            )
+            .map_err(|_| "Не вдалося прочитати заплановані переміщення.".to_string())?;
+        let rows = statement
+            .query_map([local_today], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, bool>(7)?,
+                    row.get::<_, String>(8)?,
+                ))
+            })
+            .map_err(|_| "Не вдалося прочитати заплановані переміщення.".to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "Не вдалося прочитати заплановані переміщення.".to_string())?;
+        rows
+    };
+    for (
+        id,
+        personnel_id,
+        location,
+        institution,
+        start_date,
+        end_date,
+        notes,
+        training_in_unit,
+        current_location,
+    ) in activations
+    {
+        transaction
+            .execute(
+                "UPDATE personnel_control_assignments
+                 SET previous_location=?1,updated_at=CURRENT_TIMESTAMP
+                 WHERE id=?2 AND closed_at IS NULL AND trim(previous_location)=''",
+                params![safe_previous_location(&current_location), id],
+            )
+            .map_err(|_| "Не вдалося активувати заплановане переміщення.".to_string())?;
+        save_event(
+            &transaction,
+            ControlEvent {
+                assignment_id: id,
+                personnel_id,
+                action: "updated",
+                location_type: &location,
+                institution: &institution,
+                start_date: &start_date,
+                end_date: &end_date,
+                training_in_unit,
+                notes: &notes,
+                reason: "План набув чинності",
             },
         )?;
     }
@@ -661,6 +837,112 @@ pub fn list_personnel_control_records(
     personnel_control_records(&db.connection, &Local::now().format("%Y-%m-%d").to_string())
 }
 
+#[tauri::command]
+pub fn list_personnel_control_plans(
+    state: tauri::State<AppState>,
+) -> Result<Vec<PersonnelControlRecord>, String> {
+    let db = state.0.lock().map_err(|_| busy())?;
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    sync_manual_assignments_for_date(&db.connection, &today)?;
+    let mut statement = db.connection.prepare(
+        "SELECT assignment.id,assignment.personnel_id,
+                trim(person.surname||' '||person.given_name||' '||person.patronymic),
+                person.rank,person.position,assignment.location_type,assignment.institution,
+                assignment.start_date,assignment.end_date,assignment.until_separate_order,
+                assignment.notes,assignment.training_in_unit,assignment.updated_at
+         FROM personnel_control_assignments assignment
+         JOIN personnel person ON person.id=assignment.personnel_id
+         WHERE assignment.closed_at IS NULL
+           AND trim(assignment.previous_location)=''
+           AND date(assignment.start_date)>=date(?1)
+         ORDER BY assignment.start_date,person.surname COLLATE NOCASE,person.given_name COLLATE NOCASE,assignment.id",
+    ).map_err(|_| "Не вдалося прочитати заплановані стани особового складу.".to_string())?;
+    let rows = statement
+        .query_map([today], |row| {
+            let location_type: String = row.get(5)?;
+            Ok(PersonnelControlRecord {
+                assignment_id: Some(row.get(0)?),
+                personnel_id: row.get(1)?,
+                full_name: row.get(2)?,
+                rank: row.get(3)?,
+                position: row.get(4)?,
+                tab: tab_for(&location_type),
+                location_type,
+                source: "manual".into(),
+                source_label: "Заплановано в контролі особового складу".into(),
+                can_edit: true,
+                institution: row.get(6)?,
+                start_date: row.get(7)?,
+                end_date: row.get(8)?,
+                until_separate_order: row.get::<_, i64>(9)? != 0,
+                notes: row.get(10)?,
+                training_in_unit: row.get::<_, i64>(11)? != 0,
+                crew_id: None,
+                crew_name: String::new(),
+                position_id: None,
+                position_name: String::new(),
+                work_id: None,
+                work_type: String::new(),
+                updated_at: row.get(12)?,
+            })
+        })
+        .map_err(|_| "Не вдалося прочитати заплановані стани особового складу.".to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Не вдалося прочитати заплановані стани особового складу.".to_string())?;
+    Ok(rows)
+}
+
+#[tauri::command]
+pub fn cancel_personnel_control_plan(
+    state: tauri::State<AppState>,
+    assignment_id: i64,
+) -> Result<(), String> {
+    let db = state.0.lock().map_err(|_| busy())?;
+    let today = today().format("%Y-%m-%d").to_string();
+    let transaction = db
+        .connection
+        .unchecked_transaction()
+        .map_err(|_| "Не вдалося почати скасування плану.".to_string())?;
+    let item = transaction.query_row(
+        "SELECT personnel_id,location_type,institution,start_date,end_date,notes,training_in_unit
+         FROM personnel_control_assignments
+         WHERE id=?1 AND closed_at IS NULL AND trim(previous_location)=''
+           AND date(start_date)>date(?2)",
+        params![assignment_id, today],
+        |row| Ok((row.get::<_, i64>(0)?,row.get::<_, String>(1)?,row.get::<_, String>(2)?,
+                  row.get::<_, String>(3)?,row.get::<_, String>(4)?,row.get::<_, String>(5)?,
+                  row.get::<_, bool>(6)?)),
+    ).optional().map_err(|_| "Не вдалося прочитати запланований запис.".to_string())?
+      .ok_or_else(|| "Скасувати можна лише план, який ще не набув чинності.".to_string())?;
+    let reason = "Скасовано запланований запис користувачем";
+    transaction
+        .execute(
+            "UPDATE personnel_control_assignments
+         SET closed_on=?1,closed_at=CURRENT_TIMESTAMP,close_reason=?2,updated_at=CURRENT_TIMESTAMP
+         WHERE id=?3",
+            params![today, reason, assignment_id],
+        )
+        .map_err(|_| "Не вдалося скасувати запланований запис.".to_string())?;
+    save_event(
+        &transaction,
+        ControlEvent {
+            assignment_id,
+            personnel_id: item.0,
+            action: "closed",
+            location_type: &item.1,
+            institution: &item.2,
+            start_date: &item.3,
+            end_date: &item.4,
+            training_in_unit: item.6,
+            notes: &item.5,
+            reason,
+        },
+    )?;
+    transaction
+        .commit()
+        .map_err(|_| "Не вдалося завершити скасування плану.".to_string())
+}
+
 fn save_assignment(
     connection: &Connection,
     assignment_id: Option<i64>,
@@ -691,7 +973,7 @@ fn save_assignment(
         .map(|id| {
             transaction
                 .query_row(
-                    "SELECT personnel_id,location_type,previous_location,closed_at
+                    "SELECT personnel_id,location_type,previous_location,closed_at,start_date
                      FROM personnel_control_assignments WHERE id=?1",
                     [id],
                     |row| {
@@ -700,20 +982,30 @@ fn save_assignment(
                             row.get::<_, String>(1)?,
                             row.get::<_, String>(2)?,
                             row.get::<_, Option<String>>(3)?,
+                            row.get::<_, String>(4)?,
                         ))
                     },
                 )
                 .map_err(|_| "Переміщення не знайдено.".to_string())
         })
         .transpose()?;
-    if let Some((personnel_id, _, _, closed_at)) = &existing {
+    let is_future = start > local_today;
+    if let Some((personnel_id, _, previous_location, closed_at, _)) = &existing {
         if *personnel_id != draft.personnel_id {
             return Err("Не можна перенести запис до іншого військовослужбовця.".into());
         }
         if closed_at.is_some() {
             return Err("Завершений запис не редагується. Створіть нове переміщення.".into());
         }
-    } else {
+        if !previous_location.trim().is_empty() && is_future {
+            return Err("Активне переміщення не можна перенести у майбутнє. Завершіть його та створіть окремий план.".into());
+        }
+    }
+    let requires_activation = !is_future
+        && existing
+            .as_ref()
+            .is_none_or(|item| item.2.trim().is_empty());
+    if requires_activation {
         if !super::is_operationally_available(&current_location) {
             return Err(format!(
                 "Не можна встановити ручний стан: військовослужбовець має стан «{}». Спочатку завершіть або змініть його у джерелі.",
@@ -733,17 +1025,22 @@ fn save_assignment(
     }
     let until_separate_order = location == "ВІДР" && end.is_none();
     let training_in_unit = location == "НАВЧ" && draft.training_in_unit;
-    let previous_location = existing
-        .as_ref()
-        .map(|item| item.2.clone())
-        .unwrap_or_else(|| safe_previous_location(&current_location));
+    let previous_location = if is_future {
+        String::new()
+    } else {
+        existing
+            .as_ref()
+            .and_then(|item| (!item.2.trim().is_empty()).then(|| item.2.clone()))
+            .unwrap_or_else(|| safe_previous_location(&current_location))
+    };
     let id = if let Some(id) = assignment_id {
         transaction
             .execute(
                 "UPDATE personnel_control_assignments
                  SET location_type=?1,institution=?2,start_date=?3,end_date=?4,
-                     until_separate_order=?5,training_in_unit=?6,notes=?7,updated_at=CURRENT_TIMESTAMP
-                 WHERE id=?8 AND closed_at IS NULL",
+                     until_separate_order=?5,training_in_unit=?6,notes=?7,
+                     previous_location=?8,updated_at=CURRENT_TIMESTAMP
+                 WHERE id=?9 AND closed_at IS NULL",
                 params![
                     location,
                     institution,
@@ -752,6 +1049,7 @@ fn save_assignment(
                     until_separate_order,
                     training_in_unit,
                     draft.notes.trim(),
+                    previous_location,
                     id
                 ],
             )
@@ -776,15 +1074,17 @@ fn save_assignment(
                     previous_location
                 ],
             )
-            .map_err(|_| "Для військовослужбовця вже є активне переміщення.".to_string())?;
+            .map_err(|_| "Не вдалося зберегти переміщення.".to_string())?;
         transaction.last_insert_rowid()
     };
-    transaction
-        .execute(
-            "UPDATE personnel SET current_location=?1,updated_at=CURRENT_TIMESTAMP WHERE id=?2",
-            params![location, draft.personnel_id],
-        )
-        .map_err(|_| "Не вдалося синхронізувати переміщення з БЧС.".to_string())?;
+    if !is_future {
+        transaction
+            .execute(
+                "UPDATE personnel SET current_location=?1,updated_at=CURRENT_TIMESTAMP WHERE id=?2",
+                params![location, draft.personnel_id],
+            )
+            .map_err(|_| "Не вдалося синхронізувати переміщення з БЧС.".to_string())?;
+    }
     save_event(
         &transaction,
         ControlEvent {
@@ -801,7 +1101,11 @@ fn save_assignment(
             end_date: &end_date,
             training_in_unit,
             notes: draft.notes.trim(),
-            reason: "",
+            reason: if is_future {
+                "Заплановано на майбутню дату"
+            } else {
+                ""
+            },
         },
     )?;
     transaction
@@ -1018,6 +1322,41 @@ mod tests {
     }
 
     #[test]
+    fn planned_period_blocks_overlapping_operational_assignment() {
+        let connection = connection();
+        let tomorrow = Local::now().date_naive().succ_opt().unwrap();
+        let end = tomorrow.succ_opt().unwrap();
+        connection
+            .execute(
+                "INSERT INTO personnel_control_assignments(
+                personnel_id,location_type,institution,start_date,end_date,previous_location
+             ) VALUES(1,'ВІДП','',?1,?2,'')",
+                params![
+                    tomorrow.format("%Y-%m-%d").to_string(),
+                    end.format("%Y-%m-%d").to_string()
+                ],
+            )
+            .unwrap();
+
+        let before = tomorrow.pred_opt().unwrap().format("%Y-%m-%d").to_string();
+        let on_plan = tomorrow.format("%Y-%m-%d").to_string();
+        assert!(
+            planned_personnel_conflict(&connection, 1, &before, Some(&before))
+                .unwrap()
+                .is_none()
+        );
+        let conflict = planned_personnel_conflict(&connection, 1, &on_plan, Some(&on_plan))
+            .unwrap()
+            .unwrap();
+        assert_eq!(conflict.location_type, "ВІДП");
+        assert!(
+            ensure_no_planned_personnel_conflict(&connection, 1, &on_plan, Some(&on_plan))
+                .unwrap_err()
+                .contains("ТЕСТОВИЙ Іван Іванович")
+        );
+    }
+
+    #[test]
     fn in_unit_training_is_normalized_and_snapshotted() {
         let connection = connection();
         let today = NaiveDate::from_ymd_opt(2026, 9, 17).unwrap();
@@ -1093,6 +1432,98 @@ mod tests {
         assert_eq!(location, "ОХ");
         assert_eq!(assignments, 1);
         assert_eq!(events, 2);
+    }
+
+    #[test]
+    fn future_assignment_stays_planned_then_activates_and_closes_on_its_dates() {
+        let connection = connection();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 17).unwrap();
+        let mut leave = draft("ВІДП", "2026-09-22");
+        leave.start_date = "2026-09-20".into();
+        let id = save_assignment(&connection, None, &leave, today).unwrap();
+
+        let (location, previous): (String, String) = connection.query_row(
+            "SELECT person.current_location,assignment.previous_location
+             FROM personnel person JOIN personnel_control_assignments assignment ON assignment.personnel_id=person.id
+             WHERE assignment.id=?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(location, "ОХ");
+        assert!(previous.is_empty());
+
+        sync_manual_assignments_for_date(&connection, "2026-09-19").unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT current_location FROM personnel WHERE id=1",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "ОХ"
+        );
+        sync_manual_assignments_for_date(&connection, "2026-09-20").unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT current_location FROM personnel WHERE id=1",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "ВІДП"
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT previous_location FROM personnel_control_assignments WHERE id=?1",
+                    [id],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "ОХ"
+        );
+
+        sync_manual_assignments_for_date(&connection, "2026-09-23").unwrap();
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT current_location FROM personnel WHERE id=1",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "ОХ"
+        );
+        assert_eq!(connection.query_row("SELECT COUNT(*) FROM personnel_control_assignments WHERE id=?1 AND closed_at IS NULL", [id], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn allows_several_non_overlapping_future_plans_but_rejects_an_overlap() {
+        let connection = connection();
+        let today = NaiveDate::from_ymd_opt(2026, 9, 17).unwrap();
+        let mut first = draft("ВІДП", "2026-09-22");
+        first.start_date = "2026-09-20".into();
+        save_assignment(&connection, None, &first, today).unwrap();
+        let mut second = draft("НАВЧ", "2026-09-28");
+        second.start_date = "2026-09-25".into();
+        save_assignment(&connection, None, &second, today).unwrap();
+        let mut overlapping = draft("ЛІК", "2026-09-26");
+        overlapping.start_date = "2026-09-21".into();
+        assert!(save_assignment(&connection, None, &overlapping, today)
+            .unwrap_err()
+            .contains("перетинається"));
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM personnel_control_assignments",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            2
+        );
     }
 
     #[test]

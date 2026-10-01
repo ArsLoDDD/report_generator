@@ -85,10 +85,9 @@ export function validatePersonnelControlDraft(draft: PersonnelControlDraft) {
   if (!MANUAL_PERSONNEL_LOCATIONS.includes(draft.locationType)) errors.locationType = "Оберіть тип перебування.";
   if (personnelLocationRequiresInstitution(draft.locationType) && !draft.institution.trim()) errors.institution = "Вкажіть заклад або місце перебування.";
   if (!draft.startDate) errors.startDate = "Вкажіть дату початку.";
-  else if (draft.startDate > todayLocal()) errors.startDate = "Дата початку не може бути пізніше за сьогодні.";
   if (personnelLocationRequiresEndDate(draft.locationType) && !draft.endDate) errors.endDate = "Для цього стану вкажіть дату завершення.";
   if (personnelLocationShowsEndDate(draft.locationType) && draft.startDate && draft.endDate && draft.endDate < draft.startDate) errors.endDate = "Дата завершення не може бути раніше початку.";
-  else if (personnelLocationShowsEndDate(draft.locationType) && draft.endDate && draft.endDate < todayLocal()) errors.endDate = "Активний запис не може завершуватися раніше за сьогодні.";
+  else if (personnelLocationShowsEndDate(draft.locationType) && draft.startDate <= todayLocal() && draft.endDate && draft.endDate < todayLocal()) errors.endDate = "Активний запис не може завершуватися раніше за сьогодні.";
   return errors;
 }
 
@@ -102,6 +101,36 @@ export function controlPeriod(record: PersonnelControlRecord) {
 export function formatControlDate(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})/u.exec(value);
   return match ? `${match[3]}.${match[2]}.${match[1]}` : value || "—";
+}
+
+export function plannedPersonnelConflict(
+  plans: PersonnelControlRecord[],
+  personnelId: number,
+  startDate: string,
+  endDate = "",
+) {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(startDate)) return null;
+  const requestedEnd = /^\d{4}-\d{2}-\d{2}$/u.test(endDate) ? endDate : "9999-12-31";
+  return plans.find((plan) => plan.personnelId === personnelId
+    && plan.startDate <= requestedEnd
+    && (plan.endDate.trim() === "" || plan.endDate >= startDate)) ?? null;
+}
+
+export function plannedPersonnelConflictReason(
+  plans: PersonnelControlRecord[],
+  personnelId: number,
+  startDate: string,
+  endDate = "",
+) {
+  const conflict = plannedPersonnelConflict(plans, personnelId, startDate, endDate);
+  if (!conflict) return "";
+  const period = conflict.endDate
+    ? conflict.startDate === conflict.endDate
+      ? formatControlDate(conflict.startDate)
+      : `${formatControlDate(conflict.startDate)}–${formatControlDate(conflict.endDate)}`
+    : `з ${formatControlDate(conflict.startDate)}`;
+  const institution = conflict.institution.trim() ? ` · ${conflict.institution.trim()}` : "";
+  return `Заплановано «${conflict.locationType}»${institution} · ${period}`;
 }
 
 export function formatControlDateTime(value: string) {

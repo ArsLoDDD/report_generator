@@ -3,7 +3,9 @@ import type { ManualPersonnelLocation, PersonnelControlDraft, PersonnelControlHi
 
 export const personnelControlService = {
   list: () => invoke<PersonnelControlRecord[]>("list_personnel_control_records"),
+  listPlans: () => invoke<PersonnelControlRecord[]>("list_personnel_control_plans"),
   save: (assignmentId: number | null, draft: PersonnelControlDraft) => invoke<number>("save_personnel_control_assignment", { assignmentId, draft }),
   close: (assignmentId: number, endDate: string, reason: string, nextLocation: ManualPersonnelLocation) => invoke<void>("close_personnel_control_assignment", { assignmentId, endDate, reason, nextLocation }),
+  cancelPlan: (assignmentId: number) => invoke<void>("cancel_personnel_control_plan", { assignmentId }),
   history: (personnelId: number | null = null, limit = 100, offset = 0) => invoke<PersonnelControlHistoryEvent[]>("list_personnel_control_history", { personnelId, limit, offset }),
 };

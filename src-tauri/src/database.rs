@@ -475,6 +475,19 @@ fn migrate_personnel_control_payment_columns(connection: &Connection) -> Result<
     Ok(())
 }
 
+fn migrate_personnel_control_planning(connection: &Connection) -> Result<(), String> {
+    connection
+        .execute_batch(
+            "DROP INDEX IF EXISTS personnel_control_one_open_idx;
+             CREATE INDEX IF NOT EXISTS personnel_control_open_period_idx
+                ON personnel_control_assignments(personnel_id,start_date,end_date)
+                WHERE closed_at IS NULL;",
+        )
+        .map_err(|error| {
+            format!("Не вдалося підготувати планування контролю особового складу: {error}")
+        })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CustomFieldDefinition {
@@ -1913,6 +1926,7 @@ pub fn initialise(connection: &Connection) -> Result<(), String> {
     migrate_personnel_control_event_columns(connection)?;
     migrate_personnel_control_location_constraint(connection)?;
     migrate_personnel_control_payment_columns(connection)?;
+    migrate_personnel_control_planning(connection)?;
     migrate_legacy_personnel_control_locations(connection)?;
     normalize_bcs_locations(connection)?;
     normalize_staff_positions(connection)?;

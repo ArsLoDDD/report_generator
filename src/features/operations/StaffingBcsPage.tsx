@@ -298,7 +298,14 @@ export function StaffingBcsPage() {
   const deleteVacancyRecommendation = async () => { if (!recommendationToDelete) return; try { await operationsService.deleteVacancyRecommendation(recommendationToDelete.id); setRecommendationToDelete(null); setVacancyFor(null); await reload(); notify("Рекомендаційний лист видалено.", "success"); } catch (error) { notify(error instanceof Error ? error.message : String(error) || "Не вдалося видалити лист.", "error"); } };
   const setSavedBcsUnitName = (value: string) => { setBcsUnitName(value); localStorage.setItem("bcs-unit-name", value); };
   const setSavedBcsFileName = (value: string) => { setBcsFileName(value); localStorage.setItem("bcs-file-name", value); };
-  const setSavedBcsDate = (value: string) => { setBcsDate(value); localStorage.setItem("bcs-date", value); };
+  const defaultBcsFileName = (date: string) => `${unit.shortName || unit.fullName || "Підрозділ"} ${date}`;
+  const setSavedBcsDate = (value: string) => {
+    const previousDefault = defaultBcsFileName(bcsDate);
+    setBcsDate(value);
+    localStorage.setItem("bcs-date", value);
+    // Keep an explicitly entered file name, but move the generated name with the selected BCS date.
+    if (!bcsFileName.trim() || bcsFileName.trim() === previousDefault) setSavedBcsFileName(defaultBcsFileName(value));
+  };
   const exportBcs = async () => { try { const baseName = bcsFileName.trim() || `${unit.shortName || unit.fullName || "Підрозділ"} ${bcsDate}`; const path = await save({ title: "Експорт БЧС", defaultPath: `${baseName.replace(/\.xlsx$/iu, "")}.xlsx`, filters: [{ name: "Таблиця Excel", extensions: ["xlsx"] }] }); if (!path) return; await operationsService.exportBcs(path.endsWith(".xlsx") ? path : `${path}.xlsx`, bcsUnitName, bcsDate, bcsExportRows(bcsRecords)); notify("БЧС експортовано.", "success"); } catch (error) { notify(error instanceof Error ? error.message : "Не вдалося експортувати БЧС.", "error"); } };
   const setZoom = (value: number) => { setBcsZoom(value); localStorage.setItem("bcs-table-zoom", String(value)); };
   const deleteExternal = async (person: TemporaryPerson) => { try { await operationsService.deleteTemporaryPersonnel(person.id); await reload(); notify("Запис видалено з БЧС.", "success"); } catch (error) { notify(String(error), "error"); } };

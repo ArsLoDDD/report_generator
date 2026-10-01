@@ -1,6 +1,6 @@
 [package]
 name = "shablonizator"
-version = "0.5.1"
+version = "0.6.0"
 description = "Шаблонізатор — локальна система формування службових документів"
 edition = "2021"
 
