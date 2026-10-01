@@ -133,7 +133,7 @@
 .payment-cell-popover__fact small { display: block; }
 .payment-cell-popover__fact span { color: var(--muted); font-size: 10px; text-transform: uppercase; }
 .payment-cell-popover__fact b { margin-top: 3px; color: var(--text); font-size: 12px; }
-.payment-cell-popover__fact small { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.payment-cell-popover__fact small { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.4; white-space: pre-line; }
 .payment-cell-popover__override { margin: 0 0 11px; padding: 8px 9px; border-radius: 7px; background: rgba(190, 211, 114, .08); color: var(--muted); font-size: 10px; line-height: 1.4; }
 
 .payment-cell-popover__actions { display: grid; grid-template-columns: repeat(5, minmax(62px, 1fr)); gap: 6px; }

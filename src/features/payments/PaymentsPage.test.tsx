@@ -1,18 +1,23 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { personnelService } from "../../shared/services/personnelService";
 import { NotificationProvider } from "../../shared/ui/NotificationProvider";
+import { settingsService } from "../settings/services/settingsService";
 import { PaymentsPage } from "./PaymentsPage";
 import { paymentsService } from "./paymentsService";
 
 const saveDialog = vi.fn();
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save: (...args: unknown[]) => saveDialog(...args) }));
 vi.mock("../../shared/services/personnelService", () => ({ personnelService: { list: vi.fn() } }));
+vi.mock("../settings/services/settingsService", () => ({ settingsService: { get: vi.fn() } }));
 vi.mock("./paymentsService", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./paymentsService")>();
   return { ...actual, paymentsService: { list: vi.fn(), save: vi.fn(), exportReport: vi.fn() } };
 });
 
+beforeEach(() => {
+  vi.mocked(settingsService.get).mockResolvedValue({ unit: { kind: "Рота", shortName: "РБАК", authorizedStrength: 0 } } as Awaited<ReturnType<typeof settingsService.get>>);
+});
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 const renderPage = () => render(<NotificationProvider><PaymentsPage /></NotificationProvider>);
@@ -30,7 +35,7 @@ const calculated = (personnelId: number, statusDate: string, manualOverride: "Б
   reportCode: manualOverride === "ПУСТО" ? "" : manualOverride === "30Б" ? "30У" : manualOverride === "30" || manualOverride === "БР30" ? "30" : "100",
   tone: manualOverride === "ПУСТО" ? "empty" as const : manualOverride === "БР30" ? "yellow" as const : manualOverride === "30Б" ? "blue" as const : manualOverride === "30" ? "white" as const : "green" as const,
   actualLocation: "Позиція СОКІЛ",
-  sourceDetails: "У складі екіпажу виконав політ.",
+  sourceDetails: "Польотів за день: 2.\nЕкіпаж «БАРС», позиція «СОКІЛ»: час «Небо» 09:20, 11:40.",
   manualOverride,
 });
 
@@ -68,7 +73,8 @@ describe("Виплати", () => {
     cell.focus();
     fireEvent.click(cell);
     const popover = screen.getByRole("dialog", { name: `Облік за ${month}-01` });
-    expect(popover).toHaveTextContent("У складі екіпажу виконав політ.");
+    expect(popover).toHaveTextContent("Польотів за день: 2.");
+    expect(popover).toHaveTextContent("Екіпаж «БАРС», позиція «СОКІЛ»: час «Небо» 09:20, 11:40.");
     const manualGroup = within(popover).getByRole("group", { name: "Встановити статус вручну" });
     const hundredButton = within(manualGroup).getByRole("button", { name: /^БР база 100 тис\.$/u });
     await waitFor(() => expect(hundredButton).toHaveFocus());
@@ -112,11 +118,13 @@ describe("Виплати", () => {
     expect(within(chooser).getByRole("button", { name: /Рапорт на ДВ/u })).toBeInTheDocument();
     expect(within(chooser).getByRole("button", { name: /Рапорт 10к/u })).toBeInTheDocument();
     fireEvent.click(within(chooser).getByRole("button", { name: /Рапорт на ДВ/u }));
+    await waitFor(() => expect(saveDialog).toHaveBeenNthCalledWith(1, expect.objectContaining({ defaultPath: expect.stringMatching(/^Рапорт на ДВ РБАК /u) })));
     await waitFor(() => expect(paymentsService.exportReport).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d{2}$/u), "/tmp/duty-report.xlsx", "duty"));
     expect(await screen.findByText("Рапорт на ДВ сформовано.")).toBeInTheDocument();
 
     fireEvent.click(button);
     fireEvent.click(within(screen.getByRole("dialog", { name: "Сформувати рапорт" })).getByRole("button", { name: /Рапорт 10к/u }));
+    await waitFor(() => expect(saveDialog).toHaveBeenNthCalledWith(2, expect.objectContaining({ defaultPath: expect.stringMatching(/^Рапорт 10к .+ РБАК\.xlsx$/u) })));
     await waitFor(() => expect(paymentsService.exportReport).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-\d{2}$/u), "/tmp/ten-k-report.xlsx", "tenK"));
     expect(await screen.findByText("Рапорт 10к сформовано.")).toBeInTheDocument();
   });

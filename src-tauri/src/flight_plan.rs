@@ -621,37 +621,11 @@ fn merge_location_actions(
     }
 }
 
-pub(crate) fn flight_plan_location_schedule(
-    connection: &Connection,
-    plan_date: &str,
-) -> Result<Option<Vec<FlightPlanLocationSchedule>>, String> {
-    let mut inferred_from_next_day = false;
-    let mut snapshot = connection
-        .query_row(
-            "SELECT snapshot_json FROM flight_plan_snapshots
-             WHERE plan_date=?1 ORDER BY revision DESC LIMIT 1",
-            [plan_date],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|_| "Не вдалося прочитати знімок плану для синхронізації БЧС.".to_string())?;
-    if snapshot.is_none() {
-        let next_date = parse_plan_date(plan_date)? + Duration::days(1);
-        snapshot = connection
-            .query_row(
-                "SELECT snapshot_json FROM flight_plan_snapshots
-                 WHERE plan_date=?1 ORDER BY revision DESC LIMIT 1",
-                [next_date.format("%Y-%m-%d").to_string()],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|_| "Не вдалося прочитати завтрашній план для підтвердження поточного складу на позиціях.".to_string())?;
-        inferred_from_next_day = snapshot.is_some();
-    }
-    let Some(snapshot) = snapshot else {
-        return Ok(None);
-    };
-    let request: StoredLocationRequest = serde_json::from_str(&snapshot)
+fn location_schedules_from_snapshot(
+    snapshot: &str,
+    inferred_from_next_day: bool,
+) -> Result<Vec<FlightPlanLocationSchedule>, String> {
+    let request: StoredLocationRequest = serde_json::from_str(snapshot)
         .map_err(|_| "Збережений знімок плану польотів пошкоджено.".to_string())?;
     let mut first_crews = std::collections::HashSet::new();
     let arriving_crews = request
@@ -689,7 +663,46 @@ pub(crate) fn flight_plan_location_schedule(
             inferred_from_next_day,
         ));
     }
-    Ok(Some(schedules))
+    Ok(schedules)
+}
+
+pub(crate) fn flight_plan_location_schedule_from_saved_snapshot(
+    snapshot: &str,
+) -> Result<Vec<FlightPlanLocationSchedule>, String> {
+    location_schedules_from_snapshot(snapshot, false)
+}
+
+pub(crate) fn flight_plan_location_schedule(
+    connection: &Connection,
+    plan_date: &str,
+) -> Result<Option<Vec<FlightPlanLocationSchedule>>, String> {
+    let mut inferred_from_next_day = false;
+    let mut snapshot = connection
+        .query_row(
+            "SELECT snapshot_json FROM flight_plan_snapshots
+             WHERE plan_date=?1 ORDER BY revision DESC LIMIT 1",
+            [plan_date],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|_| "Не вдалося прочитати знімок плану для синхронізації БЧС.".to_string())?;
+    if snapshot.is_none() {
+        let next_date = parse_plan_date(plan_date)? + Duration::days(1);
+        snapshot = connection
+            .query_row(
+                "SELECT snapshot_json FROM flight_plan_snapshots
+                 WHERE plan_date=?1 ORDER BY revision DESC LIMIT 1",
+                [next_date.format("%Y-%m-%d").to_string()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|_| "Не вдалося прочитати завтрашній план для підтвердження поточного складу на позиціях.".to_string())?;
+        inferred_from_next_day = snapshot.is_some();
+    }
+    let Some(snapshot) = snapshot else {
+        return Ok(None);
+    };
+    location_schedules_from_snapshot(&snapshot, inferred_from_next_day).map(Some)
 }
 
 fn parse_plan_date(value: &str) -> Result<NaiveDate, String> {

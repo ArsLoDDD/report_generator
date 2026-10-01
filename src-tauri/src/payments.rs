@@ -1,5 +1,5 @@
 use crate::{settings, AppState};
-use chrono::{Datelike, Duration, NaiveDate};
+use chrono::{Datelike, Duration, Local, LocalResult, NaiveDate, NaiveTime, TimeZone, Utc};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::{
@@ -64,6 +64,19 @@ struct AutoFact {
     actual_location: String,
     source_details: String,
     priority: u16,
+}
+
+#[derive(Debug, Clone, Default)]
+struct FlightPlanCrewContext {
+    crew_name: String,
+    position_name: String,
+}
+
+#[derive(Debug, Clone)]
+struct FlightFactDetail {
+    crew_name: String,
+    position_name: String,
+    sky_time: String,
 }
 
 impl AutoFact {
@@ -225,6 +238,269 @@ fn frozen_personnel_ids(value: &str) -> Vec<i64> {
         .collect()
 }
 
+fn text_from_json(value: &serde_json::Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(|value| value.as_str())
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+fn current_crew_context(connection: &Connection, crew_id: i64) -> FlightPlanCrewContext {
+    connection
+        .query_row(
+            "SELECT c.name,COALESCE(NULLIF(p.name,''),c.position_name,'')
+             FROM crews c
+             LEFT JOIN positions p ON p.id=c.position_id
+             WHERE c.id=?1",
+            [crew_id],
+            |row| {
+                Ok(FlightPlanCrewContext {
+                    crew_name: row.get::<_, String>(0)?,
+                    position_name: row.get::<_, String>(1)?,
+                })
+            },
+        )
+        .unwrap_or_default()
+}
+
+fn plan_snapshot_for_date(connection: &Connection, date: NaiveDate) -> Option<serde_json::Value> {
+    let date_text = date.format("%Y-%m-%d").to_string();
+    let snapshot = connection
+        .query_row(
+            "SELECT snapshot_json FROM flight_plan_snapshots
+             WHERE plan_date=?1 ORDER BY revision DESC,id DESC LIMIT 1",
+            [&date_text],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .or_else(|| {
+            connection
+                .query_row(
+                    "SELECT snapshot_json FROM flight_plan_snapshots
+                     WHERE plan_date=?1 ORDER BY revision DESC,id DESC LIMIT 1",
+                    [(date + Duration::days(1)).format("%Y-%m-%d").to_string()],
+                    |row| row.get::<_, String>(0),
+                )
+                .ok()
+        })?;
+    serde_json::from_str(&snapshot).ok()
+}
+
+fn plan_crew_contexts(
+    connection: &Connection,
+    date: NaiveDate,
+) -> HashMap<i64, FlightPlanCrewContext> {
+    let mut contexts = HashMap::<i64, FlightPlanCrewContext>::new();
+    if let Some(snapshot) = plan_snapshot_for_date(connection, date) {
+        if let Some(entries) = snapshot.get("entries").and_then(|value| value.as_array()) {
+            for entry in entries {
+                let Some(crew_id) = entry.get("crewId").and_then(|value| value.as_i64()) else {
+                    continue;
+                };
+                let next_crew_name = text_from_json(entry, "crewName");
+                let next_position_name = text_from_json(entry, "positionName");
+                let context = contexts.entry(crew_id).or_default();
+                if context.crew_name.trim().is_empty() && !next_crew_name.is_empty() {
+                    context.crew_name = next_crew_name;
+                }
+                if context.position_name.trim().is_empty() && !next_position_name.is_empty() {
+                    context.position_name = next_position_name;
+                }
+            }
+        }
+    }
+    for (crew_id, context) in &mut contexts {
+        let current = current_crew_context(connection, *crew_id);
+        if context.crew_name.trim().is_empty() {
+            context.crew_name = current.crew_name;
+        }
+        if context.position_name.trim().is_empty() {
+            context.position_name = current.position_name;
+        }
+    }
+    contexts
+}
+
+fn saved_plan_snapshot_for_flight(
+    connection: &Connection,
+    snapshot_id: Option<i64>,
+    flight_date: &str,
+    crew_id: i64,
+) -> Option<String> {
+    let snapshot = if let Some(snapshot_id) = snapshot_id {
+        connection
+            .query_row(
+                "SELECT snapshot_json FROM flight_plan_snapshots
+                 WHERE id=?1 AND plan_date=?2",
+                params![snapshot_id, flight_date],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+    } else {
+        connection
+            .query_row(
+                "SELECT snapshot_json FROM flight_plan_snapshots
+                 WHERE plan_date=?1 ORDER BY revision DESC,id DESC LIMIT 1",
+                [flight_date],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+    }?;
+    let parsed = serde_json::from_str::<serde_json::Value>(&snapshot).ok()?;
+    parsed
+        .get("entries")
+        .and_then(|value| value.as_array())
+        .is_some_and(|entries| {
+            entries
+                .iter()
+                .any(|entry| entry.get("crewId").and_then(|value| value.as_i64()) == Some(crew_id))
+        })
+        .then_some(snapshot)
+}
+
+fn crew_context_from_saved_plan_for_flight(
+    connection: &Connection,
+    snapshot_id: Option<i64>,
+    flight_date: &str,
+    crew_id: i64,
+) -> Option<FlightPlanCrewContext> {
+    let snapshot = saved_plan_snapshot_for_flight(connection, snapshot_id, flight_date, crew_id)?;
+    let parsed = serde_json::from_str::<serde_json::Value>(&snapshot).ok()?;
+    let mut context = FlightPlanCrewContext::default();
+    for entry in parsed.get("entries")?.as_array()? {
+        if entry.get("crewId").and_then(|value| value.as_i64()) != Some(crew_id) {
+            continue;
+        }
+        if context.crew_name.is_empty() {
+            context.crew_name = text_from_json(entry, "crewName");
+        }
+        if context.position_name.is_empty() {
+            context.position_name = text_from_json(entry, "positionName");
+        }
+        if !context.crew_name.is_empty() && !context.position_name.is_empty() {
+            break;
+        }
+    }
+    Some(context)
+}
+
+fn personnel_ids_from_saved_plan_at_sky_time(
+    connection: &Connection,
+    snapshot_id: Option<i64>,
+    flight_date: &str,
+    crew_id: Option<i64>,
+    sky_time: &str,
+) -> Option<Vec<i64>> {
+    let crew_id = crew_id?;
+    let snapshot = saved_plan_snapshot_for_flight(connection, snapshot_id, flight_date, crew_id)?;
+    let sky = NaiveTime::parse_from_str(sky_time, "%H:%M").ok()?;
+    let schedule = crate::flight_plan::flight_plan_location_schedule_from_saved_snapshot(&snapshot)
+        .ok()?
+        .into_iter()
+        .find(|schedule| schedule.crew_id == crew_id)?;
+    let Some(first) = schedule.stages.first() else {
+        return Some(Vec::new());
+    };
+    if schedule.arrives_on_plan_date
+        && NaiveTime::parse_from_str(&first.start_time, "%H:%M")
+            .ok()
+            .is_some_and(|arrival| sky < arrival)
+    {
+        return Some(Vec::new());
+    }
+    if schedule.departs_on_plan_date
+        && NaiveTime::parse_from_str(&schedule.departure_time, "%H:%M")
+            .ok()
+            .is_some_and(|departure| sky >= departure)
+    {
+        return Some(Vec::new());
+    }
+    let mut personnel_ids = first.member_ids.clone();
+    for stage in schedule.stages.iter().skip(1) {
+        if NaiveTime::parse_from_str(&stage.start_time, "%H:%M")
+            .ok()
+            .is_some_and(|change_time| change_time <= sky)
+        {
+            personnel_ids = stage.member_ids.clone();
+        }
+    }
+    personnel_ids.sort_unstable();
+    personnel_ids.dedup();
+    Some(personnel_ids)
+}
+
+fn local_flight_time_as_utc(flight_date: &str, sky_time: &str) -> Option<String> {
+    let date = NaiveDate::parse_from_str(flight_date, "%Y-%m-%d").ok()?;
+    let time = NaiveTime::parse_from_str(sky_time, "%H:%M").ok()?;
+    let local = match Local.from_local_datetime(&date.and_time(time)) {
+        LocalResult::Single(value) => value,
+        // The journal does not store a UTC offset, so guessing during a DST
+        // overlap or gap could grant a payment to the wrong crew composition.
+        LocalResult::Ambiguous(_, _) | LocalResult::None => return None,
+    };
+    Some(
+        local
+            .with_timezone(&Utc)
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string(),
+    )
+}
+
+fn personnel_ids_from_crew_history_at_sky_time(
+    connection: &Connection,
+    flight_date: &str,
+    crew_id: Option<i64>,
+    sky_time: &str,
+) -> Vec<i64> {
+    let Some(crew_id) = crew_id else {
+        return Vec::new();
+    };
+    let Some(flight_at) = local_flight_time_as_utc(flight_date, sky_time) else {
+        return Vec::new();
+    };
+    let Ok(mut statement) = connection.prepare(
+        "SELECT DISTINCT cm.personnel_id
+         FROM crew_members cm
+         JOIN personnel p ON p.id=cm.personnel_id
+         WHERE cm.crew_id=?1
+           AND datetime(substr(cm.joined_at,1,19))<=datetime(?2)
+           AND (cm.left_at IS NULL OR trim(cm.left_at)='' OR datetime(substr(cm.left_at,1,19))>datetime(?2))
+         ORDER BY cm.personnel_id",
+    ) else {
+        return Vec::new();
+    };
+    let Ok(rows) = statement.query_map(params![crew_id, flight_at], |row| row.get::<_, i64>(0))
+    else {
+        return Vec::new();
+    };
+    rows.filter_map(Result::ok).collect()
+}
+
+fn named_location(crew_name: &str, position_name: &str) -> String {
+    match (crew_name.trim(), position_name.trim()) {
+        (crew, position) if !crew.is_empty() && !position.is_empty() => {
+            format!("Позиція «{position}» · екіпаж «{crew}»")
+        }
+        (_, position) if !position.is_empty() => format!("Позиція «{position}»"),
+        (crew, _) if !crew.is_empty() => format!("Екіпаж «{crew}»"),
+        _ => "На позиції".into(),
+    }
+}
+
+fn flight_detail_line(crew_name: &str, position_name: &str, sky_times: &[String]) -> String {
+    let context = match (crew_name.trim(), position_name.trim()) {
+        (crew, position) if !crew.is_empty() && !position.is_empty() => {
+            format!("Екіпаж «{crew}», позиція «{position}»")
+        }
+        (_, position) if !position.is_empty() => format!("Позиція «{position}»"),
+        (crew, _) if !crew.is_empty() => format!("Екіпаж «{crew}»"),
+        _ => "Пов’язаний запис журналу польотів".into(),
+    };
+    format!("{context}: час «Небо» {}.", sky_times.join(", "))
+}
+
 fn add_disciplinary_facts(
     connection: &Connection,
     month: &str,
@@ -287,7 +563,8 @@ fn add_flight_facts(
 ) -> Result<(), String> {
     let mut statement = connection
         .prepare(
-            "SELECT flight_date,sky_time,crew_name_snapshot,position_name_snapshot,personnel_snapshot_json
+            "SELECT flight_date,sky_time,crew_id,snapshot_id,crew_name_snapshot,
+                    position_name_snapshot,personnel_snapshot_json
              FROM flight_journal_entries
              WHERE substr(flight_date,1,7)=?1 AND trim(sky_time)<>''
              ORDER BY flight_date,sky_time,id",
@@ -298,45 +575,128 @@ fn add_flight_facts(
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
+                row.get::<_, Option<i64>>(2)?,
+                row.get::<_, Option<i64>>(3)?,
                 row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
             ))
         })
         .map_err(|_| "Не вдалося прочитати журнал польотів для виплат.".to_string())?;
+    let mut grouped = HashMap::<(i64, NaiveDate), Vec<FlightFactDetail>>::new();
+    let mut contexts_by_date = HashMap::<NaiveDate, HashMap<i64, FlightPlanCrewContext>>::new();
     for row in rows {
-        let (date, sky_time, crew_name, position_name, personnel_json) =
-            row.map_err(|_| "Не вдалося прочитати запис польоту для виплат.".to_string())?;
+        let (
+            date,
+            sky_time,
+            crew_id,
+            snapshot_id,
+            mut crew_name,
+            mut position_name,
+            personnel_json,
+        ) = row.map_err(|_| "Не вдалося прочитати запис польоту для виплат.".to_string())?;
         let Ok(date) = validate_status_date(&date) else {
             continue;
         };
-        for personnel_id in frozen_personnel_ids(&personnel_json) {
-            append_fact(
-                facts,
-                personnel_id,
-                date,
-                AutoFact {
-                    status: "БР",
-                    report_code: "100",
-                    tone: "green",
-                    actual_location: if position_name.trim().is_empty() {
-                        "На позиції під час польоту".into()
-                    } else {
-                        format!("Позиція «{}»", position_name.trim())
-                    },
-                    source_details: format!(
-                        "Політ екіпажу «{}», час «Небо» {}. Особу зафіксовано у складі польоту.",
-                        if crew_name.trim().is_empty() {
-                            "назву не вказано"
-                        } else {
-                            crew_name.trim()
-                        },
-                        sky_time
-                    ),
-                    priority: 900,
-                },
-            );
+        if (crew_name.trim().is_empty() || position_name.trim().is_empty()) && crew_id.is_some() {
+            let context = crew_id
+                .and_then(|id| {
+                    crew_context_from_saved_plan_for_flight(
+                        connection,
+                        snapshot_id,
+                        &date.format("%Y-%m-%d").to_string(),
+                        id,
+                    )
+                })
+                .or_else(|| {
+                    let contexts = contexts_by_date
+                        .entry(date)
+                        .or_insert_with(|| plan_crew_contexts(connection, date));
+                    crew_id.and_then(|id| contexts.get(&id).cloned())
+                })
+                .or_else(|| crew_id.map(|id| current_crew_context(connection, id)))
+                .unwrap_or_default();
+            if crew_name.trim().is_empty() {
+                crew_name = context.crew_name;
+            }
+            if position_name.trim().is_empty() {
+                position_name = context.position_name;
+            }
         }
+        let mut personnel_ids = frozen_personnel_ids(&personnel_json);
+        if personnel_ids.is_empty() {
+            let plan_personnel_ids = personnel_ids_from_saved_plan_at_sky_time(
+                connection,
+                snapshot_id,
+                &date.format("%Y-%m-%d").to_string(),
+                crew_id,
+                &sky_time,
+            );
+            personnel_ids = match plan_personnel_ids {
+                Some(personnel_ids) => personnel_ids,
+                None => personnel_ids_from_crew_history_at_sky_time(
+                    connection,
+                    &date.format("%Y-%m-%d").to_string(),
+                    crew_id,
+                    &sky_time,
+                ),
+            };
+        }
+        personnel_ids.sort_unstable();
+        personnel_ids.dedup();
+        for personnel_id in personnel_ids {
+            grouped
+                .entry((personnel_id, date))
+                .or_default()
+                .push(FlightFactDetail {
+                    crew_name: crew_name.trim().to_string(),
+                    position_name: position_name.trim().to_string(),
+                    sky_time: sky_time.trim().to_string(),
+                });
+        }
+    }
+    for ((personnel_id, date), mut flights) in grouped {
+        flights.sort_by(|left, right| {
+            left.sky_time
+                .cmp(&right.sky_time)
+                .then_with(|| left.crew_name.cmp(&right.crew_name))
+                .then_with(|| left.position_name.cmp(&right.position_name))
+        });
+        let flight_count = flights.len();
+        let mut locations = Vec::<String>::new();
+        let mut by_context = BTreeMap::<(String, String), Vec<String>>::new();
+        for flight in flights {
+            let location = named_location(&flight.crew_name, &flight.position_name);
+            if !locations.contains(&location) {
+                locations.push(location);
+            }
+            by_context
+                .entry((flight.crew_name, flight.position_name))
+                .or_default()
+                .push(flight.sky_time);
+        }
+        let detail_lines = by_context
+            .into_iter()
+            .map(|((crew_name, position_name), sky_times)| {
+                flight_detail_line(&crew_name, &position_name, &sky_times)
+            })
+            .collect::<Vec<_>>();
+        append_fact(
+            facts,
+            personnel_id,
+            date,
+            AutoFact {
+                status: "БР",
+                report_code: "100",
+                tone: "green",
+                actual_location: locations.join("; "),
+                source_details: format!(
+                    "Польотів за день: {flight_count}.\n{}",
+                    detail_lines.join("\n")
+                ),
+                priority: 900,
+            },
+        );
     }
     Ok(())
 }
@@ -352,7 +712,27 @@ fn add_position_presence_facts(
         if let Ok(Some(schedules)) =
             crate::flight_plan::flight_plan_location_schedule(connection, &date_text)
         {
+            let mut contexts = plan_crew_contexts(connection, date);
             for schedule in schedules {
+                let context = contexts
+                    .remove(&schedule.crew_id)
+                    .unwrap_or_else(|| current_crew_context(connection, schedule.crew_id));
+                let location = named_location(&context.crew_name, &context.position_name);
+                let source_details = match (
+                    context.crew_name.trim(),
+                    context.position_name.trim(),
+                ) {
+                    (crew, position) if !crew.is_empty() && !position.is_empty() => format!(
+                        "Екіпаж «{crew}» перебував на позиції «{position}» за збереженим планом польотів; фактичний політ цієї особи за день не зафіксовано."
+                    ),
+                    (crew, _) if !crew.is_empty() => format!(
+                        "Екіпаж «{crew}» перебував на позиції за збереженим планом польотів; фактичний політ цієї особи за день не зафіксовано."
+                    ),
+                    (_, position) if !position.is_empty() => format!(
+                        "Перебування на позиції «{position}» підтверджено збереженим планом польотів; фактичний політ цієї особи за день не зафіксовано."
+                    ),
+                    _ => "Перебування на позиції підтверджено збереженим планом польотів; фактичний політ цієї особи за день не зафіксовано.".into(),
+                };
                 let members = schedule
                     .stages
                     .into_iter()
@@ -367,8 +747,8 @@ fn add_position_presence_facts(
                             status: "БР",
                             report_code: "30",
                             tone: "yellow",
-                            actual_location: "На позиції".into(),
-                            source_details: "Перебування на позиції підтверджено планом польотів; участь у фактичному польоті цього дня не зафіксована.".into(),
+                            actual_location: location.clone(),
+                            source_details: source_details.clone(),
                             priority: 600,
                         },
                     );
@@ -1974,6 +2354,259 @@ mod tests {
             ("БР", "100", "green")
         );
         assert!(day.source_details.contains("09:20"));
+        assert!(day.source_details.contains("Польотів за день: 1"));
+        assert_eq!(day.actual_location, "Позиція «САПСАН» · екіпаж «БАРС»");
+    }
+
+    #[test]
+    fn legacy_flight_without_frozen_personnel_uses_the_linked_saved_plan() {
+        let connection = database();
+        connection.execute("INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id) VALUES(2,'солдат','ПЕТРЕНКО','Петро','Петрович','оператор','0000000002','','','','','','','')", []).unwrap();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(4,'ГРІМ')", [])
+            .unwrap();
+        connection.execute(
+            "INSERT INTO flight_plan_snapshots(id,plan_date,revision,snapshot_json)
+             VALUES(7,'2026-10-05',1,?1)",
+            [r#"{"entries":[{"crewId":4,"crewName":"ГРІМ","positionName":"ХИЖАК","startTime":"06:00","actualMemberIds":[99]},{"crewId":4,"crewName":"ГРІМ","positionName":"ХИЖАК","startTime":"09:20","actualMemberIds":[1]}]}"#],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO flight_plan_snapshots(id,plan_date,revision,snapshot_json)
+             VALUES(8,'2026-10-05',2,?1)",
+            [r#"{"entries":[{"crewId":4,"crewName":"НОВИЙ ГРІМ","positionName":"ОРІОН","startTime":"09:20","actualMemberIds":[2]}]}"#],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO flight_journal_entries(flight_date,sky_time,crew_id,snapshot_id,crew_name_snapshot,position_name_snapshot,personnel_snapshot_json)
+             VALUES('2026-10-05','09:20',4,7,'','','[]')",
+            [],
+        ).unwrap();
+
+        let month = list_month(&connection, "2026-10").unwrap();
+        let day = month
+            .iter()
+            .find(|item| item.status_date == "2026-10-05")
+            .unwrap();
+        assert_eq!(
+            (
+                day.status.as_str(),
+                day.report_code.as_str(),
+                day.tone.as_str()
+            ),
+            ("БР", "100", "green")
+        );
+        assert_eq!(day.actual_location, "Позиція «ХИЖАК» · екіпаж «ГРІМ»");
+        assert!(day.source_details.contains("час «Небо» 09:20"));
+        let current_plan_member = month
+            .iter()
+            .find(|item| item.personnel_id == 2 && item.status_date == "2026-10-05")
+            .unwrap();
+        assert_eq!(
+            (
+                current_plan_member.report_code.as_str(),
+                current_plan_member.tone.as_str()
+            ),
+            ("30", "yellow")
+        );
+    }
+
+    #[test]
+    fn legacy_flight_without_snapshot_id_uses_same_day_plan_when_actual_launch_differs() {
+        let connection = database();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(4,'ГРІМ')", [])
+            .unwrap();
+        connection.execute(
+            "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json)
+             VALUES('2026-10-05',1,?1)",
+            [r#"{"entries":[{"crewId":4,"crewName":"ГРІМ","positionName":"ХИЖАК","startTime":"06:00","actualMemberIds":[1]}]}"#],
+        ).unwrap();
+        connection.execute(
+            "INSERT INTO flight_journal_entries(flight_date,sky_time,crew_id,crew_name_snapshot,position_name_snapshot,personnel_snapshot_json)
+             VALUES('2026-10-05','09:20',4,'ГРІМ','ХИЖАК','[]')",
+            [],
+        ).unwrap();
+
+        let month = list_month(&connection, "2026-10").unwrap();
+        let day = month
+            .iter()
+            .find(|item| item.status_date == "2026-10-05")
+            .unwrap();
+        assert_eq!(
+            (day.report_code.as_str(), day.tone.as_str()),
+            ("100", "green")
+        );
+        assert!(day.source_details.contains("Польотів за день: 1"));
+        assert!(day.source_details.contains("час «Небо» 09:20"));
+    }
+
+    #[test]
+    fn legacy_flight_without_plan_uses_only_crew_members_active_at_launch_time() {
+        let connection = database();
+        for (id, surname) in [(2, "ПІЗНІЙ"), (3, "ВИБУВ")] {
+            connection.execute(
+                "INSERT INTO personnel(id,rank,surname,given_name,patronymic,position,tax_id,birth_date,education_level,education_details,armed_forces_service_start_date,position_assigned_date,position_assignment_order,military_id)
+                 VALUES(?1,'солдат',?2,'Тест','Тестович','оператор',?3,'','','','','','','')",
+                params![id, surname, format!("000000000{id}")],
+            ).unwrap();
+        }
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(4,'ГРІМ')", [])
+            .unwrap();
+        let flight_at = chrono::NaiveDateTime::parse_from_str(
+            &local_flight_time_as_utc("2026-10-05", "09:20").unwrap(),
+            "%Y-%m-%d %H:%M:%S",
+        )
+        .unwrap();
+        connection
+            .execute(
+                "INSERT INTO crew_members(crew_id,personnel_id,joined_at,left_at) VALUES
+             (4,1,?1,NULL),
+             (4,2,?2,NULL),
+             (4,3,?1,?3)",
+                params![
+                    (flight_at - Duration::days(1))
+                        .format("%Y-%m-%d %H:%M:%S")
+                        .to_string(),
+                    (flight_at + Duration::minutes(40))
+                        .format("%Y-%m-%d %H:%M:%S")
+                        .to_string(),
+                    (flight_at - Duration::minutes(20))
+                        .format("%Y-%m-%d %H:%M:%S")
+                        .to_string(),
+                ],
+            )
+            .unwrap();
+        connection.execute(
+            "INSERT INTO flight_journal_entries(flight_date,sky_time,crew_id,crew_name_snapshot,position_name_snapshot,personnel_snapshot_json)
+             VALUES('2026-10-05','09:20',4,'ГРІМ','ХИЖАК','[]')",
+            [],
+        ).unwrap();
+
+        let month = list_month(&connection, "2026-10").unwrap();
+        let active_member = month
+            .iter()
+            .find(|item| item.personnel_id == 1 && item.status_date == "2026-10-05")
+            .unwrap();
+        assert_eq!(
+            (
+                active_member.report_code.as_str(),
+                active_member.tone.as_str()
+            ),
+            ("100", "green")
+        );
+        assert!(active_member.source_details.contains("Польотів за день: 1"));
+        for personnel_id in [2, 3] {
+            let inactive_member = month
+                .iter()
+                .find(|item| item.personnel_id == personnel_id && item.status_date == "2026-10-05")
+                .unwrap();
+            assert_eq!(
+                (
+                    inactive_member.report_code.as_str(),
+                    inactive_member.tone.as_str()
+                ),
+                ("30", "white")
+            );
+        }
+    }
+
+    #[test]
+    fn authoritative_plan_boundaries_never_fall_back_to_official_crew_members() {
+        let connection = database();
+        connection
+            .execute("INSERT INTO crews(id,name) VALUES(4,'ГРІМ')", [])
+            .unwrap();
+        connection.execute(
+            "INSERT INTO crew_members(crew_id,personnel_id,joined_at) VALUES(4,1,'2026-01-01 00:00:00')",
+            [],
+        ).unwrap();
+        for (date, snapshot, sky_time) in [
+            (
+                "2026-10-05",
+                r#"{"entries":[{"crewId":4,"crewName":"ГРІМ","positionName":"ХИЖАК","startTime":"10:00","actualMemberIds":[1],"arrivesToday":true}]}"#,
+                "09:20",
+            ),
+            (
+                "2026-10-06",
+                r#"{"entries":[{"crewId":4,"crewName":"ГРІМ","positionName":"ХИЖАК","startTime":"06:00","actualMemberIds":[1],"departsToday":true,"departureTime":"09:00"}]}"#,
+                "09:20",
+            ),
+        ] {
+            connection.execute(
+                "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json) VALUES(?1,1,?2)",
+                params![date, snapshot],
+            ).unwrap();
+            connection.execute(
+                "INSERT INTO flight_journal_entries(flight_date,sky_time,crew_id,crew_name_snapshot,position_name_snapshot,personnel_snapshot_json)
+                 VALUES(?1,?2,4,'ГРІМ','ХИЖАК','[]')",
+                params![date, sky_time],
+            ).unwrap();
+        }
+
+        let month = list_month(&connection, "2026-10").unwrap();
+        for date in ["2026-10-05", "2026-10-06"] {
+            let day = month
+                .iter()
+                .find(|item| item.personnel_id == 1 && item.status_date == date)
+                .unwrap();
+            assert_eq!(day.report_code, "30");
+            assert!(!day.source_details.contains("Польотів за день"));
+        }
+    }
+
+    #[test]
+    fn several_daily_flights_are_counted_and_listed_with_exact_times() {
+        let connection = database();
+        for (time, crew, position) in [("09:20", "ГРІМ", "ХИЖАК"), ("14:35", "ВІТЕР", "ОРІОН")]
+        {
+            connection.execute(
+                "INSERT INTO flight_journal_entries(flight_date,sky_time,crew_name_snapshot,position_name_snapshot,personnel_snapshot_json)
+                 VALUES('2026-10-05',?1,?2,?3,'[{\"personnelId\":1}]')",
+                params![time, crew, position],
+            ).unwrap();
+        }
+
+        let month = list_month(&connection, "2026-10").unwrap();
+        let day = month
+            .iter()
+            .find(|item| item.status_date == "2026-10-05")
+            .unwrap();
+        assert_eq!(
+            (day.report_code.as_str(), day.tone.as_str()),
+            ("100", "green")
+        );
+        assert!(day.source_details.contains("Польотів за день: 2"));
+        assert!(day.source_details.contains("09:20"));
+        assert!(day.source_details.contains("14:35"));
+        assert!(day
+            .actual_location
+            .contains("Позиція «ХИЖАК» · екіпаж «ГРІМ»"));
+        assert!(day
+            .actual_location
+            .contains("Позиція «ОРІОН» · екіпаж «ВІТЕР»"));
+    }
+
+    #[test]
+    fn position_presence_names_the_saved_crew_and_position() {
+        let connection = database();
+        connection.execute(
+            "INSERT INTO flight_plan_snapshots(plan_date,revision,snapshot_json)
+             VALUES('2026-10-05',1,?1)",
+            [r#"{"entries":[{"crewId":4,"crewName":"ГРІМ","positionName":"ХИЖАК","startTime":"09:20","actualMemberIds":[1]}]}"#],
+        ).unwrap();
+
+        let month = list_month(&connection, "2026-10").unwrap();
+        let day = month
+            .iter()
+            .find(|item| item.status_date == "2026-10-05")
+            .unwrap();
+        assert_eq!(
+            (day.report_code.as_str(), day.tone.as_str()),
+            ("30", "yellow")
+        );
+        assert_eq!(day.actual_location, "Позиція «ХИЖАК» · екіпаж «ГРІМ»");
+        assert!(day.source_details.contains("Екіпаж «ГРІМ»"));
+        assert!(day.source_details.contains("позиції «ХИЖАК»"));
     }
 
     #[test]
@@ -1981,8 +2614,8 @@ mod tests {
         let connection = database();
         connection.execute(
             "INSERT INTO position_work_events(work_id,position_name,work_type,status,start_date,start_time,end_date,end_time,in_bro,members_json)
-             VALUES(4,'САПСАН','Рекогностування','Завершили','2026-10-03','08:00','2026-10-03','12:00',1,
-                    '[{\"personnelId\":1,\"dutyType\":\"Рекогностування\",\"startDate\":\"2026-10-03\",\"startTime\":\"08:00\",\"endDate\":\"2026-10-03\",\"endTime\":\"12:00\"}]')",
+             VALUES(4,'САПСАН','Облаштування','Завершили','2026-10-03','08:00','2026-10-03','12:00',1,
+                    '[{\"personnelId\":1,\"dutyType\":\"Облаштування\",\"startDate\":\"2026-10-03\",\"startTime\":\"08:00\",\"endDate\":\"2026-10-03\",\"endTime\":\"12:00\"}]')",
             [],
         ).unwrap();
 
@@ -1999,7 +2632,9 @@ mod tests {
             ),
             ("БР", "100", "green")
         );
-        assert!(day.actual_location.contains("Рекогностування"));
+        assert_eq!(day.actual_location, "Облаштування · позиція «САПСАН»");
+        assert!(day.source_details.contains("2026-10-03 08:00"));
+        assert!(day.source_details.contains("Входить в БРО"));
 
         connection
             .execute("DELETE FROM position_work WHERE id=4", [])

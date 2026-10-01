@@ -9,6 +9,7 @@ import { useNotifications } from "../../shared/ui/NotificationProvider";
 import { PageFrame } from "../../shared/ui/PageFrame";
 import { PageTitle } from "../../shared/ui/PageTitle";
 import { formatIsoMonth, MonthNavigator } from "../../shared/ui/MonthNavigator";
+import { settingsService } from "../settings/services/settingsService";
 import { paymentsService, type PaymentDailyStatus, type PaymentManualStatus, type PaymentReportKind } from "./paymentsService";
 
 const PAGE_SIZE = 100;
@@ -24,9 +25,10 @@ const manualStatuses: Array<{ value: PaymentManualStatus; label: string; hint: s
 ];
 
 const manualStatusLabel = (status: PaymentManualStatus) => status === "ПУСТО" ? "порожньо" : status === "БР30" ? "БР · база 30 тис." : status;
-const reportOptions: Array<{ kind: PaymentReportKind; title: string; description: string; fileName: (month: string) => string }> = [
-  { kind: "duty", title: "Рапорт на ДВ", description: "Виплати за 100 та 30 тис., ненарахування й прикомандировані", fileName: (month) => `Рапорт на ДВ ${month}.xlsx` },
-  { kind: "tenK", title: "Рапорт 10к", description: "Виплати за 10 тис. та ненарахування", fileName: (month) => `Рапорт 10к ${month}.xlsx` },
+const safeFileNamePart = (value: string) => value.trim().replace(/[<>:"/\\|?*]/gu, "_").replace(/\s+/gu, " ");
+const reportOptions: Array<{ kind: PaymentReportKind; title: string; description: string; fileName: (month: string, unitShortName: string) => string }> = [
+  { kind: "duty", title: "Рапорт на ДВ", description: "Виплати за 100 та 30 тис., ненарахування й прикомандировані", fileName: (month, unitShortName) => `Рапорт на ДВ ${safeFileNamePart(unitShortName) || "Підрозділ"} ${month}.xlsx` },
+  { kind: "tenK", title: "Рапорт 10к", description: "Виплати за 10 тис. та ненарахування", fileName: (month, unitShortName) => `Рапорт 10к ${month} ${safeFileNamePart(unitShortName) || "Підрозділ"}.xlsx` },
 ];
 
 async function loadAllPersonnel() {
@@ -121,6 +123,8 @@ export function PaymentsPage() {
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [loadingPeople, setLoadingPeople] = useState(true);
   const [loadingStatuses, setLoadingStatuses] = useState(true);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [unitShortName, setUnitShortName] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [peopleError, setPeopleError] = useState("");
@@ -137,6 +141,12 @@ export function PaymentsPage() {
   useEffect(() => {
     let active = true;
     void loadAllPersonnel().then((items) => { if (active) setPeople(items); }).catch(() => { if (active) setPeopleError("Не вдалося завантажити особовий склад."); }).finally(() => { if (active) setLoadingPeople(false); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void settingsService.get().then((settings) => { if (active) setUnitShortName(settings.unit.shortName); }).catch(() => undefined).finally(() => { if (active) setLoadingSettings(false); });
     return () => { active = false; };
   }, []);
 
@@ -199,7 +209,7 @@ export function PaymentsPage() {
     if (!option) return;
     setExportMenuOpen(false);
     try {
-      const selected = await save({ title: `Зберегти: ${option.title}`, defaultPath: option.fileName(monthLabel), filters: [{ name: "Таблиця Excel", extensions: ["xlsx"] }] });
+      const selected = await save({ title: `Зберегти: ${option.title}`, defaultPath: option.fileName(monthLabel, unitShortName), filters: [{ name: "Таблиця Excel", extensions: ["xlsx"] }] });
       if (!selected) return;
       const path = selected.toLowerCase().endsWith(".xlsx") ? selected : `${selected}.xlsx`;
       setExporting(true);
@@ -208,7 +218,7 @@ export function PaymentsPage() {
     }
     catch (exportError) { notify(exportError instanceof Error ? exportError.message : "Не вдалося сформувати рапорт.", "error"); }
     finally { setExporting(false); }
-  }, [monthLabel, notify, selectedMonth]);
+  }, [monthLabel, notify, selectedMonth, unitShortName]);
 
   const clearColumnHighlight = useCallback(() => {
     highlightedColumn.current?.column.classList.remove("is-hovered");
@@ -232,7 +242,7 @@ export function PaymentsPage() {
     selectedMonthRef.current = value;
     setSelectedMonth(value);
   }, []);
-  const loading = loadingPeople || loadingStatuses;
+  const loading = loadingPeople || loadingStatuses || loadingSettings;
   return <PageFrame className="payments-page" header={<PageTitle title="Виплати" subtitle={`Таблиця за ${monthLabel}`} actions={<button type="button" className="button primary" disabled={loading || exporting || pending.size > 0 || people.length === 0 || Boolean(peopleError || statusError)} onClick={() => setExportMenuOpen(true)}><FileText />{exporting ? "Формування…" : "Сформувати рапорт"}</button>} />} tools={<MonthNavigator value={selectedMonth} max={currentIsoMonth()} onChange={changeSelectedMonth} ariaLabel="Місяць виплат" />}>
     <section className="panel payments-table" aria-label={`Виплати за ${monthLabel}`} aria-busy={loading}>
       <div className="payments-table__scroll" onScroll={() => setActiveCell(null)}><table onPointerOver={highlightColumn} onPointerLeave={clearColumnHighlight}><colgroup><col className="payment-person-column" />{days.map((day) => <col className="payment-day-column" key={day} />)}</colgroup><thead><tr><th>Військовослужбовці</th>{days.map((day) => <th key={day} title={`${String(day).padStart(2, "0")}.${String(month.getMonth() + 1).padStart(2, "0")}.${month.getFullYear()}`}>{day}</th>)}</tr></thead><tbody>{people.map((person) => <tr key={person.id}><th scope="row"><b>{person.fullName}</b><span>{[person.rank, person.position].filter(Boolean).join(" · ")}</span></th>{days.map((day) => {
